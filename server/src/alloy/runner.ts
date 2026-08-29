@@ -24,6 +24,8 @@ export interface RunSpec {
   triage?: boolean;
   kind?: 'automated' | 'manual' | 'rerun';
   parentRunId?: string;
+  /** Rerun-fragment: execute only the named flow from the flow set. */
+  onlyFlow?: string;
 }
 
 export interface RunnerDeps {
@@ -71,9 +73,14 @@ function ingestEvidence(
 
 export async function executeRun(spec: RunSpec, deps: RunnerDeps): Promise<string> {
   const alloy = crucibleAlloy();
-  const set = scanFlowSet(spec.flowsDir);
-  if (set.duplicateAcError) throw new Error(`pre-flight: ${set.duplicateAcError}`);
-  if (set.flows.length === 0) throw new Error(`pre-flight: no flows in ${spec.flowsDir}`);
+  const setAll = scanFlowSet(spec.flowsDir);
+  if (setAll.duplicateAcError) throw new Error(`pre-flight: ${setAll.duplicateAcError}`);
+  if (setAll.flows.length === 0) throw new Error(`pre-flight: no flows in ${spec.flowsDir}`);
+  const set = spec.onlyFlow
+    ? { ...setAll, flows: setAll.flows.filter((f) => f.name === spec.onlyFlow),
+        unmapped: setAll.unmapped.filter((f) => f.name === spec.onlyFlow) }
+    : setAll;
+  if (spec.onlyFlow && set.flows.length === 0) throw new Error(`pre-flight: flow "${spec.onlyFlow}" not found in ${spec.flowsDir}`);
 
   const runId = `run_${createHash('sha256').update(`${spec.ticketKey}${Date.now()}${Math.random()}`).digest('hex').slice(0, 8)}`;
   let artifactHash: string | null = null;
@@ -186,6 +193,44 @@ export async function executeRun(spec: RunSpec, deps: RunnerDeps): Promise<strin
         evidence_ids: [],
         ...(reason !== undefined ? { reason } : {}),
       };
+      // Triage capture on fail (spec.triage !== false): screenshot + baseline diff
+      if (status !== 'pass' && spec.triage !== false) {
+        try {
+          const shot = (await call('alloy_screenshot', { udid: spec.udid })) as { path?: string };
+          const shotEv = ingestEvidence(deps, runId, runId, 'screenshot', shot?.path);
+          if (shotEv) rec.evidence_ids.push(shotEv);
+          // baseline diff: compare against latest approved baseline for this flow scope
+          const scopeKey = flow.name;
+          const baseline = deps.db
+            .prepare('SELECT id, image_sha256, evidence_id FROM baselines WHERE scope_key = ? ORDER BY approved_at DESC LIMIT 1')
+            .get(scopeKey) as { id: string; image_sha256: string; evidence_id: string | null } | undefined;
+          let diffEv: string | null = null;
+          if (baseline?.evidence_id) {
+            const baseRow = deps.db.prepare('SELECT path FROM evidence WHERE id = ?').get(baseline.evidence_id) as { path: string } | undefined;
+            if (baseRow && shot?.path) {
+              try {
+                const d = (await call('alloy_screenshot_diff', {
+                  baselinePath: baseRow.path,
+                  currentPath: shot.path,
+                  udid: spec.udid,
+                })) as { diff?: { hostPath?: string } | string };
+                const diffPath = typeof d?.diff === 'string' ? d.diff : (d?.diff as { hostPath?: string } | undefined)?.hostPath;
+                diffEv = ingestEvidence(deps, runId, runId, 'diff', diffPath);
+                if (diffEv) rec.evidence_ids.push(diffEv);
+              } catch { /* diff is best-effort evidence */ }
+            }
+          }
+          // pending baseline decision row (new candidate = the fail screenshot)
+          if (shotEv) {
+            const newSha = deps.db.prepare('SELECT sha256 FROM evidence WHERE id = ?').get(shotEv) as { sha256: string };
+            deps.db
+              .prepare(`INSERT INTO baseline_diffs(id, run_id, scope_key, old_sha, new_sha, evidence_id, state)
+                        VALUES (?, ?, ?, ?, ?, ?, 'pending')`)
+              .run(`bd_${runId}_${idx}`, runId, scopeKey, baseline?.image_sha256 ?? null, newSha.sha256, shotEv);
+            deps.bus.emit('baseline.diff.pending', { diffId: `bd_${runId}_${idx}`, scopeKey, runId });
+          }
+        } catch { /* triage capture is best-effort; never fails the run */ }
+      }
       steps.push(rec);
       deps.bus.emit('step.finished', { runId, idx, flow: flow.name, status, durationMs: duration });
 

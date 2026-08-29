@@ -122,6 +122,30 @@ export function migrateM1(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_traffic_run ON traffic(run_id, ts);
 
+    CREATE TABLE IF NOT EXISTS baselines(
+      id TEXT PRIMARY KEY,
+      scope_key TEXT NOT NULL,
+      image_sha256 TEXT NOT NULL,
+      evidence_id TEXT,
+      approved_by TEXT NOT NULL,
+      approved_at INTEGER NOT NULL,
+      supersedes_id TEXT,
+      ticket_key TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_baselines_scope ON baselines(scope_key, approved_at DESC);
+    CREATE TABLE IF NOT EXISTS baseline_diffs(
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+      scope_key TEXT NOT NULL,
+      old_sha TEXT,
+      new_sha TEXT,
+      evidence_id TEXT,
+      state TEXT NOT NULL CHECK(state IN ('pending','approved','rejected')),
+      decided_by TEXT,
+      decided_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_diffs_state ON baseline_diffs(state, scope_key);
+
     CREATE TABLE IF NOT EXISTS devices(
       udid TEXT PRIMARY KEY,
       name TEXT,

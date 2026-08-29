@@ -10,7 +10,9 @@ export interface AcRow {
 }
 
 /** Latest automated results per AC. Manual NEVER rolls up (structural).
- *  M1: no amber (baselines are M2) and no gray (quarantine is M3). */
+ *  M2: amber (changes-pending) is live — any pending baseline diff for an AC's
+ *  flow scopes turns the AC amber (needs judgment, neither green nor red).
+ *  Gray (quarantine) arrives in M3. */
 export function deriveTicketMatrix(db: Database.Database, ticketKey: string): {
   acs: Array<AcRow & { status: AcStatus; lastRunId: string | null; flows: string[] }>;
   ticketStatus: 'pass' | 'fail' | 'none';
@@ -42,18 +44,24 @@ export function deriveTicketMatrix(db: Database.Database, ticketKey: string): {
     flows: string;
   }>;
 
+  const pendingScopes = new Set(
+    (db.prepare(`SELECT scope_key FROM baseline_diffs WHERE state = 'pending'`).all() as Array<{ scope_key: string }>).map((r) => r.scope_key),
+  );
+
   const acs = acRows.map((ac) => {
     const rows = latestRows.filter((x) => x.ac_id === ac.ac_id);
     if (rows.length === 0) return { ...ac, status: 'none' as AcStatus, lastRunId: null, flows: [] };
-    // AND over the latest-run rows for this AC (single run ⇒ single row; PK run+ac)
     const anyFail = rows.some((r) => r.status === 'fail');
     const allSkip = rows.every((r) => r.status === 'skip');
-    const status: AcStatus = anyFail ? 'fail' : allSkip ? 'skip' : 'pass';
     const flows = rows.flatMap((r) => JSON.parse(r.flows) as string[]);
+    // amber: pending baseline decision on any of this AC's flow scopes
+    const amber = flows.some((f) => pendingScopes.has(f));
+    const status: AcStatus = amber ? 'changes-pending' : anyFail ? 'fail' : allSkip ? 'skip' : 'pass';
     return { ...ac, status, lastRunId: rows[0]!.run_id, flows };
   });
 
   const ticketStatus: 'pass' | 'fail' | 'none' =
     acs.length === 0 ? 'none' : acs.some((a) => a.status === 'fail') ? 'fail' : 'pass';
-  return { acs, ticketStatus };
+  return { acs, ticketStatus }; // amber does not fail a ticket (blocked ≠ failed)
+
 }

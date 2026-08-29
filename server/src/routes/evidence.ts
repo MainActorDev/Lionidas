@@ -4,6 +4,15 @@ import { createReadStream, statSync } from 'node:fs';
 import type { ReadableOptions } from 'node:stream';
 
 export function registerEvidenceRoute(app: FastifyInstance, db: Database.Database): void {
+  // byPath lookup for baseline images referenced before evidence ingest
+  app.get('/api/evidence/byPath', async (req, reply) => {
+    const q = req.query as { path?: string };
+    if (!q.path) return reply.code(400).send({ error: 'path required' });
+    const row = db.prepare('SELECT id FROM evidence WHERE path = ? LIMIT 1').get(q.path) as { id: string } | undefined;
+    if (!row) return reply.code(404).send({ error: 'no evidence for path' });
+    return reply.redirect(`/api/evidence/${row.id}/file`);
+  });
+
   app.get('/api/evidence/:id/file', async (req, reply) => {
     const { id } = req.params as { id: string };
     const ev = db.prepare('SELECT path, type, bytes FROM evidence WHERE id = ?').get(id) as

@@ -10,6 +10,8 @@ export type AppEvents = {
   'run.aborted': { queueId: string };
   'queue.changed': { queueId: string; state: string };
   'forge.traffic.hit': { id: string; runId: string | null; method: string; path: string; status: number; latencyMs: number; mode: string; matchedPresetId: string | null };
+  'baseline.diff.pending': { diffId: string; scopeKey: string; runId: string };
+  'baseline.diff.decided': { diffId: string; state: string; scopeKey: string };
 } & Record<string, unknown>;
 
 export interface TypedEventBus<E extends Record<string, unknown>> {

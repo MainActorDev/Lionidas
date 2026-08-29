@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
+import TriagePanel from '../components/TriagePanel.vue';
 import { useRoute } from 'vue-router';
 
 interface Step { idx: number; flow_name: string; kind: string; name: string; status: string; reason: string | null; duration_ms: number; evidence_ids_json: string }
@@ -61,6 +62,7 @@ onUnmounted(() => ws?.close());
         <span v-if="s.reason" class="reason">{{ s.reason }}</span>
       </li>
     </ol>
+    <TriagePanel :key="runId" />
   </main>
 </template>
 

@@ -2,7 +2,7 @@
  *  LEASE_HELD (bypass holder) → backoff ×3 → abort. */
 import type Database from 'better-sqlite3';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
-import { nextDispatchable, markDone, backoffOrAbort, type QueueRow, type QueueSpec } from './store.ts';
+import { nextDispatchable, markDispatched, markDone, backoffOrAbort, type QueueRow, type QueueSpec } from './store.ts';
 import { executeRun, type RunnerDeps } from '../alloy/runner.ts';
 
 export interface DispatcherDeps extends RunnerDeps {
@@ -17,6 +17,7 @@ export async function dispatchTick(deps: DispatcherDeps): Promise<boolean> {
   if (!row) return false;
   const spec = JSON.parse(row.spec_json) as QueueSpec;
   try {
+    markDispatched(deps.db, row.id, `pending-${row.id}`); // linked immediately; runId patch below
     const runId = await executeRun(
       {
         ticketKey: spec.ticketKey,
@@ -33,6 +34,7 @@ export async function dispatchTick(deps: DispatcherDeps): Promise<boolean> {
       },
       deps,
     );
+    deps.db.prepare(`UPDATE queue SET dispatched_run_id = ? WHERE id = ?`).run(runId, row.id);
     markDone(deps.db, row.id);
     attempts.delete(row.id);
     deps.bus.emit('run.queued', { runId, queueId: row.id }); // completion signal for queue watchers

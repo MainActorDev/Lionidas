@@ -11,6 +11,8 @@ import { registerDeviceRoutes } from './routes/devices.ts';
 import { registerRunRoutes } from './routes/runs.ts';
 import { registerMatrixRoute } from './routes/matrix.ts';
 import { registerEvidenceRoute } from './routes/evidence.ts';
+import { registerBaselineRoutes } from './routes/baselines.ts';
+import * as runtimeMod from './alloy/runtime.ts';
 import { startDevicePoller } from './poll/devices.ts';
 import { startDispatcher } from './queue/dispatcher.ts';
 import { createForgeState, type ForgeState } from './forge/proxy.ts';
@@ -47,6 +49,17 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
 
   const forgeState = createForgeState();
   registerForgeRoutes(app, db.raw, forgeState);
+  // baselines: dispatchDeps resolved lazily (approvals always run post-boot)
+  registerBaselineRoutes(app, db.raw, {
+    db: db.raw,
+    bus,
+    artifactsDir: cfg.artifactsDir,
+    dispatchDeps: new Proxy(
+      {},
+      { get: () => { const { alloyDispatchDepsSync } = runtimeMod; return alloyDispatchDepsSync(); } },
+    ),
+  } as never);
+  app.decorate('crucibleBus', bus);
 
   let stopPoller: (() => void) | null = null;
   let stopDispatcher: (() => void) | null = null;

@@ -2,6 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { existsSync } from 'node:fs';
 import { enqueue, abort, type QueueSpec } from '../queue/store.ts';
+import { executeRun } from '../alloy/runner.ts';
+import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
+import { alloyDispatchDepsSync } from '../alloy/runtime.ts';
 import { scanFlowSet } from '../domain/acs.ts';
 
 interface RunRow {
@@ -69,6 +72,54 @@ export function registerRunRoutes(app: FastifyInstance, db: Database.Database): 
     const run = db.prepare('SELECT * FROM runs WHERE id = ?').get(id) as RunRow | undefined;
     if (!run) return reply.code(404).send({ error: 'run not found' });
     return { run };
+  });
+
+  // Triage bundle for one failed step: reason + evidence (screenshot/diff/video/logs/network)
+  app.get('/api/runs/:id/steps/:idx/triage', async (req, reply) => {
+    const { id, idx } = req.params as { id: string; idx: string };
+    const step = db.prepare('SELECT * FROM run_steps WHERE run_id = ? AND idx = ?').get(id, Number(idx)) as
+      | { idx: number; flow_name: string; status: string; reason: string | null; evidence_ids_json: string; duration_ms: number }
+      | undefined;
+    if (!step) return reply.code(404).send({ error: 'step not found' });
+    const evIds = JSON.parse(step.evidence_ids_json) as string[];
+    const evidence = evIds.length
+      ? (db.prepare(`SELECT id, type, path, sha256, bytes FROM evidence WHERE id IN (${evIds.map(() => '?').join(',')})`).all(...evIds) as Array<{ id: string; type: string; path: string; sha256: string; bytes: number }>)
+      : [];
+    // video + logs attach at run level
+    const runEvidence = db.prepare(`SELECT id, type FROM evidence WHERE bundle_id = ? AND type IN ('video','logs','network')`).all(id) as Array<{ id: string; type: string }>;
+    const run = db.prepare('SELECT * FROM runs WHERE id = ?').get(id) as Record<string, unknown>;
+    return {
+      step: { idx: step.idx, flow: step.flow_name, status: step.status, reason: step.reason, durationMs: step.duration_ms },
+      evidence,
+      runEvidence,
+      run: { ticket: run['ticket_key'], artifactHash: run['artifact_hash'], freshness: run['freshness'], launchArgs: run['launch_args_json'], device: run['device_udid'] },
+    };
+  });
+
+  // Re-run fragment: single flow, rerun kind, parent linked (synchronous for gate; queue path in M3 UI)
+  app.post('/api/runs/:id/steps/:idx/rerun', async (req, reply) => {
+    const { id, idx } = req.params as { id: string; idx: string };
+    const step = db.prepare('SELECT flow_name FROM run_steps WHERE run_id = ? AND idx = ?').get(id, Number(idx)) as { flow_name: string } | undefined;
+    if (!step) return reply.code(404).send({ error: 'step not found' });
+    const q = db.prepare('SELECT spec_json FROM queue WHERE dispatched_run_id = ? ORDER BY rowid DESC LIMIT 1').get(id) as { spec_json: string } | undefined;
+    if (!q) return reply.code(409).send({ error: 'original queue spec not found (runs API rerun requires queue-originated runs)' });
+    const spec = JSON.parse(q.spec_json) as QueueSpec;
+    const rerunId = await executeRun(
+      {
+        ticketKey: spec.ticketKey,
+        flowsDir: spec.flowsDir,
+        udid: spec.udid,
+        app: spec.app,
+        artifactPath: spec.artifactPath,
+        ...(spec.srcPath !== undefined ? { srcPath: spec.srcPath } : {}),
+        triggeredBy: `rerun:${(req.body as { by?: string } | undefined)?.by ?? 'api'}`,
+        kind: 'rerun',
+        parentRunId: id,
+        onlyFlow: step.flow_name,
+      },
+      { db, bus: (req.server as unknown as { crucibleBus: TypedEventBus<AppEvents> }).crucibleBus, artifactsDir: process.env['CRUCIBLE_ARTIFACTS_DIR'] ?? './artifacts', dispatchDeps: alloyDispatchDepsSync() },
+    );
+    return { rerunId };
   });
 
   app.get('/api/runs/:id/steps', async (req, reply) => {
