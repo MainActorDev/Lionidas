@@ -1,0 +1,27 @@
+{
+  "plugins": ["typescript", "unicorn", "import"],
+  "categories": { "correctness": "error" },
+  "ignorePatterns": ["**/dist/**", "**/node_modules/**", "**/coverage/**"],
+  "rules": {
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": ["**/server/**"],
+            "message": "Web must not import server code — UI knows only orchestrator API shapes."
+          }
+        ]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["web/**/*.ts", "web/**/*.vue"],
+      "rules": {
+        "no-restricted-imports": ["error", { "patterns": [{ "group": ["**/server/**"], "message": "Web must not import server code." }] }]
+      }
+    }
+  ],
+  "env": { "node": true }
+}

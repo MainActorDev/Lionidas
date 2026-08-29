@@ -1,0 +1,16 @@
+{
+  "name": "crucible",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Your app. Proven. — the E2E testing control dashboard.",
+  "type": "module",
+  "scripts": {
+    "check": "pnpm -r check",
+    "dev": "concurrently -n server,web -c blue,green \"pnpm --filter server dev\" \"pnpm --filter web dev\"",
+    "build": "pnpm -r build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  },
+  "engines": { "node": ">=24" }
+}

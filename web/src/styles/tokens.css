@@ -1,0 +1,52 @@
+/* Crucible tokens — dual-register (UI-direction.md §3). Both registers share
+   type/space/radius/status; surfaces swap temperature via [data-register]. */
+
+:root {
+  /* type */
+  --font-sans: -apple-system, 'Inter', system-ui, sans-serif;
+  --font-mono: 'SF Mono', ui-monospace, monospace;
+  --text-xs: 11px;
+  --text-sm: 13px;
+  --text-base: 15px;
+  /* space (4px grid) + radius */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s6: 24px; --s8: 32px;
+  --radius-card: 6px; --radius-ctl: 4px;
+  /* status — identical in both registers; shape-coded (●▲◆○) in components */
+  --pass: #4cb782;
+  --fail: #e5484d;
+  --amber: #f5a524;
+  --skip: #9a9ba0;
+  --accent: #5e6ad2;
+}
+
+/* control register (dark) */
+[data-register='control'] {
+  --bg: #08090a;
+  --surface: #101113;
+  --border: #1f2023;
+  --fg: #f7f8f8;
+  --fg-dim: #9a9ba0;
+}
+
+/* archive register (light) */
+[data-register='archive'] {
+  --bg: #fbfbfc;
+  --surface: #ffffff;
+  --border: #e8e8ea;
+  --fg: #17181a;
+  --fg-dim: #6f7076;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #app { height: 100%; margin: 0; }
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  background: var(--bg);
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+}
+
+.mono { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--fg-dim); }
