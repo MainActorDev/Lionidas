@@ -3,8 +3,9 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import type { ForgeState } from './proxy.ts';
+import { matchPreset } from './matcher.ts';
 
-export function registerForgeRoutes(app: FastifyInstance, db: Database.Database, forgeState: ForgeState): void {
+export function registerForgeRoutes(app: FastifyInstance, db: Database.Database, forgeState: ForgeState, forgeBus?: { emit: (type: never, payload: never) => void }): void {
   app.post('/api/forge/presets', async (req, reply) => {
     const b = req.body as Record<string, unknown>;
     if (typeof b['pathPattern'] !== 'string' || typeof b['status'] !== 'number') {
@@ -86,6 +87,62 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
       forgeState.mode = b.mode as 'record' | 'hybrid' | 'intercept';
     }
     return { mode: forgeState.mode };
+  });
+
+  // Match tester: paste method+URL → which preset wins and why (same matcher as the proxy — no second implementation)
+  app.post('/api/forge/match-test', async (req, reply) => {
+    const b = req.body as { url?: string; method?: string };
+    if (!b.url) return reply.code(400).send({ error: 'url required' });
+    let u: URL;
+    try {
+      u = new URL(b.url.startsWith('http') ? b.url : `http://forge.local${b.url}`);
+    } catch {
+      return reply.code(400).send({ error: 'invalid url' });
+    }
+    const query: Record<string, string> = {};
+    u.searchParams.forEach((v, k) => (query[k] = v));
+    const hit = matchPreset(forgeState.presets, {
+      method: (b.method ?? 'GET').toUpperCase(),
+      path: u.pathname,
+      query,
+      headers: {},
+    });
+    return hit
+      ? { matched: true, presetId: hit.preset.id, pathPattern: hit.preset.pathPattern, reason: hit.reason }
+      : { matched: false, presetId: null, reason: 'no preset matched (forwarded in hybrid; 501 in intercept)' };
+  });
+
+  // Rehearse: run a smoke flow against the ACTIVE scenario (manual priority,
+  // labeled 'rehearse', never rolls up — status.ts excludes note=rehearse)
+  app.post('/api/forge/scenarios/:id/rehearse', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = (req.body ?? {}) as { flowsDir?: string; udid?: string; app?: string; artifactPath?: string };
+    if (!b.flowsDir || !b.udid || !b.app || !b.artifactPath) {
+      return reply.code(400).send({ error: 'flowsDir, udid, app, artifactPath required' });
+    }
+    const scenario = db.prepare('SELECT name, launch_arg FROM scenarios WHERE id = ?').get(id) as
+      | { name: string; launch_arg: string | null }
+      | undefined;
+    if (!scenario) return reply.code(404).send({ error: 'scenario not found' });
+    const { executeRun } = await import('../alloy/runner.ts');
+    const { alloyDispatchDepsSync } = await import('../alloy/runtime.ts');
+    const launchArgs = scenario.launch_arg ? [scenario.launch_arg] : [];
+    const runId = await executeRun(
+      {
+        ticketKey: `REHEARSE:${scenario.name}`,
+        flowsDir: b.flowsDir,
+        udid: b.udid,
+        app: b.app,
+        artifactPath: b.artifactPath,
+        launchArgs,
+        triggeredBy: 'forge-rehearse',
+        kind: 'automated',
+      },
+      { db, bus: forgeBus as never, artifactsDir: process.env['CRUCIBLE_ARTIFACTS_DIR'] ?? './artifacts', dispatchDeps: alloyDispatchDepsSync() },
+    );
+    db.prepare(`UPDATE runs SET note = 'rehearse' WHERE id = ?`).run(runId);
+    const trafficCount = (db.prepare(`SELECT COUNT(*) AS c FROM traffic WHERE run_id = ?`).get(runId) as { c: number }).c;
+    return { runId, trafficHits: trafficCount };
   });
 
   app.get('/api/forge/traffic', async (req) => {

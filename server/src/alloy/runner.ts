@@ -10,6 +10,7 @@ import type Database from 'better-sqlite3';
 import { crucibleAlloy } from '../alloy/client.ts';
 import { initAlloyRuntime } from './runtime.ts';
 import { scanFlowSet, type FlowMeta } from '../domain/acs.ts';
+import { applyAutoQuarantine } from '../domain/flake.ts';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 
 export interface RunSpec {
@@ -26,6 +27,8 @@ export interface RunSpec {
   parentRunId?: string;
   /** Rerun-fragment: execute only the named flow from the flow set. */
   onlyFlow?: string;
+  /** Free-form label; 'rehearse' excludes the run from AC roll-up (status.ts). */
+  note?: string;
 }
 
 export interface RunnerDeps {
@@ -97,6 +100,9 @@ export async function executeRun(spec: RunSpec, deps: RunnerDeps): Promise<strin
        VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(runId, spec.ticketKey, spec.kind ?? 'automated', spec.triggeredBy, spec.udid, spec.artifactPath, artifactHash, artifactMtime, spec.srcPath ?? null, JSON.stringify(spec.launchArgs ?? []), spec.parentRunId ?? null, Date.now());
+  if (spec.note !== undefined) {
+    deps.db.prepare('UPDATE runs SET note = ? WHERE id = ?').run(spec.note, runId);
+  }
   deps.bus.emit('run.started', { runId, ticketKey: spec.ticketKey });
 
   const steps: StepRecord[] = [];
@@ -300,6 +306,11 @@ export async function executeRun(spec: RunSpec, deps: RunnerDeps): Promise<strin
     deps.db
       .prepare(`UPDATE runs SET status = ?, freshness = ?, finished_at = ? WHERE id = ?`)
       .run(runStatus, freshness, Date.now(), runId);
+    try {
+      for (const flowKey of applyAutoQuarantine(deps.db, runId)) {
+        deps.bus.emit('flow.quarantined', { flowKey, reason: 'auto' });
+      }
+    } catch { /* analytics never fails the run */ }
     deps.bus.emit('run.finished', { runId, status: runStatus });
   }
   return runId;

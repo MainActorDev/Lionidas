@@ -12,6 +12,12 @@ export type AppEvents = {
   'forge.traffic.hit': { id: string; runId: string | null; method: string; path: string; status: number; latencyMs: number; mode: string; matchedPresetId: string | null };
   'baseline.diff.pending': { diffId: string; scopeKey: string; runId: string };
   'baseline.diff.decided': { diffId: string; state: string; scopeKey: string };
+  'manual.session.open': { sessionId: string; udid: string; operator: string; runId: string };
+  'manual.session.tap': { sessionId: string; x: number; y: number };
+  'manual.session.scroll': { sessionId: string; direction: string };
+  'manual.session.snapshot': { sessionId: string; path: string };
+  'manual.session.finish': { sessionId: string };
+  'flow.quarantined': { flowKey: string; reason: string };
 } & Record<string, unknown>;
 
 export interface TypedEventBus<E extends Record<string, unknown>> {

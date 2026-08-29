@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { enqueue, abort, type QueueSpec } from '../queue/store.ts';
 import { executeRun } from '../alloy/runner.ts';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
+import { jiraConfig, buildCommentBody, postComment } from '../integrations/jira.ts';
 import { alloyDispatchDepsSync } from '../alloy/runtime.ts';
 import { scanFlowSet } from '../domain/acs.ts';
 
@@ -94,6 +95,26 @@ export function registerRunRoutes(app: FastifyInstance, db: Database.Database): 
       runEvidence,
       run: { ticket: run['ticket_key'], artifactHash: run['artifact_hash'], freshness: run['freshness'], launchArgs: run['launch_args_json'], device: run['device_udid'] },
     };
+  });
+
+  // Jira evidence attachment (opt-in via env; 404 when disabled)
+  app.post('/api/runs/:id/attach', async (req, reply) => {
+    const cfg = jiraConfig();
+    if (!cfg) return reply.code(404).send({ error: 'jira integration disabled (set JIRA_BASE/EMAIL/TOKEN)' });
+    const { id } = req.params as { id: string };
+    const built = buildCommentBody(db, id, cfg);
+    if (!built) return reply.code(404).send({ error: 'run not found' });
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const commentId = await postComment(cfg, built.ticket, built.body);
+        db.prepare('UPDATE runs SET jira_comment_id = ? WHERE id = ?').run(commentId, id);
+        return { attached: true, commentId, ticket: built.ticket };
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    return reply.code(502).send({ error: `jira failed twice: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}` });
   });
 
   // Re-run fragment: single flow, rerun kind, parent linked (synchronous for gate; queue path in M3 UI)

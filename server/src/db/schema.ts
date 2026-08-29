@@ -146,6 +146,25 @@ export function migrateM1(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_diffs_state ON baseline_diffs(state, scope_key);
 
+    CREATE TABLE IF NOT EXISTS manual_sessions(
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+      udid TEXT NOT NULL,
+      operator TEXT NOT NULL,
+      logical_w INTEGER, logical_h INTEGER,
+      started_at INTEGER NOT NULL,
+      last_activity INTEGER NOT NULL,
+      finished_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS flow_quarantine(
+      flow_key TEXT PRIMARY KEY,
+      reason TEXT NOT NULL,
+      by TEXT NOT NULL,
+      at INTEGER NOT NULL,
+      released_by TEXT,
+      released_at INTEGER
+    );
+
     CREATE TABLE IF NOT EXISTS devices(
       udid TEXT PRIMARY KEY,
       name TEXT,
@@ -156,4 +175,8 @@ export function migrateM1(db: Database.Database): void {
     );
   `);
   db.prepare("INSERT OR IGNORE INTO schema_meta(key, value) VALUES ('schema_version', '1')").run();
+  // M3 additions (guarded ALTERs — idempotent on existing DBs)
+  for (const col of ["ALTER TABLE runs ADD COLUMN jira_comment_id TEXT"]) {
+    try { db.exec(col); } catch { /* column exists */ }
+  }
 }

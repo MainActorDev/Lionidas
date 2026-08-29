@@ -12,6 +12,9 @@ import { registerRunRoutes } from './routes/runs.ts';
 import { registerMatrixRoute } from './routes/matrix.ts';
 import { registerEvidenceRoute } from './routes/evidence.ts';
 import { registerBaselineRoutes } from './routes/baselines.ts';
+import { registerManualRoutes } from './routes/manual.ts';
+import { registerFlakeRoutes } from './routes/flakes.ts';
+import { startIdleWatchdog } from './manual/session.ts';
 import * as runtimeMod from './alloy/runtime.ts';
 import { startDevicePoller } from './poll/devices.ts';
 import { startDispatcher } from './queue/dispatcher.ts';
@@ -48,21 +51,24 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   });
 
   const forgeState = createForgeState();
-  registerForgeRoutes(app, db.raw, forgeState);
+  registerForgeRoutes(app, db.raw, forgeState, bus);
   // baselines: dispatchDeps resolved lazily (approvals always run post-boot)
   registerBaselineRoutes(app, db.raw, {
     db: db.raw,
     bus,
     artifactsDir: cfg.artifactsDir,
-    dispatchDeps: new Proxy(
-      {},
-      { get: () => { const { alloyDispatchDepsSync } = runtimeMod; return alloyDispatchDepsSync(); } },
-    ),
+    get dispatchDeps() { return runtimeMod.alloyDispatchDepsSync(); },
   } as never);
+  registerManualRoutes(app, db.raw, {
+    bus,
+    get dispatchDeps() { return runtimeMod.alloyDispatchDepsSync(); },
+  } as never);
+  registerFlakeRoutes(app, db.raw, bus);
   app.decorate('crucibleBus', bus);
 
   let stopPoller: (() => void) | null = null;
   let stopDispatcher: (() => void) | null = null;
+  let stopWatchdog: (() => void) | null = null;
   if (process.env['VITEST'] !== 'true') {
     // Poller + dispatcher need a live Alloy; lazy-start so health fails soft.
     import('./alloy/runtime.ts')
@@ -70,6 +76,7 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
         const rt = await initAlloyRuntime(); // may throw — logged, routes still serve
         stopPoller = startDevicePoller(db.raw, bus);
         stopDispatcher = startDispatcher({ db: db.raw, bus, artifactsDir: cfg.artifactsDir, dispatchDeps: rt.deps });
+        stopWatchdog = startIdleWatchdog({ db: db.raw, bus, dispatchDeps: rt.deps });
       })
       .catch((err: unknown) => {
         app.log.warn({ err }, 'alloy runtime unavailable — device wall degraded (alloy_health for details)');
@@ -85,6 +92,7 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
     close: async () => {
       stopPoller?.();
       stopDispatcher?.();
+      stopWatchdog?.();
       await app.close();
       db.close();
     },

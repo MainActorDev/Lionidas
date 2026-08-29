@@ -9,7 +9,7 @@ const ticket = route.params.key as string;
 const acs = ref<Ac[]>([]);
 const ticketStatus = ref('none');
 
-const statusShape: Record<string, string> = { pass: '●', fail: '▲', skip: '○', none: '○', 'changes-pending': '◆' };
+const statusShape: Record<string, string> = { pass: '●', fail: '▲', skip: '○', none: '○', 'changes-pending': '◆', quarantined: '◌' };
 
 onMounted(async () => {
   const res = await fetch(`/api/tickets/${ticket}/matrix`);
@@ -52,6 +52,7 @@ onMounted(async () => {
 h1 { font-size: var(--text-base); font-weight: 600; margin: 0; }
 .pass { color: var(--pass); } .fail { color: var(--fail); } .skip, .none { color: var(--fg-dim); }
 .changes-pending { color: var(--amber); }
+.quarantined { color: var(--fg-dim); }
 .matrix { width: 100%; border-collapse: collapse; }
 .matrix th { text-align: left; color: var(--fg-dim); font-weight: 500; font-size: var(--text-xs); padding: var(--s1) var(--s2); border-bottom: 1px solid var(--border); }
 .matrix td { padding: var(--s2); border-bottom: 1px solid var(--border); vertical-align: top; }
