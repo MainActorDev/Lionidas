@@ -22,6 +22,8 @@ export interface RunSpec {
   launchArgs?: string[];
   triggeredBy: string;
   triage?: boolean;
+  kind?: 'automated' | 'manual' | 'rerun';
+  parentRunId?: string;
 }
 
 export interface RunnerDeps {
@@ -84,10 +86,10 @@ export async function executeRun(spec: RunSpec, deps: RunnerDeps): Promise<strin
   deps.db
     .prepare(
       `INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid,
-        artifact_path, artifact_hash, artifact_mtime, src_path, launch_args_json, started_at)
-       VALUES (?, ?, 'automated', 'running', ?, ?, ?, ?, ?, ?, ?, ?)`,
+        artifact_path, artifact_hash, artifact_mtime, src_path, launch_args_json, parent_run_id, started_at)
+       VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(runId, spec.ticketKey, spec.triggeredBy, spec.udid, spec.artifactPath, artifactHash, artifactMtime, spec.srcPath ?? null, JSON.stringify(spec.launchArgs ?? []), Date.now());
+    .run(runId, spec.ticketKey, spec.kind ?? 'automated', spec.triggeredBy, spec.udid, spec.artifactPath, artifactHash, artifactMtime, spec.srcPath ?? null, JSON.stringify(spec.launchArgs ?? []), spec.parentRunId ?? null, Date.now());
   deps.bus.emit('run.started', { runId, ticketKey: spec.ticketKey });
 
   const steps: StepRecord[] = [];

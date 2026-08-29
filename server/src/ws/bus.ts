@@ -7,6 +7,9 @@ export type AppEvents = {
   'step.started': { runId: string; idx: number; flow: string };
   'step.finished': { runId: string; idx: number; flow: string; status: string; durationMs: number };
   'run.finished': { runId: string; status: string };
+  'run.aborted': { queueId: string };
+  'queue.changed': { queueId: string; state: string };
+  'forge.traffic.hit': { id: string; runId: string | null; method: string; path: string; status: number; latencyMs: number; mode: string; matchedPresetId: string | null };
 } & Record<string, unknown>;
 
 export interface TypedEventBus<E extends Record<string, unknown>> {

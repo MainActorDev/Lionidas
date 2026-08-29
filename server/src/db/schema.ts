@@ -65,6 +65,63 @@ export function migrateM1(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_evidence_sha ON evidence(sha256);
 
+    CREATE TABLE IF NOT EXISTS queue(
+      id TEXT PRIMARY KEY,
+      spec_json TEXT NOT NULL,
+      priority INTEGER NOT NULL CHECK(priority IN (0,1,2)),
+      state TEXT NOT NULL CHECK(state IN ('waiting','dispatched','done','aborted')),
+      requested_by TEXT NOT NULL,
+      enqueued_at INTEGER NOT NULL,
+      dispatched_run_id TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_queue_state ON queue(state, priority, enqueued_at);
+
+    CREATE TABLE IF NOT EXISTS presets(
+      id TEXT PRIMARY KEY,
+      method TEXT NOT NULL,
+      path_pattern TEXT NOT NULL,
+      match TEXT NOT NULL CHECK(match IN ('exact','glob','regex')),
+      status INTEGER NOT NULL,
+      headers_json TEXT,
+      body_path TEXT,
+      delay_ms INTEGER,
+      seq_json TEXT,
+      failure TEXT,
+      throttle_kbps INTEGER,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      sha256 TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS scenarios(
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      launch_arg TEXT,
+      created_by TEXT NOT NULL,
+      immutable_since INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS scenario_overrides(
+      scenario_id TEXT NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,
+      preset_id TEXT NOT NULL REFERENCES presets(id) ON DELETE CASCADE,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY(scenario_id, preset_id)
+    );
+    CREATE TABLE IF NOT EXISTS traffic(
+      id TEXT PRIMARY KEY,
+      run_id TEXT,
+      ts INTEGER NOT NULL,
+      mode TEXT NOT NULL,
+      method TEXT NOT NULL,
+      host TEXT,
+      path TEXT NOT NULL,
+      matched_preset_id TEXT,
+      status INTEGER NOT NULL,
+      latency_ms INTEGER NOT NULL,
+      req_sha TEXT,
+      res_sha TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_traffic_run ON traffic(run_id, ts);
+
     CREATE TABLE IF NOT EXISTS devices(
       udid TEXT PRIMARY KEY,
       name TEXT,

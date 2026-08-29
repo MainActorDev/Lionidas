@@ -12,12 +12,16 @@ import { registerRunRoutes } from './routes/runs.ts';
 import { registerMatrixRoute } from './routes/matrix.ts';
 import { registerEvidenceRoute } from './routes/evidence.ts';
 import { startDevicePoller } from './poll/devices.ts';
+import { startDispatcher } from './queue/dispatcher.ts';
+import { createForgeState, type ForgeState } from './forge/proxy.ts';
+import { registerForgeRoutes } from './forge/routes.ts';
 
 export interface App {
   app: FastifyInstance<import('node:http').Server<typeof import('node:http').IncomingMessage, typeof import('node:http').ServerResponse>, import('node:http').IncomingMessage, import('node:http').ServerResponse<import('node:http').IncomingMessage>, FastifyBaseLogger>;
   bus: TypedEventBus<AppEvents>;
   db: Db;
   cfg: Config;
+  forgeState: ForgeState;
   close(): Promise<void>;
 }
 
@@ -41,13 +45,18 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
     req.id = crypto.randomUUID();
   });
 
+  const forgeState = createForgeState();
+  registerForgeRoutes(app, db.raw, forgeState);
+
   let stopPoller: (() => void) | null = null;
+  let stopDispatcher: (() => void) | null = null;
   if (process.env['VITEST'] !== 'true') {
-    // Poller needs a live Alloy; lazy-start so health fails soft when Alloy is down.
+    // Poller + dispatcher need a live Alloy; lazy-start so health fails soft.
     import('./alloy/runtime.ts')
       .then(async ({ initAlloyRuntime }) => {
-        await initAlloyRuntime(); // may throw — logged, routes still serve
+        const rt = await initAlloyRuntime(); // may throw — logged, routes still serve
         stopPoller = startDevicePoller(db.raw, bus);
+        stopDispatcher = startDispatcher({ db: db.raw, bus, artifactsDir: cfg.artifactsDir, dispatchDeps: rt.deps });
       })
       .catch((err: unknown) => {
         app.log.warn({ err }, 'alloy runtime unavailable — device wall degraded (alloy_health for details)');
@@ -59,8 +68,10 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
     bus,
     db,
     cfg,
+    forgeState,
     close: async () => {
       stopPoller?.();
+      stopDispatcher?.();
       await app.close();
       db.close();
     },
