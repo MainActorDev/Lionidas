@@ -174,7 +174,7 @@ onUnmounted(() => {
         <button class="btn btn-sm" :disabled="busy" @click="scroll('left')">←</button>
         <button class="btn btn-sm" :disabled="busy" @click="scroll('right')">→</button>
         <span style="flex: 1;"></span>
-        <button class="btn btn-sm" @click="router.push('/')">← wall</button>
+        <button class="btn btn-sm" @click="router.push('/')">← devices</button>
         <button class="btn btn-sm btn-danger" :disabled="busy" @click="finish">finish</button>
       </div>
       <div v-if="busy" class="meta-row" style="margin-top: var(--s-2); color: var(--color-ash);">sending…</div>

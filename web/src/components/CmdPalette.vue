@@ -34,13 +34,13 @@ void bootedDevices().then((d) => (devices.value = d));
 
 const commands = computed<Command[]>(() => {
   const base: Command[] = [
-    { label: 'wall', hint: 'devices + queue', run: () => router.push('/') },
+    { label: 'devices', hint: 'device grid + queue', run: () => router.push('/') },
     { label: 'new run', hint: 'queue a ticket run', run: () => router.push('/?new=1') },
     { label: 'runs', hint: 'history', run: () => router.push('/runs') },
-    { label: 'forge', hint: 'traffic inspector', run: () => router.push('/forge') },
-    { label: 'baselines', hint: 'judgments', run: () => router.push('/baselines') },
-    { label: 'flakes', hint: 'quarantine', run: () => router.push('/flakes') },
-    { label: 'how to use', hint: 'guide', run: () => router.push('/guide') },
+    { label: 'network', hint: 'traffic + mock responses', run: () => router.push('/forge') },
+    { label: 'approvals', hint: 'review visual changes', run: () => router.push('/baselines') },
+    { label: 'flaky tests', hint: 'quarantine', run: () => router.push('/flakes') },
+    { label: 'guide', hint: 'how to use', run: () => router.push('/guide') },
   ];
   for (const d of devices.value) {
     base.push({
@@ -50,7 +50,7 @@ const commands = computed<Command[]>(() => {
     });
   }
   for (const t of tickets.value) {
-    base.push({ label: `ticket ${t}`, hint: 'matrix', run: () => router.push(`/tickets/${t}`) });
+    base.push({ label: `ticket ${t}`, hint: 'acceptance criteria', run: () => router.push(`/tickets/${t}`) });
   }
   const q = query.value.trim().toLowerCase();
   return q ? base.filter((c) => c.label.toLowerCase().includes(q)) : base;
@@ -87,7 +87,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
   <Teleport to="body">
     <div v-if="open" class="palette-backdrop" @click.self="open = false">
       <div class="palette">
-        <input ref="paletteInput" v-model="query" placeholder="jump to… (wall, new run, watch <device>, ticket)" class="palette-input" />
+        <input ref="paletteInput" v-model="query" placeholder="jump to… (devices, new run, watch <device>, ticket)" class="palette-input" />
         <div v-for="(c, i) in commands" :key="c.label" class="palette-item" :class="{ active: i === selectedIndex }" @click="execute(c)" @mousemove="selectedIndex = i">
           <span>{{ c.label }}</span>
           <span style="color: var(--color-steel);">{{ c.hint }}</span>

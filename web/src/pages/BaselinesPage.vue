@@ -29,8 +29,8 @@ onMounted(load);
   <div>
     <div class="page-header">
       <div>
-        <div class="page-title">baselines</div>
-        <div class="page-desc">{{ diffs.length }} pending judgment{{ diffs.length === 1 ? '' : 's' }}</div>
+        <div class="page-title">approvals</div>
+        <div class="page-desc">{{ diffs.length }} pending review{{ diffs.length === 1 ? '' : 's' }}</div>
       </div>
     </div>
 

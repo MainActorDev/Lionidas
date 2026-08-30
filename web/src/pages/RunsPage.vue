@@ -54,7 +54,7 @@ onUnmounted(() => { if (poll) clearInterval(poll); unwatch(); live.release(); })
       </div>
     </div>
 
-    <div v-if="runs.length === 0" class="empty">no runs yet — trigger one from the wall (+ new run)</div>
+    <div v-if="runs.length === 0" class="empty">no runs yet — trigger one from devices (+ new run)</div>
 
     <div v-else class="table-wrap">
       <table>

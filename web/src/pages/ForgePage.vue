@@ -76,7 +76,7 @@ onUnmounted(() => { unwatch(); live.release(); });
   <div>
     <div class="page-header">
       <div>
-        <div class="page-title">forge · traffic</div>
+        <div class="page-title">network · traffic</div>
         <div class="page-desc">{{ traffic.length }} requests · mode: {{ mode }}<span v-if="!live.connected" style="color: var(--color-ember);"> · live offline</span></div>
       </div>
       <div style="display: flex; gap: var(--s-2);">

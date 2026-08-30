@@ -8,15 +8,15 @@ const active = ref<SectionId>('quickstart');
 
 const sections: Array<{ id: SectionId; label: string; group: string }> = [
   { id: 'quickstart', label: 'quick start', group: 'basics' },
-  { id: 'wall', label: 'device wall', group: 'basics' },
+  { id: 'wall', label: 'devices', group: 'basics' },
   { id: 'runs', label: 'runs & queue', group: 'basics' },
   { id: 'status', label: 'status vocabulary', group: 'basics' },
-  { id: 'matrix', label: 'AC matrix', group: 'verify' },
+  { id: 'matrix', label: 'acceptance criteria', group: 'verify' },
   { id: 'triage', label: 'triage a failure', group: 'verify' },
-  { id: 'baselines', label: 'baseline judgments', group: 'verify' },
-  { id: 'flakes', label: 'flakes & quarantine', group: 'verify' },
-  { id: 'forge', label: 'forge · traffic control', group: 'control' },
-  { id: 'drive', label: 'manual drive', group: 'control' },
+  { id: 'baselines', label: 'approvals', group: 'verify' },
+  { id: 'flakes', label: 'flaky tests', group: 'verify' },
+  { id: 'forge', label: 'network control', group: 'control' },
+  { id: 'drive', label: 'manual control', group: 'control' },
   { id: 'shortcuts', label: 'keyboard', group: 'control' },
 ];
 
@@ -55,7 +55,7 @@ const groups = computed(() => {
 
         <div class="section-label">the 60-second version</div>
         <div class="card card-accent">
-          <div class="meta-row"><span class="k">1</span><b>Open the wall</b> — see your devices, which are booted, who's using them</div>
+          <div class="meta-row"><span class="k">1</span><b>Open devices</b> — see your devices, which are booted, who's using them</div>
           <div class="meta-row"><span class="k">2</span><b>Queue a run</b> — pick a ticket's flow set + device, click "queue run"</div>
           <div class="meta-row"><span class="k">3</span><b>Watch it execute live</b> — steps appear as they run (not after)</div>
           <div class="meta-row"><span class="k">4</span><b>Read the matrix</b> — green ✓ = proven, red ✕ = broken (click for evidence)</div>
@@ -82,8 +82,8 @@ const groups = computed(() => {
 
       <!-- ═══ WALL ═══ -->
       <div v-if="active === 'wall'">
-        <div class="page-title">device wall</div>
-        <p style="color: var(--color-ash); margin: var(--s-2) 0;">The wall is your live view of every simulator.</p>
+        <div class="page-title">devices</div>
+        <p style="color: var(--color-ash); margin: var(--s-2) 0;">The device page is your live view of every simulator.</p>
 
         <div class="slice-demo"><GuideSlices show="wall" /></div>
 
@@ -158,7 +158,7 @@ const groups = computed(() => {
 
       <!-- ═══ MATRIX ═══ -->
       <div v-if="active === 'matrix'">
-        <div class="page-title">AC matrix</div>
+        <div class="page-title">acceptance criteria</div>
         <p style="color: var(--color-ash); margin: var(--s-2) 0;">The per-ticket scorecard: every acceptance criterion, its status, and which flows cover it.</p>
 
         <div class="slice-demo"><GuideSlices show="matrix" /></div>
@@ -174,7 +174,7 @@ const groups = computed(() => {
         <div class="card">
           <p style="color: var(--color-fog); line-height: 1.6;">
             Click any AC row → jumps to the run that produced it (evidence one click away).
-            The ◆ judgments card at the top links to baselines when anything needs your decision.
+            The ◆ card at the top links to approvals when anything needs your decision.
           </p>
         </div>
       </div>
@@ -205,7 +205,7 @@ const groups = computed(() => {
 
       <!-- ═══ BASELINES ═══ -->
       <div v-if="active === 'baselines'">
-        <div class="page-title">baseline judgments</div>
+        <div class="page-title">approvals</div>
         <p style="color: var(--color-ash); margin: var(--s-2) 0;">When a visual AC's screenshot differs from its approved baseline, you decide: intentional change or regression?</p>
 
         <div class="slice-demo"><GuideSlices show="baselines" /></div>
@@ -218,15 +218,15 @@ const groups = computed(() => {
 
         <div class="card card-accent">
           <p style="color: var(--color-fog); line-height: 1.6;">
-            Only <b>visual-category</b> ACs spawn judgment rows. An interaction failure (button didn't work)
-            is plain red with evidence — no judgment needed, no amber noise.
+            Only <b>visual-category</b> ACs spawn approval rows. An interaction failure (button didn't work)
+            is plain red with evidence — no approval needed, no amber noise.
           </p>
         </div>
       </div>
 
       <!-- ═══ FLAKES ═══ -->
       <div v-if="active === 'flakes'">
-        <div class="page-title">flakes &amp; quarantine</div>
+        <div class="page-title">flaky tests</div>
         <p style="color: var(--color-ash); margin: var(--s-2) 0;">A flaky flow passes and fails alternately — it makes the matrix lie. Crucible detects and sidelines them.</p>
 
         <div class="slice-demo"><GuideSlices show="flakes" /></div>
@@ -241,7 +241,7 @@ const groups = computed(() => {
 
       <!-- ═══ FORGE ═══ -->
       <div v-if="active === 'forge'">
-        <div class="page-title">forge · traffic control</div>
+        <div class="page-title">network control</div>
         <p style="color: var(--color-ash); margin: var(--s-2) 0;">Forge controls what the app sees from the network — fake responses, failure injection, live inspection.</p>
 
         <div class="slice-demo"><GuideSlices show="forge" /></div>
@@ -272,7 +272,7 @@ const groups = computed(() => {
 
       <!-- ═══ DRIVE ═══ -->
       <div v-if="active === 'drive'">
-        <div class="page-title">manual drive</div>
+        <div class="page-title">manual control</div>
         <p style="color: var(--color-ash); margin: var(--s-2) 0;">Take control of a device yourself — tap the screen, scroll, reproduce by hand.</p>
 
         <div class="slice-demo"><GuideSlices show="drive" /></div>

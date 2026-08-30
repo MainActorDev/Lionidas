@@ -14,22 +14,22 @@ const isActive = (name: string): boolean => route.name === name;
 
     <nav class="sidebar">
       <div class="nav-group">
-        <div class="nav-group-label">live</div>
-        <RouterLink to="/" class="nav-item" :class="{ active: isActive('wall') }">wall</RouterLink>
+        <div class="nav-group-label">testing</div>
+        <RouterLink to="/" class="nav-item" :class="{ active: isActive('wall') }">devices</RouterLink>
         <RouterLink to="/runs" class="nav-item" :class="{ active: isActive('runs') || isActive('runDetail') }">runs</RouterLink>
       </div>
       <div class="nav-group">
-        <div class="nav-group-label">diagnostics</div>
-        <RouterLink to="/forge" class="nav-item" :class="{ active: isActive('forge') }">forge</RouterLink>
+        <div class="nav-group-label">quality</div>
+        <RouterLink to="/baselines" class="nav-item" :class="{ active: isActive('baselines') }">approvals</RouterLink>
+        <RouterLink to="/flakes" class="nav-item" :class="{ active: isActive('flakes') }">flaky tests</RouterLink>
+      </div>
+      <div class="nav-group">
+        <div class="nav-group-label">network</div>
+        <RouterLink to="/forge" class="nav-item" :class="{ active: isActive('forge') }">network</RouterLink>
       </div>
       <div class="nav-group">
         <div class="nav-group-label">help</div>
-        <RouterLink to="/guide" class="nav-item" :class="{ active: isActive('guide') }">how to use</RouterLink>
-      </div>
-      <div class="nav-group">
-        <div class="nav-group-label">verify</div>
-        <RouterLink to="/baselines" class="nav-item" :class="{ active: isActive('baselines') }">baselines</RouterLink>
-        <RouterLink to="/flakes" class="nav-item" :class="{ active: isActive('flakes') }">flakes</RouterLink>
+        <RouterLink to="/guide" class="nav-item" :class="{ active: isActive('guide') }">guide</RouterLink>
       </div>
     </nav>
 

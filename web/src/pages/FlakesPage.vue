@@ -28,7 +28,7 @@ onMounted(load);
   <div>
     <div class="page-header">
       <div>
-        <div class="page-title">flakes</div>
+        <div class="page-title">flaky tests</div>
         <div class="page-desc">{{ flakes.filter((f) => f.quarantined).length }} quarantined</div>
       </div>
     </div>

@@ -28,8 +28,8 @@ onMounted(async () => {
     </div>
 
     <div v-if="acs.some((a) => a.status === 'changes-pending')" class="card card-accent">
-      <div class="card-title">◆ judgments pending</div>
-      <div style="margin-top: var(--s-2);"><RouterLink to="/baselines" class="btn btn-sm">review baselines</RouterLink></div>
+      <div class="card-title">◆ changes need your review</div>
+      <div style="margin-top: var(--s-2);"><RouterLink to="/baselines" class="btn btn-sm">review changes</RouterLink></div>
     </div>
 
     <div v-if="acs.length === 0" class="empty">no automated coverage for this ticket</div>
