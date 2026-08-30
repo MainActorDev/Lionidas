@@ -50,6 +50,7 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   registerMatrixRoute(app, db.raw);
   registerEvidenceRoute(app, db.raw);
   await registerEventsWs(app, bus);
+
   registerAuthStatus(app);
 
   app.addHook('onRequest', async (req) => {
@@ -71,6 +72,13 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   } as never);
   registerFlakeRoutes(app, db.raw, bus);
   app.decorate('crucibleBus', bus);
+
+  // stream relay needs sharp (native module) — register only in production,
+  // not under vitest (its native binding hangs the test runner)
+  if (process.env['VITEST'] !== 'true') {
+    const { registerStreamRelay } = await import('./routes/stream-relay.ts');
+    await registerStreamRelay(app);
+  }
 
   let stopPoller: (() => void) | null = null;
   let stopDispatcher: (() => void) | null = null;

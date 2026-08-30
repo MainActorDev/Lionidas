@@ -35,18 +35,7 @@ async function openTicket(): Promise<void> {
 }
 
 async function watch(udid: string): Promise<void> {
-  watching.value = udid;
-  // S1: stream-first — live MJPEG via alloy_stream; pulse fallback on failure
-  const s = await fetch(`/api/devices/${udid}/stream`, { method: 'POST' });
-  if (s.ok) {
-    const body = await s.json() as { streamUrl?: string };
-    if (body.streamUrl) {
-      watchMode.value = 'stream';
-      frameSrc.value = body.streamUrl;
-      return; // browser holds the MJPEG connection; no polling
-    }
-  }
-  await startPulse(udid);
+  await watchCanvas(udid);
 }
 async function startPulse(udid: string): Promise<void> {
   watchMode.value = 'pulse';
@@ -69,9 +58,64 @@ function onFrameError(): void {
     void startPulse(udid);
   }
 }
+
+// ── LOW-LATENCY CANVAS STREAM ──
+// WS binary frames → createImageBitmap (off-main-thread) → canvas.drawImage
+// No multipart parser, no <img> buffering, zero queueing.
+let relayWs: WebSocket | null = null;
+const canvasRef = ref<HTMLCanvasElement | null>(null);
+let frameCount = 0;
+let lastFpsTime = Date.now();
+const displayFps = ref(0);
+
+async function watchCanvas(udid: string): Promise<void> {
+  watching.value = udid;
+  watchMode.value = 'stream';
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  relayWs = new WebSocket(`${proto}://${location.host}/api/stream/${udid}`);
+  relayWs.binaryType = 'arraybuffer';
+  relayWs.onmessage = async (ev) => {
+    if (typeof ev.data === 'string') {
+      // error message from the relay
+      const body = JSON.parse(ev.data) as { error?: string };
+      if (body.error) { relayWs?.close(); await startPulse(udid); }
+      return;
+    }
+    const blob = new Blob([ev.data], { type: 'image/jpeg' });
+    const bitmap = await createImageBitmap(blob);
+    const canvas = canvasRef.value;
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        ctx.drawImage(bitmap, 0, 0);
+      }
+    }
+    bitmap.close();
+    frameCount++;
+    const now = Date.now();
+    if (now - lastFpsTime >= 1000) {
+      displayFps.value = Math.round((frameCount * 1000) / (now - lastFpsTime));
+      frameCount = 0;
+      lastFpsTime = now;
+    }
+  };
+  relayWs.onclose = () => {
+    if (watchMode.value === 'stream' && watching.value === udid) {
+      void startPulse(udid);
+    }
+  };
+  relayWs.onerror = () => { /* onclose handles fallback */ };
+}
+
+function stopRelay(): void {
+  if (relayWs) { relayWs.onclose = null; relayWs.close(); relayWs = null; }
+}
 function stopWatch(): void {
   watching.value = null;
   frameSrc.value = '';
+  stopRelay();
   if (pulse) clearInterval(pulse);
   pulse = null;
 }
@@ -126,8 +170,13 @@ onUnmounted(() => { if (poll) clearInterval(poll); stopWatch(); live.release(); 
           <b v-else-if="d.lease_holder">{{ d.lease_holder }}</b>
           <b v-else>free</b>
         </div>
-        <div v-if="watching === d.udid && frameSrc" style="margin-top: var(--s-2);">
-          <img :src="frameSrc" alt="live frame" @error="onFrameError" style="width: 100%; border: 1px solid var(--color-iron); border-radius: var(--r-sm); display: block;" />
+        <div v-if="watching === d.udid" style="margin-top: var(--s-2);">
+          <canvas v-show="watchMode === 'stream'" ref="canvasRef" style="width: 100%; border: 1px solid var(--color-iron); border-radius: var(--r-sm); display: block;"></canvas>
+          <img v-if="watchMode === 'pulse' && frameSrc" :src="frameSrc" alt="live frame" @error="onFrameError" style="width: 100%; border: 1px solid var(--color-iron); border-radius: var(--r-sm); display: block;" />
+          <div v-if="watchMode === 'stream'" style="display: flex; justify-content: space-between; font-size: 10px; color: var(--color-steel); margin-top: 2px;">
+            <span>live · {{ displayFps }}fps</span>
+            <span>ws canvas</span>
+          </div>
           <div v-if="watchMode === 'pulse'" class="badge" style="margin-top: var(--s-1);">pulse (stream unavailable)</div>
         </div>
         <div style="display: flex; gap: var(--s-2); margin-top: var(--s-3);">
