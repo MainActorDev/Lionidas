@@ -42,6 +42,32 @@ async function startMitm(): Promise<void> {
   } finally { mitmBusy.value = false; }
 }
 
+// ── Simulator routing: sims inherit the HOST proxy at boot ──
+interface RoutingState { enabled: boolean; service: string | null; host: string | null; port: number | null }
+const routing = ref<RoutingState>({ enabled: false, service: null, host: null, port: null });
+const routingBusy = ref(false);
+async function loadRouting(): Promise<void> {
+  try {
+    routing.value = (await (await fetch('/api/forge/sim-routing')).json()) as RoutingState;
+  } catch { /* ignore */ }
+}
+async function setRouting(on: boolean): Promise<void> {
+  routingBusy.value = true;
+  try {
+    const res = await fetch('/api/forge/sim-routing', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: on }),
+    });
+    const body = await res.json() as RoutingState & { error?: string };
+    if (body.error) msg.value = body.error;
+    else {
+      routing.value = body;
+      msg.value = on
+        ? `sims now route through the proxy (${body.service}) — RESTART booted simulators once to pick it up (device tile → shut down → boot)`
+        : 'sims back on direct connection — restart booted simulators once';
+    }
+  } finally { routingBusy.value = false; }
+}
+
 async function loadTraffic(): Promise<void> {
   const res = await fetch('/api/forge/traffic?limit=100');
   traffic.value = (await res.json() as { traffic: TrafficRow[] }).traffic;
@@ -94,6 +120,7 @@ onMounted(() => {
   void loadTraffic();
   void loadPresets();
   void loadMitm();
+  void loadRouting();
 });
 onUnmounted(() => { unwatch(); live.release(); });
 </script>
@@ -105,9 +132,16 @@ onUnmounted(() => { unwatch(); live.release(); });
         <div class="page-title">network · traffic</div>
         <div class="page-desc">{{ traffic.length }} requests · mode: {{ mode }}<span v-if="!live.connected" style="color: var(--color-ember);"> · live offline</span></div>
       </div>
-      <div style="display: flex; gap: var(--s-2); align-items: center;">
+      <div style="display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap;">
         <span v-if="mitm.running" class="badge badge-accent" title="point the app's proxy at this address">proxy 127.0.0.1:{{ mitm.port }}</span>
         <button v-else class="btn btn-sm" :disabled="mitmBusy" @click="startMitm">{{ mitmBusy ? 'starting…' : 'start proxy' }}</button>
+        <button
+          class="btn btn-sm" :class="{ 'btn-primary': routing.enabled }" :disabled="routingBusy || (!routing.enabled && !mitm.running)"
+          :title="routing.enabled ? 'sims route through the proxy (restart sims to change)' : 'route all simulator traffic through the proxy — restarts booted sims apply at next boot'"
+          @click="setRouting(!routing.enabled)"
+        >
+          {{ routingBusy ? '…' : routing.enabled ? `sims routed${routing.service ? ` · ${routing.service}` : ''}` : 'route sims' }}
+        </button>
         <button v-for="m in ['record', 'hybrid', 'intercept']" :key="m" class="btn btn-sm" :class="{ 'btn-primary': mode === m }" :title="MODE_HELP[m]" @click="setMode(m)">{{ m }}</button>
       </div>
     </div>
@@ -161,7 +195,7 @@ onUnmounted(() => { unwatch(); live.release(); });
         <div style="text-align: left; display: inline-block; line-height: 1.8;">
           <b>to see traffic here:</b><br />
           1. start the proxy <span v-if="mitm.running">(running — 127.0.0.1:{{ mitm.port }})</span><br />
-          2. point the app at it — DEV build base-URL or simulator proxy settings<br />
+          2. <b>route sims</b> — points the Mac's proxy at it; then restart booted simulators (shut down → boot)<br />
           3. HTTPS needs the local CA trusted once: run <span class="mono">scripts/setup-forge-tls.command</span><br />
           4. use the app on the device — requests appear here live
         </div>

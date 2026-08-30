@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import type { ForgeState } from './proxy.ts';
 import { matchPreset, type Preset } from './matcher.ts';
 import { startMitm, stopMitmIfRunning, writeStateFile, mitmRunning } from './mitm/manager.ts';
+import { simRoutingState, enableSimRouting, disableSimRouting } from './sim-routing.ts';
 
 
 export function registerForgeRoutes(app: FastifyInstance, db: Database.Database, forgeState: ForgeState, forgeBus?: { emit: (type: never, payload: never) => void }): void {
@@ -167,7 +168,9 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
   app.post('/api/forge/mitm/start', async (_req, reply) => {
     try {
       const stateDir = process.env['CRUCIBLE_MITM_STATE_DIR'] ?? '/tmp/forge-mitm';
-      const h = await startMitm({ db, bus: (forgeBus ?? { emit: () => undefined }) as never, stateDir });
+      // stable port: sims stay pointed at the proxy across restarts
+      const port = Number(process.env['CRUCIBLE_MITM_PORT'] ?? 52310);
+      const h = await startMitm({ db, bus: (forgeBus ?? { emit: () => undefined }) as never, stateDir }, port);
       return { running: true, port: h.port, pid: h.pid };
     } catch (err) {
       return reply.code(503).send({ error: `mitm start failed: ${err instanceof Error ? err.message : String(err)}` });
@@ -180,6 +183,23 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
   app.get('/api/forge/mitm/status', async () => {
     const s = mitmRunning();
     return s ? { running: true, ...s } : { running: false };
+  });
+
+  // Simulator traffic routing: host proxy + sim reboot (PLAN §15.4 — documented
+  // toolchain-boundary exception; promoted into Alloy settings once stable).
+  app.get('/api/forge/sim-routing', async () => simRoutingState());
+  app.post('/api/forge/sim-routing', async (req, reply) => {
+    const b = req.body as { enabled?: boolean };
+    try {
+      if (b?.enabled) {
+        const mitm = mitmRunning();
+        if (!mitm) return reply.code(409).send({ error: 'start the proxy first' });
+        return enableSimRouting(mitm.port);
+      }
+      return disableSimRouting();
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   app.get('/api/forge/traffic', async (req) => {
