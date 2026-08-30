@@ -137,3 +137,15 @@ Commit: `feat(m3): cockpit — manual drive, flakes, jira, forge advanced`.
 CI replay lane (`.ad` scripts from wall), multi-device parallel run fan-out,
 release-train rollups, Forge TLS (if GO), RBAC for approvals, artifact registry
 integration.
+
+## 8. Post-gate record (2026-08-30)
+
+- **MITM spike outcome: NO-GO.** Evidence: system-keychain present, simctl
+  available, TLS egress ok, but no MITM toolchain installed (mitmproxy/charles
+  absent). Decision per §16.14: re-plan before building — entry point is
+  `brew install mitmproxy` + simulator trust automation; Forge stays
+  HTTP/DEV-base-URL until then.
+- **A3 note:** true WS streaming still requires an engine-B fork PR (streamUrl
+  lives in its registry; no tool exposes it). Shipped instead: screenshot-pulse
+  Watch on the wall (`/api/devices/:udid/watch-frame`, read-only, never takes
+  a lease — watching is not holding) + DrivePage live frames.
