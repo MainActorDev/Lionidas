@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import type { RunnerDeps } from '../alloy/runner.ts';
 import { executeRun } from '../alloy/runner.ts';
+import { requirePin } from '../auth/gate.ts';
 
 export function registerBaselineRoutes(
   app: FastifyInstance,
@@ -33,7 +34,7 @@ export function registerBaselineRoutes(
     return { baselines: rows };
   });
 
-  app.post('/api/baselines/diffs/:id/approve', async (req, reply) => {
+  app.post('/api/baselines/diffs/:id/approve', { preHandler: requirePin() }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const decidedBy = ((req.body as { by?: string } | undefined)?.by) ?? 'unknown';
     const row = db
@@ -102,7 +103,7 @@ export function registerBaselineRoutes(
     return { approved: true, withRerun: rerunOk };
   });
 
-  app.post('/api/baselines/diffs/:id/reject', async (req, reply) => {
+  app.post('/api/baselines/diffs/:id/reject', { preHandler: requirePin() }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const decidedBy = ((req.body as { by?: string } | undefined)?.by) ?? 'unknown';
     const r = db.prepare(`UPDATE baseline_diffs SET state = 'rejected', decided_by = ?, decided_at = ? WHERE id = ? AND state = 'pending'`).run(decidedBy, Date.now(), id);

@@ -27,6 +27,19 @@ async function openTriage(idx: number): Promise<void> {
   const res = await fetch(`/api/runs/${runId}/steps/${idx}/triage`);
   bundle.value = await res.json() as TriageBundle;
 }
+const copied = ref('');
+function copyCmd(): void {
+  if (!bundle.value) return;
+  const r = bundle.value.run;
+  const cmd = `# repro (alloy CLI equivalent)
+# artifact ${r.artifactHash ?? '—'} · args ${r.launchArgs} · device ${r.device}
+pnpm --filter server exec tsx scripts/dogfood.ts ${r.device}`;
+  void navigator.clipboard.writeText(cmd).then(() => {
+    copied.value = '✓ copied';
+    setTimeout(() => (copied.value = ''), 2000);
+  });
+}
+
 async function rerunFragment(idx: number): Promise<void> {
   rerunning.value = true;
   try {
@@ -53,6 +66,7 @@ onMounted(load);
         <span class="card-title">{{ bundle.step.flow }} · {{ bundle.step.durationMs }}ms</span>
         <div style="display: flex; gap: var(--s-2);">
           <button class="btn btn-sm" :disabled="rerunning" @click="rerunFragment(bundle.step.idx)">{{ rerunning ? 'running…' : 're-run fragment' }}</button>
+          <button class="btn btn-sm btn-ghost" @click="copyCmd">{{ copied || 'copy cmd' }}</button>
           <RouterLink v-if="rerunId?.startsWith('run_')" :to="`/runs/${rerunId}`" class="btn btn-sm">{{ rerunId }}</RouterLink>
         </div>
       </div>

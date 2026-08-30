@@ -13,10 +13,16 @@ const flowsDir = ref('');
 const app = ref('');
 const artifactPath = ref('');
 const srcPath = ref('');
+const scenarios = ref<Array<{ id: string; name: string }>>([]);
+const scenarioId = ref('');
 const submitting = ref(false);
 const error = ref('');
 const queued = ref('');
 
+async function loadScenarios(): Promise<void> {
+  const res = await fetch('/api/forge/scenarios');
+  scenarios.value = (await res.json() as { scenarios: Array<{ id: string; name: string }> }).scenarios;
+}
 async function loadDevices(): Promise<void> {
   const res = await fetch('/api/devices');
   devices.value = (await res.json() as { devices: DeviceRow[] }).devices.filter((d) => d.state === 'Booted');
@@ -32,6 +38,7 @@ async function submit(): Promise<void> {
         ticketKey: ticket.value, flowsDir: flowsDir.value, udid: udid.value,
         app: app.value, artifactPath: artifactPath.value,
         ...(srcPath.value ? { srcPath: srcPath.value } : {}),
+        ...(scenarioId.value ? { scenarioId: scenarioId.value } : {}),
         triggeredBy: 'dashboard', priority: 'manual', triage: true,
       }),
     });
@@ -42,7 +49,7 @@ async function submit(): Promise<void> {
 }
 function close(): void { emit('close'); }
 
-onMounted(loadDevices);
+onMounted(() => { void loadDevices(); void loadScenarios(); });
 void 0;
 </script>
 
@@ -71,6 +78,12 @@ void 0;
         <div class="meta-row"><span class="k">app</span><input v-model="app" placeholder="com.example.app" /></div>
         <div class="meta-row"><span class="k">artifact</span><input v-model="artifactPath" placeholder="/abs/path/App.app" /></div>
         <div class="meta-row"><span class="k">src (opt)</span><input v-model="srcPath" placeholder="freshness gate — leave empty to skip" /></div>
+        <div class="meta-row"><span class="k">scenario</span>
+          <select v-model="scenarioId">
+            <option value="">— none —</option>
+            <option v-for="s in scenarios" :key="s.id" :value="s.id">{{ s.name }}</option>
+          </select>
+        </div>
 
         <div v-if="error" class="meta-row" style="color: var(--color-ember);">{{ error }}</div>
         <div style="display: flex; gap: var(--s-2); margin-top: var(--s-3); justify-content: flex-end;">

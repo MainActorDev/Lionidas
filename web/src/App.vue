@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import CmdPalette from './components/CmdPalette.vue';
 import { useRoute } from 'vue-router';
 
 const route = useRoute();
@@ -31,10 +32,12 @@ const isActive = (name: string): boolean => route.name === name;
     <div class="topbar">
       <span class="topbar-title">{{ title }}</span>
       <span class="topbar-spacer" />
+      <span class="badge" style="border: none; color: var(--color-steel);">⌘K</span>
     </div>
 
     <main class="main">
       <router-view />
     </main>
+    <CmdPalette />
   </div>
 </template>

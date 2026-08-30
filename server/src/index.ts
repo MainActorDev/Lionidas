@@ -15,6 +15,9 @@ import { registerBaselineRoutes } from './routes/baselines.ts';
 import { registerManualRoutes } from './routes/manual.ts';
 import { registerFlakeRoutes } from './routes/flakes.ts';
 import { registerEventsWs } from './routes/events-ws.ts';
+import { registerAuthStatus } from './auth/gate.ts';
+import { startGcLoop } from './gc/retention.ts';
+import { bootReconcile } from './alloy/reconcile.ts';
 import { startIdleWatchdog } from './manual/session.ts';
 import * as runtimeMod from './alloy/runtime.ts';
 import { startDevicePoller } from './poll/devices.ts';
@@ -47,6 +50,7 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   registerMatrixRoute(app, db.raw);
   registerEvidenceRoute(app, db.raw);
   await registerEventsWs(app, bus);
+  registerAuthStatus(app);
 
   app.addHook('onRequest', async (req) => {
     req.id = crypto.randomUUID();
@@ -71,11 +75,20 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   let stopPoller: (() => void) | null = null;
   let stopDispatcher: (() => void) | null = null;
   let stopWatchdog: (() => void) | null = null;
+  let stopGc: (() => void) | null = null;
   if (process.env['VITEST'] !== 'true') {
     // Poller + dispatcher need a live Alloy; lazy-start so health fails soft.
     import('./alloy/runtime.ts')
       .then(async ({ initAlloyRuntime }) => {
+        stopGc = startGcLoop(db.raw, cfg.artifactsDir);
         const rt = await initAlloyRuntime(); // may throw — logged, routes still serve
+        // crash recovery BEFORE serving traffic: clear orphaned claims/sessions/queue
+        try {
+          const rec = await bootReconcile(db.raw, bus, rt.deps);
+          if (rec.queueAborted > 0 || rec.sessionsClosed > 0) {
+            app.log.warn(rec, 'boot reconciliation cleaned stale state');
+          }
+        } catch (err) { app.log.warn({ err }, 'boot reconciliation skipped (alloy unavailable)'); }
         stopPoller = startDevicePoller(db.raw, bus);
         stopDispatcher = startDispatcher({ db: db.raw, bus, artifactsDir: cfg.artifactsDir, dispatchDeps: rt.deps });
         stopWatchdog = startIdleWatchdog({ db: db.raw, bus, dispatchDeps: rt.deps });
@@ -95,6 +108,7 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
       stopPoller?.();
       stopDispatcher?.();
       stopWatchdog?.();
+      stopGc?.();
       await app.close();
       db.close();
     },

@@ -7,6 +7,8 @@ import { executeRun } from '../alloy/runner.ts';
 import { jiraConfig, buildCommentBody, postComment } from '../integrations/jira.ts';
 import { alloyDispatchDepsSync } from '../alloy/runtime.ts';
 import { scanFlowSet } from '../domain/acs.ts';
+import { diskState } from '../gc/retention.ts';
+import { requirePinOrAgent } from '../auth/gate.ts';
 
 interface RunRow {
   id: string; ticket_key: string; kind: string; status: string; triggered_by: string;
@@ -15,8 +17,13 @@ interface RunRow {
 }
 
 export function registerRunRoutes(app: FastifyInstance, db: Database.Database, bus?: TypedEventBus<AppEvents>): void {
-  app.post('/api/runs', async (req, reply) => {
-    const body = req.body as Partial<QueueSpec> & { priority?: 'manual' | 'scheduled' | 'agent' };
+  app.post('/api/runs', { preHandler: requirePinOrAgent() }, async (req, reply) => {
+    const body = req.body as Partial<QueueSpec> & { priority?: 'manual' | 'scheduled' | 'agent'; scenarioId?: string };
+    // disk quota: pause new runs at 100% (PLAN §11)
+    const disk = diskState(process.env['CRUCIBLE_ARTIFACTS_DIR'] ?? './artifacts');
+    if (disk.paused) {
+      return reply.code(507).send({ error: `evidence quota exhausted (${Math.round(disk.usageBytes / 1e9)}GB ≥ limit) — run GC or raise CRUCIBLE_QUOTA_BYTES` });
+    }
     // pre-flight: everything validated BEFORE enqueue (invalid never queues)
     const required: Array<keyof QueueSpec> = ['ticketKey', 'flowsDir', 'udid', 'app', 'artifactPath', 'triggeredBy'];
     for (const k of required) {
