@@ -6,8 +6,34 @@ import { alloyDispatchDepsSync } from '../alloy/runtime.ts';
 
 export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database): void {
   app.get('/api/devices', async () => {
-    const rows = db.prepare('SELECT udid, name, state, lease_holder, lease_engine, last_seen FROM devices ORDER BY name').all();
+    const rows = db
+      .prepare('SELECT udid, name, state, platform, kind, lease_holder, lease_engine, last_seen FROM devices ORDER BY state = \'Booted\' DESC, name')
+      .all();
     return { devices: rows };
+  });
+
+  // Boot/shutdown a simulator through the choke point (alloy_devices action passthrough).
+  app.post('/api/devices/:udid/power', async (req, reply) => {
+    const { udid } = req.params as { udid: string };
+    const b = req.body as { action?: string };
+    if (b?.action !== 'boot' && b?.action !== 'shutdown') {
+      return reply.code(400).send({ error: 'action (boot|shutdown) required' });
+    }
+    const row = db.prepare('SELECT kind FROM devices WHERE udid = ?').get(udid) as { kind: string | null } | undefined;
+    if (!row) return reply.code(404).send({ error: 'unknown device (is the poller running?)' });
+    if (row.kind !== 'simulator') return reply.code(409).send({ error: 'power control is simulator-only' });
+    if (db.prepare(`SELECT 1 FROM runs WHERE device_udid = ? AND status IN ('queued','running') LIMIT 1`).get(udid)) {
+      return reply.code(409).send({ error: 'a run is active on this device' });
+    }
+    if (db.prepare(`SELECT 1 FROM manual_sessions WHERE udid = ? AND finished_at IS NULL LIMIT 1`).get(udid)) {
+      return reply.code(409).send({ error: 'a manual session holds this device' });
+    }
+    const alloy = crucibleAlloy();
+    const r = (await alloy.dispatch('alloy_devices', { action: b.action, udid }, alloyDispatchDepsSync())) as
+      | { ok: true }
+      | { ok: false; error: { message: string } };
+    if (!r.ok) return reply.code(502).send({ error: `${b.action} failed: ${r.error.message}` });
+    return { ok: true };
   });
 
   // Watch pulse: one screenshot on demand (read-only; never takes a lease).
@@ -25,10 +51,17 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
   });
 
   // S1: live stream URL (watch = read-only, no lease). Fails soft → wall falls back to pulse.
+  // Streaming is simulator-only (engine MJPEG has no physical-device source) — gate early
+  // so the UI gets an honest, typed reason instead of a generic engine failure.
   app.post('/api/devices/:udid/stream', async (req, reply) => {
     const { udid } = req.params as { udid: string };
-    const booted = db.prepare(`SELECT state FROM devices WHERE udid = ?`).get(udid) as { state: string | null } | undefined;
+    const booted = db.prepare(`SELECT state, platform, kind FROM devices WHERE udid = ?`).get(udid) as
+      | { state: string | null; platform: string | null; kind: string | null }
+      | undefined;
     if (!booted || booted.state !== 'Booted') return reply.code(409).send({ error: 'device not booted' });
+    if (booted.kind !== 'simulator') {
+      return reply.code(422).send({ error: 'live stream is simulator-only (no MJPEG source for physical devices)', code: 'SIM_ONLY' });
+    }
     const alloy = crucibleAlloy();
     const r = (await alloy.dispatch('alloy_stream', { udid }, alloyDispatchDepsSync())) as
       | { ok: true; result: { streamUrl: string; platform: string } }

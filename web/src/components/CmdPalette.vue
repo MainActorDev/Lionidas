@@ -18,17 +18,37 @@ async function recentTickets(): Promise<string[]> {
   const runs = (await res.json() as { runs: Array<{ ticket_key: string }> }).runs;
   return [...new Set(runs.map((r) => r.ticket_key))].slice(0, 6);
 }
+async function bootedDevices(): Promise<Array<{ udid: string; name: string; kind: string | null }>> {
+  const res = await fetch('/api/devices');
+  const body = (await res.json()) as { devices: Array<{ udid: string; name: string | null; state: string | null; kind: string | null }> };
+  const list: Array<{ udid: string; name: string; kind: string | null }> = [];
+  for (const d of body.devices) {
+    if (d.state === 'Booted') list.push({ udid: d.udid, name: d.name ?? d.udid.slice(0, 8), kind: d.kind });
+  }
+  return list;
+}
 const tickets = ref<string[]>([]);
+const devices = ref<Array<{ udid: string; name: string; kind: string | null }>>([]);
 void recentTickets().then((t) => (tickets.value = t));
+void bootedDevices().then((d) => (devices.value = d));
 
 const commands = computed<Command[]>(() => {
   const base: Command[] = [
     { label: 'wall', hint: 'devices + queue', run: () => router.push('/') },
+    { label: 'new run', hint: 'queue a ticket run', run: () => router.push('/?new=1') },
     { label: 'runs', hint: 'history', run: () => router.push('/runs') },
     { label: 'forge', hint: 'traffic inspector', run: () => router.push('/forge') },
     { label: 'baselines', hint: 'judgments', run: () => router.push('/baselines') },
     { label: 'flakes', hint: 'quarantine', run: () => router.push('/flakes') },
+    { label: 'how to use', hint: 'guide', run: () => router.push('/guide') },
   ];
+  for (const d of devices.value) {
+    base.push({
+      label: `watch ${d.name}`,
+      hint: d.kind === 'simulator' ? 'live stream' : 'live stream (sim-only)',
+      run: () => router.push(`/?watch=${encodeURIComponent(d.udid)}`),
+    });
+  }
   for (const t of tickets.value) {
     base.push({ label: `ticket ${t}`, hint: 'matrix', run: () => router.push(`/tickets/${t}`) });
   }
@@ -49,6 +69,7 @@ function onKey(e: KeyboardEvent): void {
     e.preventDefault();
     open.value = !open.value;
     query.value = '';
+    void bootedDevices().then((d) => (devices.value = d)); // refresh for freshly booted sims
     return;
   }
   if (!open.value) return;
@@ -66,7 +87,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
   <Teleport to="body">
     <div v-if="open" class="palette-backdrop" @click.self="open = false">
       <div class="palette">
-        <input ref="paletteInput" v-model="query" placeholder="jump to…" class="palette-input" />
+        <input ref="paletteInput" v-model="query" placeholder="jump to… (wall, new run, watch <device>, ticket)" class="palette-input" />
         <div v-for="(c, i) in commands" :key="c.label" class="palette-item" :class="{ active: i === selectedIndex }" @click="execute(c)" @mousemove="selectedIndex = i">
           <span>{{ c.label }}</span>
           <span style="color: var(--color-steel);">{{ c.hint }}</span>

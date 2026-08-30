@@ -1,28 +1,25 @@
-/** Low-latency stream relay: MJPEG source → JPEG recompress → WS binary frames.
+/** Low-latency stream relay: MJPEG source → passthrough → WS binary frames.
  *
  *  Pipeline (per watching client):
- *    engine MJPEG (200KB frames, 1-5fps) → boundary-split → sharp recompress
- *    (target 30-60KB, quality 70, half scale) → LATEST-WINS queue (max 1 frame
- *    buffered — stale frames dropped, never queued) → WS binary frame → browser
- *    createImageBitmap → canvas.drawImage (off-main-thread decode, zero multipart
- *    parser, zero <img> buffering).
+ *    engine MJPEG (~300KB full-res frames, emit-on-change) → boundary-split
+ *    → LATEST-WINS queue (max 1 frame buffered — stale frames dropped, never
+ *    queued) → WS binary frame → browser createImageBitmap → canvas.drawImage.
+ *
+ *  No recompression: full-res mozjpeg encode costs ~91ms/frame and the serial
+ *  pump made interaction lag snowball; localhost transport is effectively free.
  *
  *  Multiple clients share ONE upstream connection (fan-out), each with its own
  *  coalescing queue.
  */
 import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
-import type Sharp from 'sharp';
-let sharpModule: typeof Sharp | null = null;
-async function getSharp(): Promise<typeof Sharp> {
-  if (!sharpModule) sharpModule = (await import('sharp')).default;
-  return sharpModule;
-}
 
 interface StreamClient {
   socket: WebSocket;
   latestFrame: Buffer | null;   // LATEST-WINS: max 1 frame buffered
   sending: boolean;
+  /** resolves when the first frame has been sent — lets the route reject fast if the upstream is dead */
+  firstFrameSent: () => void;
 }
 
 interface UpstreamSubscription {
@@ -33,6 +30,8 @@ interface UpstreamSubscription {
 }
 
 const upstreams = new Map<string, UpstreamSubscription>();
+
+const FIRST_FRAME_TIMEOUT_MS = 10_000;
 
 async function pumpUpstream(url: string, sub: UpstreamSubscription): Promise<void> {
   const boundary = Buffer.from('--NextFrame');
@@ -64,19 +63,16 @@ async function pumpUpstream(url: string, sub: UpstreamSubscription): Promise<voi
           const jpeg = chunk.slice(soi, eoi + 2);
           if (jpeg.length < 500) continue; // noise
 
-          // recompress: half scale, quality 70 → ~10-30KB (from 200KB)
-          try {
-            const sharp = await getSharp();
-            const compressed = await sharp(jpeg)
-              .resize({ width: 201 })  // half of 402
-              .jpeg({ quality: 70, mozjpeg: true })
-              .toBuffer();
-            // fan out to all clients — LATEST-WINS per client
-            for (const c of sub.clients) {
-              c.latestFrame = compressed;
-              void drain(c);
-            }
-          } catch { /* corrupt frame — skip */ }
+          // TRANSPORT = passthrough. The engine's JPEG is already well-compressed
+          // (~300KB at 1284w); recompressing at full-res costs 91ms/frame (mozjpeg)
+          // — the serial encode made interaction lag snowball. Localhost WS moves
+          // the frame in <5ms, so ship it as-is and let the browser decode.
+          // LATEST-WINS per client keeps memory flat even at burst framerates.
+          const frame = jpeg;
+          for (const c of sub.clients) {
+            c.latestFrame = frame;
+            void drain(c);
+          }
         }
         // prevent unbounded buffer if no boundary found
         if (buf.length > 5_000_000) buf = buf.slice(-100_000);
@@ -96,6 +92,7 @@ async function drain(c: StreamClient): Promise<void> {
   c.latestFrame = null; // next frame replaces this slot while sending
   try {
     c.socket.send(frame, { binary: true });
+    c.firstFrameSent();
   } catch { /* client gone */ }
   c.sending = false;
   // if a newer frame arrived while sending, send it too
@@ -131,10 +128,19 @@ export async function registerStreamRelay(app: FastifyInstance): Promise<void> {
           upstreams.set(url, sub);
         }
 
-        const client: StreamClient = { socket, latestFrame: null, sending: false };
+        // If this upstream never yields a frame (engine died right after URL handout),
+        // fail fast with a typed reason instead of a silent black canvas.
+        let onFirstFrame: (() => void) | null = null;
+        const firstFramePromise = new Promise<void>((resolve) => { onFirstFrame = resolve; });
+        const client: StreamClient = { socket, latestFrame: null, sending: false, firstFrameSent: () => onFirstFrame?.() };
         sub.clients.add(client);
         sub.refCount++;
         void pumpUpstream(url, sub);
+
+        const firstTimer = setTimeout(() => {
+          try { socket.send(JSON.stringify({ error: 'no frames from stream source (timeout)' })); socket.close(); } catch { /* gone */ }
+        }, FIRST_FRAME_TIMEOUT_MS);
+        firstFramePromise.then(() => clearTimeout(firstTimer));
 
         socket.on('close', () => {
           sub!.clients.delete(client);

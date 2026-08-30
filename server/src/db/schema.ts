@@ -169,6 +169,8 @@ export function migrateM1(db: Database.Database): void {
       udid TEXT PRIMARY KEY,
       name TEXT,
       state TEXT,
+      platform TEXT,
+      kind TEXT,
       lease_holder TEXT,
       lease_engine TEXT,
       last_seen INTEGER NOT NULL
@@ -176,7 +178,12 @@ export function migrateM1(db: Database.Database): void {
   `);
   db.prepare("INSERT OR IGNORE INTO schema_meta(key, value) VALUES ('schema_version', '1')").run();
   // M3 additions (guarded ALTERs — idempotent on existing DBs)
-  for (const col of ["ALTER TABLE runs ADD COLUMN jira_comment_id TEXT"]) {
+  for (const col of [
+    'ALTER TABLE runs ADD COLUMN jira_comment_id TEXT',
+    // device mirror gains platform/kind (sim vs physical vs host) — older DBs lack the columns
+    'ALTER TABLE devices ADD COLUMN platform TEXT',
+    'ALTER TABLE devices ADD COLUMN kind TEXT',
+  ]) {
     try { db.exec(col); } catch { /* column exists */ }
   }
 }

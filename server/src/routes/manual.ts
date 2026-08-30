@@ -31,8 +31,8 @@ app: FastifyInstance, db: Database.Database, deps: { bus: TypedEventBus<AppEvent
     const b = req.body as { udid?: string; operator?: string };
     if (!b.udid || !b.operator) return reply.code(400).send({ error: 'udid and operator required' });
     try {
-      const sessionId = await startManualSession({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, b.udid, b.operator);
-      return { sessionId };
+      const s = await startManualSession({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, b.udid, b.operator);
+      return s;
     } catch (err) {
       if (err instanceof ManualSessionError) return reply.code(err.code === 'QUEUE_ACTIVE' ? 409 : 410).send({ error: err.message, code: err.code });
       throw err;

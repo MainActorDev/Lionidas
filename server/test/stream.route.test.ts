@@ -18,7 +18,7 @@ describe('POST /api/devices/:udid/stream (S1)', () => {
     expect(res.statusCode).toBe(409);
   });
   it('booted + alloy_stream succeeds → streamUrl passthrough', async () => {
-    app.db.raw.prepare(`INSERT INTO devices(udid,name,state,last_seen) VALUES ('S2','sim','Booted',?)`).run(Date.now());
+    app.db.raw.prepare(`INSERT INTO devices(udid,name,state,platform,kind,last_seen) VALUES ('S2','sim','Booted','ios','simulator',?)`).run(Date.now());
     const { crucibleAlloy } = await import('../src/alloy/client.ts');
     const alloy = crucibleAlloy() as unknown as Record<string, (...a: unknown[]) => unknown>;
     (alloy['clearRegistryForTests'] as () => void)();
@@ -32,7 +32,7 @@ describe('POST /api/devices/:udid/stream (S1)', () => {
     expect(body.platform).toBe('ios');
   });
   it('engine error → 503 with reason (degraded, not crash)', async () => {
-    app.db.raw.prepare(`INSERT INTO devices(udid,name,state,last_seen) VALUES ('S3','sim','Booted',?)`).run(Date.now());
+    app.db.raw.prepare(`INSERT INTO devices(udid,name,state,platform,kind,last_seen) VALUES ('S3','sim','Booted','ios','simulator',?)`).run(Date.now());
     const { crucibleAlloy } = await import('../src/alloy/client.ts');
     const alloy = crucibleAlloy() as unknown as Record<string, (...a: unknown[]) => unknown>;
     (alloy['clearRegistryForTests'] as () => void)();

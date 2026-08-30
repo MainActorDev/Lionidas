@@ -20,7 +20,7 @@ export class ManualSessionError extends Error {
   }
 }
 
-export function startManualSession(deps: ManualDeps, udid: string, operator: string): Promise<string> {
+export function startManualSession(deps: ManualDeps, udid: string, operator: string): Promise<{ sessionId: string; logicalW: number | null; logicalH: number | null }> {
   return (async () => {
     const alloy = crucibleAlloy();
     const busy = deps.db
@@ -59,7 +59,7 @@ export function startManualSession(deps: ManualDeps, udid: string, operator: str
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(sessionId, runId, udid, operator, w, h, Date.now(), Date.now());
     deps.bus.emit('manual.session.open', { sessionId, udid, operator, runId });
-    return sessionId;
+    return { sessionId, logicalW: w, logicalH: h };
   })();
 }
 

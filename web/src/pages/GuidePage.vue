@@ -89,16 +89,18 @@ const groups = computed(() => {
 
         <div class="section-label">reading a tile</div>
         <div class="card">
-          <div class="meta-row"><span class="k">green border</span><b>device is booted and ready</b></div>
+          <div class="meta-row"><span class="k">status + kind</span><b>booted/shutdown, and simulator vs physical — the two live on different rows</b></div>
           <div class="meta-row"><span class="k">lease: free</span><b>nobody's driving it — safe to queue a run</b></div>
           <div class="meta-row"><span class="k">lease: ▸ manual</span><b>a human is driving it right now (amber badge)</b></div>
           <div class="meta-row"><span class="k">lease: other</span><b>an automated run holds it — the holder name tells you which</b></div>
+          <div class="meta-row"><span class="k">last run</span><b>ticket + outcome of the latest automated run on this device</b></div>
         </div>
 
         <div class="section-label">actions</div>
         <div class="card">
-          <div class="meta-row"><span class="k">watch</span><b>live MJPEG video stream of the screen (read-only — takes no lease, blocks nothing)</b></div>
+          <div class="meta-row"><span class="k">watch</span><b>live MJPEG video stream of the screen (read-only — takes no lease, blocks nothing). Simulators only — physical devices have no stream source</b></div>
           <div class="meta-row"><span class="k">take control</span><b>opens the drive cockpit — you tap the screen directly</b></div>
+          <div class="meta-row"><span class="k">shut down / boot</span><b>power-cycle a simulator (blocked while a run or manual session holds it)</b></div>
           <div class="meta-row"><span class="k">+ new run</span><b>opens the run form (ticket, flows, device, app, artifact)</b></div>
           <div class="meta-row"><span class="k">ticket… box</span><b>type a ticket key + Enter → jump straight to its matrix</b></div>
         </div>
@@ -277,7 +279,9 @@ const groups = computed(() => {
 
         <div class="card">
           <div class="meta-row"><span class="k">start</span><b>opens a lease on the device (automated runs wait — you have priority)</b></div>
-          <div class="meta-row"><span class="k">tap</span><b>click the canvas — the tap lands at the same point on the real screen</b></div>
+          <div class="meta-row"><span class="k">tap</span><b>click the canvas — the tap lands at the same point on the real screen, coordinates map exactly</b></div>
+          <div class="meta-row"><span class="k">feedback</span><b>a ring shows your tap instantly; a fresh screenshot follows within a beat — you never wait on the stream's idle cadence</b></div>
+          <div class="meta-row"><span class="k">scroll</span><b>dpad arrows scroll the screen in that direction</b></div>
           <div class="meta-row"><span class="k">finish</span><b>releases the device — queued runs start immediately</b></div>
           <div class="meta-row"><span class="k">idle 5min</span><b>auto-finish (crash safety — a dead browser can't hold a device forever)</b></div>
         </div>
@@ -295,7 +299,7 @@ const groups = computed(() => {
       <div v-if="active === 'shortcuts'">
         <div class="page-title">keyboard</div>
         <div class="card">
-          <div class="meta-row"><span class="k">⌘K</span><b>command palette — jump to any page or recent ticket</b></div>
+          <div class="meta-row"><span class="k">⌘K</span><b>command palette — jump to any page, watch a device, start a run, or open a recent ticket</b></div>
           <div class="meta-row"><span class="k">↑ ↓</span><b>navigate palette results</b></div>
           <div class="meta-row"><span class="k">↵</span><b>open the selected result</b></div>
           <div class="meta-row"><span class="k">esc</span><b>close the palette</b></div>

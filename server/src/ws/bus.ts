@@ -1,7 +1,7 @@
 /** Typed pub/sub event bus. The taxonomy grows per phase; the impl never changes. */
 export type AppEvents = {
   'app.ready': { version: string };
-  'device.changed': { udid: string; name: string | null; state: string | null; lease_holder: string | null; lease_engine: string | null };
+  'device.changed': { udid: string; name: string | null; state: string | null; platform?: string | null; kind?: string | null; lease_holder: string | null; lease_engine: string | null };
   'run.started': { runId: string; ticketKey: string };
   'run.freshness.checked': { runId: string; freshness: string };
   'step.started': { runId: string; idx: number; flow: string };
