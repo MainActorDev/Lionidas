@@ -19,56 +19,43 @@ async function decide(id: string, action: 'approve' | 'reject'): Promise<void> {
     body: JSON.stringify({ by: 'dashboard' }),
   });
   const body = await res.json() as { approved?: boolean; rejected?: boolean; withRerun?: boolean };
-  decided.value = `${id} → ${action}${body.withRerun ? ' (baseline flow re-run w/ updateBaselines)' : ''}`;
+  decided.value = `${id} → ${action}${body.withRerun ? ' (baseline re-run)' : ''}`;
   await load();
 }
 onMounted(load);
 </script>
 
 <template>
-  <main class="page">
-    <header class="head">
-      <h1>Baseline approvals</h1>
-      <RouterLink to="/runs" class="mono dim">← runs</RouterLink>
-    </header>
-    <p v-if="decided" class="mono ok">{{ decided }}</p>
-    <p v-if="diffs.length === 0" class="dim">No pending baseline diffs — nothing needs judgment.</p>
+  <div>
+    <div class="page-header">
+      <div>
+        <div class="page-title">baselines</div>
+        <div class="page-desc">{{ diffs.length }} pending judgment{{ diffs.length === 1 ? '' : 's' }}</div>
+      </div>
+    </div>
 
-    <article v-for="d in diffs" :key="d.id" class="card">
-      <header>
-        <strong class="mono">{{ d.scope_key }}</strong>
-        <span class="mono dim">run {{ d.run_id }}</span>
-      </header>
+    <div v-if="decided" class="meta-row">{{ decided }}</div>
+    <div v-if="diffs.length === 0" class="empty">no pending diffs — nothing needs judgment</div>
+
+    <div v-for="d in diffs" :key="d.id" class="card card-accent">
+      <div class="card-header">
+        <span class="card-title">{{ d.scope_key }}</span>
+        <span class="badge">run {{ d.run_id }}</span>
+      </div>
       <div class="compare">
         <figure>
           <img v-if="d.old_image_path" :src="`/api/evidence/byPath?path=${encodeURIComponent(d.old_image_path)}`" alt="baseline" />
-          <figcaption class="mono dim">baseline ({{ d.old_sha?.slice(0, 8) ?? 'none' }})</figcaption>
+          <figcaption>baseline · {{ d.old_sha?.slice(0, 8) ?? 'none' }}</figcaption>
         </figure>
         <figure>
           <img v-if="d.evidence_id" :src="`/api/evidence/${d.evidence_id}/file`" alt="current" />
-          <figcaption class="mono dim">current ({{ d.new_sha.slice(0, 8) }})</figcaption>
+          <figcaption>current · {{ d.new_sha.slice(0, 8) }}</figcaption>
         </figure>
       </div>
-      <footer>
-        <button class="approve" @click="decide(d.id, 'approve')">Approve — UI changed legitimately</button>
-        <button class="reject" @click="decide(d.id, 'reject')">Reject — regression stands</button>
-      </footer>
-    </article>
-  </main>
+      <div style="display: flex; gap: var(--s-2); margin-top: var(--s-3);">
+        <button class="btn btn-primary" @click="decide(d.id, 'approve')">approve — intentional change</button>
+        <button class="btn btn-danger" @click="decide(d.id, 'reject')">reject — regression</button>
+      </div>
+    </div>
+  </div>
 </template>
-
-<style scoped>
-.page { padding: var(--s6); max-width: 1000px; }
-.head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: var(--s4); }
-h1 { font-size: var(--text-base); font-weight: 600; margin: 0; }
-.ok { color: var(--pass); }
-.card { border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); padding: var(--s4); margin-bottom: var(--s4); }
-.card header { display: flex; justify-content: space-between; margin-bottom: var(--s2); }
-.compare { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); }
-.compare img { width: 100%; border: 1px solid var(--border); border-radius: var(--radius-ctl); display: block; }
-figcaption { margin-top: var(--s1); }
-footer { display: flex; gap: var(--s2); margin-top: var(--s3); }
-button { border: 1px solid var(--border); background: var(--bg); color: var(--fg); border-radius: var(--radius-ctl); padding: var(--s2) var(--s3); cursor: pointer; font-size: var(--text-sm); }
-.approve { border-color: var(--pass); color: var(--pass); }
-.reject { border-color: var(--fail); color: var(--fail); }
-</style>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
-import TriagePanel from '../components/TriagePanel.vue';
 import { useRoute } from 'vue-router';
+import TriagePanel from '../components/TriagePanel.vue';
 
 interface Step { idx: number; flow_name: string; kind: string; name: string; status: string; reason: string | null; duration_ms: number; evidence_ids_json: string }
 interface Run { id: string; ticket_key: string; status: string; kind: string; triggered_by: string; device_udid: string; artifact_hash: string | null; freshness: string; launch_args_json: string; started_at: number | null; finished_at: number | null }
@@ -11,8 +11,6 @@ const runId = route.params.id as string;
 const run = ref<Run | null>(null);
 const steps = ref<Step[]>([]);
 let ws: WebSocket | null = null;
-
-const statusShape: Record<string, string> = { pass: '●', fail: '▲', skip: '○', error: '▲', passed: '●', failed: '▲', running: '◆' };
 
 async function load(): Promise<void> {
   const [r, s] = await Promise.all([
@@ -36,7 +34,7 @@ onMounted(() => {
       const s = steps.value.find((x) => x.idx === idx);
       if (s) { s.status = ev.payload['status'] as string; s.duration_ms = ev.payload['durationMs'] as number; }
     } else if (ev.type === 'run.finished' && ev.payload['runId'] === runId) {
-      load(); // final truth from db
+      load();
     }
   };
 });
@@ -44,38 +42,45 @@ onUnmounted(() => ws?.close());
 </script>
 
 <template>
-  <main class="page">
-    <header v-if="run" class="head">
-      <h1>{{ run.id }} <span :class="run.status">{{ statusShape[run.status] ?? '○' }} {{ run.status }}</span></h1>
-      <span class="mono dim">{{ run.ticket_key }} · {{ run.kind }} · by {{ run.triggered_by }}</span>
-    </header>
-    <section v-if="run" class="meta mono">
-      <div>device <b>{{ run.device_udid.slice(0, 8) }}…</b></div>
-      <div>artifact <b>{{ run.artifact_hash?.slice(0, 12) ?? '—' }}</b> <span v-if="run.freshness === 'stale_ignored'" class="stale">⚠ artifact older than source</span></div>
-      <div>launch args <b>{{ run.launch_args_json }}</b></div>
-    </section>
-    <ol class="steps">
-      <li v-for="s in steps" :key="s.idx" class="step" :class="s.status">
-        <span class="shape">{{ statusShape[s.status] ?? '○' }}</span>
-        <span class="name mono">{{ s.flow_name }}</span>
-        <span class="dur mono dim">{{ s.duration_ms }}ms</span>
-        <span v-if="s.reason" class="reason">{{ s.reason }}</span>
-      </li>
-    </ol>
-    <TriagePanel :key="runId" />
-  </main>
-</template>
+  <div v-if="run">
+    <div class="page-header">
+      <div>
+        <div class="page-title">{{ run.id }}</div>
+        <div class="page-desc">
+          <RouterLink :to="`/tickets/${run.ticket_key}`" style="color: inherit;">{{ run.ticket_key }}</RouterLink>
+          · {{ run.kind }} · by {{ run.triggered_by }} · {{ run.started_at ? new Date(run.started_at).toLocaleString() : '' }}
+        </div>
+      </div>
+      <span class="status" :class="`status-${run.status}`">{{ run.status }}</span>
+    </div>
 
-<style scoped>
-.page { padding: var(--s6); }
-.head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: var(--s2); }
-h1 { font-size: var(--text-base); font-weight: 600; margin: 0; }
-.meta { display: flex; gap: var(--s6); color: var(--fg-dim); margin-bottom: var(--s4); flex-wrap: wrap; }
-.meta b { color: var(--fg); font-weight: 500; }
-.stale { color: var(--amber); }
-.steps { list-style: none; padding: 0; margin: 0; }
-.step { display: flex; gap: var(--s2); align-items: baseline; padding: var(--s2) 0; border-bottom: 1px solid var(--border); }
-.shape { width: 1.2em; }
-.pass { color: var(--pass); } .fail, .error { color: var(--fail); } .running { color: var(--fg-dim); }
-.reason { color: var(--fg-dim); font-size: var(--text-sm); margin-left: auto; max-width: 40%; text-align: right; }
-</style>
+    <div class="card">
+      <div class="meta-row"><span class="k">device</span><b>{{ run.device_udid.slice(0, 8) }}…</b></div>
+      <div class="meta-row"><span class="k">artifact</span><b>{{ run.artifact_hash?.slice(0, 12) ?? '—' }}</b></div>
+      <div class="meta-row">
+        <span class="k">freshness</span>
+        <b>{{ run.freshness }}</b>
+        <span v-if="run.freshness === 'stale_ignored'" class="badge badge-accent">⚠ older than source</span>
+      </div>
+      <div class="meta-row"><span class="k">launch args</span><b>{{ run.launch_args_json }}</b></div>
+    </div>
+
+    <div class="section-label">steps</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>flow</th><th>status</th><th>duration</th><th>reason</th></tr></thead>
+        <tbody>
+          <tr v-for="s in steps" :key="s.idx" style="cursor: default;">
+            <td style="color: var(--color-steel);">{{ s.idx }}</td>
+            <td>{{ s.flow_name }}</td>
+            <td><span class="status" :class="`status-${s.status}`">{{ s.status }}</span></td>
+            <td style="color: var(--color-ash);">{{ s.duration_ms }}ms</td>
+            <td style="color: var(--color-steel); font-size: var(--text-caption); max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ s.reason ?? '' }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <TriagePanel :key="runId" />
+  </div>
+</template>

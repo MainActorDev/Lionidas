@@ -9,7 +9,6 @@ const snapSrc = ref<string>('');
 const busy = ref(false);
 const error = ref('');
 const operator = ref('qa');
-const logical = ref<{ w: number | null; h: number | null }>({ w: null, h: null });
 
 async function api(path: string, body?: unknown): Promise<Record<string, unknown>> {
   const res = await fetch(`/api/manual/${path}`, {
@@ -37,16 +36,16 @@ async function refresh(): Promise<void> {
   if (!sessionId.value) return;
   const r = await api(`${sessionId.value}/snapshot`);
   if (typeof r['path'] === 'string') {
-    // serve via a signed local file? simplest: screenshot file read through evidence-less static
-    snapSrc.value = `/api/manual-frame?path=${encodeURIComponent(r['path'])}`;
+    snapSrc.value = `/api/manual-frame?path=${encodeURIComponent(r['path'] as string)}&t=${Date.now()}`;
   } else if (r['error']) error.value = String(r['error']);
 }
 
 async function onTap(e: MouseEvent): Promise<void> {
   if (!sessionId.value || !(e.target instanceof HTMLImageElement)) return;
-  const rect = e.target.getBoundingClientRect();
-  const x = Math.round(((e.clientX - rect.left) / rect.width) * (logical.value.w ?? rect.width));
-  const y = Math.round(((e.clientY - rect.top) / rect.height) * (logical.value.h ?? rect.height));
+  const img = e.target;
+  const rect = img.getBoundingClientRect();
+  const x = Math.round(((e.clientX - rect.left) / rect.width) * img.naturalWidth);
+  const y = Math.round(((e.clientY - rect.top) / rect.height) * img.naturalHeight);
   busy.value = true;
   try {
     await api(`${sessionId.value}/tap`, { x, y });
@@ -67,55 +66,39 @@ async function finish(): Promise<void> {
   snapSrc.value = '';
 }
 
-let ws: WebSocket | null = null;
-onMounted(() => {
-  // observer mode: other tabs see taps live
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/api/events`);
-});
-onUnmounted(() => { ws?.close(); void finish(); });
-void 0;
+onUnmounted(() => { void finish(); });
 </script>
 
 <template>
-  <main class="page">
-    <header class="head">
-      <h1>Drive <span class="mono dim">{{ udid.slice(0, 8) }}…</span> <span class="manual-badge">MANUAL — never counts</span></h1>
-      <RouterLink to="/" class="mono dim">← wall</RouterLink>
-    </header>
+  <div style="max-width: 480px;">
+    <div class="page-header">
+      <div>
+        <div class="page-title">drive · {{ udid.slice(0, 8) }}…</div>
+        <div class="page-desc">manual session — never counts toward AC status</div>
+      </div>
+      <span class="badge badge-accent">manual</span>
+    </div>
 
-    <p v-if="!sessionId" class="start">
-      <label class="mono">operator <input v-model="operator" /></label>
-      <button :disabled="busy || !udid" @click="start">{{ busy ? 'starting…' : 'Take control' }}</button>
-      <span v-if="error" class="err">{{ error }}</span>
-    </p>
+    <div v-if="!sessionId" class="card">
+      <div class="meta-row"><span class="k">operator</span><input v-model="operator" style="width: 160px;" /></div>
+      <div style="margin-top: var(--s-3);">
+        <button class="btn btn-primary" :disabled="busy || !udid" @click="start">{{ busy ? 'starting…' : 'take control' }}</button>
+      </div>
+      <div v-if="error" class="meta-row" style="color: var(--color-ember);">{{ error }}</div>
+    </div>
 
     <template v-else>
-      <div class="screen" :class="{ busy }">
-        <img v-if="snapSrc" :src="snapSrc" alt="device screen" @click="onTap" />
-        <p v-else class="dim">loading screen…</p>
+      <div class="card" style="padding: var(--s-2);">
+        <img v-if="snapSrc" :src="snapSrc" alt="device screen" @click="onTap" style="width: 100%; display: block; cursor: crosshair; border-radius: var(--r-sm);" />
+        <div v-else class="empty" style="border: none;">loading screen…</div>
       </div>
-      <div class="controls">
-        <button @click="refresh()">Refresh</button>
-        <button @click="scroll('up')">↑</button>
-        <button @click="scroll('down')">↓</button>
-        <button class="finish" @click="finish">Finish</button>
+      <div style="display: flex; gap: var(--s-2); margin-top: var(--s-3);">
+        <button class="btn btn-sm" @click="refresh()">refresh</button>
+        <button class="btn btn-sm" @click="scroll('up')">↑</button>
+        <button class="btn btn-sm" @click="scroll('down')">↓</button>
+        <span style="flex: 1;"></span>
+        <button class="btn btn-sm btn-danger" @click="finish">finish</button>
       </div>
     </template>
-  </main>
+  </div>
 </template>
-
-<style scoped>
-.page { padding: var(--s6); }
-.head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: var(--s4); }
-h1 { font-size: var(--text-base); font-weight: 600; margin: 0; display: flex; gap: var(--s2); align-items: baseline; }
-.manual-badge { color: var(--amber); font-size: var(--text-xs); border: 1px solid var(--amber); border-radius: var(--radius-ctl); padding: 1px var(--s2); }
-.start { display: flex; gap: var(--s3); align-items: center; }
-input { background: var(--surface); border: 1px solid var(--border); color: var(--fg); border-radius: var(--radius-ctl); padding: var(--s1) var(--s2); }
-.err { color: var(--fail); font-size: var(--text-sm); }
-.screen { max-width: 420px; border: 1px solid var(--border); border-radius: var(--radius-card); overflow: hidden; background: var(--surface); }
-.screen img { display: block; width: 100%; cursor: crosshair; }
-.controls { display: flex; gap: var(--s2); margin-top: var(--s3); }
-button { border: 1px solid var(--border); background: var(--surface); color: var(--fg); border-radius: var(--radius-ctl); padding: var(--s2) var(--s3); cursor: pointer; font-size: var(--text-sm); }
-.finish { border-color: var(--fail); color: var(--fail); }
-</style>
