@@ -43,7 +43,7 @@ async function startMitm(): Promise<void> {
 }
 
 // ── Simulator routing: sims inherit the HOST proxy at boot ──
-interface RoutingState { enabled: boolean; service: string | null; host: string | null; port: number | null }
+interface RoutingState { enabled: boolean; service: string | null; host: string | null; port: number | null; caReady?: boolean; trustedSims?: number }
 const routing = ref<RoutingState>({ enabled: false, service: null, host: null, port: null });
 const routingBusy = ref(false);
 async function loadRouting(): Promise<void> {
@@ -148,7 +148,8 @@ onUnmounted(() => { unwatch(); live.release(); });
 
     <div style="display: flex; justify-content: space-between; align-items: baseline; gap: var(--s-4); margin-bottom: var(--s-4); font-size: var(--text-caption); color: var(--color-steel);">
       <span>{{ MODE_HELP[mode] ?? '' }}</span>
-      <span>mode is global — it applies to every request through the proxy</span>
+      <span v-if="routing.enabled && !mitm.running" style="color: var(--color-ember);">proxy down — internet restored, click start proxy + route sims again</span>
+      <span v-else>mode is global — it applies to every request through the proxy</span>
     </div>
 
     <div v-if="msg" class="meta-row">{{ msg }}</div>

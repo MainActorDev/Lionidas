@@ -7,6 +7,8 @@
  *  network service, then reboot the sims. Charles/Proxyman do exactly this.
  */
 import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 function sh(cmd: string, args: string[]): string {
   return execFileSync(cmd, args, { encoding: 'utf8' }).trim();
@@ -61,6 +63,41 @@ export function installRootCertToSims(certPath: string): string[] {
     }
   }
   return installed;
+}
+
+/** Ensure the Apple-compliant CA hierarchy exists at confdir. mitmproxy's
+ *  DEFAULT CA signs leaves directly with the root — iOS strict TLS rejects
+ *  that ('leaf MissingIntermediate' → NSURLError -1200). Generate a proper
+ *  root → intermediate hierarchy on first use so a fresh machine never
+ *  silently falls back to the broken default. */
+export function ensureForgeCa(confdir: string): { created: boolean; rootCertPath: string } {
+  const caPem = join(confdir, 'mitmproxy-ca.pem');
+  if (existsSync(caPem)) return { created: false, rootCertPath: join(confdir, 'root.crt') };
+  mkdirSync(confdir, { recursive: true });
+  const run = (args: string[]): void => {
+    try { execFileSync('openssl', args, { stdio: 'ignore' }); } catch (err) {
+      throw new Error(`CA generation failed (openssl ${args[0]}…): ${err instanceof Error ? err.message : String(err)} — run scripts/setup-forge-tls.command manually`);
+    }
+  };
+  run(['req', '-x509', '-newkey', 'rsa:2048', '-sha256', '-days', '3650', '-nodes',
+    '-keyout', join(confdir, 'root.key'), '-out', join(confdir, 'root.crt'),
+    '-subj', '/CN=Forge Root/O=Crucible',
+    '-addext', 'basicConstraints=critical,CA:TRUE',
+    '-addext', 'keyUsage=critical,keyCertSign,cRLSign']);
+  run(['req', '-newkey', 'rsa:2048', '-nodes',
+    '-keyout', join(confdir, 'int.key'), '-out', join(confdir, 'int.csr'),
+    '-subj', '/CN=Forge Intermediate/O=Crucible']);
+  // intermediate extension config (openssl needs a real file for -extfile)
+  const extPath = join(confdir, 'int.ext');
+  writeFileSync(extPath, 'basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\n');
+  run(['x509', '-req', '-in', join(confdir, 'int.csr'),
+    '-CA', join(confdir, 'root.crt'), '-CAkey', join(confdir, 'root.key'), '-CAcreateserial',
+    '-days', '1825', '-sha256', '-out', join(confdir, 'int.crt'),
+    '-extfile', extPath]);
+  // mitmproxy confdir contract: mitmproxy-ca.pem = signing key + cert chain
+  const ca = [readFileSync(join(confdir, 'int.key'), 'utf8'), readFileSync(join(confdir, 'int.crt'), 'utf8'), readFileSync(join(confdir, 'root.crt'), 'utf8')].join('');
+  writeFileSync(caPem, ca, { mode: 0o600 });
+  return { created: true, rootCertPath: join(confdir, 'root.crt') };
 }
 
 /** Point the host (and thus sims, after reboot) at the forge proxy. */

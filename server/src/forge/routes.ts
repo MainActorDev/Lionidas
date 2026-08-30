@@ -7,6 +7,7 @@ import { matchPreset, type Preset } from './matcher.ts';
 import { startMitm, stopMitmIfRunning, writeStateFile, mitmRunning } from './mitm/manager.ts';
 import { simRoutingState, enableSimRouting, disableSimRouting, installRootCertToSims } from './sim-routing.ts';
 import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 
 
 export function registerForgeRoutes(app: FastifyInstance, db: Database.Database, forgeState: ForgeState, forgeBus?: { emit: (type: never, payload: never) => void }): void {
@@ -188,7 +189,13 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
 
   // Simulator traffic routing: host proxy + sim reboot (PLAN §15.4 — documented
   // toolchain-boundary exception; promoted into Alloy settings once stable).
-  app.get('/api/forge/sim-routing', async () => simRoutingState());
+  app.get('/api/forge/sim-routing', async () => {
+    const state = simRoutingState();
+    // caReady: hierarchy exists (bootstrap runs on proxy start). A missing CA
+    // with routing on would mean plain-HTTP-only capture — surface it.
+    const confdir = process.env['CRUCIBLE_MITM_CONFDIR'] ?? `${process.env['HOME'] ?? '/tmp'}/.forge-ca`;
+    return { ...state, caReady: existsSync(join(confdir, 'mitmproxy-ca.pem')) };
+  });
   app.post('/api/forge/sim-routing', async (req, reply) => {
     const b = req.body as { enabled?: boolean };
     try {

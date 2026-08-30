@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import type { TypedEventBus, AppEvents } from '../../ws/bus.ts';
 import type { Preset } from '../matcher.ts';
+import { ensureForgeCa, disableSimRouting } from '../sim-routing.ts';
 
 export interface MitmDeps {
   db: Database.Database;
@@ -80,6 +81,13 @@ export async function startMitm(deps: MitmDeps, port = 0): Promise<MitmHandle> {
   // reset tail to end-of-file if a previous file exists (idempotent restart)
   try { tailOffset = fstatSync(openSync(join(deps.stateDir, 'traffic.ndjson'), 'r')).size; } catch { tailOffset = 0; }
 
+  // CA bootstrap: generate the Apple-compliant hierarchy on first use. Without
+  // this, a fresh confdir would make mitmdump silently create its DEFAULT CA
+  // (leaf signed directly by root) — exactly the 'MissingIntermediate' failure
+  // this whole rig exists to prevent.
+  const confdir = process.env['CRUCIBLE_MITM_CONFDIR'] ?? `${process.env['HOME'] ?? '/tmp'}/.forge-ca`;
+  ensureForgeCa(confdir);
+
   // pick a free port ourselves: mitmdump has no port-0 mode (0 → default 8080)
   let listenPort = port;
   if (!listenPort || listenPort <= 0) {
@@ -102,7 +110,7 @@ export async function startMitm(deps: MitmDeps, port = 0): Promise<MitmHandle> {
     // API + Firebase calls failed exactly this way. A proper intermediate
     // serves an Apple-compliant chain. CA generated at the path below (see
     // scripts/setup-forge-tls.command); trust its ROOT once in the keychain.
-    '--set', `confdir=${process.env['CRUCIBLE_MITM_CONFDIR'] ?? `${process.env['HOME'] ?? '/tmp'}/.forge-ca`}`,
+    '--set', `confdir=${confdir}`,
     '--listen-host', '127.0.0.1',
     '--listen-port', String(listenPort),
     // TLS-passthrough fallback for hosts whose clients STILL reject MITM even
@@ -126,6 +134,15 @@ export async function startMitm(deps: MitmDeps, port = 0): Promise<MitmHandle> {
     if (/error|traceback/i.test(line)) process.stderr.write(`[forge-mitm] ${line}`);
   });
   proc.stderr?.on('data', (d: Buffer) => process.stderr.write(`[forge-mitm] ${d}`));
+
+  // SAFETY NET: if the proxy dies while sim routing is ON, the host proxy points
+  // at a dead port — the whole Mac loses internet. On unexpected exit, tear
+  // routing down immediately. (Deliberate stop() clears routing itself.)
+  proc.on('exit', (code) => {
+    if ((proc as { _intentional?: boolean })._intentional) return;
+    process.stderr.write(`[forge-mitm] proxy died (code ${code}) — clearing sim routing to restore internet\n`);
+    try { disableSimRouting(); } catch { /* networksetup unavailable — nothing more we can do */ }
+  });
 
   // health: CONNECT PROBE, not log parsing — mitmdump buffers stdout until the
   // first client connection, so the listen line is unreadable at startup.
@@ -162,6 +179,7 @@ export async function startMitm(deps: MitmDeps, port = 0): Promise<MitmHandle> {
       if (tailTimer) { clearInterval(tailTimer); tailTimer = null; }
       tailTraffic(deps); // final drain
       if (proc && !proc.killed) {
+        (proc as { _intentional?: boolean })._intentional = true; // deliberate — exit hook must not double-clear routing
         proc.kill('SIGTERM');
         await new Promise<void>((r) => { proc?.on('exit', () => r()); setTimeout(r, 2000); });
       }
@@ -178,6 +196,7 @@ export function mitmRunning(): { pid: number; port: number } | null {
 export async function stopMitmIfRunning(): Promise<void> {
   if (proc && !proc.killed) {
     if (tailTimer) { clearInterval(tailTimer); tailTimer = null; }
+    (proc as { _intentional?: boolean })._intentional = true;
     proc.kill('SIGTERM');
     await new Promise<void>((r) => { proc?.on('exit', () => r()); setTimeout(r, 2000); });
   }
