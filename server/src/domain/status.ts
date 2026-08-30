@@ -70,8 +70,13 @@ export function deriveTicketMatrix(db: Database.Database, ticketKey: string): {
     }
     const anyFailLive = liveRows.some((r) => r.status === 'fail');
     const allSkipLive = liveRows.every((r) => r.status === 'skip');
-    // amber: pending baseline decision on any live flow scope
-    const amber = liveFlows.some((f) => pendingScopes.has(f));
+    // amber: pending baseline judgment on a live flow scope. Visual ACs: amber
+    // covers snapshot drift (the failure IS the pending judgment — approve the
+    // new baseline or reject the regression). Non-visual ACs: an assertion
+    // failure stays RED even if a diff row exists — blocked ≠ failed only when
+    // the blocker is the judgment itself. (Found in dogfood DOGFOOD-1.)
+    const pendingLive = liveFlows.some((f) => pendingScopes.has(f));
+    const amber = pendingLive && (ac.category === 'visual' || !anyFailLive);
     const status: AcStatus = amber ? 'changes-pending' : anyFailLive ? 'fail' : allSkipLive ? 'skip' : 'pass';
     return { ...ac, status, lastRunId: rows[0]!.run_id, flows };
   });

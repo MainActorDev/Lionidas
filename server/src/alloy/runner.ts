@@ -226,8 +226,11 @@ export async function executeRun(spec: RunSpec, deps: RunnerDeps): Promise<strin
               } catch { /* diff is best-effort evidence */ }
             }
           }
-          // pending baseline decision row (new candidate = the fail screenshot)
-          if (shotEv) {
+          // pending baseline decision row (new candidate = the fail screenshot).
+          // VISUAL ACs only: the baseline judgment is the drift question;
+          // interaction/data assertion failures are plain red and never spawn
+          // a judgment row. (Found in dogfood DOGFOOD-1.)
+          if (shotEv && flow.category === 'visual') {
             const newSha = deps.db.prepare('SELECT sha256 FROM evidence WHERE id = ?').get(shotEv) as { sha256: string };
             deps.db
               .prepare(`INSERT INTO baseline_diffs(id, run_id, scope_key, old_sha, new_sha, evidence_id, state)

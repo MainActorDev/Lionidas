@@ -16,11 +16,17 @@ function seedRun(id: string, kind: string, startedAt: number): void {
      VALUES (?, 'CUST-1', ?, 'passed', 'test', 'SIM', ?)`,
   ).run(id, kind, startedAt);
 }
-function seedAc(runId: string, acId: string, status: string): void {
+function seedAc(runId: string, acId: string, status: string, category = 'interaction', flows: string[] = []): void {
   db.prepare(
     `INSERT INTO ac_results(run_id, ticket_key, ac_id, ac_text, category, status, flow_names_json, bundle_id)
-     VALUES (?, 'CUST-1', ?, 'text', 'interaction', ?, '[]', ?)`,
-  ).run(runId, acId, status, runId);
+     VALUES (?, 'CUST-1', ?, 'text', ?, ?, ?, ?)`,
+  ).run(runId, acId, category, status, JSON.stringify(flows), runId);
+}
+function seedPendingDiff(runId: string, scope: string): void {
+  db.prepare(
+    `INSERT INTO baseline_diffs(id, run_id, scope_key, old_sha, new_sha, evidence_id, state)
+     VALUES (?, ?, ?, 'a', 'b', NULL, 'pending')`,
+  ).run(`bd_${runId}_${scope}`, runId, scope);
 }
 
 describe('deriveTicketMatrix', () => {
@@ -63,6 +69,28 @@ describe('deriveTicketMatrix', () => {
     seedAc('r2', 'AC-1', 'pass');
     const m = deriveTicketMatrix(db, 'CUST-1');
     expect(m.acs[0]!.status).toBe('pass');
+  });
+  it('DOGFOOD regression: non-visual fail + pending diff → RED (not amber)', () => {
+    seedRun('r1', 'automated', 100);
+    seedAc('r1', 'AC-1', 'fail', 'interaction', ['login-nav']);
+    seedPendingDiff('r1', 'login-nav');
+    const m = deriveTicketMatrix(db, 'CUST-1');
+    expect(m.acs[0]!.status).toBe('fail');
+    expect(m.ticketStatus).toBe('fail');
+  });
+  it('visual fail + pending diff → amber (drift judgment preserved)', () => {
+    seedRun('r1', 'automated', 100);
+    seedAc('r1', 'AC-1', 'fail', 'visual', ['screen-shot']);
+    seedPendingDiff('r1', 'screen-shot');
+    const m = deriveTicketMatrix(db, 'CUST-1');
+    expect(m.acs[0]!.status).toBe('changes-pending');
+  });
+  it('pass + pending diff → amber regardless of category', () => {
+    seedRun('r1', 'automated', 100);
+    seedAc('r1', 'AC-1', 'pass', 'interaction', ['some-flow']);
+    seedPendingDiff('r1', 'some-flow');
+    const m = deriveTicketMatrix(db, 'CUST-1');
+    expect(m.acs[0]!.status).toBe('changes-pending');
   });
   it('M1: no amber and no gray statuses returned', () => {
     seedRun('r1', 'automated', 100);
