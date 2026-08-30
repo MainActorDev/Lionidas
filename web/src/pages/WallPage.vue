@@ -11,6 +11,7 @@ const devices = ref<DeviceRow[]>([]);
 const queue = ref<QueueRow[]>([]);
 const watching = ref<string | null>(null);
 const frameSrc = ref('');
+const watchMode = ref<'stream' | 'pulse'>('stream');
 const newRunOpen = ref(false);
 const ticketQuery = ref('');
 let poll: ReturnType<typeof setInterval> | null = null;
@@ -35,6 +36,20 @@ async function openTicket(): Promise<void> {
 
 async function watch(udid: string): Promise<void> {
   watching.value = udid;
+  // S1: stream-first — live MJPEG via alloy_stream; pulse fallback on failure
+  const s = await fetch(`/api/devices/${udid}/stream`, { method: 'POST' });
+  if (s.ok) {
+    const body = await s.json() as { streamUrl?: string };
+    if (body.streamUrl) {
+      watchMode.value = 'stream';
+      frameSrc.value = body.streamUrl;
+      return; // browser holds the MJPEG connection; no polling
+    }
+  }
+  await startPulse(udid);
+}
+async function startPulse(udid: string): Promise<void> {
+  watchMode.value = 'pulse';
   const refresh = async (): Promise<void> => {
     const res = await fetch(`/api/devices/${udid}/watch-frame`, { method: 'POST' });
     if (res.ok) {
@@ -44,6 +59,15 @@ async function watch(udid: string): Promise<void> {
   };
   await refresh();
   pulse = setInterval(() => void refresh(), 2500);
+}
+// stream died after URL handout (server exit) → terminal for session → pulse fallback
+function onFrameError(): void {
+  if (watchMode.value === 'stream' && watching.value) {
+    const udid = watching.value;
+    stopWatch();
+    watching.value = udid;
+    void startPulse(udid);
+  }
 }
 function stopWatch(): void {
   watching.value = null;
@@ -103,7 +127,8 @@ onUnmounted(() => { if (poll) clearInterval(poll); stopWatch(); live.release(); 
           <b v-else>free</b>
         </div>
         <div v-if="watching === d.udid && frameSrc" style="margin-top: var(--s-2);">
-          <img :src="frameSrc" alt="live frame" style="width: 100%; border: 1px solid var(--color-iron); border-radius: var(--r-sm); display: block;" />
+          <img :src="frameSrc" alt="live frame" @error="onFrameError" style="width: 100%; border: 1px solid var(--color-iron); border-radius: var(--r-sm); display: block;" />
+          <div v-if="watchMode === 'pulse'" class="badge" style="margin-top: var(--s-1);">pulse (stream unavailable)</div>
         </div>
         <div style="display: flex; gap: var(--s-2); margin-top: var(--s-3);">
           <button v-if="watching !== d.udid && d.state === 'Booted'" class="btn btn-sm" @click="watch(d.udid)">watch</button>

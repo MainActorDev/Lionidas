@@ -21,7 +21,7 @@ export async function pollDevices(db: Database.Database, bus: TypedEventBus<AppE
     | { ok: true; result: { leases: Array<{ udid: string; engine: string; holder: string }> } }
     | { ok: false };
   const devices = (await alloy.dispatch('alloy_devices', { action: 'list' }, deps)) as
-    | { ok: true; result: Array<{ id: string; name?: string; state?: string; platform?: string }> }
+    | { ok: true; result: Array<{ id: string; name?: string; state?: string; booted?: boolean; platform?: string }> }
     | { ok: false };
 
   const leases = new Map<string, { engine: string; holder: string }>();
@@ -42,9 +42,11 @@ export async function pollDevices(db: Database.Database, bus: TypedEventBus<AppE
   if (devices.ok) {
     for (const d of devices.result) {
       const lease = leases.get(d.id) ?? { holder: null as string | null, engine: null as string | null };
-      upsert.run(d.id, d.name ?? null, d.state ?? null, lease.holder, lease.engine, Date.now());
+      // engine A reports a `booted` boolean, not a state string — map it
+      const state = d.booted === true ? 'Booted' : d.booted === false ? 'Shutdown' : null;
+      upsert.run(d.id, d.name ?? null, state, lease.holder, lease.engine, Date.now());
       const prev = before.get(d.id);
-      const nowRow = { udid: d.id, name: d.name ?? null, state: d.state ?? null, lease_holder: lease.holder, lease_engine: lease.engine };
+      const nowRow = { udid: d.id, name: d.name ?? null, state, lease_holder: lease.holder, lease_engine: lease.engine };
       if (
         !prev ||
         prev.state !== nowRow.state ||

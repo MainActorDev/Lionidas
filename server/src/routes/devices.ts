@@ -24,6 +24,19 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
     return { path: r.result.path };
   });
 
+  // S1: live stream URL (watch = read-only, no lease). Fails soft → wall falls back to pulse.
+  app.post('/api/devices/:udid/stream', async (req, reply) => {
+    const { udid } = req.params as { udid: string };
+    const booted = db.prepare(`SELECT state FROM devices WHERE udid = ?`).get(udid) as { state: string | null } | undefined;
+    if (!booted || booted.state !== 'Booted') return reply.code(409).send({ error: 'device not booted' });
+    const alloy = crucibleAlloy();
+    const r = (await alloy.dispatch('alloy_stream', { udid }, alloyDispatchDepsSync())) as
+      | { ok: true; result: { streamUrl: string; platform: string } }
+      | { ok: false; error: { code: string; message: string } };
+    if (!r.ok) return reply.code(503).send({ error: `stream unavailable: ${r.error.message}`, code: r.error.code });
+    return r.result;
+  });
+
   // frame file serve for watch (same guard shape as manual-frame but allows a booted device)
   app.get('/api/watch-frame', async (req, reply) => {
     const q = req.query as { path?: string };
