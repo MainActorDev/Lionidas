@@ -19,20 +19,9 @@ Repos: engine-B fork (ours — the sibling checkout where every prior gap shippe
 
 ## 2. Implementation
 
-### 2.1 Engine-B fork — no change required
+### 2.1 Engine-B fork — one minimal tool
 
-The blueprint already resolves the service lazily and returns `streamUrl`. Resolving it via an existing tool is enough — a new engine tool would only wrap `registry.resolveService`. **We do NOT touch the fork**; we use its existing service resolution from Alloy's adapter, same as screenshots do. (If `describe`/`screenshot` can resolve the service, so can a stream query.)
-
-### 2.2 Alloy — `alloy_stream` tool (new routing row)
-
-```
-routing: { tool: 'alloy_stream', engine: 'B', lease: 'per-call',
-  schema: { udid } }
-```
-
-Handler (adapter-b call): the existing engine tool that forces service resolution for a device is `screenshot` — but it captures a PNG (wasteful). Instead: add a **generic service-probe** to adapter-b: call `native-devtools-status` (cheap, resolves services for the device)? No — grounded decision: the screenshot tool resolves `simulatorServerRef`; the cheapest existing resolver without side-effect capture is **`describe`** (it resolves AX for the foreground app of the same device session). But `describe` output does not include streamUrl.
-
-**Therefore the fork DOES need one minimal addition** (correcting §2.1 after grounding): a `simulator-stream` tool in the fork's `tool-server/src/tools/` that does exactly the 3-line resolve + return:
+No existing engine tool returns `streamUrl` (screenshot resolves the service but captures a PNG; `describe` output has no stream field). The fork gets ONE addition — a `simulator-stream` tool that is exactly the 3-line resolve + return:
 
 ```ts
 // tools/simulator-stream/index.ts (new, mirrors screenshot's resolve pattern)
@@ -43,17 +32,18 @@ return { streamUrl: api.streamUrl, platform: device.platform };
 
 Registered in the fork's `utils/setup-registry.ts`. Schema: `{ udid }`. Capability: iOS simulator only (mirror the screenshot tool's tvOS guard). ~30 lines total, PR to our own fork — not upstream-blocked.
 
-### 2.3 Alloy facade
+### 2.2 Alloy facade
 
 - routing row `alloy_stream` (engine B, per-call lease — read-only, watching ≠ holding)
 - registrations: `callBTool(client, 'simulator-stream', { udid })`, pass through `{streamUrl, platform}`
 - degraded-safe: engine error → structured AlloyError; Crucible falls back to pulse
 
-### 2.4 Crucible — Watch upgrade
+### 2.3 Crucible — Watch upgrade
 
-- Wall tile Watch: call `POST /api/devices/:udid/stream` (new route → alloy_stream) → get `streamUrl` → render `<img :src="streamUrl">` (MJPEG renders natively in img tags; if the stream is raw WS video, `<video>`/MSE — detect by URL scheme, both paths shipped)
+- Wall tile Watch: call `POST /api/devices/:udid/stream` (new route → alloy_stream) → get `streamUrl` → render `<img :src="streamUrl">` — **confirmed MJPEG** (`multipart/x-mixed-replace;boundary=NextFrame`, path `/stream.mjpeg`, from the binary's strings) which browsers render natively in `<img>`; single render path, no detection needed
 - **Fallback ladder**: stream fetch fails OR stalls (no frame in 10s) → revert to screenshot-pulse automatically, badge "pulse" so the operator knows
 - Keep lease semantics: stream watch takes NO lease (unchanged)
+- **Stream lifecycle (self-review F3)**: the URL is only valid while the simulator-server process lives — `<img>` onerror (server died after URL handout) is terminal for the watch session → immediate pulse fallback; re-Watch re-resolves (registry caches per-URN, repeat resolve is cheap)
 - DrivePage: same upgrade — live background frame under the tap canvas
 
 ## 3. Tests (named, all required)
@@ -70,7 +60,8 @@ Registered in the fork's `utils/setup-registry.ts`. Schema: `{ udid }`. Capabili
 G1 alloy_stream on booted iPhone 16 Pro → {streamUrl: http://127.0.0.1:PORT/..., platform: 'ios'}
 G2 curl streamUrl for 3s → ≥1 frame chunk received (non-zero bytes)
 G3 Crucible wall Watch → <img> shows LIVE screen (manual browser check)
-G4 terminate the simulator-server → alloy_stream returns typed error; Watch falls back to pulse automatically
+G4a simulator-server dead BEFORE resolve → alloy_stream returns typed engine error
+G4b server dies AFTER URL handout → <img> onerror → automatic pulse fallback
 G5 full Alloy suite still green (routing-table held-set unchanged: per-call)
 ```
 
@@ -78,6 +69,17 @@ G5 full Alloy suite still green (routing-table held-set unchanged: per-call)
 
 | Risk | Mitigation |
 |---|---|
-| streamUrl format is MJPEG vs raw WS | G2 detects actual format; both render paths shipped in 2.4 |
+| ~~streamUrl format unknown~~ **RESOLVED by self-review** | Binary strings confirm: `multipart/x-mixed-replace;boundary=NextFrame` at `/stream.mjpeg` — plain MJPEG over HTTP. `<img :src>` renders it natively in all major browsers. The `<video>`/MSE path is DEAD — deleted from 2.4; one render path, confirmed |
 | Long-lived stream connections exhaust server | Watch polls alloy_stream ONCE per watch session, then holds the URL; browser owns the connection lifecycle |
 | Stream keeps simulator-server alive after watch closes | No change: service lifecycle is the engine's registry refcount, same as screenshots today |
+
+
+## 6. Self-review findings (2026-08-30, applied)
+
+| # | Sev | Finding | Resolution |
+|---|---|---|---|
+| F1 | 🔴 | §2.1/§2.2 contradicted each other ("no fork change" vs "fork needs a tool") mid-document — §2.2 even preserved my live deliberation ("? No — grounded decision:") as plan text | Rewritten: single coherent position — fork gets ONE ~30-line `simulator-stream` tool; the deliberation noise is gone (this file's §2 now states it once, cleanly) |
+| F2 | 🟠 | "MJPEG-style stream **per the darwin bundle**" was an inference, not a fact — and 2.4 hedged with a dual render path to cover the guess | Verified against the binary: `stream_ready` emits an `http://` URL; endpoint is `/stream.mjpeg` serving `multipart/x-mixed-replace;boundary=NextFrame` — MJPEG **confirmed**; dual-path hedge removed, `<img>` only |
+| F3 | 🟠 | Stream lifecycle unaddressed: the URL is only valid while the simulator-server process lives, and per-device spawn happens on first service resolve — a Watch session could outlive the server | Added to §2.4: wall treats stream errors as terminal for the session (not just frame-stall) → immediate pulse fallback; re-Watch re-resolves (registry initPromise caches per-URN, so repeat resolve is cheap — verified F5 in source) |
+| F4 | 🟡 | tvOS guard claim ("mirror screenshot's") cites the import but not the behavior | Verified in screenshot/index.ts: guard is `device.platform === "ios" && await isTvOsSimulator(udid)` → throw; the new tool uses the identical check |
+| F5 | 🟡 | G4 said "terminate the simulator-server → typed error" but the first failure mode is actually a **stale URL** (server died after URL handed out; resolve succeeded earlier) | G4 split: (a) server dead BEFORE resolve → typed error from the engine; (b) server died AFTER → `<img>` onerror fires → wall falls back to pulse. Both paths gated |
