@@ -57,12 +57,12 @@ async function setRouting(on: boolean): Promise<void> {
     const res = await fetch('/api/forge/sim-routing', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: on }),
     });
-    const body = await res.json() as RoutingState & { error?: string };
+    const body = await res.json() as RoutingState & { error?: string; trustedSims?: number };
     if (body.error) msg.value = body.error;
     else {
       routing.value = body;
       msg.value = on
-        ? `sims now route through the proxy (${body.service}) — RESTART booted simulators once to pick it up (device tile → shut down → boot)`
+        ? `routed + CA trusted on ${body.trustedSims ?? 0} sims (${body.service}) — RESTART booted simulators once (shut down → boot), then relaunch the app`
         : 'sims back on direct connection — restart booted simulators once';
     }
   } finally { routingBusy.value = false; }
@@ -195,9 +195,8 @@ onUnmounted(() => { unwatch(); live.release(); });
         <div style="text-align: left; display: inline-block; line-height: 1.8;">
           <b>to see traffic here:</b><br />
           1. start the proxy <span v-if="mitm.running">(running — 127.0.0.1:{{ mitm.port }})</span><br />
-          2. <b>route sims</b> — points the Mac's proxy at it; then restart booted simulators (shut down → boot)<br />
-          3. HTTPS needs the local CA trusted once: run <span class="mono">scripts/setup-forge-tls.command</span><br />
-          4. use the app on the device — requests appear here live
+          2. <b>route sims</b> — sets the Mac's proxy + installs the CA into every sim's trust store; then restart booted simulators (shut down → boot)<br />
+          3. use the app on the device — HTTP and HTTPS requests appear here live
         </div>
       </div>
       <div v-else class="table-wrap">

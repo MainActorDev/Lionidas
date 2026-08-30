@@ -5,7 +5,8 @@ import { createHash } from 'node:crypto';
 import type { ForgeState } from './proxy.ts';
 import { matchPreset, type Preset } from './matcher.ts';
 import { startMitm, stopMitmIfRunning, writeStateFile, mitmRunning } from './mitm/manager.ts';
-import { simRoutingState, enableSimRouting, disableSimRouting } from './sim-routing.ts';
+import { simRoutingState, enableSimRouting, disableSimRouting, installRootCertToSims } from './sim-routing.ts';
+import { join } from 'node:path';
 
 
 export function registerForgeRoutes(app: FastifyInstance, db: Database.Database, forgeState: ForgeState, forgeBus?: { emit: (type: never, payload: never) => void }): void {
@@ -194,7 +195,15 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
       if (b?.enabled) {
         const mitm = mitmRunning();
         if (!mitm) return reply.code(409).send({ error: 'start the proxy first' });
-        return enableSimRouting(mitm.port);
+        // Route + trust in one step: sims need BOTH the host proxy AND the CA
+        // in their own trust store (simctl keychain) — host keychains don't reach it.
+        const confdir = process.env['CRUCIBLE_MITM_CONFDIR'] ?? `${process.env['HOME'] ?? '/tmp'}/.forge-ca`;
+        let trusted = 0;
+        try {
+          trusted = installRootCertToSims(join(confdir, 'root.crt')).length;
+        } catch { /* cert path missing — routing still works for plain HTTP */ }
+        const state = enableSimRouting(mitm.port);
+        return { ...state, trustedSims: trusted };
       }
       return disableSimRouting();
     } catch (err) {

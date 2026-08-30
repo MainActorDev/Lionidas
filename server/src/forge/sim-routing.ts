@@ -45,6 +45,24 @@ export function simRoutingState(): RoutingState {
   }
 }
 
+/** Simulator trust: sims have their OWN trust store — host keychain anchors
+ *  (login OR System) do NOT reach it. `simctl keychain add-root-cert` is the
+ *  supported install path. Returns the sims the cert was installed on. */
+export function installRootCertToSims(certPath: string): string[] {
+  const out = sh('xcrun', ['simctl', 'list', 'devices', '-j']);
+  const devices = JSON.parse(out) as { devices: Record<string, Array<{ udid: string; state: string; name: string }>> };
+  const installed: string[] = [];
+  for (const list of Object.values(devices.devices)) {
+    for (const d of list) {
+      try {
+        execFileSync('xcrun', ['simctl', 'keychain', d.udid, 'add-root-cert', certPath]);
+        installed.push(d.name);
+      } catch { /* device not available (e.g. not created) — skip */ }
+    }
+  }
+  return installed;
+}
+
 /** Point the host (and thus sims, after reboot) at the forge proxy. */
 export function enableSimRouting(port: number): RoutingState {
   const service = primaryNetworkService();

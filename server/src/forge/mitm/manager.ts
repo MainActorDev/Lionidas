@@ -93,13 +93,39 @@ export async function startMitm(deps: MitmDeps, port = 0): Promise<MitmHandle> {
       srv.on('error', reject);
     });
   }
-  const args = ['-s', addonPath, '--set', `forge_state_dir=${deps.stateDir}`, '--listen-host', '127.0.0.1', '--listen-port', String(listenPort)];
+  const args = [
+    '-s', addonPath,
+    '--set', `forge_state_dir=${deps.stateDir}`,
+    // Custom CA hierarchy (root → intermediate → leaf). mitmproxy's default CA
+    // signs leaves DIRECTLY with the root; Apple's strict TLS policy rejects
+    // that ('leaf MissingIntermediate', -9802/-1200) — the Lion Parcel app's
+    // API + Firebase calls failed exactly this way. A proper intermediate
+    // serves an Apple-compliant chain. CA generated at the path below (see
+    // scripts/setup-forge-tls.command); trust its ROOT once in the keychain.
+    '--set', `confdir=${process.env['CRUCIBLE_MITM_CONFDIR'] ?? `${process.env['HOME'] ?? '/tmp'}/.forge-ca`}`,
+    '--listen-host', '127.0.0.1',
+    '--listen-port', String(listenPort),
+    // TLS-passthrough fallback for hosts whose clients STILL reject MITM even
+    // with a proper chain (pinned certs). Traffic routes but is not intercepted.
+    // Extend via FORGE_IGNORE_HOSTS (regex, |-joined).
+    '--ignore-hosts', process.env['FORGE_IGNORE_HOSTS'] ?? 'firebaseappcheck\\.googleapis\\.com',
+  ];
   // mitmdump resolves via PATH in shells, but spawns from vitest/tsx may lack
   // /opt/homebrew/bin — prefer the discovered absolute path, fall back to PATH.
   const mitmdump = (() => {
     try { return execFileSync('which', ['mitmdump'], { encoding: 'utf8' }).trim(); } catch { return 'mitmdump'; }
   })();
   proc = spawn(mitmdump, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: false });
+
+  // CRITICAL: drain both pipes continuously. mitmdump logs every TLS handshake;
+  // if nobody reads, the 64KB OS pipe buffer fills and mitmdump's MAIN THREAD
+  // blocks inside write() — the proxy wedges (socket listening, nothing served,
+  // everything times out). Sampled live: _io_FileIO_write blocking the loop.
+  proc.stdout?.on('data', (d: Buffer) => {
+    const line = d.toString();
+    if (/error|traceback/i.test(line)) process.stderr.write(`[forge-mitm] ${line}`);
+  });
+  proc.stderr?.on('data', (d: Buffer) => process.stderr.write(`[forge-mitm] ${d}`));
 
   // health: CONNECT PROBE, not log parsing — mitmdump buffers stdout until the
   // first client connection, so the listen line is unreadable at startup.
