@@ -17,6 +17,31 @@ const newPresetStatus = ref(200);
 const newPresetMethod = ref('GET');
 const msg = ref('');
 
+const MODE_HELP: Record<string, string> = {
+  record: 'watch only — real traffic passes through and is logged',
+  hybrid: 'real traffic, matched endpoints faked — default',
+  intercept: 'fully fake — unmatched requests get 501',
+};
+
+// ── MITM proxy state: the actual thing the app must talk to ──
+interface MitmStatus { running: boolean; port?: number }
+const mitm = ref<MitmStatus>({ running: false });
+const mitmBusy = ref(false);
+async function loadMitm(): Promise<void> {
+  try {
+    const res = await fetch('/api/forge/mitm/status');
+    mitm.value = (await res.json()) as MitmStatus;
+  } catch { /* server unreachable — banner shows offline */ }
+}
+async function startMitm(): Promise<void> {
+  mitmBusy.value = true;
+  try {
+    await fetch('/api/forge/mitm/start', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    await loadMitm();
+    msg.value = mitm.value.running ? `proxy up on 127.0.0.1:${mitm.value.port}` : 'proxy did not come up';
+  } finally { mitmBusy.value = false; }
+}
+
 async function loadTraffic(): Promise<void> {
   const res = await fetch('/api/forge/traffic?limit=100');
   traffic.value = (await res.json() as { traffic: TrafficRow[] }).traffic;
@@ -68,6 +93,7 @@ onMounted(() => {
   live.connect();
   void loadTraffic();
   void loadPresets();
+  void loadMitm();
 });
 onUnmounted(() => { unwatch(); live.release(); });
 </script>
@@ -79,16 +105,27 @@ onUnmounted(() => { unwatch(); live.release(); });
         <div class="page-title">network · traffic</div>
         <div class="page-desc">{{ traffic.length }} requests · mode: {{ mode }}<span v-if="!live.connected" style="color: var(--color-ember);"> · live offline</span></div>
       </div>
-      <div style="display: flex; gap: var(--s-2);">
-        <button v-for="m in ['record', 'hybrid', 'intercept']" :key="m" class="btn btn-sm" :class="{ 'btn-primary': mode === m }" @click="setMode(m)">{{ m }}</button>
+      <div style="display: flex; gap: var(--s-2); align-items: center;">
+        <span v-if="mitm.running" class="badge badge-accent" title="point the app's proxy at this address">proxy 127.0.0.1:{{ mitm.port }}</span>
+        <button v-else class="btn btn-sm" :disabled="mitmBusy" @click="startMitm">{{ mitmBusy ? 'starting…' : 'start proxy' }}</button>
+        <button v-for="m in ['record', 'hybrid', 'intercept']" :key="m" class="btn btn-sm" :class="{ 'btn-primary': mode === m }" :title="MODE_HELP[m]" @click="setMode(m)">{{ m }}</button>
       </div>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: baseline; gap: var(--s-4); margin-bottom: var(--s-4); font-size: var(--text-caption); color: var(--color-steel);">
+      <span>{{ MODE_HELP[mode] ?? '' }}</span>
+      <span>mode is global — it applies to every request through the proxy</span>
     </div>
 
     <div v-if="msg" class="meta-row">{{ msg }}</div>
 
     <div class="card">
-      <div class="card-header"><span class="card-title">presets · {{ presets.length }}</span></div>
-      <div class="table-wrap">
+      <div class="card-header">
+        <span class="card-title">presets · {{ presets.length }}</span>
+        <span style="font-size: var(--text-caption); color: var(--color-steel);">a preset fakes one endpoint's response</span>
+      </div>
+      <div v-if="presets.length === 0" class="empty" style="border: none; padding: var(--s-3);">no presets — freeze one from real traffic below, or add one here</div>
+      <div v-else class="table-wrap">
         <table>
           <thead><tr><th>method</th><th>path</th><th>match</th><th>status</th></tr></thead>
           <tbody>
@@ -106,14 +143,29 @@ onUnmounted(() => { unwatch(); live.release(); });
           <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option><option>*</option>
         </select>
         <input v-model="newPresetPath" placeholder="/api/path" style="flex: 1;" />
-        <input v-model.number="newPresetStatus" type="number" style="width: 80px;" />
+        <input v-model.number="newPresetStatus" type="number" style="width: 80px;" title="HTTP status the fake response returns" />
         <button class="btn btn-sm btn-primary" @click="addPreset">add</button>
+      </div>
+      <div style="font-size: var(--text-caption); color: var(--color-steel); margin-top: var(--s-1);">
+        need bodies, delays, or failure sequences? create presets via the API — richer editing lands later.
       </div>
     </div>
 
     <div class="card">
-      <div class="card-header"><span class="card-title">traffic</span></div>
-      <div v-if="traffic.length === 0" class="empty" style="border: none;">no requests yet — point a DEV build at the proxy or rehearse a scenario</div>
+      <div class="card-header">
+        <span class="card-title">traffic</span>
+        <span style="font-size: var(--text-caption); color: var(--color-steel);">live — every request through the proxy</span>
+      </div>
+      <div v-if="traffic.length === 0" class="empty" style="border: none;">
+        <div style="margin-bottom: var(--s-2); color: var(--color-fog);">no requests yet</div>
+        <div style="text-align: left; display: inline-block; line-height: 1.8;">
+          <b>to see traffic here:</b><br />
+          1. start the proxy <span v-if="mitm.running">(running — 127.0.0.1:{{ mitm.port }})</span><br />
+          2. point the app at it — DEV build base-URL or simulator proxy settings<br />
+          3. HTTPS needs the local CA trusted once: run <span class="mono">scripts/setup-forge-tls.command</span><br />
+          4. use the app on the device — requests appear here live
+        </div>
+      </div>
       <div v-else class="table-wrap">
         <table>
           <thead><tr><th>time</th><th>method</th><th>path</th><th>status</th><th>latency</th><th>mode</th><th>preset</th><th></th></tr></thead>
@@ -128,7 +180,9 @@ onUnmounted(() => { unwatch(); live.release(); });
               <td style="color: var(--color-ash);">{{ t.latency_ms }}ms</td>
               <td style="color: var(--color-steel);">{{ t.mode }}</td>
               <td style="color: var(--color-ember); font-size: var(--text-caption);">{{ t.matched_preset_id ?? '' }}</td>
-              <td><button v-if="!t.matched_preset_id && t.status > 0" class="btn btn-sm" @click="freeze(t)">freeze</button></td>
+              <td>
+                <button v-if="!t.matched_preset_id && t.status > 0" class="btn btn-sm" title="make this real response replay forever — future hits to this endpoint return it" @click="freeze(t)">freeze</button>
+              </td>
             </tr>
           </tbody>
         </table>
