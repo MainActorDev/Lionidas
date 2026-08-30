@@ -85,7 +85,7 @@ interface; the bus implementation never changes.
 pnpm install && pnpm check          # typecheck+lint+scan+unit green
 pnpm dev &                          # both processes up
 curl -s localhost:8787/api/health   # {"ok":true,...}
-open http://localhost:5173          # WallPage renders, no console errors
+open http://localhost:5230          # WallPage renders, no console errors (port moved from 5173 — lioclaw fe collision)
 ```
 
 Commit: `chore: crucible scaffold (M0)` — single commit, pushed after user review.

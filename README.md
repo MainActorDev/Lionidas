@@ -15,7 +15,7 @@ per-phase implementation contracts: [plans/](./plans/) · UI direction:
 
 ```bash
 pnpm install
-pnpm dev            # server :9230 + web :5173
+pnpm dev            # server :9230 + web :5230
 curl localhost:9230/api/health
 ```
 
