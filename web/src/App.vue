@@ -18,6 +18,10 @@ const isActive = (name: string): boolean => route.name === name;
         <RouterLink to="/runs" class="nav-item" :class="{ active: isActive('runs') || isActive('runDetail') }">runs</RouterLink>
       </div>
       <div class="nav-group">
+        <div class="nav-group-label">diagnostics</div>
+        <RouterLink to="/forge" class="nav-item" :class="{ active: isActive('forge') }">forge</RouterLink>
+      </div>
+      <div class="nav-group">
         <div class="nav-group-label">verify</div>
         <RouterLink to="/baselines" class="nav-item" :class="{ active: isActive('baselines') }">baselines</RouterLink>
         <RouterLink to="/flakes" class="nav-item" :class="{ active: isActive('flakes') }">flakes</RouterLink>

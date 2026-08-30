@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import TriagePanel from '../components/TriagePanel.vue';
+import { useLiveEvents } from '../stores/live.ts';
 
 interface Step { idx: number; flow_name: string; kind: string; name: string; status: string; reason: string | null; duration_ms: number; evidence_ids_json: string }
 interface Run { id: string; ticket_key: string; status: string; kind: string; triggered_by: string; device_udid: string; artifact_hash: string | null; freshness: string; launch_args_json: string; started_at: number | null; finished_at: number | null }
@@ -10,7 +11,7 @@ const route = useRoute();
 const runId = route.params.id as string;
 const run = ref<Run | null>(null);
 const steps = ref<Step[]>([]);
-let ws: WebSocket | null = null;
+const live = useLiveEvents();
 
 async function load(): Promise<void> {
   const [r, s] = await Promise.all([
@@ -21,12 +22,17 @@ async function load(): Promise<void> {
   steps.value = s.steps;
 }
 
+const attachMsg = ref('');
+async function attachJira(): Promise<void> {
+  const res = await fetch(`/api/runs/${runId}/attach`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  const body = await res.json() as { attached?: boolean; commentId?: string; ticket?: string; error?: string };
+  attachMsg.value = body.attached ? `comment ${body.commentId} → ${body.ticket}` : (body.error ?? `HTTP ${res.status}`);
+}
+
 onMounted(() => {
   load();
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/api/events`);
-  ws.onmessage = (m) => {
-    const ev = JSON.parse(m.data) as { type: string; payload: Record<string, unknown> };
+  live.connect();
+  const onEvent = (ev: { type: string; payload: Record<string, unknown> }): void => {
     if (ev.type === 'step.started' && ev.payload['runId'] === runId) {
       steps.value.push({ idx: ev.payload['idx'] as number, flow_name: ev.payload['flow'] as string, kind: 'flow', name: ev.payload['flow'] as string, status: 'running', reason: null, duration_ms: 0, evidence_ids_json: '[]' });
     } else if (ev.type === 'step.finished' && ev.payload['runId'] === runId) {
@@ -37,8 +43,16 @@ onMounted(() => {
       load();
     }
   };
+  const unwatch = watch(
+    () => live.events.length,
+    () => {
+      const latest = live.events[live.events.length - 1];
+      if (latest) onEvent(latest);
+    },
+    { flush: 'sync' },
+  );
+  onUnmounted(() => { unwatch(); live.release(); });
 });
-onUnmounted(() => ws?.close());
 </script>
 
 <template>
@@ -51,7 +65,11 @@ onUnmounted(() => ws?.close());
           · {{ run.kind }} · by {{ run.triggered_by }} · {{ run.started_at ? new Date(run.started_at).toLocaleString() : '' }}
         </div>
       </div>
-      <span class="status" :class="`status-${run.status}`">{{ run.status }}</span>
+      <div style="display: flex; gap: var(--s-2); align-items: center;">
+        <span v-if="attachMsg" class="badge">{{ attachMsg }}</span>
+        <button class="btn btn-sm" @click="attachJira">attach → jira</button>
+        <span class="status" :class="`status-${run.status}`">{{ run.status }}</span>
+      </div>
     </div>
 
     <div class="card">

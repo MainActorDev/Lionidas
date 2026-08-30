@@ -2,8 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { existsSync } from 'node:fs';
 import { enqueue, abort, type QueueSpec } from '../queue/store.ts';
-import { executeRun } from '../alloy/runner.ts';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
+import { executeRun } from '../alloy/runner.ts';
 import { jiraConfig, buildCommentBody, postComment } from '../integrations/jira.ts';
 import { alloyDispatchDepsSync } from '../alloy/runtime.ts';
 import { scanFlowSet } from '../domain/acs.ts';
@@ -14,7 +14,7 @@ interface RunRow {
   launch_args_json: string; started_at: number | null; finished_at: number | null;
 }
 
-export function registerRunRoutes(app: FastifyInstance, db: Database.Database): void {
+export function registerRunRoutes(app: FastifyInstance, db: Database.Database, bus?: TypedEventBus<AppEvents>): void {
   app.post('/api/runs', async (req, reply) => {
     const body = req.body as Partial<QueueSpec> & { priority?: 'manual' | 'scheduled' | 'agent' };
     // pre-flight: everything validated BEFORE enqueue (invalid never queues)
@@ -44,6 +44,7 @@ export function registerRunRoutes(app: FastifyInstance, db: Database.Database): 
       ...(body.parentRunId !== undefined ? { parentRunId: body.parentRunId } : {}),
     };
     const queueId = enqueue(db, spec, body.triggeredBy!, prio);
+    bus?.emit('queue.changed', { queueId, state: 'waiting' });
     return reply.code(202).send({ queueId });
   });
 
@@ -56,6 +57,7 @@ export function registerRunRoutes(app: FastifyInstance, db: Database.Database): 
     const { id } = req.params as { id: string };
     const ok = abort(db, id);
     if (!ok) return reply.code(409).send({ error: 'not abortable (already dispatched/done)' });
+    bus?.emit('queue.changed', { queueId: id, state: 'aborted' });
     return { aborted: true };
   });
 

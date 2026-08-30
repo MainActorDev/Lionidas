@@ -6,6 +6,7 @@ import MatrixPage from './pages/MatrixPage.vue';
 import BaselinesPage from './pages/BaselinesPage.vue';
 import DrivePage from './pages/DrivePage.vue';
 import FlakesPage from './pages/FlakesPage.vue';
+import ForgePage from './pages/ForgePage.vue';
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -17,5 +18,6 @@ export const router = createRouter({
     { path: '/baselines', name: 'baselines', component: BaselinesPage, meta: { title: 'baselines' } },
     { path: '/drive', name: 'drive', component: DrivePage, meta: { title: 'drive' } },
     { path: '/flakes', name: 'flakes', component: FlakesPage, meta: { title: 'flakes' } },
+    { path: '/forge', name: 'forge', component: ForgePage, meta: { title: 'forge' } },
   ] satisfies RouteRecordRaw[],
 });

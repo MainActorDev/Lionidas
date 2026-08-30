@@ -14,6 +14,7 @@ import { registerEvidenceRoute } from './routes/evidence.ts';
 import { registerBaselineRoutes } from './routes/baselines.ts';
 import { registerManualRoutes } from './routes/manual.ts';
 import { registerFlakeRoutes } from './routes/flakes.ts';
+import { registerEventsWs } from './routes/events-ws.ts';
 import { startIdleWatchdog } from './manual/session.ts';
 import * as runtimeMod from './alloy/runtime.ts';
 import { startDevicePoller } from './poll/devices.ts';
@@ -42,9 +43,10 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
 
   registerHealthRoute(app);
   registerDeviceRoutes(app, db.raw);
-  registerRunRoutes(app, db.raw);
+  registerRunRoutes(app, db.raw, bus);
   registerMatrixRoute(app, db.raw);
   registerEvidenceRoute(app, db.raw);
+  await registerEventsWs(app, bus);
 
   app.addHook('onRequest', async (req) => {
     req.id = crypto.randomUUID();
