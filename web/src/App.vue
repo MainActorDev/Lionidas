@@ -23,6 +23,10 @@ const isActive = (name: string): boolean => route.name === name;
         <RouterLink to="/forge" class="nav-item" :class="{ active: isActive('forge') }">forge</RouterLink>
       </div>
       <div class="nav-group">
+        <div class="nav-group-label">help</div>
+        <RouterLink to="/guide" class="nav-item" :class="{ active: isActive('guide') }">how to use</RouterLink>
+      </div>
+      <div class="nav-group">
         <div class="nav-group-label">verify</div>
         <RouterLink to="/baselines" class="nav-item" :class="{ active: isActive('baselines') }">baselines</RouterLink>
         <RouterLink to="/flakes" class="nav-item" :class="{ active: isActive('flakes') }">flakes</RouterLink>
