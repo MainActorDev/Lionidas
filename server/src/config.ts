@@ -37,7 +37,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error('config: CRUCIBLE_DB_PATH / CRUCIBLE_ARTIFACTS_DIR must not be empty');
   }
   return {
-    port: intEnv('CRUCIBLE_PORT', 8787),
+    port: intEnv('CRUCIBLE_PORT', 9230),
     host,
     dbPath,
     artifactsDir,

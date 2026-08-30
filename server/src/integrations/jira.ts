@@ -14,7 +14,7 @@ export function jiraConfig(): JiraConfig | null {
   const email = process.env['JIRA_EMAIL'];
   const token = process.env['JIRA_TOKEN'];
   if (!base || !email || !token) return null;
-  return { base, email, token, crucibleUrl: process.env['CRUCIBLE_URL'] ?? 'http://127.0.0.1:8787' };
+  return { base, email, token, crucibleUrl: process.env['CRUCIBLE_URL'] ?? 'http://127.0.0.1:9230' };
 }
 
 function adfParagraph(text: string): unknown {

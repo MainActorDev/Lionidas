@@ -51,7 +51,7 @@ steps:
 );
 
 const UDID = process.argv[2] ?? '5640A847-E6A8-4293-A139-066B11F2CEA6';
-const base = process.env['CRUCIBLE_URL'] ?? 'http://127.0.0.1:8787';
+const base = process.env['CRUCIBLE_URL'] ?? 'http://127.0.0.1:9230';
 const res = await fetch(`${base}/api/runs`, {
   method: 'POST',
   headers: { 'content-type': 'application/json' },

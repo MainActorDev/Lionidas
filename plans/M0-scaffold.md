@@ -97,3 +97,7 @@ Commit: `chore: crucible scaffold (M0)` — single commit, pushed after user rev
   `schema_meta` table uses an idempotent `CREATE TABLE IF NOT EXISTS` at db
   open — zero-config, same end state, M1 supersedes with drizzle-kit.
 - pino logging on from M0 (§17 quality bar), `SILENT` in tests.
+
+> **Port change (2026-08-30):** default port moved 8787 → **9230** (lioclaw owns
+> 8786; one-off collision risk + mitmproxy defaults 8080). Historical references
+> to 8787 in this doc predate the change.

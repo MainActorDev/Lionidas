@@ -3,7 +3,9 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import type { ForgeState } from './proxy.ts';
-import { matchPreset } from './matcher.ts';
+import { matchPreset, type Preset } from './matcher.ts';
+import { startMitm, stopMitmIfRunning, writeStateFile, mitmRunning } from './mitm/manager.ts';
+
 
 export function registerForgeRoutes(app: FastifyInstance, db: Database.Database, forgeState: ForgeState, forgeBus?: { emit: (type: never, payload: never) => void }): void {
   app.post('/api/forge/presets', async (req, reply) => {
@@ -65,12 +67,28 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
     const presets = db.prepare(
       `SELECT p.* FROM presets p JOIN scenario_overrides so ON so.preset_id = p.id WHERE so.scenario_id = ? AND so.enabled = 1`,
     ).all(id) as Array<Record<string, unknown>>;
+    // mirror the scenario into the MITM state file (addon reloads on mtime change)
+    try {
+      const stateDir = process.env['CRUCIBLE_MITM_STATE_DIR'] ?? '/tmp/forge-mitm';
+      writeStateFile(stateDir, forgeState.mode, presets.map((p) => ({
+        id: p['id'] as string,
+        method: p['method'] as string,
+        pathPattern: p['path_pattern'] as string,
+        match: p['match'] as Preset['match'],
+        ...(p['headers_json'] ? { headers: JSON.parse(p['headers_json'] as string) as Record<string, string> } : {}),  // eslint-disable-line unicorn/no-useless-fallback-in-spread
+        status: p['status'] as number,
+        ...(p['body_path'] ? { bodyPath: p['body_path'] as string } : {}),
+        ...(p['delay_ms'] ? { delayMs: p['delay_ms'] as number } : {}),
+        ...(p['seq_json'] ? { seq: JSON.parse(p['seq_json'] as string) as Array<{ status: number }> } : {}),
+        ...(p['failure'] ? { failure: p['failure'] as 'timeout' | 'reset' | 'malformed' | 'throttle' } : {}),
+      })));
+    } catch { /* mitm state write best-effort */ }
     forgeState.presets = presets.map((p) => ({
       id: p['id'] as string,
       method: p['method'] as string,
       pathPattern: p['path_pattern'] as string,
       match: p['match'] as 'exact' | 'glob' | 'regex',
-      ...(p['headers_json'] ? { headers: JSON.parse(p['headers_json'] as string) as Record<string, string> } : {}),
+      ...(p['headers_json'] ? { headers: JSON.parse(p['headers_json'] as string) as Record<string, string> } : {}),  // eslint-disable-line unicorn/no-useless-fallback-in-spread
       status: p['status'] as number,
       ...(p['body_path'] ? { bodyPath: p['body_path'] as string } : {}),
       ...(p['delay_ms'] ? { delayMs: p['delay_ms'] as number } : {}),
@@ -143,6 +161,25 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
     db.prepare(`UPDATE runs SET note = 'rehearse' WHERE id = ?`).run(runId);
     const trafficCount = (db.prepare(`SELECT COUNT(*) AS c FROM traffic WHERE run_id = ?`).get(runId) as { c: number }).c;
     return { runId, trafficHits: trafficCount };
+  });
+
+  // MITM lifecycle
+  app.post('/api/forge/mitm/start', async (_req, reply) => {
+    try {
+      const stateDir = process.env['CRUCIBLE_MITM_STATE_DIR'] ?? '/tmp/forge-mitm';
+      const h = await startMitm({ db, bus: (forgeBus ?? { emit: () => undefined }) as never, stateDir });
+      return { running: true, port: h.port, pid: h.pid };
+    } catch (err) {
+      return reply.code(503).send({ error: `mitm start failed: ${err instanceof Error ? err.message : String(err)}` });
+    }
+  });
+  app.post('/api/forge/mitm/stop', async () => {
+    await stopMitmIfRunning();
+    return { running: false };
+  });
+  app.get('/api/forge/mitm/status', async () => {
+    const s = mitmRunning();
+    return s ? { running: true, ...s } : { running: false };
   });
 
   app.get('/api/forge/traffic', async (req) => {
