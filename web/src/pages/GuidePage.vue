@@ -16,6 +16,7 @@ const sections: Array<{ id: SectionId; label: string; group: string }> = [
   { id: 'baselines', label: 'approvals', group: 'verify' },
   { id: 'flakes', label: 'flaky tests', group: 'verify' },
   { id: 'forge', label: 'network control', group: 'control' },
+  { id: 'templates', label: 'test templates', group: 'control' },
   { id: 'drive', label: 'manual control', group: 'control' },
   { id: 'shortcuts', label: 'keyboard', group: 'control' },
 ];
@@ -267,6 +268,33 @@ const groups = computed(() => {
             TLS — presets work on https endpoints exactly like http. Certificate-pinned apps pass through
             untouched (shown as TLS-passthrough rows).
           </p>
+        </div>
+      </div>
+
+      <!-- ═══ TEMPLATES ═══ -->
+      <div v-if="active === 'templates'">
+        <div class="page-title">test templates</div>
+        <p style="color: var(--color-ash); margin: var(--s-2) 0;">Record a manual test once — replay it as a regression any time, with any network conditions.</p>
+
+        <div class="section-label">record</div>
+        <div class="card">
+          <div class="meta-row"><span class="k">1 · take control</span><b>wall → control a simulator — you drive, the screen streams back</b></div>
+          <div class="meta-row"><span class="k">2 · record</span><b>recorder toggle in the sidebar — every tap, scroll, and typed text becomes a step with a thumbnail</b></div>
+          <div class="meta-row"><span class="k">3 · save</span><b>"save as template" — name it, tag it with a Jira ticket, done</b></div>
+        </div>
+
+        <div class="section-label">replay</div>
+        <div class="card">
+          <div class="meta-row"><span class="k">▶ run</span><b>replays the steps on a booted simulator — same taps, same order</b></div>
+          <div class="meta-row"><span class="k">network: live</span><b>default — the app talks to the real network</b></div>
+          <div class="meta-row"><span class="k">network: scenario</span><b>pick one and its presets fake endpoints for the run's duration — restored after</b></div>
+          <div class="meta-row"><span class="k">truth</span><b>steps executed + final screenshot + the traffic the app produced — no image assertions</b></div>
+        </div>
+
+        <div class="section-label">regression</div>
+        <div class="card">
+          <div class="meta-row"><span class="k">ticket tag</span><b>filter templates by ticket key — rerun exactly what a story needs</b></div>
+          <div class="meta-row"><span class="k">runs page</span><b>every replay is a run: steps, evidence, and attached network traffic</b></div>
         </div>
       </div>
 
