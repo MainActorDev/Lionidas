@@ -31,6 +31,19 @@ function parseTags(raw: string | null | undefined): string[] {
   try { const v = JSON.parse(raw) as unknown; return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []; } catch { return []; }
 }
 
+/** Shared template selection (A2): comma-list tags with AND semantics +
+ *  optional app bundle filter. Used by the list route and play-all — one
+ *  definition of "which templates match a regression selection". */
+export function selectTemplates(rows: TemplateRow[], filter: { tags?: string | undefined; app?: string | undefined }): TemplateRow[] {
+  const wantTags = (filter.tags ?? '').split(',').map((t) => t.trim()).filter(Boolean);
+  return rows.filter((r) => {
+    if (filter.app && r.app_bundle_id !== filter.app) return false;
+    if (wantTags.length === 0) return true;
+    const have = parseTags(r.tags_json);
+    return wantTags.every((t) => have.includes(t));
+  });
+}
+
 function rowToTemplate(r: TemplateRow): Record<string, unknown> {
   return {
     id: r.id,
@@ -54,11 +67,11 @@ function rowToTemplate(r: TemplateRow): Record<string, unknown> {
 
 export function registerTemplateRoutes(app: FastifyInstance, db: Database.Database, dispatchDeps?: unknown): void {
   app.get('/api/templates', async (req) => {
-    const q = req.query as { ticket?: string };
-    const rows = q.ticket
-      ? (db.prepare('SELECT * FROM templates WHERE ticket_key = ? ORDER BY updated_at DESC').all(q.ticket) as TemplateRow[])
-      : (db.prepare('SELECT * FROM templates ORDER BY updated_at DESC').all() as TemplateRow[]);
-    return { templates: rows.map(rowToTemplate) };
+    const q = req.query as { ticket?: string; tags?: string; app?: string };
+    let rows: TemplateRow[];
+    if (q.ticket) rows = db.prepare('SELECT * FROM templates WHERE ticket_key = ? ORDER BY updated_at DESC').all(q.ticket) as TemplateRow[];
+    else rows = db.prepare('SELECT * FROM templates ORDER BY updated_at DESC').all() as TemplateRow[];
+    return { templates: selectTemplates(rows, { tags: q.tags, app: q.app }).map(rowToTemplate) };
   });
 
   app.get('/api/templates/:id', async (req, reply) => {

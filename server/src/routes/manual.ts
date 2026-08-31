@@ -215,4 +215,27 @@ export function registerManualRoutes(
       throw err;
     }
   });
+
+  // ── batch regression run (A2): play every template matching the filter,
+  // sequentially — one device at a time, wedged run can't wedge the batch ──
+  app.post('/api/templates/play-all', async (req, reply) => {
+    const b = (req.body ?? {}) as { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string> };
+    const { selectTemplates } = await import('./templates.ts');
+    const rows = db.prepare('SELECT * FROM templates ORDER BY updated_at DESC').all() as Array<{ id: string; app_bundle_id: string | null; tags_json: string | null }>;
+    const sel = selectTemplates(rows as never, { tags: b.tags, app: b.app });
+    if (sel.length === 0) return reply.code(400).send({ error: 'no templates match' });
+    const runIds: string[] = [];
+    for (const t of sel) {
+      const { runId, done } = await runTemplatePlayback(
+        { db, bus: deps.bus, dispatchDeps: deps.dispatchDeps, artifactsDir: deps.artifactsDir, forgeState: deps.forgeState },
+        t.id,
+        { ...(b.udid !== undefined ? { udid: b.udid } : {}), ...(b.triggeredBy !== undefined ? { triggeredBy: b.triggeredBy } : {}), ...(b.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}), ...(b.env !== undefined ? { env: b.env } : {}) },
+      );
+      runIds.push(runId);
+      // cap: a hung dispatch leaves the run running forever (B2, deferred) —
+      // this race keeps the BATCH moving; the wedged run itself stays wedged
+      await Promise.race([done, new Promise<void>((res) => setTimeout(res, 5 * 60_000))]);
+    }
+    return { runIds, count: sel.length };
+  });
 }
