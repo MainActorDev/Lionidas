@@ -9,7 +9,7 @@ import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { crucibleAlloy } from '../alloy/client.ts';
-import { captureSelectorAt } from './selector.ts';
+import { captureSelectorAt, countMatches } from './selector.ts';
 import type { StepSelector, SnapNode } from './selector.ts';
 
 export interface ManualDeps {
@@ -227,6 +227,47 @@ export async function manualSnapshot(deps: ManualDeps, sessionId: string): Promi
   deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
   deps.bus.emit('manual.session.snapshot', { sessionId, path: r.result.path });
   return r.result;
+}
+
+/** A7 authoring aid: count live matches for a selector BEFORE QA commits an
+ *  assertion — "1 match · will assert" vs "0 · nothing to assert". Also
+ *  returns the screen's addressable labels so the UI can offer a picker. */
+export async function manualProbeSelector(deps: ManualDeps, sessionId: string, sel: { identifier?: string; label?: string; type?: string }): Promise<{ matched: number; labels: string[] }> {
+  const s = liveSession(deps, sessionId);
+  const alloy = crucibleAlloy();
+  const snap = (await alloy.dispatch('alloy_snapshot', { udid: s.udid, interactiveOnly: false }, deps.dispatchDeps)) as
+    | { ok: true; result: { nodes?: SnapNode[] } }
+    | { ok: false };
+  const nodesL = snap.ok ? snap.result.nodes ?? [] : [];
+  const matched = countMatches(nodesL, sel);
+  const labels = [...new Set(nodesL.filter((n) => n.label).map((n) => n.label as string))].sort().slice(0, 200);
+  deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
+  return { matched, labels };
+}
+
+/** A7: append an expect step to the recording REGARDLESS of record toggle —
+ *  assertions are added deliberately (typed/probed), not incidentally, and
+ *  QA typically adds them mid-session with recording off. Thumbnail shows
+ *  the screen being asserted. Returns the updated steps. */
+export function recordExpectStep(deps: ManualDeps, sessionId: string, selector: StepSelector): { on: boolean; steps: RecordedStep[] } {
+  const state = readRecording(deps, sessionId);
+  let thumb: string | null = null;
+  try {
+    const alloy = crucibleAlloy();
+    const r = (() => alloy.dispatch('alloy_screenshot', { udid: sessionUdid(deps, sessionId) }, deps.dispatchDeps)) as unknown as Promise<{ ok: true; result: { path: string } } | { ok: false }>;
+    void r.then((res) => {
+      if (res.ok) {
+        const st = readRecording(deps, sessionId);
+        const step = st.steps.find((x) => x.idx === state.steps.length);
+        if (step) { step.thumb = res.result.path; writeRecording(deps, sessionId, st); }
+      }
+    }).catch(() => undefined);
+  } catch { /* thumb best-effort */ }
+  const full: RecordedStep = { idx: state.steps.length, action: 'expect', ts: Date.now(), thumb, selector } as unknown as RecordedStep;
+  state.steps.push(full);
+  writeRecording(deps, sessionId, state);
+  deps.bus.emit('manual.session.step', { sessionId, step: full });
+  return { on: state.on, steps: state.steps };
 }
 
 export async function finishManualSession(deps: ManualDeps, sessionId: string, note?: string): Promise<void> {

@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { createReadStream, statSync } from 'node:fs';
-import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, finishManualSession, setRecording, getRecording, deleteRecordedStep, ManualSessionError } from '../manual/session.ts';
+import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, manualProbeSelector, finishManualSession, setRecording, getRecording, deleteRecordedStep, recordExpectStep, ManualSessionError } from '../manual/session.ts';
 import { listSimulatorApps } from '../manual/apps.ts';
 import { runTemplatePlayback, PlaybackError } from '../manual/playback.ts';
 import type { ForgeState } from '../forge/proxy.ts';
@@ -102,6 +102,30 @@ export function registerManualRoutes(
   });
 
   // ── recorder ──
+  app.post('/api/manual/:id/probe-selector', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = req.body as { selector?: { identifier?: string; label?: string; type?: string } } | null;
+    if (!b?.selector) return reply.code(400).send({ error: 'selector required' });
+    try {
+      return await manualProbeSelector({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id, b.selector);
+    } catch (err) {
+      if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
+      throw err;
+    }
+  });
+
+  app.post('/api/manual/:id/record/expect', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = req.body as { selector?: { identifier?: string; label?: string; type?: string } } | null;
+    if (!b?.selector || (!b.selector.label && !b.selector.identifier)) return reply.code(400).send({ error: 'selector with label or identifier required' });
+    try {
+      return recordExpectStep({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id, b.selector);
+    } catch (err) {
+      if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
+      throw err;
+    }
+  });
+
   app.post('/api/manual/:id/record', async (req, reply) => {
     const { id } = req.params as { id: string };
     const b = req.body as { on?: boolean };

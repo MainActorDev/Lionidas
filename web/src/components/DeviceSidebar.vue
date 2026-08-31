@@ -48,7 +48,7 @@ watch(() => [props.device?.udid, props.device?.state] as const, ([udid, state]) 
 const actionMsg = ref('');
 
 // ── recorder state (control mode) ──
-interface StepRow { idx: number; action: string; x?: number; y?: number; direction?: string; text?: string; ts: number; thumb: string | null }
+interface StepRow { idx: number; action: string; x?: number; y?: number; direction?: string; text?: string; ts: number; thumb: string | null; selector?: { identifier?: string; label?: string; type?: string } | null }
 const recording = ref(false);
 const steps = ref<StepRow[]>([]);
 let recordPoll: ReturnType<typeof setInterval> | null = null;
@@ -111,10 +111,48 @@ async function saveAsTemplate(): Promise<void> {
 }
 
 function stepLabel(s: StepRow): string {
+  if (s.action === 'expect') return `expect ${s.selector?.label ?? s.selector?.identifier ?? '?'}`;
   if (s.action === 'tap') return `tap ${s.x},${s.y}`;
   if (s.action === 'scroll') return `scroll ${s.direction}`;
   if (s.action === 'type') return `type "${(s.text ?? '').slice(0, 14)}${(s.text ?? '').length > 14 ? '…' : ''}"`;
   return s.action;
+}
+
+// ── A7 assertion authoring: probe the live screen before committing ──
+const assertText = ref('');
+const assertLabels = ref<string[]>([]);
+const assertMatched = ref<number | null>(null);
+const assertBusy = ref(false);
+
+async function probeAssert(): Promise<void> {
+  if (!sessionId.value || !assertText.value.trim() || assertBusy.value) return;
+  assertBusy.value = true;
+  assertMatched.value = null;
+  try {
+    const r = await fetch(`/api/manual/${sessionId.value}/probe-selector`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ selector: { label: assertText.value.trim() } }),
+    });
+    const b = (await r.json()) as { matched?: number; labels?: string[] };
+    assertMatched.value = b.matched ?? 0;
+    if (b.labels) assertLabels.value = b.labels;
+  } catch { assertMatched.value = null; }
+  finally { assertBusy.value = false; }
+}
+
+async function commitAssert(): Promise<void> {
+  if (!sessionId.value || !assertText.value.trim()) return;
+  if (assertMatched.value !== 1) return; // must probe to exactly 1 first
+  try {
+    const r = await fetch(`/api/manual/${sessionId.value}/record/expect`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ selector: { label: assertText.value.trim() } }),
+    });
+    const b = (await r.json()) as { steps?: StepRow[] };
+    steps.value = b.steps ?? steps.value;
+    assertText.value = '';
+    assertMatched.value = null;
+  } catch { /* ignore — steps poll refreshes */ }
 }
 
 const booted = computed(() => props.device?.state === 'Booted');
@@ -357,6 +395,24 @@ async function endSession(): Promise<void> {
               </button>
               <span style="font-size: 10px; color: var(--color-steel);">{{ steps.length }} steps</span>
             </div>
+            <!-- A7: assertion authoring — probe the live screen, commit on exactly-1 match -->
+            <div class="assert-box">
+              <input
+                v-model="assertText"
+                list="assert-labels"
+                placeholder="assert screen contains…"
+                :disabled="assertBusy"
+                @keydown.enter="assertMatched === 1 ? commitAssert() : probeAssert()"
+              />
+              <datalist id="assert-labels">
+                <option v-for="l in assertLabels" :key="l" :value="l" />
+              </datalist>
+              <button class="btn btn-sm" :disabled="assertBusy || !assertText.trim()" @click="probeAssert" title="check how many elements on the CURRENT screen match this label">check</button>
+              <button class="btn btn-sm btn-primary" :disabled="assertMatched !== 1" @click="commitAssert" title="add as an assertion step — replay fails red if this element disappears">assert</button>
+            </div>
+            <div v-if="assertMatched !== null" class="assert-feedback" :style="{ color: assertMatched === 1 ? 'var(--color-moss)' : 'var(--color-ember)' }">
+              {{ assertMatched === 1 ? '✓ 1 match — assertion will check for this' : assertMatched === 0 ? '✕ 0 matches — nothing to assert yet' : `? ${assertMatched} matches — ambiguous, pick a more specific label` }}
+            </div>
             <div v-if="steps.length > 0" class="steps">
               <div v-for="s in steps" :key="s.idx" class="step">
                 <img v-if="s.thumb" :src="`/api/manual-thumb?path=${encodeURIComponent(s.thumb)}&v=${s.ts}`" class="step-thumb" loading="lazy" />
@@ -414,6 +470,9 @@ async function endSession(): Promise<void> {
 }
 .type-box input { flex: 1; }
 .recorder { margin-top: var(--s-4); border-top: 1px solid var(--color-iron); padding-top: var(--s-3); }
+.assert-box { display: flex; gap: var(--s-2); margin-top: var(--s-2); }
+.assert-box input { flex: 1; min-width: 0; }
+.assert-feedback { font-size: 10px; margin-top: 4px; }
 .recorder-head { display: flex; align-items: center; gap: var(--s-2); }
 .steps { margin-top: var(--s-2); display: flex; flex-direction: column; gap: var(--s-2); max-height: 300px; overflow-y: auto; }
 .step { display: flex; align-items: center; gap: var(--s-2); }
