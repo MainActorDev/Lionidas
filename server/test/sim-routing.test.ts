@@ -21,7 +21,7 @@ afterEach(() => {
  *  proxy output from files named after the service, set-calls appended to
  *  `calls` for assertion. */
 function makeNetworksetup(): void {
-  writeFileSync(join(binDir, 'services'), 'Ethernet\nWi-Fi\nUSB\n');
+  writeFileSync(join(binDir, 'services'), 'An asterisk (*) denotes that a network service is disabled.\nEthernet\nWi-Fi\nUSB\n');
   writeFileSync(join(binDir, 'calls'), '');
   const f = join(binDir, 'networksetup');
   writeFileSync(f, [
