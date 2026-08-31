@@ -45,6 +45,8 @@ interface TemplateRow {
   udid: string;
   steps_json: string;
   app_bundle_id: string | null;
+  logical_w: number | null;
+  logical_h: number | null;
 }
 
 function stepName(s: PlaybackStep): string {
@@ -135,6 +137,17 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       const open = (await alloy.dispatch('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false }, deps.dispatchDeps)) as { ok: boolean; error?: { message: string } };
       if (!open.ok) throw new Error(`open failed: ${open.error?.message ?? 'engine error'}`);
 
+      // cross-device scaling (flaw #6): scale recorded coords by target/recorded
+      // logical dims — applied only to steps WITHOUT a usable selector.
+      let targetW: number | null = null; let targetH: number | null = null;
+      try {
+        const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
+          | { ok: true; result: { nodes?: Array<{ rect?: { width: number; height: number } }> } } | { ok: false };
+        if (snap.ok) { const r = snap.result.nodes?.[0]?.rect; if (r) { targetW = r.width; targetH = r.height; } }
+      } catch { /* dims best-effort */ }
+      const scaleX = targetW && t.logical_w && t.logical_w > 0 ? targetW / t.logical_w : 1;
+      const scaleY = targetH && t.logical_h && t.logical_h > 0 ? targetH / t.logical_h : 1;
+
       for (const s of steps) {
         const t0 = Date.now();
         // env substitution (A1): resolve ${env.KEY} BEFORE dispatch — a missing
@@ -155,13 +168,18 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           // coordinates are the fallback, not the plan.
           let tx = s.x;
           let ty = s.y;
-          let resolvedBy: 'selector' | 'coordinate-fallback' | 'coordinate' = 'coordinate';
+          let resolvedBy: 'selector' | 'coordinate-fallback' | 'coordinate' | 'coordinate-scaled' = 'coordinate';
           if ((s.action === 'tap' || s.action === 'type') && s.selector && (s.selector.identifier || s.selector.label)) {
             const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
               | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
             const hit = snap.ok ? resolveSelector(snap.result.nodes ?? [], s.selector) : null;
             if (hit) { tx = hit.x; ty = hit.y; resolvedBy = 'selector'; }
             else resolvedBy = 'coordinate-fallback';
+          } else if ((scaleX !== 1 || scaleY !== 1) && s.x !== undefined && s.y !== undefined) {
+            // selector-less step on a different-size device — scale proportionally
+            tx = Math.round(s.x * scaleX);
+            ty = Math.round(s.y * scaleY);
+            resolvedBy = 'coordinate-scaled';
           }
           let input: Record<string, unknown>;
           if (s.action === 'tap') input = { udid, action: 'press', target: { x: tx, y: ty }, settle: true };
