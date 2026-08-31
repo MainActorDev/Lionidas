@@ -41,36 +41,54 @@ export function useDeviceStream(): DeviceStream {
   let frameCount = 0;
   let lastFpsTime = Date.now();
   let generation = 0; // invalidate stale async work after stop()/restart()
-  let drawSeq = 0;    // decode sequencing: only the newest-issued frame may paint
 
-  function drawFrame(buf: ArrayBuffer): Promise<void> {
-    const seq = ++drawSeq;
-    return createImageBitmap(new Blob([buf], { type: 'image/jpeg' })).then((bitmap) => {
-      // A newer frame was issued while this one decoded — decode completion
-      // order is NOT guaranteed, and an older bitmap painting over a newer
-      // one reads as the stream jumping backwards (flicker). Drop it.
-      if (seq !== drawSeq) { bitmap.close(); return; }
-      const canvas = canvasRef.value;
-      if (canvas) {
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          // Assigning canvas.width CLEARS the bitmap even when unchanged —
-          // doing it per-frame flashes a transparent (black) instant between
-          // clear and draw. Frame dims are constant per session; set once.
-          if (canvas.width !== bitmap.width) canvas.width = bitmap.width;
-          if (canvas.height !== bitmap.height) canvas.height = bitmap.height;
-          ctx.drawImage(bitmap, 0, 0);
+  // Single-flight decode with a one-slot pending buffer — the browser-side
+  // twin of the relay's LATEST-WINS queue. Properties:
+  //  - frames paint strictly in arrival order (a decode completing late can
+  //    never paint over a newer frame → no backwards jumps = no flicker);
+  //  - if frames arrive faster than createImageBitmap completes, the stale
+  //    ones are OVERWRITTEN in the slot, not queued (no snowball, displayed
+  //    fps caps at decode speed);
+  //  - starving never happens: every completed decode paints (the previous
+  //    drop-on-newer-arrival approach froze the canvas under motion).
+  let pendingBuf: ArrayBuffer | null = null;
+  let decoding = false;
+
+  async function decodeLoop(): Promise<void> {
+    if (decoding) return;
+    decoding = true;
+    try {
+      while (pendingBuf !== null) {
+        const buf = pendingBuf;
+        pendingBuf = null; // newer frames land here while this one decodes
+        let bitmap: ImageBitmap;
+        try {
+          bitmap = await createImageBitmap(new Blob([buf], { type: 'image/jpeg' }));
+        } catch { continue; /* corrupt frame — skip, keep the loop alive */ }
+        const canvas = canvasRef.value;
+        if (canvas) {
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            // Assigning canvas.width CLEARS the bitmap even when unchanged —
+            // doing it per-frame flashes a transparent (black) instant between
+            // clear and draw. Frame dims are constant per session; set once.
+            if (canvas.width !== bitmap.width) canvas.width = bitmap.width;
+            if (canvas.height !== bitmap.height) canvas.height = bitmap.height;
+            ctx.drawImage(bitmap, 0, 0);
+          }
+        }
+        bitmap.close();
+        frameCount++;
+        const now = Date.now();
+        if (now - lastFpsTime >= 1000) {
+          fps.value = Math.round((frameCount * 1000) / (now - lastFpsTime));
+          frameCount = 0;
+          lastFpsTime = now;
         }
       }
-      bitmap.close();
-      frameCount++;
-      const now = Date.now();
-      if (now - lastFpsTime >= 1000) {
-        fps.value = Math.round((frameCount * 1000) / (now - lastFpsTime));
-        frameCount = 0;
-        lastFpsTime = now;
-      }
-    });
+    } finally {
+      decoding = false;
+    }
   }
 
   function connect(udid: string, isRetry: boolean): void {
@@ -92,7 +110,8 @@ export function useDeviceStream(): DeviceStream {
       state.value = 'live';
       failure.value = '';
       frames.value++;
-      void drawFrame(ev.data as ArrayBuffer);
+      pendingBuf = ev.data as ArrayBuffer;
+      void decodeLoop();
     };
     ws.onclose = () => {
       if (gen !== generation) return;
