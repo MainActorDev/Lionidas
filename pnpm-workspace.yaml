@@ -1,3 +1,9 @@
 packages:
   - server
   - web
+# pnpm 10+/11 blocks native postinstall scripts unless allowlisted (supply-chain
+# protection). These need to compile native code / fetch binaries.
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
+  vue-demi: true

@@ -72,9 +72,24 @@ function tailTraffic(deps: MitmDeps): void {
   } catch { /* raced truncation */ }
 }
 
+/** A kill -9'd (or otherwise externally reaped) child keeps proc.killed === false
+ *  — Node only sets it when WE kill it. Ask the kernel instead: a live pid
+ *  answers signal 0. Without this, startMitm short-circuits with a stale
+ *  'already running' handle while nothing listens — with routing on, that
+ *  blackholed the whole Mac's internet. */
+function procAlive(p: ChildProcess | null): boolean {
+  if (!p || p.pid === undefined) return false;
+  try { process.kill(p.pid, 0); return true; } catch { return false; }
+}
+
 export async function startMitm(deps: MitmDeps, port = 0): Promise<MitmHandle> {
-  if (proc && !proc.killed) {
-    return { port: (proc as { _port?: number })._port ?? 0, pid: proc.pid ?? 0, stop: async () => undefined };
+  const stale = proc;
+  if (stale && procAlive(stale)) {
+    return { port: (stale as { _port?: number })._port ?? 0, pid: stale.pid ?? 0, stop: async () => undefined };
+  }
+  if (stale) { // dead but never reaped — the exit handler didn't fire (SIGKILL)
+    try { disableSimRouting(); } catch { /* networksetup unavailable */ }
+    proc = null;
   }
   const addonPath = join(dirname(new URL(import.meta.url).pathname), 'addon.py');
   mkdirSync(deps.stateDir, { recursive: true });
@@ -178,7 +193,7 @@ export async function startMitm(deps: MitmDeps, port = 0): Promise<MitmHandle> {
     stop: async () => {
       if (tailTimer) { clearInterval(tailTimer); tailTimer = null; }
       tailTraffic(deps); // final drain
-      if (proc && !proc.killed) {
+      if (proc && procAlive(proc)) {
         (proc as { _intentional?: boolean })._intentional = true; // deliberate — exit hook must not double-clear routing
         proc.kill('SIGTERM');
         await new Promise<void>((r) => { proc?.on('exit', () => r()); setTimeout(r, 2000); });
@@ -189,16 +204,22 @@ export async function startMitm(deps: MitmDeps, port = 0): Promise<MitmHandle> {
 }
 
 export function mitmRunning(): { pid: number; port: number } | null {
-  if (proc && !proc.killed) return { pid: proc.pid ?? 0, port: (proc as { _port?: number })._port ?? 0 };
+  const p = proc;
+  if (p && procAlive(p)) return { pid: p.pid ?? 0, port: (p as { _port?: number })._port ?? 0 };
+  if (p) { // stale corpse discovered by a status poll — restore internet NOW
+    try { disableSimRouting(); } catch { /* networksetup unavailable */ }
+    proc = null;
+  }
   return null;
 }
 
 export async function stopMitmIfRunning(): Promise<void> {
-  if (proc && !proc.killed) {
+  const p = proc;
+  if (p && procAlive(p)) {
     if (tailTimer) { clearInterval(tailTimer); tailTimer = null; }
-    (proc as { _intentional?: boolean })._intentional = true;
-    proc.kill('SIGTERM');
-    await new Promise<void>((r) => { proc?.on('exit', () => r()); setTimeout(r, 2000); });
+    (p as { _intentional?: boolean })._intentional = true;
+    p.kill('SIGTERM');
+    await new Promise<void>((r) => { p.on('exit', () => r()); setTimeout(r, 2000); });
   }
   proc = null;
 }
