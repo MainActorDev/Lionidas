@@ -24,6 +24,13 @@ this file's rule. Remaining:*
   step editor.
 
 ### A6. Resilient selectors via view-hierarchy capture — batch 2
+- **Probed 2026-08-31** (Settings on iPhone 16 Pro sim, `scripts/node-fields.mjs`):
+  `alloy_snapshot` nodes already expose `identifier`, `label`, `type`, `rect`,
+  `hittable`, `ref`, `parentIndex`. **In Apple Settings, `hittable:1` nodes: 1/72
+  and that node carries no `identifier`** — Apple apps set few AX identifiers,
+  so A6 selectors must be label/type-based fallbacks, not identifier-only.
+  ios-consumer app AX quality must be audited before committing to selector
+  strategy (Maestro's hierarchy-DOM approach remains the reference).
 - **What:** recorder captures element text/id at tap point from the alloy
   snapshot; playback resolves selector first, coordinates as fallback. Fixes
   cross-device replay (flaw #6).
