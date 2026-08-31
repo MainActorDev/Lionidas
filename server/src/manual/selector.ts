@@ -34,13 +34,26 @@ export function captureSelectorAt(nodes: SnapNode[], x: number, y: number): Step
   return sel;
 }
 
+/** Shared match PREDICATE — one definition of "this node satisfies this
+ *  selector" for both resolution (tapping) and existence assertions.
+ *  Pool POLICIES differ deliberately: resolveSelector prefers hittable
+ *  nodes (it taps); countMatches counts ALL matches (asserting non-hittable
+ *  StaticText content is legitimate). One predicate, two policies. */
+export function matchesSelector(n: SnapNode, sel: StepSelector): boolean {
+  return (sel.identifier === undefined || n.identifier === sel.identifier) &&
+    (sel.label === undefined || n.label === sel.label) &&
+    (sel.type === undefined || n.type === sel.type);
+}
+
+/** Existence-assertion counter: how many nodes satisfy the selector. */
+export function countMatches(nodes: SnapNode[], sel: StepSelector): number {
+  return nodes.filter((n) => matchesSelector(n, sel)).length;
+}
+
 /** Unique hittable match → its rect center. null = gone or ambiguous
  *  (caller falls back to coordinates and logs it). */
 export function resolveSelector(nodes: SnapNode[], sel: StepSelector): { x: number; y: number } | null {
-  const matches = nodes.filter((n) =>
-    (sel.identifier === undefined || n.identifier === sel.identifier) &&
-    (sel.label === undefined || n.label === sel.label) &&
-    (sel.type === undefined || n.type === sel.type));
+  const matches = nodes.filter((n) => matchesSelector(n, sel));
   const hittable = matches.filter((n) => n.hittable && n.rect);
   const pool = hittable.length > 0 ? hittable : matches.filter((n) => n.rect);
   if (pool.length !== 1) return null;

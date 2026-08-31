@@ -21,6 +21,14 @@ export interface AlloyExports {
 }
 
 let cached: AlloyExports | null = null;
+let testOverride: AlloyExports | null = null;
+
+/** Test-only: swap the alloy implementation (fake dispatch) — prod code
+ *  never calls this; without it, resolveAlloyPath + require run as before. */
+export function __setAlloyForTest(fake: AlloyExports | null): void {
+  testOverride = fake;
+  cached = null;
+}
 
 function resolveAlloyPath(): string {
   const fromEnv = process.env['ALLOY_PATH'];
@@ -46,6 +54,7 @@ function resolveAlloyPath(): string {
 }
 
 export function crucibleAlloy(): AlloyExports {
+  if (testOverride) return testOverride;
   if (cached) return cached;
   const alloyPath = resolveAlloyPath();
   const dist = join(alloyPath, 'dist', 'index.js');

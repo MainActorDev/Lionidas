@@ -13,7 +13,7 @@ import { crucibleAlloy } from '../alloy/client.ts';
 import type { ForgeState } from '../forge/proxy.ts';
 import type { Preset } from '../forge/matcher.ts';
 import { substituteStep } from './template-env.ts';
-import { resolveSelector } from './selector.ts';
+import { resolveSelector, countMatches } from './selector.ts';
 import type { SnapNode } from './selector.ts';
 import { expandFlows } from './flows.ts';
 import type { FlowStep } from './flows.ts';
@@ -28,7 +28,7 @@ export interface PlaybackDeps {
 
 export interface PlaybackStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect';
   x?: number;
   y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
@@ -56,6 +56,7 @@ interface TemplateRow {
 }
 
 function stepName(s: PlaybackStep): string {
+  if (s.action === 'expect') return `expect ${s.selector?.label ?? s.selector?.identifier ?? '?'}`;
   if (s.action === 'runFlow') return `run flow ${s.templateId ?? '?'}`;
   if (s.action === 'tap') return `tap ${s.x},${s.y}`;
   if (s.action === 'scroll') return `scroll ${s.direction}`;
@@ -192,6 +193,42 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           break;
         }
         try {
+          // A7 expect: existence assertion — resolution IS the check. Never
+          // dispatches; one bounded retry covers a slow screen transition
+          // (NOT a wait framework).
+          if (s.action === 'expect' && s.selector) {
+            const readCount = async (): Promise<{ n: number; nodesL: SnapNode[] } | null> => {
+              const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
+                | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
+              if (!snap.ok) return null;
+              const nodesL = snap.result.nodes ?? [];
+              return { n: countMatches(nodesL, s.selector!), nodesL };
+            };
+            let read = await readCount();
+            if (read && read.n !== 1) {
+              await new Promise((r) => setTimeout(r, 750));
+              read = await readCount();
+            }
+            const matched = read?.n ?? 0;
+            const ev = { ...resolved, expect: s.selector, matched };
+            if (matched === 1) {
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify(ev));
+            } else {
+              const selJson = JSON.stringify(s.selector);
+              const reason = matched === 0 ? `not found: ${selJson}` : `ambiguous (${matched} matches): ${selJson}`;
+              if (s.optional) {
+                insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'skip', `optional expect miss: ${reason}`, t0, Date.now() - t0, '[]', JSON.stringify(ev));
+                continue;
+              }
+              runStatus = 'failed';
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', reason, t0, Date.now() - t0, '[]', JSON.stringify(ev));
+              for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
+                insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null);
+              }
+              break;
+            }
+            continue;
+          }
           // A6b: selector-first resolution against the LIVE hierarchy —
           // coordinates are the fallback, not the plan.
           let tx = s.x;
