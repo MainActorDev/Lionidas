@@ -86,14 +86,19 @@ async function foregroundBundleIds(udid: string): Promise<Set<string>> {
   } catch { return new Set(); }
 }
 
-/** The most plausible foreground app: non-Apple running UIKit app, resolved to
- *  full identity from the catalog. Xcode UI-test runners (.xctrunner) are
- *  excluded — they're harness apps, never the recording target. */
-export async function foregroundApp(udid: string): Promise<AppInfo | null> {
-  const running = await foregroundBundleIds(udid);
-  if (running.size === 0) return null;
-  const candidates = [...running].filter((bid) => !bid.endsWith('.xctrunner'));
-  if (candidates.length === 0) candidates.push(...running);
+/** The ACTUAL foreground app, straight from the accessibility tree: the
+ *  snapshot root node is type Application and its label is the app's name
+ *  (e.g. "Settings" — including Apple apps, which launchctl-based guesses
+ *  miss). Resolved to full identity (bundle id, icon) via the catalog.
+ *  Requires an active app session on the device (manual sessions have one). */
+export async function foregroundAppFromSnapshot(deps: { dispatch: (tool: string, input: unknown, deps: unknown) => Promise<unknown> }, dispatchDeps: unknown, udid: string): Promise<AppInfo | null> {
+  const r = (await deps.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, dispatchDeps)) as
+    | { ok: true; result: { nodes?: Array<{ type?: string; label?: string }> } }
+    | { ok: false };
+  if (!r.ok) return null;
+  const root = r.result.nodes?.[0];
+  if (!root || root.type !== 'Application' || !root.label) return null;
   const apps = await listSimulatorApps(udid);
-  return apps.find((a) => candidates.includes(a.bundleId)) ?? null;
+  // match by display name (snapshot label == CFBundleDisplayName)
+  return apps.find((a) => a.name === root.label) ?? null;
 }

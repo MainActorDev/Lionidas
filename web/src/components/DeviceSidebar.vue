@@ -22,6 +22,27 @@ const logicalH = ref<number | null>(null);
 const busy = ref(false);
 const error = ref('');
 const operator = ref('qa');
+// app picker: which app the control session opens on (avoids the
+// foreground-hijack when the guess is wrong; snapshot still grounds the
+// save-time binding)
+const appBundleId = ref('');
+const appOptions = ref<Array<{ bundleId: string; name: string; running: boolean }>>([]);
+let appOptionsLoaded = false;
+async function loadAppOptions(): Promise<void> {
+  if (!props.device || appOptionsLoaded) return;
+  try {
+    const res = await fetch(`/api/devices/${props.device.udid}/apps`);
+    const body = await res.json() as { apps?: Array<{ bundleId: string; name: string; running: boolean }> };
+    if (body.apps) {
+      appOptions.value = body.apps.filter((a) => !a.bundleId.startsWith('com.apple.') && !a.bundleId.endsWith('.xctrunner'));
+      const runningGuess = appOptions.value.find((a) => a.running);
+      if (runningGuess) appBundleId.value = runningGuess.bundleId;
+      appOptionsLoaded = true;
+    }
+  } catch { /* picker stays on auto */ }
+}
+watch(() => props.device?.udid, () => { appOptionsLoaded = false; appOptions.value = []; appBundleId.value = ''; }, { immediate: true });
+watch(() => [props.device?.udid, booted.value] as const, ([udid, b]) => { if (udid && b) void loadAppOptions(); }, { immediate: true });
 const actionMsg = ref('');
 
 // ── recorder state (control mode) ──
@@ -136,7 +157,7 @@ async function startSession(): Promise<void> {
   try {
     const res = await fetch('/api/manual/start', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ udid: props.device.udid, operator: operator.value }),
+      body: JSON.stringify({ udid: props.device.udid, operator: operator.value, ...(appBundleId.value ? { appBundleId: appBundleId.value } : {}) }),
     });
     const body = await res.json() as { sessionId?: string; logicalW?: number | null; logicalH?: number | null; error?: string };
     if (body.sessionId) {
@@ -275,7 +296,14 @@ async function endSession(): Promise<void> {
       <!-- control: lease + interactions -->
       <div v-else class="sidebar-body">
         <div v-if="!sessionId" class="card" style="padding: var(--s-3);">
-          <div class="meta-row"><span class="k">operator</span><input v-model="operator" style="width: 140px;" /></div>
+          <div class="meta-row"><span class="k">operator</span><input v-model="operator" style="width: 140px; " /></div>
+          <div class="meta-row">
+            <span class="k">app</span>
+            <select v-model="appBundleId" style="flex: 1;">
+              <option value="">auto (best guess)</option>
+              <option v-for="a in appOptions" :key="a.bundleId" :value="a.bundleId">{{ a.name }}</option>
+            </select>
+          </div>
           <button class="btn btn-primary" style="width: 100%; margin-top: var(--s-3);" :disabled="busy || !booted" @click="startSession">
             {{ busy ? 'starting…' : booted ? 'acquire & take control' : 'device not booted' }}
           </button>

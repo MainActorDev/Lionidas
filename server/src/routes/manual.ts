@@ -38,10 +38,23 @@ export function registerManualRoutes(
   });
 
   app.post('/api/manual/start', async (req, reply) => {
-    const b = req.body as { udid?: string; operator?: string };
+    const b = req.body as { udid?: string; operator?: string; appBundleId?: string };
     if (!b.udid || !b.operator) return reply.code(400).send({ error: 'udid and operator required' });
     try {
-      const s = await startManualSession({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, b.udid, b.operator);
+      // Pre-select the app to open a session on: explicit param > running-app
+      // guess (non-Apple, non-xctrunner) > Settings fallback. Opening the app
+      // that's ALREADY foreground avoids hijacking the user's screen — a wrong
+      // guess only foregrounds a running app; save-time binding uses the
+      // snapshot root regardless.
+      let appBundleId = b.appBundleId;
+      if (!appBundleId) {
+        try {
+          const apps = await listSimulatorApps(b.udid);
+          const guess = apps.find((a) => a.running && !a.bundleId.startsWith('com.apple.') && !a.bundleId.endsWith('.xctrunner'));
+          appBundleId = guess?.bundleId;
+        } catch { /* guess best-effort — fallback applies */ }
+      }
+      const s = await startManualSession({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, b.udid, b.operator, appBundleId);
       return s;
     } catch (err) {
       if (err instanceof ManualSessionError) return reply.code(err.code === 'QUEUE_ACTIVE' ? 409 : 410).send({ error: err.message, code: err.code });

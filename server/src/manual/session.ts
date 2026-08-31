@@ -78,7 +78,7 @@ export class ManualSessionError extends Error {
   }
 }
 
-export function startManualSession(deps: ManualDeps, udid: string, operator: string): Promise<{ sessionId: string; logicalW: number | null; logicalH: number | null }> {
+export async function startManualSession(deps: ManualDeps, udid: string, operator: string, appBundleId?: string): Promise<{ sessionId: string; logicalW: number | null; logicalH: number | null }> {
   return (async () => {
     const alloy = crucibleAlloy();
     const busy = deps.db
@@ -94,8 +94,11 @@ export function startManualSession(deps: ManualDeps, udid: string, operator: str
       .prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, note)
                 VALUES (?, 'MANUAL', 'manual', 'running', ?, ?, ?, ?)`)
       .run(runId, operator, udid, Date.now(), `manual:${sessionId}`);
-    // open WITHOUT holding open-lease, then take the lease as the manual holder
-    const open = (await alloy.dispatch('alloy_apps', { action: 'open', app: 'com.apple.Preferences', udid, hold: false }, deps.dispatchDeps)) as
+    // Establish an active app session (alloy snapshot/act require one — alloy's
+    // open needs an explicit bundle id, so true foreground detection is
+    // chicken-and-egg here). Explicit param wins; Settings is the fallback.
+    // Save-time app binding uses the SNAPSHOT root instead — ground truth.
+    const open = (await alloy.dispatch('alloy_apps', { action: 'open', app: appBundleId ?? 'com.apple.Preferences', udid, hold: false }, deps.dispatchDeps)) as
       | { ok: true }
       | { ok: false; error: { message: string } };
     if (!open.ok) {

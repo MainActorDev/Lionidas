@@ -4,6 +4,8 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
+import { crucibleAlloy } from '../alloy/client.ts';
+import { initAlloyRuntime } from '../alloy/runtime.ts';
 
 interface TemplateRow {
   id: string;
@@ -43,7 +45,7 @@ function rowToTemplate(r: TemplateRow): Record<string, unknown> {
   };
 }
 
-export function registerTemplateRoutes(app: FastifyInstance, db: Database.Database): void {
+export function registerTemplateRoutes(app: FastifyInstance, db: Database.Database, dispatchDeps?: unknown): void {
   app.get('/api/templates', async (req) => {
     const q = req.query as { ticket?: string };
     const rows = q.ticket
@@ -73,15 +75,20 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       try { steps = (JSON.parse(sess.recording_json) as { steps?: unknown[] }).steps ?? []; } catch { /* empty */ }
     }
     if (steps.length === 0) return reply.code(400).send({ error: 'no recorded steps in session' });
-    // app binding: the recorded app is captured at save time — foreground
-    // non-Apple UIKit app on the session's device (fallback: explicit body)
+    // app binding: snapshot ground truth — the accessibility root names the
+    // foreground app (works for Apple apps like Settings, which launchctl
+    // guesses miss). Falls back to explicit body, then null.
     let appBundleId = (b as { appBundleId?: string }).appBundleId ?? null;
     let appName: string | null = null;
     let appVersion: string | null = null;
     if (!appBundleId) {
       try {
-        const { foregroundApp } = await import('../manual/apps.ts');
-        const fg = await foregroundApp(sess.udid);
+        const { foregroundAppFromSnapshot } = await import('../manual/apps.ts');
+        const fg = await foregroundAppFromSnapshot(
+          { dispatch: (tool, input, dd) => crucibleAlloy().dispatch(tool, input, dd) },
+          dispatchDeps ?? (await initAlloyRuntime()).deps,
+          sess.udid,
+        );
         if (fg) { appBundleId = fg.bundleId; appName = fg.name; appVersion = fg.version; }
       } catch { /* app binding best-effort — template still saves */ }
     } else {
