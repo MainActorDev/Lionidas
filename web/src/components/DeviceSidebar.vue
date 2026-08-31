@@ -42,7 +42,9 @@ async function loadAppOptions(): Promise<void> {
   } catch { /* picker stays on auto */ }
 }
 watch(() => props.device?.udid, () => { appOptionsLoaded = false; appOptions.value = []; appBundleId.value = ''; }, { immediate: true });
-watch(() => [props.device?.udid, booted.value] as const, ([udid, b]) => { if (udid && b) void loadAppOptions(); }, { immediate: true });
+// note: no `booted` reference here — it's declared later in setup (TDZ); we
+// read state directly and let the udid watch reset on device change
+watch(() => [props.device?.udid, props.device?.state] as const, ([udid, state]) => { if (udid && state === 'Booted') void loadAppOptions(); }, { immediate: true });
 const actionMsg = ref('');
 
 // ── recorder state (control mode) ──

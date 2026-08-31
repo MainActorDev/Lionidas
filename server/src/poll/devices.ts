@@ -83,6 +83,10 @@ export async function pollDevices(db: Database.Database, bus: TypedEventBus<AppE
       if (d.platform === 'macos') continue;
       // simulator-only wall: physical devices excluded from the list by design
       if (d.kind === 'device') continue;
+      // iPads excluded by product decision — iPhone-only test wall (the app
+      // under test is iPhone-only; iPad rows were noise)
+      const model = meta.get(d.id)?.model ?? '';
+      if (/^iPad\b/i.test(model)) continue;
       seen.add(d.id);
       const lease = leases.get(d.id) ?? { holder: null as string | null, engine: null as string | null };
       // engine A reports a `booted` boolean, not a state string — map it
