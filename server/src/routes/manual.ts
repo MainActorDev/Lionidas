@@ -5,7 +5,7 @@ import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { createReadStream, statSync } from 'node:fs';
 import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, finishManualSession, setRecording, getRecording, deleteRecordedStep, ManualSessionError } from '../manual/session.ts';
 import { listSimulatorApps } from '../manual/apps.ts';
-import { runTemplatePlayback } from '../manual/playback.ts';
+import { runTemplatePlayback, PlaybackError } from '../manual/playback.ts';
 import type { ForgeState } from '../forge/proxy.ts';
 
 export interface ManualRouteDeps {
@@ -164,6 +164,7 @@ export function registerManualRoutes(
       );
       return { runId };
     } catch (err) {
+      if (err instanceof PlaybackError && err.code === 'DEVICE_BUSY') return reply.code(409).send({ error: err.message, code: err.code });
       return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
     }
   });
@@ -226,11 +227,22 @@ export function registerManualRoutes(
     if (sel.length === 0) return reply.code(400).send({ error: 'no templates match' });
     const runIds: string[] = [];
     for (const t of sel) {
-      const { runId, done } = await runTemplatePlayback(
-        { db, bus: deps.bus, dispatchDeps: deps.dispatchDeps, artifactsDir: deps.artifactsDir, forgeState: deps.forgeState },
-        t.id,
-        { ...(b.udid !== undefined ? { udid: b.udid } : {}), ...(b.triggeredBy !== undefined ? { triggeredBy: b.triggeredBy } : {}), ...(b.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}), ...(b.env !== undefined ? { env: b.env } : {}) },
-      );
+      let started: { runId: string; done: Promise<void> };
+      try {
+        started = await runTemplatePlayback(
+          { db, bus: deps.bus, dispatchDeps: deps.dispatchDeps, artifactsDir: deps.artifactsDir, forgeState: deps.forgeState },
+          t.id,
+          { ...(b.udid !== undefined ? { udid: b.udid } : {}), ...(b.triggeredBy !== undefined ? { triggeredBy: b.triggeredBy } : {}), ...(b.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}), ...(b.env !== undefined ? { env: b.env } : {}) },
+        );
+      } catch (err) {
+        // B5: device freed mid-batch (manual session started, or a prior run
+        // wedged past the 5-min cap) — abort the REST of the batch, report what ran
+        if (err instanceof PlaybackError && err.code === 'DEVICE_BUSY') {
+          return reply.code(409).send({ error: `batch aborted at template ${t.id}: device busy`, code: 'DEVICE_BUSY', runIds });
+        }
+        throw err;
+      }
+      const { runId, done } = started;
       runIds.push(runId);
       // cap: a hung dispatch leaves the run running forever (B2, deferred) —
       // this race keeps the BATCH moving; the wedged run itself stays wedged
