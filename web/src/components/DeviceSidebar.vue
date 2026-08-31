@@ -61,6 +61,32 @@ async function removeStep(idx: number): Promise<void> {
   } catch { /* ignore */ }
 }
 
+// ── save recording as template ──
+const saveName = ref('');
+const saveTicket = ref('');
+const saving = ref(false);
+const savedMsg = ref('');
+
+async function saveAsTemplate(): Promise<void> {
+  if (!sessionId.value || !saveName.value.trim() || saving.value) return;
+  saving.value = true;
+  savedMsg.value = '';
+  try {
+    const r = await fetch(`/api/templates/from-session/${sessionId.value}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: saveName.value, ticketKey: saveTicket.value || undefined }),
+    });
+    const b = (await r.json()) as { id?: string; error?: string };
+    if (b.id) {
+      savedMsg.value = `saved · ${b.id}`;
+      saveName.value = '';
+      saveTicket.value = '';
+    } else savedMsg.value = b.error ?? 'failed';
+  } catch {
+    savedMsg.value = 'failed';
+  } finally { saving.value = false; }
+}
+
 function stepLabel(s: StepRow): string {
   if (s.action === 'tap') return `tap ${s.x},${s.y}`;
   if (s.action === 'scroll') return `scroll ${s.direction}`;
@@ -315,6 +341,12 @@ async function endSession(): Promise<void> {
             <div v-else style="font-size: 10px; color: var(--color-steel); margin-top: var(--s-2);">
               {{ recording ? 'every tap / scroll / type will appear here as a step' : 'turn on recording to capture a test config' }}
             </div>
+            <div v-if="steps.length > 0" class="save-tpl">
+              <input v-model="saveName" class="input" placeholder="template name" @keydown.enter="saveAsTemplate" />
+              <input v-model="saveTicket" class="input" placeholder="ticket (LP-123, optional)" />
+              <button class="btn btn-sm" :disabled="!saveName.trim() || saving" @click="saveAsTemplate">{{ saving ? 'saving…' : 'save as template' }}</button>
+              <span v-if="savedMsg" style="font-size: 10px; color: var(--color-steel);">{{ savedMsg }}</span>
+            </div>
           </div>
         </template>
       </div>
@@ -365,6 +397,8 @@ async function endSession(): Promise<void> {
 .step-label { color: var(--color-fog); }
 .step-del { opacity: 0; }
 .step:hover .step-del { opacity: 1; }
+.save-tpl { display: flex; gap: var(--s-2); margin-top: var(--s-3); align-items: center; flex-wrap: wrap; }
+.save-tpl .input { flex: 1; min-width: 100px; }
 .stream-overlay {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;

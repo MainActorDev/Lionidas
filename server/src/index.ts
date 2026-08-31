@@ -13,6 +13,7 @@ import { registerMatrixRoute } from './routes/matrix.ts';
 import { registerEvidenceRoute } from './routes/evidence.ts';
 import { registerBaselineRoutes } from './routes/baselines.ts';
 import { registerManualRoutes } from './routes/manual.ts';
+import { registerTemplateRoutes } from './routes/templates.ts';
 import { registerFlakeRoutes } from './routes/flakes.ts';
 import { registerEventsWs } from './routes/events-ws.ts';
 import { registerAuthStatus } from './auth/gate.ts';
@@ -70,6 +71,7 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
     bus,
     get dispatchDeps() { return runtimeMod.alloyDispatchDepsSync(); },
   } as never);
+  registerTemplateRoutes(app, db.raw);
   registerFlakeRoutes(app, db.raw, bus);
   app.decorate('crucibleBus', bus);
 

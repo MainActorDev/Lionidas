@@ -122,6 +122,22 @@ export function migrateM1(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_traffic_run ON traffic(run_id, ts);
 
+    -- QA test templates: recorded manual flows, replayable as regression configs
+    CREATE TABLE IF NOT EXISTS templates(
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      ticket_key TEXT,
+      udid TEXT NOT NULL,
+      logical_w INTEGER, logical_h INTEGER,
+      steps_json TEXT NOT NULL,
+      default_preset_id TEXT REFERENCES presets(id) ON DELETE SET NULL,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_templates_ticket ON templates(ticket_key);
+
     CREATE TABLE IF NOT EXISTS baselines(
       id TEXT PRIMARY KEY,
       scope_key TEXT NOT NULL,
