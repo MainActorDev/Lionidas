@@ -27,6 +27,14 @@
 
 **Constraint:** watchdog must be POSIX sh (no bash-isms) — launchd `ProgramArguments` runs `/bin/sh` directly.
 
+**Safety constraint (user-mandated): ZERO writes to real network settings during implementation.** No `networksetup -set*` on any real service, no planted stale proxies, no live kill drills, no `launchctl load` without explicit approval. Verification protocol in place of live network mutation:
+1. Unit tests drive the real TS logic through fake `networksetup`/`lsof` binaries on a temp PATH.
+2. The watchdog script ships with `FORGE_WATCHDOG_DRY_RUN=1` (logs decisions, changes nothing) — run against the REAL machine to prove parsing/decisions on real output, zero side effects. Also useful on cloud Macs as a pre-activation audit.
+3. The Task 6 drill runs end-to-end through the real script with fake binaries (simulated stale proxy in a temp PATH sandbox), not on real services.
+4. Installer verified with `--no-load` + temp HOME (files land, plutil lints, nothing loaded).
+5. Server restarts during dev only READ settings (`-getwebproxy`/`lsof`); heal fires only on a genuinely stale entry (machine currently clean — verified this session).
+6. Deferred to explicit user go: `launchctl load` (activation) and the real heal drill (one-liner provided for self-service).
+
 ---
 
 ### Task 1: all-service stale-proxy scan (pure function, TDD)
@@ -281,9 +289,11 @@ if (uninstall) {
     return stale.length;
   };
   let n = await heal();
+  // Retry ONLY while no default route exists (early boot — Wi-Fi still
+  // associating, stale entries appear late). On a normal dev restart the
+  // route exists immediately → zero retries → no startup delay.
   if (n === 0 && process.env.CRUCIBLE_SKIP_BOOT_HEAL_RETRY !== '1') {
-    // interfaces associate lazily at boot — re-scan for up to 30s
-    for (let i = 0; i < 10 && n === 0; i++) {
+    for (let i = 0; i < 10 && n === 0 && !defaultRouteExists(); i++) {
       await new Promise((r) => setTimeout(r, 3000));
       n = await heal();
     }
