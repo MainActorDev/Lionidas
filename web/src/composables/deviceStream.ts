@@ -58,6 +58,37 @@ export function useDeviceStream(): DeviceStream {
   let pendingBuf: ArrayBuffer | null = null;
   let decoding = false;
   let lastPaintAt = 0; // stream-frame paint time — gates the standalone fast-path
+  // Reusable offscreen for stepped downscaling (mip-style halving) — created
+  // lazily, sized to the largest halving step, reused across frames.
+  let halfCanvas: HTMLCanvasElement | null = null;
+
+  /** High-quality downscale draw: halve repeatedly (≤2x per step) into the
+   *  offscreen, then one final scale onto the display canvas. A single-step
+   *  1284→~300 drawImage skips pixels → thin text ghosts/doubles; stepped
+   *  halving is the standard canvas remedy (software mip-chain). */
+  function drawScaled(ctx: CanvasRenderingContext2D, src: CanvasImageSource, srcW: number, srcH: number, dstW: number, dstH: number): void {
+    let w = srcW;
+    let h = srcH;
+    let source: CanvasImageSource = src;
+    while (w > dstW * 2 && h > 2) {
+      if (!halfCanvas) halfCanvas = document.createElement('canvas');
+      const nw = Math.max(dstW, Math.floor(w / 2));
+      const nh = Math.max(1, Math.floor(h / 2));
+      if (halfCanvas.width !== nw || halfCanvas.height !== nh) { halfCanvas.width = nw; halfCanvas.height = nh; }
+      const hctx = halfCanvas.getContext('2d');
+      if (!hctx) break;
+      hctx.imageSmoothingEnabled = true;
+      hctx.imageSmoothingQuality = 'high';
+      hctx.clearRect(0, 0, nw, nh);
+      hctx.drawImage(source, 0, 0, nw, nh);
+      source = halfCanvas;
+      w = nw;
+      h = nh;
+    }
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(source, 0, 0, dstW, dstH);
+  }
 
   /** Draw a standalone image (post-action screenshot fast-path) WITHOUT
    *  resizing the canvas and WITHOUT racing the live decode loop:
@@ -89,18 +120,28 @@ export function useDeviceStream(): DeviceStream {
         } catch { continue; /* corrupt frame — skip, keep the loop alive */ }
         const canvas = canvasRef.value;
         if (canvas) {
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            // Assigning canvas.width CLEARS the bitmap even when unchanged —
-            // doing it per-frame flashes a transparent (black) instant between
-            // clear and draw. Frame dims are constant per session; set once.
-            if (canvas.width !== bitmap.width) canvas.width = bitmap.width;
-            if (canvas.height !== bitmap.height) canvas.height = bitmap.height;
-            ctx.drawImage(bitmap, 0, 0);
+          // RENDER AT DISPLAY RESOLUTION. The engine frame is 1284px wide; a
+          // 1284px backing store shown at ~300 CSS px (sidebar) makes the
+          // COMPOSITOR downscale ~4x with bilinear sampling and no mipmaps —
+          // thin animated text (typewriter placeholders) lands between sample
+          // points and shimmers. Doing the downscale HERE via drawImage uses
+          // the 2D context's high-quality resampler; the compositor then
+          // blits ~1:1. Tap mapping is unaffected — it scales through
+          // canvas.width, whatever the backing size is.
+          const cssW = canvas.clientWidth || canvas.getBoundingClientRect().width;
+          if (cssW > 0) {
+            const dpr = window.devicePixelRatio || 1;
+            const targetW = Math.max(1, Math.round(cssW * dpr));
+            const targetH = Math.max(1, Math.round(targetW * bitmap.height / bitmap.width));
+            if (canvas.width !== targetW || canvas.height !== targetH) { canvas.width = targetW; canvas.height = targetH; }
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              drawScaled(ctx, bitmap, bitmap.width, bitmap.height, targetW, targetH);
+              lastPaintAt = Date.now();
+            }
           }
         }
         bitmap.close();
-        lastPaintAt = Date.now();
         frameCount++;
         const now = Date.now();
         if (now - lastFpsTime >= 1000) {
