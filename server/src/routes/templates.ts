@@ -65,6 +65,26 @@ function rowToTemplate(r: TemplateRow): Record<string, unknown> {
   };
 }
 
+/** validate + normalize incoming tags: strings, trimmed, non-empty, deduped,
+ *  capped at 8 (chip soup guard). Returns null when the input is absent. */
+function normalizeTags(input: unknown): string[] | null {
+  if (input === undefined || input === null) return null;
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  for (const t of input) {
+    if (typeof t !== 'string') continue;
+    const v = t.trim();
+    if (v) seen.add(v);
+    if (seen.size >= 8) break;
+  }
+  return [...seen];
+}
+
+function tagsToJson(input: unknown): string | null {
+  const tags = normalizeTags(input);
+  return tags === null ? null : JSON.stringify(tags);
+}
+
 export function registerTemplateRoutes(app: FastifyInstance, db: Database.Database, dispatchDeps?: unknown): void {
   app.get('/api/templates', async (req) => {
     const q = req.query as { ticket?: string; tags?: string; app?: string };
@@ -84,7 +104,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
   /** Save current recording as a template (sidebar "save as template"). */
   app.post('/api/templates/from-session/:sessionId', async (req, reply) => {
     const { sessionId } = req.params as { sessionId: string };
-    const b = req.body as { name?: string; description?: string; ticketKey?: string; createdBy?: string };
+    const b = req.body as { name?: string; description?: string; ticketKey?: string; createdBy?: string; tags?: string[] };
     if (!b.name || !b.name.trim()) return reply.code(400).send({ error: 'name required' });
     const sess = db
       .prepare('SELECT s.recording_json, s.udid, s.logical_w, s.logical_h, s.operator FROM manual_sessions s WHERE s.id = ?')
@@ -121,34 +141,34 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     const id = `tpl_${randomUUID().slice(0, 8)}`;
     const now = Date.now();
     db.prepare(
-      `INSERT INTO templates(id, name, description, ticket_key, udid, logical_w, logical_h, steps_json, app_bundle_id, app_name, app_version, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(id, b.name.trim(), b.description ?? null, b.ticketKey ?? null, sess.udid, sess.logical_w, sess.logical_h, JSON.stringify(steps), appBundleId, appName, appVersion, b.createdBy ?? sess.operator, now, now);
+      `INSERT INTO templates(id, name, description, ticket_key, udid, logical_w, logical_h, steps_json, app_bundle_id, app_name, app_version, tags_json, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, b.name.trim(), b.description ?? null, b.ticketKey ?? null, sess.udid, sess.logical_w, sess.logical_h, JSON.stringify(steps), appBundleId, appName, appVersion, tagsToJson(b.tags), b.createdBy ?? sess.operator, now, now);
     const row = db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow;
     return rowToTemplate(row);
   });
 
   app.post('/api/templates', async (req, reply) => {
-    const b = req.body as Partial<TemplateRow> & { steps?: unknown[] };
+    const b = req.body as Partial<TemplateRow> & { steps?: unknown[]; tags?: string[] };
     if (!b.name || !b.name.trim()) return reply.code(400).send({ error: 'name required' });
     const id = `tpl_${randomUUID().slice(0, 8)}`;
     const now = Date.now();
     db.prepare(
-      `INSERT INTO templates(id, name, description, ticket_key, udid, logical_w, logical_h, steps_json, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(id, b.name.trim(), b.description ?? null, b.ticket_key ?? null, b.udid ?? '', b.logical_w ?? null, b.logical_h ?? null, JSON.stringify(b.steps ?? []), b.created_by ?? 'qa', now, now);
+      `INSERT INTO templates(id, name, description, ticket_key, udid, logical_w, logical_h, steps_json, tags_json, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, b.name.trim(), b.description ?? null, b.ticket_key ?? null, b.udid ?? '', b.logical_w ?? null, b.logical_h ?? null, JSON.stringify(b.steps ?? []), tagsToJson(b.tags), b.created_by ?? 'qa', now, now);
     return rowToTemplate(db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow);
   });
 
   app.patch('/api/templates/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const b = req.body as { name?: string; description?: string | null; ticketKey?: string | null; defaultPresetId?: string | null; steps?: unknown[] };
+    const b = req.body as { name?: string; description?: string | null; ticketKey?: string | null; defaultPresetId?: string | null; steps?: unknown[]; tags?: string[] };
     const row = db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
     if (b.name !== undefined && !b.name.trim()) return reply.code(400).send({ error: 'name cannot be empty' });
     db.prepare(
       `UPDATE templates SET
-         name = ?, description = ?, ticket_key = ?, default_preset_id = ?, steps_json = ?, updated_at = ?
+         name = ?, description = ?, ticket_key = ?, default_preset_id = ?, steps_json = ?, tags_json = ?, updated_at = ?
        WHERE id = ?`,
     ).run(
       b.name !== undefined ? b.name.trim() : row.name,
@@ -156,6 +176,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       b.ticketKey !== undefined ? b.ticketKey : row.ticket_key,
       b.defaultPresetId !== undefined ? b.defaultPresetId : row.default_preset_id,
       b.steps !== undefined ? JSON.stringify(b.steps) : row.steps_json,
+      b.tags !== undefined ? tagsToJson(b.tags) : row.tags_json,
       Date.now(),
       id,
     );
