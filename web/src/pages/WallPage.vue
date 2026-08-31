@@ -1,24 +1,24 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import NewRunModal from '../components/NewRunModal.vue';
+import DeviceSidebar, { type SidebarDevice } from '../components/DeviceSidebar.vue';
 import { useLiveEvents } from '../stores/live.ts';
-import { useDeviceStream } from '../composables/deviceStream.ts';
 
-interface DeviceRow { udid: string; name: string | null; state: string | null; platform: string | null; kind: string | null; lease_holder: string | null; lease_engine: string | null }
+interface DeviceRow { udid: string; name: string | null; state: string | null; platform: string | null; kind: string | null; os_version: string | null; lease_holder: string | null; lease_engine: string | null }
 interface QueueRow { id: string; state: string; priority: number; requested_by: string }
 interface RunRow { id: string; ticket_key: string; status: string; kind: string }
 
 const live = useLiveEvents();
 const devices = ref<DeviceRow[]>([]);
 const queue = ref<QueueRow[]>([]);
-const watching = ref<string | null>(null);
 const newRunOpen = ref(false);
 const ticketQuery = ref('');
 const powerMsg = ref('');
 const lastRuns = ref<Record<string, RunRow>>({});
 let poll: ReturnType<typeof setInterval> | null = null;
 
-const stream = useDeviceStream();
+// ── sidebar (pushed) — the one stream mount point on the wall ──
+const sidebar = ref<{ device: SidebarDevice; mode: 'watch' | 'control' } | null>(null);
 
 const booted = computed(() => devices.value.filter((d) => d.state === 'Booted'));
 const shelf = computed(() => devices.value.filter((d) => d.state !== 'Booted'));
@@ -33,7 +33,6 @@ async function load(): Promise<void> {
   void loadLastRuns();
 }
 async function loadLastRuns(): Promise<void> {
-  // one row per device: latest run touching it (for tile context)
   const res = await fetch('/api/runs?limit=40');
   const body = (await res.json()) as { runs: Array<{ id: string; ticket_key: string; status: string; kind: string; device_udid: string; started_at: number | null }> };
   const map: Record<string, { id: string; ticket_key: string; status: string; kind: string; started_at: number | null }> = {};
@@ -51,22 +50,28 @@ async function openTicket(): Promise<void> {
   if (key) window.location.href = `/tickets/${encodeURIComponent(key)}`;
 }
 
-function watch_(udid: string): void {
-  if (watching.value === udid) { stopWatch(); return; }
-  watching.value = udid;
-  stream.start(udid);
-}
-function stopWatch(): void {
-  watching.value = null;
-  stream.stop();
-}
-// stream died terminally (relay said so) → drop back to tile-only view
-watch(() => stream.state.value, (s) => {
-  if (s === 'failed' && watching.value) {
-    powerMsg.value = `watch failed — ${stream.failure.value}`;
-    watching.value = null;
+function openSidebar(d: DeviceRow, mode: 'watch' | 'control'): void {
+  if (!sidebar.value || sidebar.value.device.udid !== d.udid || sidebar.value.mode !== mode) {
+    sidebar.value = {
+      device: { udid: d.udid, name: d.name, os_version: d.os_version, state: d.state },
+      mode,
+    };
   }
-});
+}
+function closeSidebar(): void { sidebar.value = null; }
+
+// device state changed under the sidebar → refresh its state (device shut down mid-watch)
+watch(
+  () => devices.value.map((d) => `${d.udid}:${d.state}`).join('|'),
+  (sig) => {
+    if (!sidebar.value) return;
+    const fresh = devices.value.find((d) => d.udid === sidebar.value?.device.udid);
+    if (!fresh) { closeSidebar(); return; }
+    sidebar.value = { device: { udid: fresh.udid, name: fresh.name, os_version: fresh.os_version, state: fresh.state }, mode: sidebar.value.mode };
+    void sig;
+  },
+);
+
 async function power(udid: string, action: 'boot' | 'shutdown'): Promise<void> {
   powerMsg.value = `${action}ing…`;
   try {
@@ -91,16 +96,19 @@ const unwatchEvents = watch(
 onMounted(() => {
   live.connect();
   void load().then(() => {
-    // deep-links from ⌘K: /?watch=<udid> opens the stream, /?new=1 opens the modal
+    // deep-links from ⌘K: /?watch=<udid> opens the sidebar in watch mode, /?new=1 opens the modal
     const q = new URLSearchParams(window.location.search);
     const w = q.get('watch');
-    if (w && devices.value.some((d) => d.udid === w && d.state === 'Booted')) watch_(w);
+    if (w) {
+      const d = devices.value.find((x) => x.udid === w && x.state === 'Booted');
+      if (d) openSidebar(d, 'watch');
+    }
     if (q.get('new') === '1') newRunOpen.value = true;
     if (w || q.get('new')) window.history.replaceState({}, '', '/');
   });
   poll = setInterval(() => void load(), 2000);
 });
-onUnmounted(() => { if (poll) clearInterval(poll); stopWatch(); unwatchEvents(); live.release(); });
+onUnmounted(() => { if (poll) clearInterval(poll); closeSidebar(); unwatchEvents(); live.release(); });
 </script>
 
 <template>
@@ -109,7 +117,7 @@ onUnmounted(() => { if (poll) clearInterval(poll); stopWatch(); unwatchEvents();
       <div>
         <div class="page-title">devices</div>
         <div class="page-desc">
-          {{ booted.length }} booted · {{ devices.length }} known
+          {{ booted.length }} booted · {{ devices.length }} simulators
           <span v-if="!live.connected" style="color: var(--color-ember);"> · live offline</span>
         </div>
       </div>
@@ -132,62 +140,74 @@ onUnmounted(() => { if (poll) clearInterval(poll); stopWatch(); unwatchEvents();
 
     <div v-if="powerMsg" class="meta-row" style="margin-bottom: var(--s-2);">{{ powerMsg }}</div>
 
-    <div v-if="devices.length === 0" class="empty">no devices — alloy poller not reporting</div>
+    <div v-if="devices.length === 0" class="empty">no simulators — alloy poller not reporting</div>
 
-    <div v-if="booted.length > 0" style="display: flex; flex-wrap: wrap; gap: var(--s-3); margin-bottom: var(--s-5);">
-      <div v-for="d in booted" :key="d.udid" class="card" :class="{ 'card-accent': watching === d.udid }" style="min-width: 280px; margin-bottom: 0; flex: 1 1 320px; max-width: 480px;">
-        <div class="card-header">
-          <span class="card-title">{{ d.name ?? d.udid.slice(0, 8) }}</span>
-          <span class="status" :class="d.state === 'Booted' ? 'status-passed' : 'status-none'">{{ d.state?.toLowerCase() ?? 'unknown' }}</span>
-        </div>
-        <div class="meta-row">
-          <span class="k">kind</span>
-          <b>{{ d.kind === 'simulator' ? 'simulator' : d.kind === 'device' ? 'physical' : (d.kind ?? 'unknown') }}<span v-if="d.platform && d.platform !== 'ios'"> · {{ d.platform }}</span></b>
-        </div>
-        <div class="meta-row">
-          <span class="k">lease</span>
-          <b v-if="d.lease_holder?.startsWith('manual:')">▸ manual</b>
-          <b v-else-if="d.lease_holder">{{ d.lease_holder }}</b>
-          <b v-else>free</b>
-        </div>
-        <div class="meta-row" v-if="lastRuns[d.udid]">
-          <span class="k">last run</span>
-          <b>
-            <RouterLink :to="`/runs/${lastRuns[d.udid]!.id}`" style="color: inherit;">{{ lastRuns[d.udid]!.ticket_key }}</RouterLink>
-            · <span class="status" :class="`status-${lastRuns[d.udid]!.status}`">{{ lastRuns[d.udid]!.status }}</span>
-          </b>
-        </div>
-        <div v-if="watching === d.udid" style="margin-top: var(--s-2); position: relative;">
-          <canvas v-show="stream.state.value !== 'failed'" :ref="stream.setCanvas" style="width: 100%; border: 1px solid var(--color-iron); border-radius: var(--r-sm); display: block; min-height: 120px; background: var(--color-void);"></canvas>
-          <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--color-steel); margin-top: 2px;">
-            <span v-if="stream.state.value === 'live'">{{ stream.fps.value > 0 ? `live · ${stream.fps.value}fps` : 'live · idle (screen unchanged)' }}</span>
-            <span v-else-if="stream.state.value === 'failed'">{{ stream.failure.value || 'stream failed' }}</span>
-            <span v-else>{{ stream.state.value }}…</span>
-            <span>read-only</span>
-          </div>
-        </div>
-        <div style="display: flex; gap: var(--s-2); margin-top: var(--s-3); align-items: center;">
-          <button v-if="watching !== d.udid" class="btn btn-sm" @click="watch_(d.udid)">watch</button>
-          <button v-else class="btn btn-sm btn-ghost" @click="stopWatch">stop</button>
-          <RouterLink :to="`/drive?udid=${d.udid}`" class="btn btn-sm">take control</RouterLink>
-          <span style="flex: 1;"></span>
-          <button v-if="d.kind === 'simulator'" class="btn btn-sm btn-danger" @click="power(d.udid, 'shutdown')">shut down</button>
-        </div>
+    <!-- booted sims: compact rich table, distinct treatment, actions -->
+    <template v-if="booted.length > 0">
+      <div class="section-label">booted · {{ booted.length }}</div>
+      <div class="card table-wrap" style="padding: 0;">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 26%;">device</th>
+              <th>os</th>
+              <th>lease</th>
+              <th>last run</th>
+              <th style="text-align: right;">actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="d in booted" :key="d.udid" :class="{ 'row-booted': true, 'row-active': sidebar?.device.udid === d.udid }" @click="openSidebar(d, 'watch')">
+              <td>
+                <div style="color: var(--color-paper);">{{ d.name ?? d.udid.slice(0, 8) }}</div>
+                <div style="font-size: 10px; color: var(--color-steel);">{{ d.udid.slice(0, 8) }}…</div>
+              </td>
+              <td style="color: var(--color-fog);">{{ d.os_version ?? '—' }}</td>
+              <td>
+                <b v-if="d.lease_holder?.startsWith('manual:')" style="color: var(--color-ember);">manual</b>
+                <b v-else-if="d.lease_holder">{{ d.lease_holder }}</b>
+                <span v-else style="color: var(--color-steel);">free</span>
+              </td>
+              <td>
+                <template v-if="lastRuns[d.udid]">
+                  <RouterLink :to="`/runs/${lastRuns[d.udid]!.id}`" style="color: inherit;">{{ lastRuns[d.udid]!.ticket_key }}</RouterLink>
+                  <span class="status" :class="`status-${lastRuns[d.udid]!.status}`" style="margin-left: 6px;">{{ lastRuns[d.udid]!.status }}</span>
+                </template>
+                <span v-else style="color: var(--color-steel);">—</span>
+              </td>
+              <td style="text-align: right; white-space: nowrap;" @click.stop>
+                <button class="btn btn-sm" @click="openSidebar(d, 'watch')">watch</button>
+                <button class="btn btn-sm btn-ghost" style="margin-left: 6px;" @click="openSidebar(d, 'control')">take control</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-    </div>
+    </template>
 
+    <!-- powered-off sims: dense shelf -->
     <template v-if="shelf.length > 0">
       <div class="section-label">powered off · {{ shelf.length }}</div>
-      <div class="card" style="padding: var(--s-2);">
-        <div v-for="d in shelf" :key="d.udid" class="meta-row" style="padding: var(--s-1) 0;">
-          <span class="k" style="min-width: 140px;">{{ d.name ?? d.udid.slice(0, 12) }}</span>
-          <b style="color: var(--color-steel);">{{ d.kind === 'simulator' ? 'simulator' : d.kind ?? '' }}</b>
-          <span style="flex: 1;"></span>
-          <button v-if="d.kind === 'simulator'" class="btn btn-sm" @click="power(d.udid, 'boot')">boot</button>
-        </div>
+      <div class="card table-wrap" style="padding: 0;">
+        <table>
+          <tbody>
+            <tr v-for="d in shelf" :key="d.udid">
+              <td style="width: 26%;"><span style="color: var(--color-fog);">{{ d.name ?? d.udid.slice(0, 12) }}</span></td>
+              <td style="color: var(--color-steel);">{{ d.os_version ?? '—' }}</td>
+              <td style="text-align: right;"><button class="btn btn-sm" @click="power(d.udid, 'boot')">boot</button></td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </template>
 
     <NewRunModal :open="newRunOpen" @close="newRunOpen = false" />
+    <DeviceSidebar :device="sidebar?.device ?? null" :mode="sidebar?.mode ?? 'watch'" @close="closeSidebar" />
   </div>
 </template>
+
+<style scoped>
+.row-booted td { border-bottom: 1px solid var(--color-iron); }
+.row-active { background: var(--color-carbon); }
+.row-booted:hover { background: var(--color-carbon); }
+</style>

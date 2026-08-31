@@ -1,0 +1,268 @@
+<script setup lang="ts">
+/** Pushed sidebar: live device stream with two modes.
+ *  watch  — read-only canvas (no lease; never blocks automation)
+ *  control — full manual session (lease-held; reuses DrivePage interaction model)
+ *  The sidebar is the single mount point for the stream on the wall page —
+ *  tiles never embed streams inline anymore. */
+import { ref, computed, watch, onUnmounted } from 'vue';
+import { useDeviceStream, canvasPointToLogical } from '../composables/deviceStream.ts';
+
+export interface SidebarDevice { udid: string; name: string | null; os_version: string | null; state: string | null }
+
+const props = defineProps<{
+  device: SidebarDevice | null;
+  mode: 'watch' | 'control';
+}>();
+const emit = defineEmits<{ (e: 'close'): void }>();
+
+const stream = useDeviceStream();
+const sessionId = ref<string | null>(null);
+const logicalW = ref<number | null>(null);
+const logicalH = ref<number | null>(null);
+const busy = ref(false);
+const error = ref('');
+const operator = ref('qa');
+const actionMsg = ref('');
+
+const booted = computed(() => props.device?.state === 'Booted');
+
+// ── lifecycle: device or mode change tears everything down cleanly ──
+watch(() => [props.device?.udid, props.mode] as const, () => {
+  void reset();
+});
+onUnmounted(() => { void teardownSession(); stream.stop(); });
+
+async function reset(): Promise<void> {
+  await teardownSession();
+  stream.stop();
+  error.value = '';
+  if (!props.device) return;
+  if (props.mode === 'watch') {
+    stream.start(props.device.udid);
+  }
+  // control mode: session starts on explicit "take control" (lease acquisition)
+}
+
+async function teardownSession(): Promise<void> {
+  const id = sessionId.value;
+  sessionId.value = null;
+  if (id) {
+    try { await fetch(`/api/manual/${id}/finish`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ note: 'sidebar:closed' }) }); } catch { /* idempotent server-side */ }
+  }
+}
+
+// ── watch mode ──
+watch(() => props.device?.udid, (udid) => {
+  if (udid && props.mode === 'watch' && booted.value) stream.start(udid);
+}, { immediate: true });
+
+// ── control mode ──
+async function startSession(): Promise<void> {
+  if (!props.device) return;
+  busy.value = true; error.value = '';
+  try {
+    const res = await fetch('/api/manual/start', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ udid: props.device.udid, operator: operator.value }),
+    });
+    const body = await res.json() as { sessionId?: string; logicalW?: number | null; logicalH?: number | null; error?: string };
+    if (body.sessionId) {
+      sessionId.value = body.sessionId;
+      logicalW.value = body.logicalW ?? null;
+      logicalH.value = body.logicalH ?? null;
+      stream.start(props.device.udid);
+    } else error.value = body.error ?? 'failed to start';
+  } finally { busy.value = false; }
+}
+
+async function api(path: string, body?: unknown): Promise<Record<string, unknown>> {
+  const res = await fetch(`/api/manual/${path}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}),
+  });
+  return (await res.json()) as Record<string, unknown>;
+}
+
+/** After a tap/scroll the engine's screen-change detector decides when the next
+ *  MJPEG frame ships (~0.5fps idle). Pull ONE screenshot so the operator sees
+ *  the effect immediately; the live stream then resumes. */
+async function fastPathFrame(): Promise<void> {
+  if (!sessionId.value) return;
+  try {
+    const r = await api(`${sessionId.value}/snapshot`);
+    const path = r['path'] as string | undefined;
+    if (path && stream.canvasRef.value) {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = stream.canvasRef.value;
+        if (canvas) {
+          const ctx = canvas.getContext('2d');
+          if (ctx) { canvas.width = img.naturalWidth; canvas.height = img.naturalHeight; ctx.drawImage(img, 0, 0); }
+        }
+      };
+      img.src = `/api/manual-frame?path=${encodeURIComponent(path)}&t=${Date.now()}`;
+    }
+  } catch { /* fast-path only */ }
+}
+
+// ── tap: send → ripple → snapshot fast-path ──
+const ripple = ref<{ x: number; y: number; id: number } | null>(null);
+let rippleTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function onTap(e: MouseEvent): Promise<void> {
+  if (props.mode !== 'control' || !sessionId.value || !(e.target instanceof HTMLCanvasElement)) return;
+  const canvas = e.target;
+  const { x, y } = canvasPointToLogical(canvas, e.clientX, e.clientY, logicalW.value, logicalH.value);
+  ripple.value = { x: e.clientX - canvas.getBoundingClientRect().left, y: e.clientY - canvas.getBoundingClientRect().top, id: Date.now() };
+  if (rippleTimer) clearTimeout(rippleTimer);
+  rippleTimer = setTimeout(() => { ripple.value = null; }, 600);
+  busy.value = true;
+  actionMsg.value = '';
+  try {
+    const r = await api(`${sessionId.value}/tap`, { x, y });
+    if (r['error']) {
+      error.value = String(r['error']);
+      if (String(r['code']) === 'LEASE_LOST' || String(r['code']) === 'SESSION_NOT_FOUND') void endSession();
+    } else await fastPathFrame();
+  } finally { busy.value = false; }
+}
+
+async function scroll(direction: string): Promise<void> {
+  if (!sessionId.value) return;
+  busy.value = true;
+  try {
+    const r = await api(`${sessionId.value}/scroll`, { direction });
+    if (r['error']) {
+      error.value = String(r['error']);
+      if (String(r['code']) === 'LEASE_LOST' || String(r['code']) === 'SESSION_NOT_FOUND') void endSession();
+    } else await fastPathFrame();
+  } finally { busy.value = false; }
+}
+
+async function endSession(): Promise<void> {
+  await teardownSession();
+  stream.stop();
+}
+</script>
+
+<template>
+  <transition name="sidebar">
+    <aside v-if="device" class="sidebar">
+      <header class="sidebar-head">
+        <div>
+          <div class="sidebar-title">{{ device.name ?? device.udid.slice(0, 8) }}</div>
+          <div class="sidebar-sub">
+            {{ device.os_version ?? '—' }} · {{ mode === 'watch' ? 'read-only' : 'manual control' }}
+          </div>
+        </div>
+        <button class="btn btn-sm" @click="emit('close')">✕</button>
+      </header>
+
+      <!-- watch: stream only -->
+      <div v-if="mode === 'watch'" class="sidebar-body">
+        <div class="stream-box">
+          <canvas :ref="stream.setCanvas" style="width: 100%; display: block; background: var(--color-void); min-height: 160px;"></canvas>
+          <div v-if="stream.state.value !== 'live'" class="stream-overlay">
+            <span v-if="stream.state.value === 'connecting'">connecting to device stream…</span>
+            <span v-else-if="stream.state.value === 'reconnecting'">stream reconnecting…</span>
+            <span v-else-if="stream.state.value === 'failed'">{{ stream.failure.value || 'stream unavailable' }}</span>
+          </div>
+        </div>
+        <div class="stream-meta">
+          <span v-if="stream.state.value === 'live'">{{ stream.fps.value > 0 ? `live · ${stream.fps.value}fps` : 'live · idle (screen unchanged)' }}</span>
+          <span v-else>{{ stream.state.value }}</span>
+          <span>read-only · does not hold the device</span>
+        </div>
+        <button class="btn" style="width: 100%; margin-top: var(--s-3);" @click="emit('close')">close</button>
+      </div>
+
+      <!-- control: lease + interactions -->
+      <div v-else class="sidebar-body">
+        <div v-if="!sessionId" class="card" style="padding: var(--s-3);">
+          <div class="meta-row"><span class="k">operator</span><input v-model="operator" style="width: 140px;" /></div>
+          <button class="btn btn-primary" style="width: 100%; margin-top: var(--s-3);" :disabled="busy || !booted" @click="startSession">
+            {{ busy ? 'starting…' : booted ? 'acquire & take control' : 'device not booted' }}
+          </button>
+          <div v-if="error" class="meta-row" style="color: var(--color-ember); margin-top: var(--s-2);">{{ error }}</div>
+        </div>
+
+        <template v-else>
+          <div class="stream-box">
+            <canvas :ref="stream.setCanvas" @click="onTap"
+              style="width: 100%; display: block; cursor: crosshair; background: var(--color-void); min-height: 200px;"></canvas>
+            <div v-if="ripple" class="tap-ripple" :style="{ left: `${ripple.x}px`, top: `${ripple.y}px` }" />
+            <div v-if="stream.state.value !== 'live'" class="stream-overlay">
+              <span v-if="stream.state.value === 'connecting'">connecting to device stream…</span>
+              <span v-else-if="stream.state.value === 'reconnecting'">stream reconnecting…</span>
+              <span v-else-if="stream.state.value === 'failed'">{{ stream.failure.value || 'stream unavailable' }}</span>
+            </div>
+          </div>
+          <div class="stream-meta">
+            <span v-if="stream.state.value === 'live'">{{ stream.fps.value > 0 ? `live · ${stream.fps.value}fps` : 'live · idle (screen unchanged)' }}</span>
+            <span v-else>{{ stream.state.value }}</span>
+            <span>{{ logicalW ? `${logicalW}pt logical · taps map 1:1` : 'tap anywhere on screen' }}</span>
+          </div>
+          <div v-if="error" class="meta-row" style="color: var(--color-ember); margin-top: var(--s-2);">{{ error }}</div>
+          <div style="display: flex; gap: var(--s-2); margin-top: var(--s-2);">
+            <button class="btn btn-sm" :disabled="busy" @click="scroll('up')">↑</button>
+            <button class="btn btn-sm" :disabled="busy" @click="scroll('down')">↓</button>
+            <button class="btn btn-sm" :disabled="busy" @click="scroll('left')">←</button>
+            <button class="btn btn-sm" :disabled="busy" @click="scroll('right')">→</button>
+            <span style="flex: 1;"></span>
+            <button class="btn btn-sm btn-danger" :disabled="busy" @click="endSession">release</button>
+          </div>
+          <div v-if="busy" class="meta-row" style="margin-top: var(--s-2); color: var(--color-ash);">sending…</div>
+        </template>
+      </div>
+    </aside>
+  </transition>
+</template>
+
+<style scoped>
+.sidebar {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  width: min(420px, 92vw);
+  background: var(--color-ink, #101014);
+  border-left: 1px solid var(--color-iron);
+  box-shadow: -18px 0 48px rgba(0, 0, 0, 0.5);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--color-iron);
+}
+.sidebar-title { font-size: var(--text-h3, 15px); color: var(--color-paper); }
+.sidebar-sub { font-size: var(--text-caption); color: var(--color-steel); }
+.sidebar-body { padding: var(--s-3) var(--s-4); overflow-y: auto; flex: 1; }
+.stream-box { position: relative; border: 1px solid var(--color-iron); border-radius: var(--r-sm); overflow: hidden; }
+.stream-meta {
+  display: flex; justify-content: space-between;
+  font-size: 10px; color: var(--color-steel); margin-top: 4px;
+}
+.stream-overlay {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--color-fog);
+  font-size: var(--text-caption);
+  pointer-events: none;
+}
+.tap-ripple {
+  position: absolute;
+  width: 28px; height: 28px;
+  border: 2px solid var(--color-ember);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  animation: ripple-out 0.6s ease-out forwards;
+}
+@keyframes ripple-out {
+  from { opacity: 0.9; scale: 0.4; }
+  to { opacity: 0; scale: 1.6; }
+}
+.sidebar-enter-active, .sidebar-leave-active { transition: transform 0.22s ease, opacity 0.22s ease; }
+.sidebar-enter-from, .sidebar-leave-to { transform: translateX(100%); opacity: 0; }
+</style>

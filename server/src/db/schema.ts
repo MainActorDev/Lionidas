@@ -171,6 +171,7 @@ export function migrateM1(db: Database.Database): void {
       state TEXT,
       platform TEXT,
       kind TEXT,
+      os_version TEXT,
       lease_holder TEXT,
       lease_engine TEXT,
       last_seen INTEGER NOT NULL
@@ -183,6 +184,7 @@ export function migrateM1(db: Database.Database): void {
     // device mirror gains platform/kind (sim vs physical vs host) — older DBs lack the columns
     'ALTER TABLE devices ADD COLUMN platform TEXT',
     'ALTER TABLE devices ADD COLUMN kind TEXT',
+    'ALTER TABLE devices ADD COLUMN os_version TEXT',
   ]) {
     try { db.exec(col); } catch { /* column exists */ }
   }
