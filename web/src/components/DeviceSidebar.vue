@@ -107,6 +107,10 @@ async function fastPathFrame(): Promise<void> {
 // ── tap: send → ripple → snapshot fast-path ──
 const ripple = ref<{ x: number; y: number; id: number } | null>(null);
 let rippleTimer: ReturnType<typeof setTimeout> | null = null;
+// last tap (logical coords) arms the type target — "tap a field, then type"
+const lastTap = ref<{ x: number; y: number } | null>(null);
+const typeText = ref('');
+const typeArmed = computed(() => lastTap.value !== null);
 
 async function onTap(e: MouseEvent): Promise<void> {
   if (props.mode !== 'control' || !sessionId.value || !(e.target instanceof HTMLCanvasElement)) return;
@@ -122,7 +126,25 @@ async function onTap(e: MouseEvent): Promise<void> {
     if (r['error']) {
       error.value = String(r['error']);
       if (String(r['code']) === 'LEASE_LOST' || String(r['code']) === 'SESSION_NOT_FOUND') void endSession();
-    } else await fastPathFrame();
+    } else {
+      lastTap.value = { x, y }; // arm typing at this field
+      await fastPathFrame();
+    }
+  } finally { busy.value = false; }
+}
+
+async function sendType(): Promise<void> {
+  if (!sessionId.value || !lastTap.value || !typeText.value) return;
+  busy.value = true;
+  try {
+    const r = await api(`${sessionId.value}/type`, { x: lastTap.value.x, y: lastTap.value.y, text: typeText.value });
+    if (r['error']) {
+      error.value = String(r['error']);
+      if (String(r['code']) === 'LEASE_LOST' || String(r['code']) === 'SESSION_NOT_FOUND') void endSession();
+    } else {
+      typeText.value = '';
+      await fastPathFrame();
+    }
   } finally { busy.value = false; }
 }
 
@@ -202,6 +224,16 @@ async function endSession(): Promise<void> {
             <span>{{ logicalW ? `${logicalW}pt logical · taps map 1:1` : 'tap anywhere on screen' }}</span>
           </div>
           <div v-if="error" class="meta-row" style="color: var(--color-ember); margin-top: var(--s-2);">{{ error }}</div>
+          <div class="type-box">
+            <input
+              v-model="typeText"
+              :placeholder="typeArmed ? `type into field @ ${lastTap!.x},${lastTap!.y} — enter to send` : 'tap a field on screen first, then type here'"
+              :disabled="!typeArmed || busy"
+              @keydown.enter="sendType"
+            />
+            <button class="btn btn-sm" :disabled="!typeArmed || !typeText || busy" @click="sendType">send</button>
+            <button v-if="typeArmed" class="btn btn-sm btn-ghost" @click="lastTap = null; typeText = ''">✕</button>
+          </div>
           <div style="display: flex; gap: var(--s-2); margin-top: var(--s-2);">
             <button class="btn btn-sm" :disabled="busy" @click="scroll('up')">↑</button>
             <button class="btn btn-sm" :disabled="busy" @click="scroll('down')">↓</button>
@@ -242,6 +274,10 @@ async function endSession(): Promise<void> {
   display: flex; justify-content: space-between;
   font-size: 10px; color: var(--color-steel); margin-top: 4px;
 }
+.type-box {
+  display: flex; gap: var(--s-2); margin-top: var(--s-2);
+}
+.type-box input { flex: 1; }
 .stream-overlay {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;

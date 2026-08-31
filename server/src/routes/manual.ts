@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { createReadStream, statSync } from 'node:fs';
-import { startManualSession, manualTap, manualScroll, manualSnapshot, finishManualSession, ManualSessionError } from '../manual/session.ts';
+import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, finishManualSession, ManualSessionError } from '../manual/session.ts';
 
 export function registerManualRoutes(
   // frame serve: only paths under the manual session's snapshot dir (engine temp)
@@ -58,6 +58,19 @@ app: FastifyInstance, db: Database.Database, deps: { bus: TypedEventBus<AppEvent
     if (!b.direction || !['up', 'down', 'left', 'right'].includes(b.direction)) return reply.code(400).send({ error: 'direction (up|down|left|right) required' });
     try {
       await manualScroll({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id, b.direction as 'up' | 'down' | 'left' | 'right');
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
+      throw err;
+    }
+  });
+
+  app.post('/api/manual/:id/type', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = req.body as { x?: number; y?: number; text?: string };
+    if (typeof b.x !== 'number' || typeof b.y !== 'number' || typeof b.text !== 'string') return reply.code(400).send({ error: 'x,y,text required' });
+    try {
+      await manualType({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id, b.x, b.y, b.text);
       return { ok: true };
     } catch (err) {
       if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });

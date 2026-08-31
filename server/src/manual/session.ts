@@ -93,6 +93,19 @@ export async function manualScroll(deps: ManualDeps, sessionId: string, directio
   deps.bus.emit('manual.session.scroll', { sessionId, direction });
 }
 
+export async function manualType(deps: ManualDeps, sessionId: string, x: number, y: number, text: string): Promise<void> {
+  const s = liveSession(deps, sessionId);
+  const alloy = crucibleAlloy();
+  // engine `fill`: targets the field at (x,y) and replaces its text — same
+  // coordinate space as tap (logical points from the session dims)
+  const r = (await alloy.dispatch('alloy_act', { udid: s.udid, action: 'fill', target: { x, y }, text, settle: true }, deps.dispatchDeps)) as
+    | { ok: true }
+    | { ok: false; error: { code: string; message: string } };
+  if (!r.ok) throw new ManualSessionError('LEASE_LOST', `type failed: ${'message' in r.error ? r.error.message : 'engine error'}`);
+  deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
+  deps.bus.emit('manual.session.type', { sessionId, x, y, len: text.length });
+}
+
 export async function manualSnapshot(deps: ManualDeps, sessionId: string): Promise<{ path: string }> {
   const s = liveSession(deps, sessionId);
   const alloy = crucibleAlloy();
