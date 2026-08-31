@@ -41,15 +41,24 @@ export function useDeviceStream(): DeviceStream {
   let frameCount = 0;
   let lastFpsTime = Date.now();
   let generation = 0; // invalidate stale async work after stop()/restart()
+  let drawSeq = 0;    // decode sequencing: only the newest-issued frame may paint
 
   function drawFrame(buf: ArrayBuffer): Promise<void> {
+    const seq = ++drawSeq;
     return createImageBitmap(new Blob([buf], { type: 'image/jpeg' })).then((bitmap) => {
+      // A newer frame was issued while this one decoded — decode completion
+      // order is NOT guaranteed, and an older bitmap painting over a newer
+      // one reads as the stream jumping backwards (flicker). Drop it.
+      if (seq !== drawSeq) { bitmap.close(); return; }
       const canvas = canvasRef.value;
       if (canvas) {
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          canvas.width = bitmap.width;
-          canvas.height = bitmap.height;
+          // Assigning canvas.width CLEARS the bitmap even when unchanged —
+          // doing it per-frame flashes a transparent (black) instant between
+          // clear and draw. Frame dims are constant per session; set once.
+          if (canvas.width !== bitmap.width) canvas.width = bitmap.width;
+          if (canvas.height !== bitmap.height) canvas.height = bitmap.height;
           ctx.drawImage(bitmap, 0, 0);
         }
       }
