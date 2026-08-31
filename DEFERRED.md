@@ -24,13 +24,20 @@ this file's rule. Remaining:*
   step editor.
 
 ### A6. Resilient selectors via view-hierarchy capture — batch 2
-- **Probed 2026-08-31** (Settings on iPhone 16 Pro sim, `scripts/node-fields.mjs`):
-  `alloy_snapshot` nodes already expose `identifier`, `label`, `type`, `rect`,
-  `hittable`, `ref`, `parentIndex`. **In Apple Settings, `hittable:1` nodes: 1/72
-  and that node carries no `identifier`** — Apple apps set few AX identifiers,
-  so A6 selectors must be label/type-based fallbacks, not identifier-only.
-  ios-consumer app AX quality must be audited before committing to selector
-  strategy (Maestro's hierarchy-DOM approach remains the reference).
+- **Probed 2026-08-31** (Settings + Lion Parcel app, `scripts/node-fields.mjs` +
+  `scripts/lp-ax-audit.mjs`): `alloy_snapshot` nodes expose `identifier`, `label`,
+  `type`, `rect`, `hittable`, `ref`, `parentIndex` — plumbing exists; recorder
+  just never persists them.
+- **AX audit results (hittable nodes):**
+  - Apple Settings: 1/72 hittable, no identifiers — worst case.
+  - LP home: 16 hittable, id 25% (all image assets: `ic_barcode`,
+    `ic_tabbar_*`), label 75%.
+  - LP account: 12 hittable, id 8%, **label 92%** — SwiftUI text labels are
+    the reliable signal.
+- **Selector strategy implication:** label+type primary, identifier for icon
+  taps, coordinates last-resort fallback. SwiftUI `accessibilityIdentifier`
+  additions in ios-consumer would strengthen icon taps but are NOT a
+  prerequisite — labels already cover ~75–92% of hittable nodes.
 - **What:** recorder captures element text/id at tap point from the alloy
   snapshot; playback resolves selector first, coordinates as fallback. Fixes
   cross-device replay (flaw #6).
