@@ -37,7 +37,13 @@ via device-busy guard; **proxy lifecycle orphaning — the "no internet every
 boot" defect, 2026-08-31: all-service heal at boot/close/API + launchd
 dead-man watchdog + Apple/MDM bypass domains; plan + drills at
 `docs/plans/2026-08-31-proxy-resilience.md`; watchdog activation is
-per-machine, one command: `pnpm --dir server tsx scripts/install-watchdog.ts`)**).*
+per-machine, one command: `pnpm --dir server tsx scripts/install-watchdog.ts`**;
+weak green runs — B12, via A7 expect steps: existence assertions recorded
+from the live hierarchy, replayed as pass/fail with not-found vs ambiguous
+reasons, optional=soft, cold-launch settle window ~8s; live-verified
+green/red/ambiguous/soft/subflow/cross-device 2026-08-31, plan at
+`docs/plans/2026-08-31-assertions.md` — value-equality + image-diff
+assertions deliberately NOT built, trigger = first real demand).*
 
 ### B1. Traffic attribution to runs is structurally dead — P0
 - **What:** `addon.py:208` always writes `run_id: None`; the Python addon has
@@ -83,14 +89,6 @@ per-machine, one command: `pnpm --dir server tsx scripts/install-watchdog.ts`)**
 - **What:** any local process can drive devices / read captured bodies
   (including auth tokens). Accepted for single-QA localhost tool.
 - **Trigger:** if Crucible ever leaves localhost.
-
-### B12. No image assertions = weak green runs — conceptual, accepted
-- **What:** a replay tapping where a button *used to be* still passes.
-  Mitigation now available (A6 shipped): selectors must RESOLVE for
-  `resolvedBy:"selector"` — a vanished element degrades to
-  `coordinate-fallback`, visible in evaluated_json. Optional hardening:
-  post-step element-existence checks from stored selectors.
-- **Trigger:** next pass on run assertions.
 
 ---
 
