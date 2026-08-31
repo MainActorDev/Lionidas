@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { crucibleAlloy } from '../alloy/client.ts';
 import type { ForgeState } from '../forge/proxy.ts';
+import type { Preset } from '../forge/matcher.ts';
 
 export interface PlaybackDeps {
   db: Database.Database;
@@ -56,9 +57,28 @@ function ingestEvidence(deps: PlaybackDeps, runId: string, bundleId: string, typ
   return id;
 }
 
+/** preset DB row → addon state spec (single mapping, reused by restore). */
+function rowToPresetSpec(p: Record<string, unknown>): Preset {
+  return {
+    id: p['id'] as string,
+    method: p['method'] as string,
+    pathPattern: p['path_pattern'] as string,
+    match: p['match'] as 'exact' | 'glob' | 'regex',
+    ...(p['headers_json'] ? { headers: JSON.parse(p['headers_json'] as string) as Record<string, string> } : {}),
+    status: p['status'] as number,
+    ...(p['body_path'] ? { bodyPath: p['body_path'] as string } : {}),
+    ...(p['delay_ms'] ? { delayMs: p['delay_ms'] as number } : {}),
+    ...(p['seq_json'] ? { seq: JSON.parse(p['seq_json'] as string) as Array<{ status: number }> } : {}),
+    ...(p['failure'] ? { failure: p['failure'] as NonNullable<Preset['failure']> } : {}),
+  };
+}
+
 /** Fire-and-forget playback: resolves to runId once the run row exists.
- *  Execution continues in background; run status/step rows are the live view. */
-export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string }): Promise<string> {
+ *  Execution continues in background; run status/step rows are the live view.
+ *  Phase 4: opts.scenarioId activates that scenario's presets (hybrid) for the
+ *  run duration, restoring the previous forge state after — network choice is
+ *  per-run, template stays network-agnostic (its defaultPresetId is a hint). */
+export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string }): Promise<string> {
   const t = deps.db.prepare('SELECT id, name, ticket_key, udid, steps_json FROM templates WHERE id = ?').get(templateId) as TemplateRow | undefined;
   if (!t) throw new Error(`template ${templateId} not found`);
   let steps: PlaybackStep[] = [];
@@ -78,6 +98,20 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     const alloy = crucibleAlloy();
     // traffic attribution: everything the proxy sees while active belongs to this run
     deps.forgeState.activeRunId = runId;
+    // network choice (phase 4): scenario presets active ONLY during the run
+    let restorePresets: Array<Record<string, unknown>> | null = null;
+    let restoreStateDir: string | null = null;
+    if (opts.scenarioId) {
+      const presets = deps.db.prepare(
+        `SELECT p.* FROM presets p JOIN scenario_overrides so ON so.preset_id = p.id WHERE so.scenario_id = ? AND so.enabled = 1`,
+      ).all(opts.scenarioId) as Array<Record<string, unknown>>;
+      restorePresets = deps.db.prepare('SELECT * FROM presets ORDER BY created_at DESC').all() as Array<Record<string, unknown>>;
+      restoreStateDir = process.env['CRUCIBLE_MITM_STATE_DIR'] ?? '/tmp/forge-mitm';
+      try {
+        const { writeStateFile } = await import('../forge/mitm/manager.ts');
+        writeStateFile(restoreStateDir, 'hybrid', presets.map(rowToPresetSpec));
+      } catch { /* network best-effort — run proceeds without scenario */ }
+    }
     let runStatus: 'passed' | 'failed' | 'aborted' = 'passed';
     const insStep = deps.db.prepare(
       `INSERT INTO run_steps(run_id, idx, flow_name, kind, name, status, reason, started_at, duration_ms, evidence_ids_json)
@@ -119,6 +153,13 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           if (evId) deps.db.prepare(`UPDATE runs SET artifact_path = ? WHERE id = ?`).run(shot.result.path, runId);
         }
       } catch { /* evidence best-effort */ }
+      // restore prior forge state — scenario was run-scoped by contract
+      if (restorePresets && restoreStateDir) {
+        try {
+          const { writeStateFile } = await import('../forge/mitm/manager.ts');
+          writeStateFile(restoreStateDir, deps.forgeState.mode, restorePresets.map(rowToPresetSpec));
+        } catch { /* restore best-effort */ }
+      }
       deps.forgeState.activeRunId = null;
       deps.db.prepare(`UPDATE runs SET status = ?, finished_at = ? WHERE id = ?`).run(runStatus, Date.now(), runId);
       deps.bus.emit('run.finished', { runId, status: runStatus });

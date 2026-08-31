@@ -22,6 +22,10 @@ const renamingTicket = ref('');
 const renamingDesc = ref('');
 const playing = ref<string | null>(null);
 const playMsg = ref('');
+// network choice (phase 4): scenarios group presets; the selector applies to
+// every run started while set — presets active for the run's duration only
+const scenarios = ref<Array<{ id: string; name: string }>>([]);
+const runScenario = ref<string>('');
 
 async function play(t: Template): Promise<void> {
   if (playing.value) return;
@@ -30,10 +34,10 @@ async function play(t: Template): Promise<void> {
   try {
     const r = await fetch(`/api/templates/${t.id}/play`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify(runScenario.value ? { scenarioId: runScenario.value } : {}),
     });
     const b = (await r.json()) as { runId?: string; error?: string };
-    playMsg.value = b.runId ? `running · ${b.runId}` : (b.error ?? 'failed');
+    playMsg.value = b.runId ? `running · ${b.runId}${runScenario.value ? ' · scenario active' : ''}` : (b.error ?? 'failed');
   } catch {
     playMsg.value = 'failed';
   } finally { playing.value = null; }
@@ -49,6 +53,11 @@ async function load(): Promise<void> {
   } catch {
     error.value = 'failed to load templates';
   } finally { loading.value = false; }
+  try {
+    const r = await fetch('/api/forge/scenarios');
+    const b = (await r.json()) as { scenarios?: Array<{ id: string; name: string }> };
+    scenarios.value = b.scenarios ?? [];
+  } catch { /* scenarios optional — runs go without network config */ }
 }
 
 async function remove(id: string): Promise<void> {
@@ -95,6 +104,13 @@ onMounted(() => void load());
     <header class="page-head">
       <h1>templates</h1>
       <input v-model="filter" class="input filter" placeholder="filter by name or ticket…" />
+      <select
+        v-model="runScenario" class="input" style="width: auto;"
+        title="network scenario active during runs — its presets fake endpoints for the run's duration, then restore"
+      >
+        <option value="">network: live</option>
+        <option v-for="s in scenarios" :key="s.id" :value="s.id">{{ s.name }}</option>
+      </select>
       <span class="count">{{ templates.length }}</span>
     </header>
 
