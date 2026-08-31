@@ -13,6 +13,8 @@ import { registerMatrixRoute } from './routes/matrix.ts';
 import { registerEvidenceRoute } from './routes/evidence.ts';
 import { registerBaselineRoutes } from './routes/baselines.ts';
 import { registerManualRoutes } from './routes/manual.ts';
+import { stopMitmIfRunning } from './forge/mitm/manager.ts';
+import { disableSimRouting } from './forge/sim-routing.ts';
 import { registerTemplateRoutes } from './routes/templates.ts';
 import { registerFlakeRoutes } from './routes/flakes.ts';
 import { registerEventsWs } from './routes/events-ws.ts';
@@ -121,6 +123,11 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
       stopDispatcher?.();
       stopWatchdog?.();
       stopGc?.();
+      // Graceful shutdown must restore the host's internet: stop MITM first
+      // (kills the proxy listener), then clear the OS proxy setting — otherwise
+      // macOS keeps funneling traffic into a dead port across restarts.
+      try { await stopMitmIfRunning(); } catch { /* already dead */ }
+      try { disableSimRouting(); } catch { /* networksetup unavailable */ }
       await app.close();
       db.close();
     },
