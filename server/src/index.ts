@@ -14,7 +14,7 @@ import { registerEvidenceRoute } from './routes/evidence.ts';
 import { registerBaselineRoutes } from './routes/baselines.ts';
 import { registerManualRoutes } from './routes/manual.ts';
 import { stopMitmIfRunning } from './forge/mitm/manager.ts';
-import { disableSimRouting } from './forge/sim-routing.ts';
+import { healStaleProxies } from './forge/sim-routing.ts';
 import { registerTemplateRoutes } from './routes/templates.ts';
 import { registerFlakeRoutes } from './routes/flakes.ts';
 import { registerEventsWs } from './routes/events-ws.ts';
@@ -127,7 +127,14 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
       // (kills the proxy listener), then clear the OS proxy setting — otherwise
       // macOS keeps funneling traffic into a dead port across restarts.
       try { await stopMitmIfRunning(); } catch { /* already dead */ }
-      try { disableSimRouting(); } catch { /* networksetup unavailable */ }
+      try {
+        // all-service heal (not just the default-route service): if the
+        // default route MOVED between enable and close (Wi-Fi↔Ethernet, VPN),
+        // the old single-service disable cleared the wrong one and left the
+        // internet broken. The watchdog covers anything this misses.
+        const healed = healStaleProxies();
+        if (healed.length > 0) app.log.warn({ healed }, 'cleared stale proxies on close');
+      } catch { /* networksetup unavailable — watchdog will */ }
       await app.close();
       db.close();
     },
