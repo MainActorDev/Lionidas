@@ -78,12 +78,14 @@ function rowToPresetSpec(p: Record<string, unknown>): Preset {
   };
 }
 
-/** Fire-and-forget playback: resolves to runId once the run row exists.
+/** Fire-and-forget playback: resolves to { runId, done } once the run row
+ *  exists. `done` settles when the run finishes (any status) — single plays
+ *  ignore it; play-all awaits it (with a cap) to serialize the batch.
  *  Execution continues in background; run status/step rows are the live view.
  *  Phase 4: opts.scenarioId activates that scenario's presets (hybrid) for the
  *  run duration, restoring the previous forge state after — network choice is
  *  per-run, template stays network-agnostic (its defaultPresetId is a hint). */
-export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string; bundleId?: string; env?: Record<string, string> }): Promise<string> {
+export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string; bundleId?: string; env?: Record<string, string> }): Promise<{ runId: string; done: Promise<void> }> {
   const t = deps.db.prepare('SELECT id, name, ticket_key, udid, steps_json, app_bundle_id FROM templates WHERE id = ?').get(templateId) as TemplateRow | undefined;
   if (!t) throw new Error(`template ${templateId} not found`);
   let steps: PlaybackStep[] = [];
@@ -101,8 +103,8 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     .run(runId, t.ticket_key ?? 'TEMPLATE', opts.triggeredBy ?? 'qa', udid, Date.now(), `template:${templateId} ${t.name}`);
   deps.bus.emit('run.started', { runId, ticketKey: t.ticket_key ?? 'TEMPLATE' });
 
-  // background execution — route returns immediately with the runId
-  void (async () => {
+  // background execution — route returns immediately; done settles at finish
+  const done = (async () => {
     const alloy = crucibleAlloy();
     // traffic attribution: everything the proxy sees while active belongs to this run
     deps.forgeState.activeRunId = runId;
@@ -193,5 +195,5 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     }
   })();
 
-  return runId;
+  return { runId, done };
 }

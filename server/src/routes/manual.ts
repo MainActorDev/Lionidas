@@ -155,12 +155,12 @@ export function registerManualRoutes(
   // ── template playback ──
   app.post('/api/templates/:id/play', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const b = req.body as { udid?: string; triggeredBy?: string; scenarioId?: string } | null;
+    const b = req.body as { udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string> } | null;
     try {
-      const runId = await runTemplatePlayback(
+      const { runId } = await runTemplatePlayback(
         { db, bus: deps.bus, dispatchDeps: deps.dispatchDeps, artifactsDir: deps.artifactsDir, forgeState: deps.forgeState },
         id,
-        { ...(b?.udid !== undefined ? { udid: b.udid } : {}), ...(b?.triggeredBy !== undefined ? { triggeredBy: b.triggeredBy } : {}), ...(b?.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}) },
+        { ...(b?.udid !== undefined ? { udid: b.udid } : {}), ...(b?.triggeredBy !== undefined ? { triggeredBy: b.triggeredBy } : {}), ...(b?.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}), ...(b?.env !== undefined ? { env: b.env } : {}) },
       );
       return { runId };
     } catch (err) {
