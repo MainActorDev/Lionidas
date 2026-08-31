@@ -89,11 +89,13 @@ export function substituteStep(s: { idx: number; action: 'tap' | 'scroll' | 'typ
   const base: SubstitutedStep = { idx: s.idx, action: s.action, ...(s.x !== undefined ? { x: s.x } : {}), ...(s.y !== undefined ? { y: s.y } : {}), ...(s.direction ? { direction: s.direction } : {}) };
   if (s.text === undefined) return base;
   const expanded = expandEnvText(s.text, env);
-  return expanded === null ? { ...base, error: `missing env: ${s.text.match(REF)?.[0] ?? ''}` } : { ...base, text: expanded };
+  if (expanded !== null) return { ...base, text: expanded };
+  const missingKey = [...s.text.matchAll(REF)].map((m) => m[1]).find((k) => env[k] === undefined);
+  return { ...base, error: `missing env: ${missingKey ?? '??'}` };
 }
 ```
 
-Note: error message includes the first unresolved ref. Simplify `substituteStep`'s missing-key branch to extract the key: iterate `s.text.match(REF)` and return `missing env: ${key}` for the first key absent from env.
+(`matchAll` extraction is the final form — the test expects the bare key name `NOPE`, not the full `${env.NOPE}` ref. `optional` is deliberately dropped from the output: dispatch doesn't need it, and the loop's catch reads it from the original step `s`.)
 
 **Step 4:** tests PASS. **Step 5:** `git commit -m "templating: env resolver module (A1 core)"`.
 
@@ -210,7 +212,7 @@ Single play route: `const { runId } = await runTemplatePlayback(...)` — unchan
 2. **Play all (filtered)** button → `POST /api/templates/play-all` with current filter + optional env dialog (simple `window.prompt` pair: `KEY=value` lines → parsed to object; self-explanatory placeholder text).
 3. **Parameterize**: expanded step row → "parameterize" button → `prompt('env key name (e.g. PASSWORD)')` → step.text becomes `${env.NAME}` → PATCH template. This is the plaintext-secret fix (B10) — literal stays until the user parameterizes.
 4. **Optional checkbox** per step → PATCH steps with `optional`.
-5. **Evaluated display**: run steps render in `web/src/pages/RunDetailPage.vue:7-89` (fetched from `/api/runs/:runId/steps`, table with #/flow/status/duration/reason). Patch there: `Step` interface + steps table gain `evaluated_json` → when present and different from the template step's `name`, show a muted second line under the step row. Target file verified this session — do NOT patch TemplatesPage for this.
+5. **Evaluated display**: run steps render in `web/src/pages/RunDetailPage.vue:7-89` (fetched from `/api/runs/:runId/steps`, table with #/flow/status/duration/reason). Patch there: `Step` interface + steps table gain `evaluated_json` → when present and different from the template step's `name`, show a muted second line under the step row. Target file verified this session — do NOT patch TemplatesPage for this. **Verified this revision:** `/api/runs/:id/steps` runs `SELECT * FROM run_steps` (`routes/runs.ts:159`) — `evaluated_json` reaches RunDetailPage with zero route changes.
 
 **Verify:** `npx vue-tsc --noEmit` clean; manual click-through on dev server. Commit.
 
@@ -236,10 +238,15 @@ Single play route: `const { runId } = await runTemplatePlayback(...)` — unchan
 - **AND tag semantics** chosen over OR — regression suites compose by intersection; OR is a one-line change if QA disagrees.
 - **`window.prompt`** for env entry + parameterize: zero new components, self-explanatory; replace with proper modal if it grates.
 
-## Self-review (filled after drafting — see chat)
+## Self-review
 
-- [x] All paths verified against live code this session (not memory)
-- [x] Backward compat: both new columns nullable; `optional`/`env` optional fields; old templates unchanged
-- [x] Return-shape change in Task 5 scoped by caller grep
-- [x] Missing-env ≠ optional-miss (config error vs transient miss) — decided, documented
-- [x] Play-all can't hang (per-run cap)
+**Round 1 (draft time):** bound `'NULL'` string → JS `null` (fixed); evaluated display retargeted TemplatesPage → RunDetailPage (fixed); missing-env ≠ optional-miss decided.
+
+**Round 2 (this revision):**
+- [x] `/api/runs/:id/steps` is `SELECT *` — `evaluated_json` reaches UI with no route change (runs.ts:159 verified)
+- [x] `substituteStep` missing-key message finalized to bare key via `matchAll` — Task 1 code now matches its own test (`missing env: NOPE`); `optional` dropped from output type (loop reads it off the original step)
+- [x] Task 6 play-all: per-run 5-min cap, `Promise.race` against `done` — wedged run can't wedge the batch
+- [x] Backward compat: both ALTERs nullable; old templates play unchanged (no `env` → `expandEnvText` passthrough)
+- [x] Caller-scope: Task 5 return-shape change gated on grep — only caller `routes/manual.ts:160` verified
+
+**Open by design:** `evaluated_json` stores resolved secrets (accepted, local-first; revisit with B11). AND tag semantics (OR is one-line if QA wants). `window.prompt` UI (swap for modal if it grates).
