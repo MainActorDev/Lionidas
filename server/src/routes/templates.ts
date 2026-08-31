@@ -149,26 +149,26 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
   });
 
   app.post('/api/templates', async (req, reply) => {
-    const b = req.body as Partial<TemplateRow> & { steps?: unknown[]; tags?: string[] };
+    const b = req.body as Partial<TemplateRow> & { steps?: unknown[]; tags?: string[]; appBundleId?: string; ticketKey?: string | null };
     if (!b.name || !b.name.trim()) return reply.code(400).send({ error: 'name required' });
     const id = `tpl_${randomUUID().slice(0, 8)}`;
     const now = Date.now();
     db.prepare(
-      `INSERT INTO templates(id, name, description, ticket_key, udid, logical_w, logical_h, steps_json, tags_json, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(id, b.name.trim(), b.description ?? null, b.ticket_key ?? null, b.udid ?? '', b.logical_w ?? null, b.logical_h ?? null, JSON.stringify(b.steps ?? []), tagsToJson(b.tags), b.created_by ?? 'qa', now, now);
+      `INSERT INTO templates(id, name, description, ticket_key, udid, logical_w, logical_h, steps_json, app_bundle_id, app_name, app_version, tags_json, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, b.name.trim(), b.description ?? null, b.ticket_key ?? b.ticketKey ?? null, b.udid ?? '', b.logical_w ?? null, b.logical_h ?? null, JSON.stringify(b.steps ?? []), b.appBundleId ?? null, b.app_name ?? null, b.app_version ?? null, tagsToJson(b.tags), b.created_by ?? 'qa', now, now);
     return rowToTemplate(db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow);
   });
 
   app.patch('/api/templates/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const b = req.body as { name?: string; description?: string | null; ticketKey?: string | null; defaultPresetId?: string | null; steps?: unknown[]; tags?: string[] };
+    const b = req.body as { name?: string; description?: string | null; ticketKey?: string | null; defaultPresetId?: string | null; steps?: unknown[]; tags?: string[]; appBundleId?: string | null };
     const row = db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
     if (b.name !== undefined && !b.name.trim()) return reply.code(400).send({ error: 'name cannot be empty' });
     db.prepare(
       `UPDATE templates SET
-         name = ?, description = ?, ticket_key = ?, default_preset_id = ?, steps_json = ?, tags_json = ?, updated_at = ?
+         name = ?, description = ?, ticket_key = ?, default_preset_id = ?, steps_json = ?, tags_json = ?, app_bundle_id = ?, updated_at = ?
        WHERE id = ?`,
     ).run(
       b.name !== undefined ? b.name.trim() : row.name,
@@ -177,6 +177,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       b.defaultPresetId !== undefined ? b.defaultPresetId : row.default_preset_id,
       b.steps !== undefined ? JSON.stringify(b.steps) : row.steps_json,
       b.tags !== undefined ? tagsToJson(b.tags) : row.tags_json,
+      b.appBundleId !== undefined ? b.appBundleId : row.app_bundle_id,
       Date.now(),
       id,
     );

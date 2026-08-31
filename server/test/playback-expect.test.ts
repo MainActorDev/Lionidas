@@ -56,6 +56,9 @@ function runRows(runId: string): Array<{ idx: number; status: string; reason: st
 }
 
 beforeEach(() => {
+  // static fake hierarchies settle instantly — shrink the expect settle window
+  process.env.CRUCIBLE_EXPECT_SETTLE_MS = '10';
+  process.env.CRUCIBLE_EXPECT_POLL_MS = '5';
   tmp = mkdtempSync(join(tmpdir(), 'a7-'));
   db = new Database(':memory:');
   db.exec(`CREATE TABLE templates(id TEXT PRIMARY KEY, name TEXT UNIQUE, description TEXT, ticket_key TEXT, udid TEXT NOT NULL, logical_w INTEGER, logical_h INTEGER, steps_json TEXT NOT NULL, default_preset_id TEXT, created_by TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, app_bundle_id TEXT, app_name TEXT, app_version TEXT, tags_json TEXT);
@@ -68,6 +71,8 @@ beforeEach(() => {
   __setAlloyForTest(fakeAlloy());
 });
 afterEach(() => {
+  delete process.env.CRUCIBLE_EXPECT_SETTLE_MS;
+  delete process.env.CRUCIBLE_EXPECT_POLL_MS;
   __setAlloyForTest(null);
   db.close();
   rmSync(tmp, { recursive: true, force: true });

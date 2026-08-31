@@ -194,9 +194,15 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
         }
         try {
           // A7 expect: existence assertion — resolution IS the check. Never
-          // dispatches; one bounded retry covers a slow screen transition
-          // (NOT a wait framework).
+          //  dispatches. Launch-settle window: a cold app takes ~2-3s to
+          //  populate its AX hierarchy (verified live: label present at t+3s,
+          //  absent at t+1s after open), so poll with backoff up to ~8s
+          //  BEFORE declaring not-found. Bounded budget, not a wait framework.
           if (s.action === 'expect' && s.selector) {
+            // settle budget injectable for tests (fake hierarchies are static;
+            // 8s of real polling would blow vitest's 5s timeout)
+            const settleBudgetMs = Number(process.env.CRUCIBLE_EXPECT_SETTLE_MS ?? 8000);
+            const settlePollMs = Number(process.env.CRUCIBLE_EXPECT_POLL_MS ?? 2000);
             const readCount = async (): Promise<{ n: number; nodesL: SnapNode[] } | null> => {
               const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
                 | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
@@ -205,8 +211,9 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               return { n: countMatches(nodesL, s.selector!), nodesL };
             };
             let read = await readCount();
-            if (read && read.n !== 1) {
-              await new Promise((r) => setTimeout(r, 750));
+            const settleStart = Date.now();
+            while (read && read.n !== 1 && Date.now() - settleStart < settleBudgetMs) {
+              await new Promise((r) => setTimeout(r, settlePollMs));
               read = await readCount();
             }
             const matched = read?.n ?? 0;
