@@ -65,6 +65,64 @@ export function installRootCertToSims(certPath: string): string[] {
   return installed;
 }
 
+/** All configured network service names (header line skipped, disabled
+ *  services — leading `*` — skipped). Phantom services may appear here and
+ *  error individually on -getwebproxy; callers tolerate per-service. */
+export function listNetworkServices(): string[] {
+  const out = sh('networksetup', ['-listallnetworkservices']);
+  return out.split('\n').slice(1).map((l) => l.trim()).filter((l) => l.length > 0 && !l.startsWith('*'));
+}
+
+export interface StaleProxy { service: string; port: number }
+
+/** True when some process listens on the port (lsof exit 1 = none). */
+function portHasListener(port: number): boolean {
+  try {
+    const out = execFileSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    return out.trim().length > 0;
+  } catch { return false; }
+}
+
+/** Every service whose ENABLED web proxy points at localhost with no live
+ *  listener — internet-breaking leftovers from a dead Crucible (or any other
+ *  localhost proxy tool). Deliberately default-route-independent: at boot,
+ *  before Wi-Fi associates, there IS no default route — the original bug. */
+export function staleProxyServices(): StaleProxy[] {
+  const stale: StaleProxy[] = [];
+  for (const service of listNetworkServices()) {
+    try {
+      const out = sh('networksetup', ['-getwebproxy', service]);
+      const enabled = /^Enabled: Yes$/m.test(out);
+      const host = /Server: (\S+)/.exec(out)?.[1];
+      const port = Number(/Port: (\d+)/.exec(out)?.[1] ?? 0);
+      if (enabled && (host === '127.0.0.1' || host === 'localhost' || host === '::1') && port > 0 && !portHasListener(port)) {
+        stale.push({ service, port });
+      }
+    } catch { /* phantom service — skip */ }
+  }
+  return stale;
+}
+
+/** Disable every stale localhost proxy (web + secure-web). Returns what was
+ *  healed so callers can log it. Never touches non-localhost proxies. */
+export function healStaleProxies(): StaleProxy[] {
+  const stale = staleProxyServices();
+  for (const s of stale) {
+    try {
+      execFileSync('networksetup', ['-setwebproxystate', s.service, 'off']);
+      execFileSync('networksetup', ['-setsecurewebproxystate', s.service, 'off']);
+    } catch { /* leave to the watchdog */ }
+  }
+  return stale;
+}
+
+/** True when a default route exists — gates the boot-time heal retry loop
+ *  (retry only during early boot while interfaces associate; normal restarts
+ *  have a route immediately and skip the loop entirely). */
+export function defaultRouteExists(): boolean {
+  try { sh('route', ['-n', 'get', 'default']); return true; } catch { return false; }
+}
+
 /** Ensure the Apple-compliant CA hierarchy exists at confdir. mitmproxy's
  *  DEFAULT CA signs leaves directly with the root — iOS strict TLS rejects
  *  that ('leaf MissingIntermediate' → NSURLError -1200). Generate a proper
