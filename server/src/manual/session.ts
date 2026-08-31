@@ -9,6 +9,8 @@ import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { crucibleAlloy } from '../alloy/client.ts';
+import { captureSelectorAt } from './selector.ts';
+import type { StepSelector, SnapNode } from './selector.ts';
 
 export interface ManualDeps {
   db: Database.Database;
@@ -17,9 +19,9 @@ export interface ManualDeps {
 }
 
 export type RecordedStep =
-  | { idx: number; action: 'tap'; x: number; y: number; ts: number; thumb: string | null }
+  | { idx: number; action: 'tap'; x: number; y: number; ts: number; thumb: string | null; selector: StepSelector | null }
   | { idx: number; action: 'scroll'; direction: 'up' | 'down' | 'left' | 'right'; ts: number; thumb: string | null }
-  | { idx: number; action: 'type'; x: number; y: number; text: string; ts: number; thumb: string | null };
+  | { idx: number; action: 'type'; x: number; y: number; text: string; ts: number; thumb: string | null; selector: StepSelector | null };
 
 interface RecordingState { on: boolean; steps: RecordedStep[] }
 
@@ -42,9 +44,9 @@ function writeRecording(deps: ManualDeps, sessionId: string, state: RecordingSta
 /** Append a step if the recorder is on; captures a post-action screenshot as
  *  the step thumbnail (best-effort — a snapshot failure must not fail the action). */
 export type StepInput =
-  | { action: 'tap'; x: number; y: number }
-  | { action: 'scroll'; direction: 'up' | 'down' | 'left' | 'right' }
-  | { action: 'type'; x: number; y: number; text: string };
+  | { action: 'tap'; x: number; y: number; selector?: StepSelector | null }
+  | { action: 'scroll'; direction: 'up' | 'down' | 'left' | 'right'; selector?: StepSelector | null }
+  | { action: 'type'; x: number; y: number; text: string; selector?: StepSelector | null };
 
 async function recordStep(deps: ManualDeps, sessionId: string, step: StepInput): Promise<RecordedStep | null> {
   const state = readRecording(deps, sessionId);
@@ -57,7 +59,8 @@ async function recordStep(deps: ManualDeps, sessionId: string, step: StepInput):
       | { ok: false };
     if (r.ok) thumb = r.result.path;
   } catch { /* thumbnail is best-effort */ }
-  const full: RecordedStep = { ...step, idx: state.steps.length, ts: Date.now(), thumb } as RecordedStep;
+  const { selector, ...rest } = step;
+  const full: RecordedStep = { ...rest, idx: state.steps.length, ts: Date.now(), thumb, ...(step.action !== 'scroll' ? { selector: selector ?? null } : {}) } as RecordedStep;
   state.steps.push(full);
   writeRecording(deps, sessionId, state);
   deps.bus.emit('manual.session.step', { sessionId, step: full });
@@ -68,6 +71,19 @@ function sessionUdid(deps: ManualDeps, sessionId: string): string {
   const s = deps.db.prepare('SELECT udid FROM manual_sessions WHERE id = ?').get(sessionId) as { udid: string } | undefined;
   if (!s) throw new ManualSessionError('SESSION_NOT_FOUND', `no session ${sessionId}`);
   return s.udid;
+}
+
+/** Pre-action hierarchy hit-test (A6): best-effort — a snapshot failure must
+ *  not fail the interaction; step just records selector: null. */
+async function captureSelector(deps: ManualDeps, udid: string, x: number, y: number): Promise<StepSelector | null> {
+  try {
+    const alloy = crucibleAlloy();
+    const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
+      | { ok: true; result: { nodes?: SnapNode[] } }
+      | { ok: false };
+    if (!snap.ok) return null;
+    return captureSelectorAt(snap.result.nodes ?? [], x, y);
+  } catch { return null; }
 }
 
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -135,12 +151,15 @@ function liveSession(deps: ManualDeps, sessionId: string): { id: string; run_id:
 export async function manualTap(deps: ManualDeps, sessionId: string, x: number, y: number): Promise<void> {
   const s = liveSession(deps, sessionId);
   const alloy = crucibleAlloy();
+  // A6: capture WHAT was tapped from the pre-action hierarchy (recording only)
+  const recordingOn = readRecording(deps, sessionId).on;
+  const selector = recordingOn ? await captureSelector(deps, s.udid, x, y) : null;
   const r = (await alloy.dispatch('alloy_act', { udid: s.udid, action: 'press', target: { x, y }, settle: false }, deps.dispatchDeps)) as
     | { ok: true }
     | { ok: false; error: { code: string; message: string } };
   if (!r.ok) throw new ManualSessionError('LEASE_LOST', `tap failed: ${r.error.message}`);
   deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
-  await recordStep(deps, sessionId, { action: 'tap', x, y });
+  await recordStep(deps, sessionId, { action: 'tap', x, y, selector });
   deps.bus.emit('manual.session.tap', { sessionId, x, y });
 }
 
@@ -159,6 +178,9 @@ export async function manualScroll(deps: ManualDeps, sessionId: string, directio
 export async function manualType(deps: ManualDeps, sessionId: string, x: number, y: number, text: string): Promise<void> {
   const s = liveSession(deps, sessionId);
   const alloy = crucibleAlloy();
+  // A6: capture the field identity pre-action (recording only)
+  const recordingOn = readRecording(deps, sessionId).on;
+  const selector = recordingOn ? await captureSelector(deps, s.udid, x, y) : null;
   // engine `fill`: targets the field at (x,y) and replaces its text — same
   // coordinate space as tap (logical points from the session dims)
   const r = (await alloy.dispatch('alloy_act', { udid: s.udid, action: 'fill', target: { x, y }, text, settle: true }, deps.dispatchDeps)) as
@@ -166,7 +188,7 @@ export async function manualType(deps: ManualDeps, sessionId: string, x: number,
     | { ok: false; error: { code: string; message: string } };
   if (!r.ok) throw new ManualSessionError('LEASE_LOST', `type failed: ${'message' in r.error ? r.error.message : 'engine error'}`);
   deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
-  await recordStep(deps, sessionId, { action: 'type', x, y, text });
+  await recordStep(deps, sessionId, { action: 'type', x, y, text, selector });
   deps.bus.emit('manual.session.type', { sessionId, x, y, len: text.length });
 }
 
