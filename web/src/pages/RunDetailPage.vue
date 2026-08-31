@@ -34,9 +34,10 @@ async function attachJira(): Promise<void> {
 function evaluatedText(s: Step): string | null {
   if (!s.evaluated_json) return null;
   try {
-    const ev = JSON.parse(s.evaluated_json) as { action?: string; text?: string; x?: number; y?: number; direction?: string };
+    const ev = JSON.parse(s.evaluated_json) as { action?: string; text?: string; x?: number; y?: number; direction?: string; resolvedBy?: string; flow?: string };
     const summary = ev.action === 'type' ? `type "${(ev.text ?? '').slice(0, 24)}"` : ev.action === 'tap' ? `tap ${ev.x},${ev.y}` : ev.action ? `${ev.action} ${ev.direction ?? ''}`.trim() : '';
-    return summary || null;
+    const provenance = [ev.flow ? `flow:${ev.flow}` : null, ev.resolvedBy].filter(Boolean).join(' · ');
+    return [summary, provenance].filter(Boolean).join(' — ') || null;
   } catch { return null; }
 }
 

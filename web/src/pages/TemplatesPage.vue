@@ -3,7 +3,7 @@
  *  Steps are plain data; playback runs them (2d). Ticket tag filters regression selection. */
 import { ref, onMounted } from 'vue';
 
-interface Step { idx: number; action: string; x?: number; y?: number; direction?: string; text?: string; optional?: boolean }
+interface Step { idx: number; action: string; x?: number; y?: number; direction?: string; text?: string; optional?: boolean; selector?: { identifier?: string; label?: string; type?: string }; templateId?: string }
 interface Template {
   id: string; name: string; description: string | null; ticketKey: string | null;
   udid: string; logicalW: number | null; logicalH: number | null;
@@ -165,10 +165,22 @@ async function saveRename(id: string): Promise<void> {
 }
 
 function stepLabel(s: Step): string {
+  if (s.action === 'runFlow') return `run flow: ${templates.value.find((t) => t.id === s.templateId)?.name ?? s.templateId ?? '?'}`;
   if (s.action === 'tap') return `tap ${s.x},${s.y}`;
   if (s.action === 'scroll') return `scroll ${s.direction}`;
   if (s.action === 'type') return `type "${(s.text ?? '').slice(0, 18)}${(s.text ?? '').length > 18 ? '…' : ''}"`;
   return s.action;
+}
+
+/** A5: append a runFlow step referencing another template by name. */
+async function addSubflow(t: Template): Promise<void> {
+  const name = window.prompt('subflow template name:')?.trim();
+  if (!name) return;
+  const target = templates.value.find((x) => x.name.toLowerCase() === name.toLowerCase());
+  if (!target) { window.alert(`no template named "${name}"`); return; }
+  if (target.id === t.id) { window.alert('a template cannot run itself'); return; }
+  const steps = [...t.steps, { idx: t.steps.length, action: 'runFlow', templateId: target.id }];
+  await patchTemplate(t.id, { steps });
 }
 
 const shown = (): Template[] => {
@@ -250,6 +262,11 @@ onMounted(() => void load());
           <ol class="tpl-steps">
             <li v-for="s in t.steps" :key="s.idx">
               <span class="tpl-step-idx">{{ s.idx + 1 }}</span> {{ stepLabel(s) }}
+              <span
+                v-if="s.selector && (s.selector.identifier || s.selector.label)"
+                class="tpl-step-sel"
+                :title="`element selector (A6): ${JSON.stringify(s.selector)}`"
+              >⚓ {{ s.selector.identifier ?? s.selector.label }}</span>
               <label v-if="s.action === 'type'" class="tpl-step-ctl" title="replace literal text with ${env.KEY} — the value is provided at play time (env box above), never stored in the template">
                 <input type="checkbox" :checked="(s.text ?? '').startsWith('${env.')" @change="parameterize(t, s)" /> param
               </label>
@@ -258,6 +275,7 @@ onMounted(() => void load());
               </label>
             </li>
           </ol>
+          <button class="btn btn-sm" @click="addSubflow(t)" title="append a runFlow step — this template will run another template's steps as part of its own">+ subflow</button>
         </div>
       </article>
     </div>
