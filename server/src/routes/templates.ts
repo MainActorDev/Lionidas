@@ -20,9 +20,15 @@ interface TemplateRow {
   app_bundle_id: string | null;
   app_name: string | null;
   app_version: string | null;
+  tags_json: string | null;
   created_by: string;
   created_at: number;
   updated_at: number;
+}
+
+function parseTags(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try { const v = JSON.parse(raw) as unknown; return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []; } catch { return []; }
 }
 
 function rowToTemplate(r: TemplateRow): Record<string, unknown> {
@@ -39,6 +45,7 @@ function rowToTemplate(r: TemplateRow): Record<string, unknown> {
     appBundleId: r.app_bundle_id,
     appName: r.app_name,
     appVersion: r.app_version,
+    tags: parseTags(r.tags_json),
     createdBy: r.created_by,
     createdAt: r.created_at,
     updatedAt: r.updated_at,

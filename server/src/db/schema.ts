@@ -217,6 +217,10 @@ export function migrateM1(db: Database.Database): void {
     'ALTER TABLE templates ADD COLUMN app_bundle_id TEXT',
     'ALTER TABLE templates ADD COLUMN app_name TEXT',
     'ALTER TABLE templates ADD COLUMN app_version TEXT',
+    // Maestro batch 1: template tags (filtered regression selection) + evaluated
+    // step logging (post-substitution audit truth)
+    'ALTER TABLE templates ADD COLUMN tags_json TEXT',
+    'ALTER TABLE run_steps ADD COLUMN evaluated_json TEXT',
   ]) {
     try { db.exec(col); } catch { /* column exists */ }
   }
