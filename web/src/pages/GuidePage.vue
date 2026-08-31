@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue';
 import GuideSlices from '../components/GuideSlices.vue';
 
-type SectionId = 'quickstart' | 'wall' | 'runs' | 'matrix' | 'triage' | 'baselines' | 'forge' | 'drive' | 'flakes' | 'status' | 'shortcuts';
+type SectionId = 'quickstart' | 'wall' | 'runs' | 'matrix' | 'triage' | 'baselines' | 'forge' | 'templates' | 'drive' | 'flakes' | 'status' | 'shortcuts';
 
 const active = ref<SectionId>('quickstart');
 
