@@ -92,7 +92,7 @@ function rowToPresetSpec(p: Record<string, unknown>): Preset {
  *  run duration, restoring the previous forge state after — network choice is
  *  per-run, template stays network-agnostic (its defaultPresetId is a hint). */
 export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string; bundleId?: string; env?: Record<string, string> }): Promise<{ runId: string; done: Promise<void> }> {
-  const t = deps.db.prepare('SELECT id, name, ticket_key, udid, steps_json, app_bundle_id FROM templates WHERE id = ?').get(templateId) as TemplateRow | undefined;
+  const t = deps.db.prepare('SELECT id, name, ticket_key, udid, steps_json, app_bundle_id, logical_w, logical_h FROM templates WHERE id = ?').get(templateId) as TemplateRow | undefined;
   if (!t) throw new Error(`template ${templateId} not found`);
   let steps: PlaybackStep[] = [];
   try { steps = JSON.parse(t.steps_json) as PlaybackStep[]; } catch { /* empty */ }
