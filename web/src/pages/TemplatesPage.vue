@@ -165,11 +165,21 @@ async function saveRename(id: string): Promise<void> {
 }
 
 function stepLabel(s: Step): string {
+  if (s.action === 'expect') return `expect "${s.selector?.label ?? s.selector?.identifier ?? '?'}"`;
   if (s.action === 'runFlow') return `run flow: ${templates.value.find((t) => t.id === s.templateId)?.name ?? s.templateId ?? '?'}`;
   if (s.action === 'tap') return `tap ${s.x},${s.y}`;
   if (s.action === 'scroll') return `scroll ${s.direction}`;
   if (s.action === 'type') return `type "${(s.text ?? '').slice(0, 18)}${(s.text ?? '').length > 18 ? '…' : ''}"`;
   return s.action;
+}
+
+/** A7: append an expect step to an EXISTING template — the maintenance path
+ *  (most assertions get added retroactively after a first failure). */
+async function addExpectation(t: Template): Promise<void> {
+  const label = window.prompt('assert screen contains (label):')?.trim();
+  if (!label) return;
+  const steps = [...t.steps, { idx: t.steps.length, action: 'expect', selector: { label } }];
+  await patchTemplate(t.id, { steps });
 }
 
 /** A5: append a runFlow step referencing another template by name. */
@@ -263,10 +273,15 @@ onMounted(() => void load());
             <li v-for="s in t.steps" :key="s.idx">
               <span class="tpl-step-idx">{{ s.idx + 1 }}</span> {{ stepLabel(s) }}
               <span
-                v-if="s.selector && (s.selector.identifier || s.selector.label)"
+                v-if="s.selector && (s.selector.identifier || s.selector.label) && s.action !== 'expect'"
                 class="tpl-step-sel"
                 :title="`element selector (A6): ${JSON.stringify(s.selector)}`"
               >⚓ {{ s.selector.identifier ?? s.selector.label }}</span>
+              <span
+                v-if="s.action === 'expect' && s.selector"
+                class="tpl-step-sel"
+                :title="`assertion (A7): replay fails if this element disappears — ${JSON.stringify(s.selector)}`"
+              >🎯 {{ s.selector.label ?? s.selector.identifier }}</span>
               <label v-if="s.action === 'type'" class="tpl-step-ctl" title="replace literal text with ${env.KEY} — the value is provided at play time (env box above), never stored in the template">
                 <input type="checkbox" :checked="(s.text ?? '').startsWith('${env.')" @change="parameterize(t, s)" /> param
               </label>
@@ -275,7 +290,10 @@ onMounted(() => void load());
               </label>
             </li>
           </ol>
-          <button class="btn btn-sm" @click="addSubflow(t)" title="append a runFlow step — this template will run another template's steps as part of its own">+ subflow</button>
+          <div style="display: flex; gap: var(--s-2); margin-top: var(--s-2);">
+            <button class="btn btn-sm" @click="addSubflow(t)" title="append a runFlow step — this template will run another template's steps as part of its own">+ subflow</button>
+            <button class="btn btn-sm" @click="addExpectation(t)" title="append an assertion — replay fails red if the element disappears from the screen">+ assert</button>
+          </div>
         </div>
       </article>
     </div>
