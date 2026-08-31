@@ -158,11 +158,20 @@ export function ensureForgeCa(confdir: string): { created: boolean; rootCertPath
   return { created: true, rootCertPath: join(confdir, 'root.crt') };
 }
 
+/** Bypass list while routing is ON: Apple/management/local traffic stays
+ *  DIRECT — a QA proxy must never sit between a cloud Mac and its MDM/push/
+ *  update infrastructure (also bounds any wedge to app-API traffic only).
+ *  NOTE: -setproxybypassdomains REPLACES the list. Override wholesale with
+ *  FORGE_PROXY_BYPASS (comma-separated). */
+const DEFAULT_BYPASS = ['localhost', '127.0.0.1', '::1', '*.local', '*.apple.com', '*.push.apple.com', 'macstadium.com', '*.macstadium.com'];
+
 /** Point the host (and thus sims, after reboot) at the forge proxy. */
 export function enableSimRouting(port: number): RoutingState {
   const service = primaryNetworkService();
   sh('networksetup', ['-setwebproxy', service, '127.0.0.1', String(port)]);
   sh('networksetup', ['-setsecurewebproxy', service, '127.0.0.1', String(port)]);
+  const bypass = process.env.FORGE_PROXY_BYPASS?.split(',').map((s) => s.trim()).filter(Boolean) ?? DEFAULT_BYPASS;
+  if (bypass.length > 0) sh('networksetup', ['-setproxybypassdomains', service, ...bypass]);
   return simRoutingState();
 }
 

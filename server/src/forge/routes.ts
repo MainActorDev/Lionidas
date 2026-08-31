@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import type { ForgeState } from './proxy.ts';
 import { matchPreset, type Preset } from './matcher.ts';
 import { startMitm, stopMitmIfRunning, writeStateFile, mitmRunning } from './mitm/manager.ts';
-import { simRoutingState, enableSimRouting, disableSimRouting, installRootCertToSims } from './sim-routing.ts';
+import { simRoutingState, enableSimRouting, healStaleProxies, installRootCertToSims } from './sim-routing.ts';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 
@@ -257,7 +257,12 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
         const state = enableSimRouting(mitm.port);
         return { ...state, trustedSims: trusted };
       }
-      return disableSimRouting();
+      // OFF = all-service heal (kill switch): clears every stale localhost
+      // proxy on every service — one POST restores the internet of a cloud
+      // Mac even when the default route moved since enable. Returns what
+      // healed so the caller/UI can show it.
+      const healed = healStaleProxies();
+      return { ...simRoutingState(), healed };
     } catch (err) {
       return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
     }
