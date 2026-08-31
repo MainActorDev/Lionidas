@@ -12,6 +12,7 @@ import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { crucibleAlloy } from '../alloy/client.ts';
 import type { ForgeState } from '../forge/proxy.ts';
 import type { Preset } from '../forge/matcher.ts';
+import { substituteStep } from './template-env.ts';
 
 export interface PlaybackDeps {
   db: Database.Database;
@@ -79,7 +80,7 @@ function rowToPresetSpec(p: Record<string, unknown>): Preset {
  *  Phase 4: opts.scenarioId activates that scenario's presets (hybrid) for the
  *  run duration, restoring the previous forge state after — network choice is
  *  per-run, template stays network-agnostic (its defaultPresetId is a hint). */
-export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string; bundleId?: string }): Promise<string> {
+export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string; bundleId?: string; env?: Record<string, string> }): Promise<string> {
   const t = deps.db.prepare('SELECT id, name, ticket_key, udid, steps_json, app_bundle_id FROM templates WHERE id = ?').get(templateId) as TemplateRow | undefined;
   if (!t) throw new Error(`template ${templateId} not found`);
   let steps: PlaybackStep[] = [];
@@ -118,8 +119,8 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     }
     let runStatus: 'passed' | 'failed' | 'aborted' = 'passed';
     const insStep = deps.db.prepare(
-      `INSERT INTO run_steps(run_id, idx, flow_name, kind, name, status, reason, started_at, duration_ms, evidence_ids_json)
-       VALUES (?, ?, ?, 'step', ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO run_steps(run_id, idx, flow_name, kind, name, status, reason, started_at, duration_ms, evidence_ids_json, evaluated_json)
+       VALUES (?, ?, ?, 'step', ?, ?, ?, ?, ?, ?, ?)`,
     );
     try {
       const open = (await alloy.dispatch('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false }, deps.dispatchDeps)) as { ok: boolean; error?: { message: string } };
@@ -127,20 +128,33 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
 
       for (const s of steps) {
         const t0 = Date.now();
+        // env substitution (A1): resolve ${env.KEY} BEFORE dispatch — a missing
+        // key fails the step deterministically; never type a half-resolved
+        // string. Even optional steps hard-fail on missing env: a missing
+        // credential is a config error, not a transient UI miss.
+        const resolved = substituteStep(s, opts.env ?? {});
+        if (resolved.error) {
+          runStatus = 'failed';
+          insStep.run(runId, s.idx, t.name, stepName(s), 'fail', resolved.error, t0, 0, '[]', JSON.stringify(resolved));
+          for (const rest of steps.filter((x) => x.idx > s.idx)) {
+            insStep.run(runId, rest.idx, t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null);
+          }
+          break;
+        }
         try {
           let input: Record<string, unknown>;
           if (s.action === 'tap') input = { udid, action: 'press', target: { x: s.x, y: s.y }, settle: true };
           else if (s.action === 'scroll') input = { udid, action: 'scroll', direction: s.direction, settle: true };
-          else input = { udid, action: 'fill', target: { x: s.x, y: s.y }, text: s.text ?? '', settle: true };
+          else input = { udid, action: 'fill', target: { x: s.x, y: s.y }, text: resolved.text ?? '', settle: true };
           const r = (await alloy.dispatch('alloy_act', input, deps.dispatchDeps)) as { ok: boolean; error?: { message: string } };
           if (!r.ok) throw new Error(r.error?.message ?? 'engine error');
-          insStep.run(runId, s.idx, t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]');
+          insStep.run(runId, s.idx, t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify(resolved));
         } catch (err) {
           runStatus = 'failed';
-          insStep.run(runId, s.idx, t.name, stepName(s), 'fail', err instanceof Error ? err.message : String(err), t0, Date.now() - t0, '[]');
+          insStep.run(runId, s.idx, t.name, stepName(s), 'fail', err instanceof Error ? err.message : String(err), t0, Date.now() - t0, '[]', JSON.stringify(resolved));
           // remaining steps are skipped (deterministic replay stops at first failure)
           for (const rest of steps.filter((x) => x.idx > s.idx)) {
-            insStep.run(runId, rest.idx, t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]');
+            insStep.run(runId, rest.idx, t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null);
           }
           break;
         }
