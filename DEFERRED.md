@@ -10,41 +10,10 @@ killing an entry — this file is the contract with future-us.
 
 ## A. Maestro adoption — templating upgrades
 
-*Source: Maestro study 2026-08-31 (`/tmp/maestro-study` clone, `~/.maestro` local
-flows). User-approved direction; batch 1 was greenlit in discussion, pending
-final confirmation.*
-
-### A1. `env` + `${...}` substitution in playback — batch 1, item 1
-- **What:** run API accepts `env` map; step fields resolve `${env.KEY}`;
-  recorder masks typed secrets at save (plaintext-password flaw).
-- **Why deferred:** batch not yet started; design agreed.
-- **Trigger:** next work session on templates.
-- **Slots:** `server/src/manual/playback.ts` (resolution pass before dispatch),
-  `routes/manual.ts` play route (`env` in body), recorder save path (masking).
-- **Verify:** template with `${env.USER}` replays typed `env.USER` value;
-  steps_json contains no literal secret.
-
-### A2. `tags` on templates + filtered regression runs — batch 1, item 2
-- **What:** `tags` column (JSON array); `?tags=smoke&app=<bundleId>` selection
-  on list + a play-all endpoint; UI tag chips + filter.
-- **Why deferred:** same batch.
-- **Trigger:** with A1.
-- **Slots:** `db/schema.ts` (guarded ALTER), `routes/templates.ts`, TemplatesPage.
-- **Verify:** tag filter returns subset; play-all runs each, one run row each.
-
-### A3. `optional: true` on steps — batch 1, item 3
-- **What:** step flag; failed optional step records `skipped_optional`, run passes.
-- **Trigger:** with A1/A2 (same playback-pass).
-- **Slots:** step schema in recorder + `playback.ts` step loop.
-- **Verify:** run with an optional step that misses → run still green, step
-  marked skipped.
-
-### A4. Evaluated-step logging — batch 1, item 4
-- **What:** run detail stores post-substitution step (what actually executed)
-  alongside the template step — Maestro's `evaluatedCommand` pattern.
-- **Trigger:** with A1 (shares the resolution pass).
-- **Slots:** `playback.ts` step loop (write both forms to run_steps).
-- **Verify:** run detail shows template step + evaluated step for `${...}` steps.
+*Source: Maestro study 2026-08-31. **Batch 1 (A1–A4) SHIPPED 2026-08-31** —
+env substitution, tags + play-all, optional steps, evaluated logging. Plan +
+self-review at `docs/plans/2026-08-31-maestro-batch1.md`. Entries removed per
+this file's rule. Remaining:*
 
 ### A5. Subflows (`runFlow`) + `when:` conditionals — batch 2
 - **What:** step type referencing another template by id (login once, reuse);
@@ -69,7 +38,8 @@ final confirmation.*
 
 *Source: flaw review 2026-08-31 (verified against code, P0–P2 + conceptual).
 Items below were identified and NOT yet fixed. Fixed items are NOT listed
-(fixed: OS-proxy orphaning; app binding/settings hijack; iPad exclusion).*
+(fixed: OS-proxy orphaning; app binding/settings hijack; iPad exclusion;
+template plaintext secrets — B10, via A1 env substitution).*
 
 ### B1. Traffic attribution to runs is structurally dead — P0
 - **What:** `addon.py:208` always writes `run_id: None`; the Python addon has
@@ -100,7 +70,9 @@ Items below were identified and NOT yet fixed. Fixed items are NOT listed
 
 ### B5. No playback concurrency guard — P1
 - **What:** two plays race on `activeRunId` and restore snapshots; playback
-  bypasses the device lease system.
+  bypasses the device lease system. **Demonstrated live 2026-08-31**: a play
+  fired while the prior run's final evidence was still being collected — two
+  runs raced one device, the second failed.
 - **Fix sketch:** serialize playback per device through the lease manager.
 - **Trigger:** with B2 (same watchdog pass).
 
@@ -122,10 +94,6 @@ Items below were identified and NOT yet fixed. Fixed items are NOT listed
 ### B9. Freeze matches exact query string — P2
 - **What:** volatile query params (timestamps, nonces) never re-match.
 - **Fix sketch:** match on path + sorted stable params, ignore volatile keys.
-
-### B10. Recorded `type` steps store literal text — P2
-- **What:** passwords plaintext in `steps_json`, served by unauthenticated API.
-  (Superseded by A1's env masking — same fix.)
 
 ### B11. Unauthenticated API — conceptual, accepted
 - **What:** any local process can drive devices / read captured bodies
