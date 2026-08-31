@@ -50,7 +50,7 @@ function lsofListening(ports: number[]): void {
   writeFileSync(f, [
     '#!/bin/sh',
     'port=""',
-    'for a in "$@"; do case "$a" in *TCP:*) port="${a##*:}";; esac; done',
+    'for a in "$@"; do case "$a" in -iTCP:*) port="${a##*:}";; esac; done',
     `case " ${ports.join(' ')} " in *" $port "*) echo LISTENER; exit 0;; *) exit 1;; esac`,
   ].join('\n'));
   chmodSync(f, 0o755);
