@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { createReadStream, statSync } from 'node:fs';
-import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, finishManualSession, ManualSessionError } from '../manual/session.ts';
+import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, finishManualSession, setRecording, getRecording, deleteRecordedStep, ManualSessionError } from '../manual/session.ts';
 
 export function registerManualRoutes(
   // frame serve: only paths under the manual session's snapshot dir (engine temp)
@@ -75,6 +75,57 @@ app: FastifyInstance, db: Database.Database, deps: { bus: TypedEventBus<AppEvent
     } catch (err) {
       if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
       throw err;
+    }
+  });
+
+  // ── recorder ──
+  app.post('/api/manual/:id/record', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = req.body as { on?: boolean };
+    if (typeof b.on !== 'boolean') return reply.code(400).send({ error: 'on (boolean) required' });
+    try {
+      return setRecording({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id, b.on);
+    } catch (err) {
+      if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
+      throw err;
+    }
+  });
+
+  app.get('/api/manual/:id/record', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    try {
+      return getRecording({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id);
+    } catch (err) {
+      if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
+      throw err;
+    }
+  });
+
+  app.post('/api/manual/:id/record/steps/:idx/delete', async (req, reply) => {
+    const { id, idx } = req.params as { id: string; idx: string };
+    const n = Number(idx);
+    if (!Number.isInteger(n)) return reply.code(400).send({ error: 'idx required' });
+    try {
+      return deleteRecordedStep({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id, n);
+    } catch (err) {
+      if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
+      throw err;
+    }
+  });
+
+  // step thumbnails: same scoping as manual-frame (live session required)
+  app.get('/api/manual-thumb', async (req, reply) => {
+    const q = req.query as { path?: string };
+    if (!q.path) return reply.code(400).send({ error: 'path required' });
+    const ok = db.prepare('SELECT 1 FROM manual_sessions WHERE finished_at IS NULL LIMIT 1').get();
+    if (!ok) return reply.code(409).send({ error: 'no live manual session' });
+    try {
+      const st = statSync(q.path);
+      reply.header('content-type', 'image/png');
+      reply.header('content-length', String(st.size));
+      return reply.send(createReadStream(q.path));
+    } catch {
+      return reply.code(404).send({ error: 'thumb not found' });
     }
   });
 

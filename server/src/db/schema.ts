@@ -154,7 +154,8 @@ export function migrateM1(db: Database.Database): void {
       logical_w INTEGER, logical_h INTEGER,
       started_at INTEGER NOT NULL,
       last_activity INTEGER NOT NULL,
-      finished_at INTEGER
+      finished_at INTEGER,
+      recording_json TEXT
     );
     CREATE TABLE IF NOT EXISTS flow_quarantine(
       flow_key TEXT PRIMARY KEY,
@@ -185,6 +186,8 @@ export function migrateM1(db: Database.Database): void {
     'ALTER TABLE devices ADD COLUMN platform TEXT',
     'ALTER TABLE devices ADD COLUMN kind TEXT',
     'ALTER TABLE devices ADD COLUMN os_version TEXT',
+    // manual sessions gain the recorder steps store (QA records flows for templates)
+    'ALTER TABLE manual_sessions ADD COLUMN recording_json TEXT',
   ]) {
     try { db.exec(col); } catch { /* column exists */ }
   }

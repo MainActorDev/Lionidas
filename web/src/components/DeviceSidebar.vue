@@ -24,6 +24,50 @@ const error = ref('');
 const operator = ref('qa');
 const actionMsg = ref('');
 
+// ── recorder state (control mode) ──
+interface StepRow { idx: number; action: string; x?: number; y?: number; direction?: string; text?: string; ts: number; thumb: string | null }
+const recording = ref(false);
+const steps = ref<StepRow[]>([]);
+let recordPoll: ReturnType<typeof setInterval> | null = null;
+
+async function toggleRecording(): Promise<void> {
+  if (!sessionId.value) return;
+  try {
+    const r = await fetch(`/api/manual/${sessionId.value}/record`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: !recording.value }),
+    });
+    const b = (await r.json()) as { on?: boolean; steps?: StepRow[] };
+    recording.value = !!b.on;
+    steps.value = b.steps ?? [];
+  } catch { /* surfaced via loadSteps on next poll */ }
+}
+
+async function loadSteps(): Promise<void> {
+  if (!sessionId.value) return;
+  try {
+    const r = await fetch(`/api/manual/${sessionId.value}/record`);
+    const b = (await r.json()) as { on?: boolean; steps?: StepRow[] };
+    recording.value = !!b.on;
+    steps.value = b.steps ?? [];
+  } catch { /* session ended */ }
+}
+
+async function removeStep(idx: number): Promise<void> {
+  if (!sessionId.value) return;
+  try {
+    const r = await fetch(`/api/manual/${sessionId.value}/record/steps/${idx}/delete`, { method: 'POST' });
+    const b = (await r.json()) as { steps?: StepRow[] };
+    steps.value = b.steps ?? [];
+  } catch { /* ignore */ }
+}
+
+function stepLabel(s: StepRow): string {
+  if (s.action === 'tap') return `tap ${s.x},${s.y}`;
+  if (s.action === 'scroll') return `scroll ${s.direction}`;
+  if (s.action === 'type') return `type "${(s.text ?? '').slice(0, 14)}${(s.text ?? '').length > 14 ? '…' : ''}"`;
+  return s.action;
+}
+
 const booted = computed(() => props.device?.state === 'Booted');
 
 // ── lifecycle: device or mode change tears everything down cleanly ──
@@ -46,6 +90,9 @@ async function reset(): Promise<void> {
 async function teardownSession(): Promise<void> {
   const id = sessionId.value;
   sessionId.value = null;
+  if (recordPoll) { clearInterval(recordPoll); recordPoll = null; }
+  recording.value = false;
+  steps.value = [];
   if (id) {
     try { await fetch(`/api/manual/${id}/finish`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ note: 'sidebar:closed' }) }); } catch { /* idempotent server-side */ }
   }
@@ -71,6 +118,8 @@ async function startSession(): Promise<void> {
       logicalW.value = body.logicalW ?? null;
       logicalH.value = body.logicalH ?? null;
       stream.start(props.device.udid);
+      void loadSteps();
+      recordPoll = setInterval(() => void loadSteps(), 1200);
     } else error.value = body.error ?? 'failed to start';
   } finally { busy.value = false; }
 }
@@ -243,6 +292,30 @@ async function endSession(): Promise<void> {
             <button class="btn btn-sm btn-danger" :disabled="busy" @click="endSession">release</button>
           </div>
           <div v-if="busy" class="meta-row" style="margin-top: var(--s-2); color: var(--color-ash);">sending…</div>
+
+          <!-- recorder: live config preview -->
+          <div class="recorder">
+            <div class="recorder-head">
+              <button class="btn btn-sm" :class="{ 'btn-danger': recording }" :disabled="busy" @click="toggleRecording">
+                {{ recording ? '● recording' : 'record' }}
+              </button>
+              <span style="font-size: 10px; color: var(--color-steel);">{{ steps.length }} steps</span>
+            </div>
+            <div v-if="steps.length > 0" class="steps">
+              <div v-for="s in steps" :key="s.idx" class="step">
+                <img v-if="s.thumb" :src="`/api/manual-thumb?path=${encodeURIComponent(s.thumb)}&v=${s.ts}`" class="step-thumb" loading="lazy" />
+                <div v-else class="step-thumb step-thumb-empty">—</div>
+                <div class="step-body">
+                  <span class="step-idx">{{ s.idx + 1 }}</span>
+                  <span class="step-label">{{ stepLabel(s) }}</span>
+                </div>
+                <button class="btn btn-sm btn-ghost step-del" @click="removeStep(s.idx)">✕</button>
+              </div>
+            </div>
+            <div v-else style="font-size: 10px; color: var(--color-steel); margin-top: var(--s-2);">
+              {{ recording ? 'every tap / scroll / type will appear here as a step' : 'turn on recording to capture a test config' }}
+            </div>
+          </div>
         </template>
       </div>
     </aside>
@@ -278,6 +351,20 @@ async function endSession(): Promise<void> {
   display: flex; gap: var(--s-2); margin-top: var(--s-2);
 }
 .type-box input { flex: 1; }
+.recorder { margin-top: var(--s-4); border-top: 1px solid var(--color-iron); padding-top: var(--s-3); }
+.recorder-head { display: flex; align-items: center; gap: var(--s-2); }
+.steps { margin-top: var(--s-2); display: flex; flex-direction: column; gap: var(--s-2); max-height: 300px; overflow-y: auto; }
+.step { display: flex; align-items: center; gap: var(--s-2); }
+.step-thumb {
+  width: 36px; height: 64px; object-fit: cover; border-radius: 3px;
+  border: 1px solid var(--color-iron); background: var(--color-void); flex: none;
+}
+.step-thumb-empty { display: flex; align-items: center; justify-content: center; color: var(--color-steel); font-size: 10px; }
+.step-body { flex: 1; min-width: 0; font-size: 11px; }
+.step-idx { color: var(--color-steel); margin-right: 6px; }
+.step-label { color: var(--color-fog); }
+.step-del { opacity: 0; }
+.step:hover .step-del { opacity: 1; }
 .stream-overlay {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;

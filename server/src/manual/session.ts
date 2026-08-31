@@ -1,6 +1,10 @@
 /** Manual drive: QA takes control of a device through Alloy under a held lease.
  *  The session IS a runs row (kind=manual) so wall/history stay truthful; manual
- *  never rolls up (structural, status.ts). Idle auto-finish after 5min. */
+ *  never rolls up (structural, status.ts). Idle auto-finish after 5min.
+ *
+ *  Recorder: while `recording` is on, every tap/scroll/type appends a step to
+ *  recording_json together with a post-action screenshot — the live config
+ *  preview reads the same array, and "save as template" copies it out. */
 import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
@@ -10,6 +14,60 @@ export interface ManualDeps {
   db: Database.Database;
   bus: TypedEventBus<AppEvents>;
   dispatchDeps: unknown;
+}
+
+export type RecordedStep =
+  | { idx: number; action: 'tap'; x: number; y: number; ts: number; thumb: string | null }
+  | { idx: number; action: 'scroll'; direction: 'up' | 'down' | 'left' | 'right'; ts: number; thumb: string | null }
+  | { idx: number; action: 'type'; x: number; y: number; text: string; ts: number; thumb: string | null };
+
+interface RecordingState { on: boolean; steps: RecordedStep[] }
+
+function readRecording(deps: ManualDeps, sessionId: string): RecordingState {
+  const row = deps.db.prepare('SELECT recording_json FROM manual_sessions WHERE id = ?').get(sessionId) as
+    | { recording_json: string | null }
+    | undefined;
+  if (!row?.recording_json) return { on: false, steps: [] };
+  try {
+    return JSON.parse(row.recording_json) as RecordingState;
+  } catch {
+    return { on: false, steps: [] };
+  }
+}
+
+function writeRecording(deps: ManualDeps, sessionId: string, state: RecordingState): void {
+  deps.db.prepare('UPDATE manual_sessions SET recording_json = ? WHERE id = ?').run(JSON.stringify(state), sessionId);
+}
+
+/** Append a step if the recorder is on; captures a post-action screenshot as
+ *  the step thumbnail (best-effort — a snapshot failure must not fail the action). */
+export type StepInput =
+  | { action: 'tap'; x: number; y: number }
+  | { action: 'scroll'; direction: 'up' | 'down' | 'left' | 'right' }
+  | { action: 'type'; x: number; y: number; text: string };
+
+async function recordStep(deps: ManualDeps, sessionId: string, step: StepInput): Promise<RecordedStep | null> {
+  const state = readRecording(deps, sessionId);
+  if (!state.on) return null;
+  let thumb: string | null = null;
+  try {
+    const alloy = crucibleAlloy();
+    const r = (await alloy.dispatch('alloy_screenshot', { udid: sessionUdid(deps, sessionId) }, deps.dispatchDeps)) as
+      | { ok: true; result: { path: string } }
+      | { ok: false };
+    if (r.ok) thumb = r.result.path;
+  } catch { /* thumbnail is best-effort */ }
+  const full: RecordedStep = { ...step, idx: state.steps.length, ts: Date.now(), thumb } as RecordedStep;
+  state.steps.push(full);
+  writeRecording(deps, sessionId, state);
+  deps.bus.emit('manual.session.step', { sessionId, step: full });
+  return full;
+}
+
+function sessionUdid(deps: ManualDeps, sessionId: string): string {
+  const s = deps.db.prepare('SELECT udid FROM manual_sessions WHERE id = ?').get(sessionId) as { udid: string } | undefined;
+  if (!s) throw new ManualSessionError('SESSION_NOT_FOUND', `no session ${sessionId}`);
+  return s.udid;
 }
 
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -79,6 +137,7 @@ export async function manualTap(deps: ManualDeps, sessionId: string, x: number, 
     | { ok: false; error: { code: string; message: string } };
   if (!r.ok) throw new ManualSessionError('LEASE_LOST', `tap failed: ${r.error.message}`);
   deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
+  await recordStep(deps, sessionId, { action: 'tap', x, y });
   deps.bus.emit('manual.session.tap', { sessionId, x, y });
 }
 
@@ -90,6 +149,7 @@ export async function manualScroll(deps: ManualDeps, sessionId: string, directio
     | { ok: false };
   if (!r.ok) throw new ManualSessionError('LEASE_LOST', 'scroll failed');
   deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
+  await recordStep(deps, sessionId, { action: 'scroll', direction });
   deps.bus.emit('manual.session.scroll', { sessionId, direction });
 }
 
@@ -103,7 +163,33 @@ export async function manualType(deps: ManualDeps, sessionId: string, x: number,
     | { ok: false; error: { code: string; message: string } };
   if (!r.ok) throw new ManualSessionError('LEASE_LOST', `type failed: ${'message' in r.error ? r.error.message : 'engine error'}`);
   deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
+  await recordStep(deps, sessionId, { action: 'type', x, y, text });
   deps.bus.emit('manual.session.type', { sessionId, x, y, len: text.length });
+}
+
+// ── recorder controls ────────────────────────────────────────────────────────
+
+export function setRecording(deps: ManualDeps, sessionId: string, on: boolean): { on: boolean; steps: RecordedStep[] } {
+  liveSession(deps, sessionId); // throws if not live
+  const state = readRecording(deps, sessionId);
+  state.on = on;
+  writeRecording(deps, sessionId, state);
+  deps.bus.emit('manual.session.recording', { sessionId, on });
+  return state;
+}
+
+export function getRecording(deps: ManualDeps, sessionId: string): { on: boolean; steps: RecordedStep[] } {
+  liveSession(deps, sessionId);
+  return readRecording(deps, sessionId);
+}
+
+/** Remove a step by idx and renumber (live config preview edit). */
+export function deleteRecordedStep(deps: ManualDeps, sessionId: string, idx: number): { on: boolean; steps: RecordedStep[] } {
+  liveSession(deps, sessionId);
+  const state = readRecording(deps, sessionId);
+  state.steps = state.steps.filter((s) => s.idx !== idx).map((s, i) => ({ ...s, idx: i }));
+  writeRecording(deps, sessionId, state);
+  return state;
 }
 
 export async function manualSnapshot(deps: ManualDeps, sessionId: string): Promise<{ path: string }> {

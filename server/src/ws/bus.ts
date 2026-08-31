@@ -16,6 +16,9 @@ export type AppEvents = {
   'manual.session.tap': { sessionId: string; x: number; y: number };
   'manual.session.scroll': { sessionId: string; direction: string };
   'manual.session.snapshot': { sessionId: string; path: string };
+  'manual.session.type': { sessionId: string; x: number; y: number; len: number };
+  'manual.session.recording': { sessionId: string; on: boolean };
+  'manual.session.step': { sessionId: string; step: { idx: number; action: string; thumb: string | null } };
   'manual.session.finish': { sessionId: string };
   'flow.quarantined': { flowKey: string; reason: string };
 } & Record<string, unknown>;
