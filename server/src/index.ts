@@ -69,6 +69,8 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   } as never);
   registerManualRoutes(app, db.raw, {
     bus,
+    artifactsDir: cfg.artifactsDir,
+    forgeState,
     get dispatchDeps() { return runtimeMod.alloyDispatchDepsSync(); },
   } as never);
   registerTemplateRoutes(app, db.raw);

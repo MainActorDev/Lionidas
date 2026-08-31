@@ -20,6 +20,24 @@ const renaming = ref<string | null>(null);
 const renameName = ref('');
 const renamingTicket = ref('');
 const renamingDesc = ref('');
+const playing = ref<string | null>(null);
+const playMsg = ref('');
+
+async function play(t: Template): Promise<void> {
+  if (playing.value) return;
+  playing.value = t.id;
+  playMsg.value = '';
+  try {
+    const r = await fetch(`/api/templates/${t.id}/play`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const b = (await r.json()) as { runId?: string; error?: string };
+    playMsg.value = b.runId ? `running · ${b.runId}` : (b.error ?? 'failed');
+  } catch {
+    playMsg.value = 'failed';
+  } finally { playing.value = null; }
+}
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -94,6 +112,7 @@ onMounted(() => void load());
           <span v-if="t.ticketKey" class="tag">{{ t.ticketKey }}</span>
           <span class="tpl-meta">{{ t.steps.length }} steps · {{ t.udid.slice(0, 8) }} · {{ new Date(t.updatedAt).toLocaleDateString() }}</span>
           <span class="tpl-actions">
+            <button class="btn btn-sm" :disabled="playing !== null" @click.stop="play(t)">{{ playing === t.id ? 'starting…' : '▶ run' }}</button>
             <button class="btn btn-sm btn-ghost" @click.stop="startRename(t)">edit</button>
             <button class="btn btn-sm btn-ghost" @click.stop="remove(t.id)">delete</button>
           </span>
@@ -115,6 +134,7 @@ onMounted(() => void load());
         </div>
       </article>
     </div>
+    <div v-if="playMsg" class="play-msg">{{ playMsg }}</div>
   </section>
 </template>
 
@@ -142,4 +162,5 @@ onMounted(() => void load());
 .tpl-steps { margin: 0; padding-left: 20px; color: var(--color-fog); font-size: 12px; }
 .tpl-steps li { margin: 2px 0; }
 .tpl-step-idx { color: var(--color-steel); }
+.play-msg { margin-top: var(--s-3); color: var(--color-steel); font-size: 11px; }
 </style>

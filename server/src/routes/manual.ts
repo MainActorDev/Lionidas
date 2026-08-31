@@ -4,11 +4,20 @@ import type Database from 'better-sqlite3';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { createReadStream, statSync } from 'node:fs';
 import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, finishManualSession, setRecording, getRecording, deleteRecordedStep, ManualSessionError } from '../manual/session.ts';
+import { runTemplatePlayback } from '../manual/playback.ts';
+import type { ForgeState } from '../forge/proxy.ts';
+
+export interface ManualRouteDeps {
+  bus: TypedEventBus<AppEvents>;
+  dispatchDeps: unknown;
+  artifactsDir: string;
+  forgeState: ForgeState;
+}
 
 export function registerManualRoutes(
   // frame serve: only paths under the manual session's snapshot dir (engine temp)
   // — scoped by checking the file was the LAST snapshot emitted for a live session
-app: FastifyInstance, db: Database.Database, deps: { bus: TypedEventBus<AppEvents>; dispatchDeps: unknown }): void {
+  app: FastifyInstance, db: Database.Database, deps: ManualRouteDeps): void {
   app.get('/api/manual-frame', async (req, reply) => {
     const q = req.query as { path?: string };
     if (!q.path) return reply.code(400).send({ error: 'path required' });
@@ -126,6 +135,22 @@ app: FastifyInstance, db: Database.Database, deps: { bus: TypedEventBus<AppEvent
       return reply.send(createReadStream(q.path));
     } catch {
       return reply.code(404).send({ error: 'thumb not found' });
+    }
+  });
+
+  // ── template playback ──
+  app.post('/api/templates/:id/play', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = req.body as { udid?: string; triggeredBy?: string } | null;
+    try {
+      const runId = await runTemplatePlayback(
+        { db, bus: deps.bus, dispatchDeps: deps.dispatchDeps, artifactsDir: deps.artifactsDir, forgeState: deps.forgeState },
+        id,
+        { ...(b?.udid !== undefined ? { udid: b.udid } : {}), ...(b?.triggeredBy !== undefined ? { triggeredBy: b.triggeredBy } : {}) },
+      );
+      return { runId };
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
