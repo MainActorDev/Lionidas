@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router';
 import TriagePanel from '../components/TriagePanel.vue';
 import { useLiveEvents } from '../stores/live.ts';
 
-interface Step { idx: number; flow_name: string; kind: string; name: string; status: string; reason: string | null; duration_ms: number; evidence_ids_json: string }
+interface Step { idx: number; flow_name: string; kind: string; name: string; status: string; reason: string | null; duration_ms: number; evidence_ids_json: string; evaluated_json?: string | null }
 interface Run { id: string; ticket_key: string; status: string; kind: string; triggered_by: string; device_udid: string; artifact_hash: string | null; freshness: string; launch_args_json: string; started_at: number | null; finished_at: number | null }
 
 const route = useRoute();
@@ -27,6 +27,17 @@ async function attachJira(): Promise<void> {
   const res = await fetch(`/api/runs/${runId}/attach`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
   const body = await res.json() as { attached?: boolean; commentId?: string; ticket?: string; error?: string };
   attachMsg.value = body.attached ? `comment ${body.commentId} → ${body.ticket}` : (body.error ?? `HTTP ${res.status}`);
+}
+
+/** A4 evaluated display: the post-substitution step (what actually executed),
+ *  shown when it differs from the recorded template step. */
+function evaluatedText(s: Step): string | null {
+  if (!s.evaluated_json) return null;
+  try {
+    const ev = JSON.parse(s.evaluated_json) as { action?: string; text?: string; x?: number; y?: number; direction?: string };
+    const summary = ev.action === 'type' ? `type "${(ev.text ?? '').slice(0, 24)}"` : ev.action === 'tap' ? `tap ${ev.x},${ev.y}` : ev.action ? `${ev.action} ${ev.direction ?? ''}`.trim() : '';
+    return summary || null;
+  } catch { return null; }
 }
 
 onMounted(() => {
@@ -90,7 +101,10 @@ onMounted(() => {
         <tbody>
           <tr v-for="s in steps" :key="s.idx" style="cursor: default;">
             <td style="color: var(--color-steel);">{{ s.idx }}</td>
-            <td>{{ s.flow_name }}</td>
+            <td>
+              {{ s.flow_name }}
+              <div v-if="evaluatedText(s)" class="evaluated" :title="evaluatedText(s) ?? ''">↳ {{ evaluatedText(s) }}</div>
+            </td>
             <td><span class="status" :class="`status-${s.status}`">{{ s.status }}</span></td>
             <td style="color: var(--color-ash);">{{ s.duration_ms }}ms</td>
             <td style="color: var(--color-steel); font-size: var(--text-caption); max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ s.reason ?? '' }}</td>
@@ -102,3 +116,7 @@ onMounted(() => {
     <TriagePanel :key="runId" />
   </div>
 </template>
+
+<style scoped>
+.evaluated { color: var(--color-steel); font-size: 10px; margin-top: 2px; white-space: normal; }
+</style>
