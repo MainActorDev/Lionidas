@@ -15,36 +15,14 @@ env substitution, tags + play-all, optional steps, evaluated logging. Plan +
 self-review at `docs/plans/2026-08-31-maestro-batch1.md`. Entries removed per
 this file's rule. Remaining:*
 
-### A5. Subflows (`runFlow`) + `when:` conditionals — batch 2
-- **What:** step type referencing another template by id (login once, reuse);
-  conditional execution on env/output expressions.
-- **Why deferred:** real machinery; only worth it past ~10 templates.
-- **Trigger:** template count > 10 OR third duplicate of the same login prefix.
-- **Slots:** step schema, playback step loop (recursion, cycle guard), UI
-  step editor.
-
-### A6. Resilient selectors via view-hierarchy capture — batch 2
-- **Probed 2026-08-31** (Settings + Lion Parcel app, `scripts/node-fields.mjs` +
-  `scripts/lp-ax-audit.mjs`): `alloy_snapshot` nodes expose `identifier`, `label`,
-  `type`, `rect`, `hittable`, `ref`, `parentIndex` — plumbing exists; recorder
-  just never persists them.
-- **AX audit results (hittable nodes):**
-  - Apple Settings: 1/72 hittable, no identifiers — worst case.
-  - LP home: 16 hittable, id 25% (all image assets: `ic_barcode`,
-    `ic_tabbar_*`), label 75%.
-  - LP account: 12 hittable, id 8%, **label 92%** — SwiftUI text labels are
-    the reliable signal.
-- **Selector strategy implication:** label+type primary, identifier for icon
-  taps, coordinates last-resort fallback. SwiftUI `accessibilityIdentifier`
-  additions in ios-consumer would strengthen icon taps but are NOT a
-  prerequisite — labels already cover ~75–92% of hittable nodes.
-- **What:** recorder captures element text/id at tap point from the alloy
-  snapshot; playback resolves selector first, coordinates as fallback. Fixes
-  cross-device replay (flaw #6).
-- **Why deferred:** needs snapshot-at-record-time plumbing; biggest item.
-- **Trigger:** first cross-device replay failure reported by QA.
-- **Slots:** recorder step capture (`manual/session.ts`), playback target
-  resolution, step schema (selector field).
+*Batch 2 shipped 2026-08-31 — subflows (`runFlow`, cycle-guarded, flow-name
+provenance), resilient selectors (label/type/identifier captured at record,
+resolved against the live hierarchy at playback, coordinate + scaling
+fallbacks), cross-device scaling for selector-less steps, B5 device-busy
+guard (409). Live-verified same-device, cross-device (iPhone 16 Pro → SE),
+broken-selector fallback, subflow run, 409 guard. Plan + self-review at
+`docs/plans/2026-08-31-maestro-batch2.md`. Entries removed per this file's
+rule. Remaining:*
 
 ---
 
@@ -53,7 +31,9 @@ this file's rule. Remaining:*
 *Source: flaw review 2026-08-31 (verified against code, P0–P2 + conceptual).
 Items below were identified and NOT yet fixed. Fixed items are NOT listed
 (fixed: OS-proxy orphaning; app binding/settings hijack; iPad exclusion;
-template plaintext secrets — B10, via A1 env substitution).*
+template plaintext secrets — B10, via A1 env substitution; cross-device
+blind replay — B3, via A6 selectors + scaling; playback concurrency — B5,
+via device-busy guard).*
 
 ### B1. Traffic attribution to runs is structurally dead — P0
 - **What:** `addon.py:208` always writes `run_id: None`; the Python addon has
@@ -69,26 +49,12 @@ template plaintext secrets — B10, via A1 env substitution).*
   → mark aborted, restore state, release lease.
 - **Trigger:** first wedged run in real use.
 
-### B3. Cross-device replay taps blind — P1
-- **What:** `udid` override accepted, but raw `x,y` replayed unscaled (logical
-  dims recorded, never used). Different device = every tap offset.
-- **Fix sketch:** scale by `target.logical / recorded.logical`; full fix is A6.
-- **Trigger:** with A6, or first cross-device replay.
-
 ### B4. State file: non-atomic writes, four writers, two models — P1
 - **What:** `writeFileSync` onto the live path (addon can read torn JSON);
   UI-sync vs scenario-activate write different shapes (full list vs subset) —
   preset creation during an active scenario clobbers the override.
 - **Fix sketch:** temp-file+rename; single owner of "what's active".
 - **Trigger:** before scenarios see any real use.
-
-### B5. No playback concurrency guard — P1
-- **What:** two plays race on `activeRunId` and restore snapshots; playback
-  bypasses the device lease system. **Demonstrated live 2026-08-31**: a play
-  fired while the prior run's final evidence was still being collected — two
-  runs raced one device, the second failed.
-- **Fix sketch:** serialize playback per device through the lease manager.
-- **Trigger:** with B2 (same watchdog pass).
 
 ### B6. Frozen preset bodies in /tmp — P2
 - **What:** `/tmp/forge-mitm/preset-bodies/` is purged by macOS; DB rows
@@ -116,9 +82,11 @@ template plaintext secrets — B10, via A1 env substitution).*
 
 ### B12. No image assertions = weak green runs — conceptual, accepted
 - **What:** a replay tapping where a button *used to be* still passes.
-  Optional mitigation: post-step element-existence checks at recorded points
-  (rides A6's selector capture).
-- **Trigger:** with A6.
+  Mitigation now available (A6 shipped): selectors must RESOLVE for
+  `resolvedBy:"selector"` — a vanished element degrades to
+  `coordinate-fallback`, visible in evaluated_json. Optional hardening:
+  post-step element-existence checks from stored selectors.
+- **Trigger:** next pass on run assertions.
 
 ---
 
@@ -137,4 +105,5 @@ template plaintext secrets — B10, via A1 env substitution).*
 ### C3. Maestro docs repo not studied
 - **What:** studied main repo + local flows; `maestro-docs` repo (guides,
   config reference) unexplored.
-- **Trigger:** before A5 (subflows) — their composition docs live there.
+- **Trigger:** before extending subflow semantics (conditionals, outputs) —
+  their composition docs live there.
