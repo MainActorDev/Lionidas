@@ -13,6 +13,8 @@ import { crucibleAlloy } from '../alloy/client.ts';
 import type { ForgeState } from '../forge/proxy.ts';
 import type { Preset } from '../forge/matcher.ts';
 import { substituteStep } from './template-env.ts';
+import { resolveSelector } from './selector.ts';
+import type { SnapNode } from './selector.ts';
 
 export interface PlaybackDeps {
   db: Database.Database;
@@ -32,6 +34,8 @@ export interface PlaybackStep {
   /** Maestro-style soft step: a dispatch miss records skip, run stays green
    *  (interstitial popups, "dismiss if shown"). Missing env still hard-fails. */
   optional?: boolean;
+  /** A6 element selector — resolved against the live hierarchy at playback */
+  selector?: { identifier?: string; label?: string; type?: string };
 }
 
 interface TemplateRow {
@@ -147,13 +151,25 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           break;
         }
         try {
+          // A6b: selector-first resolution against the LIVE hierarchy —
+          // coordinates are the fallback, not the plan.
+          let tx = s.x;
+          let ty = s.y;
+          let resolvedBy: 'selector' | 'coordinate-fallback' | 'coordinate' = 'coordinate';
+          if ((s.action === 'tap' || s.action === 'type') && s.selector && (s.selector.identifier || s.selector.label)) {
+            const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
+              | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
+            const hit = snap.ok ? resolveSelector(snap.result.nodes ?? [], s.selector) : null;
+            if (hit) { tx = hit.x; ty = hit.y; resolvedBy = 'selector'; }
+            else resolvedBy = 'coordinate-fallback';
+          }
           let input: Record<string, unknown>;
-          if (s.action === 'tap') input = { udid, action: 'press', target: { x: s.x, y: s.y }, settle: true };
+          if (s.action === 'tap') input = { udid, action: 'press', target: { x: tx, y: ty }, settle: true };
           else if (s.action === 'scroll') input = { udid, action: 'scroll', direction: s.direction, settle: true };
-          else input = { udid, action: 'fill', target: { x: s.x, y: s.y }, text: resolved.text ?? '', settle: true };
+          else input = { udid, action: 'fill', target: { x: tx, y: ty }, text: resolved.text ?? '', settle: true };
           const r = (await alloy.dispatch('alloy_act', input, deps.dispatchDeps)) as { ok: boolean; error?: { message: string } };
           if (!r.ok) throw new Error(r.error?.message ?? 'engine error');
-          insStep.run(runId, s.idx, t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify(resolved));
+          insStep.run(runId, s.idx, t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify({ ...resolved, resolvedBy }));
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           if (s.optional) {
