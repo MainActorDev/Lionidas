@@ -122,6 +122,15 @@ export function migrateM1(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_traffic_run ON traffic(run_id, ts);
 
+    -- captured request/response bodies (content-addressed; one row per unique body)
+    CREATE TABLE IF NOT EXISTS traffic_bodies(
+      sha TEXT PRIMARY KEY,
+      content_type TEXT,
+      body BLOB NOT NULL,
+      bytes INTEGER NOT NULL,
+      first_seen INTEGER NOT NULL
+    );
+
     -- QA test templates: recorded manual flows, replayable as regression configs
     CREATE TABLE IF NOT EXISTS templates(
       id TEXT PRIMARY KEY,

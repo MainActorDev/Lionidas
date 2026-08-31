@@ -54,13 +54,27 @@ function tailTraffic(deps: MitmDeps): void {
       try {
         const row = JSON.parse(t) as Record<string, unknown>;
         const id = `t_mitm_${createHash('sha256').update(t).digest('hex').slice(0, 12)}`;
+        // bodies: content-addressed rows; traffic.req_sha/res_sha point at them
+        const insBody = deps.db.prepare(
+          'INSERT OR IGNORE INTO traffic_bodies(sha, content_type, body, bytes, first_seen) VALUES (?, ?, ?, ?, ?)',
+        );
+        const storeBody = (b: { sha?: string; b64?: string; content_type?: string } | null | undefined): string | null => {
+          if (b?.sha && b.b64) {
+            const buf = Buffer.from(b.b64, 'base64');
+            insBody.run(b.sha, b.content_type ?? null, buf, buf.length, row['ts'] as number);
+            return b.sha;
+          }
+          return null;
+        };
+        const reqSha = storeBody(row['req'] as { sha?: string; b64?: string } | null);
+        const resSha = storeBody(row['res'] as { sha?: string; b64?: string } | null);
         deps.db
           .prepare(`INSERT OR IGNORE INTO traffic(id, run_id, ts, mode, method, host, path, matched_preset_id, status, latency_ms, req_sha, res_sha)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
           .run(id, (row['run_id'] as string) ?? null, row['ts'] as number, row['mode'] as string,
             row['method'] as string, row['host'] as string, row['path'] as string,
             (row['matched_preset_id'] as string) ?? null, row['status'] as number,
-            row['latency_ms'] as number, null, null);
+            row['latency_ms'] as number, reqSha, resSha);
         deps.bus.emit('forge.traffic.hit', {
           id, runId: (row['run_id'] as string) ?? null, method: row['method'] as string,
           path: row['path'] as string, status: row['status'] as number,

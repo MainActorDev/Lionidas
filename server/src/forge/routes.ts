@@ -11,6 +11,40 @@ import { existsSync } from 'node:fs';
 
 
 export function registerForgeRoutes(app: FastifyInstance, db: Database.Database, forgeState: ForgeState, forgeBus?: { emit: (type: never, payload: never) => void }): void {
+  // presets created/changed from the dashboard must reach the live addon —
+  // the state file is the only transport (addon reloads on mtime change).
+  const syncPresetsToMitm = (): void => {
+    const rows = db.prepare('SELECT * FROM presets ORDER BY created_at DESC').all() as Array<Record<string, unknown>>;
+    const stateDir = process.env['CRUCIBLE_MITM_STATE_DIR'] ?? '/tmp/forge-mitm';
+    try {
+      writeStateFile(stateDir, forgeState.mode, rows.map((p) => ({
+        id: p['id'] as string,
+        method: p['method'] as string,
+        pathPattern: p['path_pattern'] as string,
+        match: p['match'] as Preset['match'],
+        ...(p['headers_json'] ? { headers: JSON.parse(p['headers_json'] as string) as Record<string, string> } : {}),
+        status: p['status'] as number,
+        ...(p['body_path'] ? { bodyPath: p['body_path'] as string } : {}),
+        ...(p['delay_ms'] ? { delayMs: p['delay_ms'] as number } : {}),
+        ...(p['seq_json'] ? { seq: JSON.parse(p['seq_json'] as string) as Array<{ status: number }> } : {}),
+        ...(p['failure'] ? { failure: p['failure'] as 'timeout' | 'reset' | 'malformed' | 'throttle' } : {}),
+      })));
+    } catch { /* mitm state write best-effort */ }
+    forgeState.presets = rows.map((p) => ({
+      id: p['id'] as string,
+      method: p['method'] as string,
+      pathPattern: p['path_pattern'] as string,
+      match: p['match'] as 'exact' | 'glob' | 'regex',
+      ...(p['headers_json'] ? { headers: JSON.parse(p['headers_json'] as string) as Record<string, string> } : {}),
+      status: p['status'] as number,
+      ...(p['body_path'] ? { bodyPath: p['body_path'] as string } : {}),
+      ...(p['delay_ms'] ? { delayMs: p['delay_ms'] as number } : {}),
+      ...(p['seq_json'] ? { seq: JSON.parse(p['seq_json'] as string) as Array<{ status: number }> } : {}),
+      ...(p['failure'] ? { failure: p['failure'] as 'timeout' | 'reset' | 'malformed' | 'throttle' } : {}),
+      ...(p['throttle_kbps'] ? { throttleKbps: p['throttle_kbps'] as number } : {}),
+    }));
+  };
+
   app.post('/api/forge/presets', async (req, reply) => {
     const b = req.body as Record<string, unknown>;
     if (typeof b['pathPattern'] !== 'string' || typeof b['status'] !== 'number') {
@@ -36,7 +70,16 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
       Date.now(),
       createHash('sha256').update(JSON.stringify(b)).digest('hex'),
     );
+    syncPresetsToMitm();
     return { id };
+  });
+
+  app.delete('/api/forge/presets/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const r = db.prepare('DELETE FROM presets WHERE id = ?').run(id);
+    if (r.changes === 0) return reply.code(404).send({ error: 'not found' });
+    syncPresetsToMitm();
+    return { ok: true };
   });
 
   app.get('/api/forge/presets', async () => {
@@ -106,6 +149,8 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
     const b = req.body as { mode?: string };
     if (b.mode && ['record', 'hybrid', 'intercept'].includes(b.mode)) {
       forgeState.mode = b.mode as 'record' | 'hybrid' | 'intercept';
+      // mode is part of the addon state file — push it live
+      syncPresetsToMitm();
     }
     return { mode: forgeState.mode };
   });
@@ -219,11 +264,72 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
   });
 
   app.get('/api/forge/traffic', async (req) => {
-    const q = req.query as { runId?: string; limit?: string };
+    const q = req.query as { runId?: string; limit?: string; q?: string };
     const limit = Math.min(Number.parseInt(q.limit ?? '100', 10) || 100, 500);
+    const like = q.q ? `%${q.q.replace(/[%_]/g, (c) => `\\${c}`)}%` : null;
     const rows = q.runId
       ? db.prepare('SELECT * FROM traffic WHERE run_id = ? ORDER BY ts DESC LIMIT ?').all(q.runId, limit)
-      : db.prepare('SELECT * FROM traffic ORDER BY ts DESC LIMIT ?').all(limit);
+      : like
+        ? db.prepare("SELECT * FROM traffic WHERE path LIKE ? ESCAPE '\\' OR host LIKE ? ESCAPE '\\' ORDER BY ts DESC LIMIT ?").all(like, like, limit)
+        : db.prepare('SELECT * FROM traffic ORDER BY ts DESC LIMIT ?').all(limit);
     return { traffic: rows };
+  });
+
+  // save as preset from a traffic row: replays the CAPTURED response forever.
+  // Body (if captured) is materialized to the forge state dir and referenced by
+  // path — the addon reads bodyPath bytes verbatim.
+  app.post('/api/forge/traffic/:id/save-preset', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const t = db.prepare('SELECT * FROM traffic WHERE id = ?').get(id) as
+      | { method: string; path: string; host: string | null; status: number; res_sha: string | null; matched_preset_id: string | null }
+      | undefined;
+    if (!t) return reply.code(404).send({ error: 'traffic row not found' });
+    if (t.matched_preset_id) return reply.code(409).send({ error: 'already served by a preset — edit that preset instead' });
+    if (!t.res_sha) return reply.code(409).send({ error: 'no captured response body — cannot freeze (binary/oversized/empty)' });
+
+    const body = db.prepare('SELECT body, content_type FROM traffic_bodies WHERE sha = ?').get(t.res_sha) as
+      | { body: Uint8Array; content_type: string | null }
+      | undefined;
+    if (!body) return reply.code(409).send({ error: 'body row missing' });
+
+    const { writeFileSync, mkdirSync } = await import('node:fs');
+    const stateDir = process.env['CRUCIBLE_MITM_STATE_DIR'] ?? '/tmp/forge-mitm';
+    const bodiesDir = join(stateDir, 'preset-bodies');
+    mkdirSync(bodiesDir, { recursive: true });
+    const bodyPath = join(bodiesDir, `${id}.body`);
+    writeFileSync(bodyPath, Buffer.from(body.body));
+
+    const headers = body.content_type ? { 'content-type': body.content_type } : undefined;
+    const pid = `p_${createHash('sha256').update(`${t.method}${t.path}${t.status}${t.res_sha}`).digest('hex').slice(0, 8)}`;
+    db.prepare(
+      `INSERT OR REPLACE INTO presets(id, method, path_pattern, match, status, headers_json, body_path, delay_ms, seq_json, failure, throttle_kbps, created_by, created_at, sha256)
+       VALUES (?, ?, ?, 'exact', ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?)`,
+    ).run(pid, t.method, t.path, t.status, headers ? JSON.stringify(headers) : null, bodyPath, 'save-as-preset', Date.now(), createHash('sha256').update(`${t.res_sha}`).digest('hex'));
+    syncPresetsToMitm();
+    return { id: pid, bodyPath };
+  });
+
+  // one traffic row with decoded bodies (for the detail pane)
+  app.get('/api/forge/traffic/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const row = db.prepare('SELECT * FROM traffic WHERE id = ?').get(id) as
+      | { req_sha: string | null; res_sha: string | null }
+      | undefined;
+    if (!row) return reply.code(404).send({ error: 'not found' });
+    const getBody = (sha: string | null) => {
+      if (!sha) return null;
+      const b = db.prepare('SELECT sha, content_type, body, bytes FROM traffic_bodies WHERE sha = ?').get(sha) as
+        | { sha: string; content_type: string | null; body: Uint8Array; bytes: number }
+        | undefined;
+      if (!b) return null;
+      const text = Buffer.from(b.body).toString('utf8');
+      let pretty: string | null = null;
+      if ((b.content_type ?? '').includes('json')) {
+        try { pretty = JSON.stringify(JSON.parse(text), null, 2); } catch { /* not valid json */ }
+      }
+      return { sha: b.sha, contentType: b.content_type, bytes: b.bytes, text: text.slice(0, 20_000), pretty };
+    };
+    const full = db.prepare('SELECT * FROM traffic WHERE id = ?').get(id) as Record<string, unknown>;
+    return { ...full, reqBody: getBody(row.req_sha), resBody: getBody(row.res_sha) };
   });
 }

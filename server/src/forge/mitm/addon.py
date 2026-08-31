@@ -9,10 +9,13 @@ Matcher rules are ported 1:1 from the JS implementation (forge/matcher.ts) and
 pinned by cross-implementation contract fixtures in CI. Seq cursors are
 process-local (transport-scoped by design: a run pins ONE transport).
 """
+import base64
 import json
 import os
 import re
 import time
+
+MAX_BODY_BYTES = 256 * 1024  # capture bound — larger bodies log as traffic w/o body
 
 
 class ForgeState:
@@ -93,6 +96,23 @@ def seq_response(preset, state):
     idx = min(idx, len(seq) - 1)  # last repeats
     state.cursors[key] = idx + 1
     return seq[idx]
+
+
+def capture_body(msg):
+    """Return {sha, b64} for a request/response body, or None when absent/
+    oversized/binary-opaque. Bounded capture: >MAX_BODY_BYTES → None."""
+    try:
+        raw = msg.get_content()
+    except (ValueError, RuntimeError):
+        return None
+    if not raw or len(raw) > MAX_BODY_BYTES:
+        return None
+    import hashlib
+    return {
+        "sha": hashlib.sha256(raw).hexdigest()[:12],
+        "b64": base64.b64encode(raw).decode("ascii"),
+        "content_type": (msg.headers.get("content-type") or "")[:120],
+    }
 
 
 class ForgeRouter:
@@ -186,6 +206,8 @@ class ForgeRouter:
             "status": status if t0 not in (-1, -2) else (0 if t0 == -1 else 599),
             "latency_ms": int((time.time() - t0) * 1000) if t0 and t0 > 0 else 0,
             "run_id": None,
+            "req": capture_body(flow.request),
+            "res": capture_body(flow.response) if flow.response else None,
         }
         try:
             with open(self.traffic_path, "a", encoding="utf-8") as f:
