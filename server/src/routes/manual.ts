@@ -4,6 +4,7 @@ import type Database from 'better-sqlite3';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { createReadStream, statSync } from 'node:fs';
 import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, finishManualSession, setRecording, getRecording, deleteRecordedStep, ManualSessionError } from '../manual/session.ts';
+import { listSimulatorApps } from '../manual/apps.ts';
 import { runTemplatePlayback } from '../manual/playback.ts';
 import type { ForgeState } from '../forge/proxy.ts';
 
@@ -151,6 +152,31 @@ export function registerManualRoutes(
       return { runId };
     } catch (err) {
       return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // ── app catalog: identity + icon for the device's installed apps ──
+  app.get('/api/devices/:udid/apps', async (req, reply) => {
+    const { udid } = req.params as { udid: string };
+    try {
+      const apps = await listSimulatorApps(udid);
+      return { apps };
+    } catch (err) {
+      return reply.code(502).send({ error: err instanceof Error ? err.message : 'simctl failed' });
+    }
+  });
+
+  // icon: served straight from the app bundle on disk (path resolved through
+  // the catalog — request only names the device + bundle id)
+  app.get('/api/devices/:udid/apps/:bundleId/icon', async (req, reply) => {
+    const { udid, bundleId } = req.params as { udid: string; bundleId: string };
+    try {
+      const apps = await listSimulatorApps(udid);
+      const app = apps.find((a) => a.bundleId === decodeURIComponent(bundleId));
+      if (!app?.iconPath) return reply.code(404).send({ error: 'no icon' });
+      return reply.header('content-type', 'image/png').send(createReadStream(app.iconPath));
+    } catch (err) {
+      return reply.code(502).send({ error: err instanceof Error ? err.message : 'icon read failed' });
     }
   });
 

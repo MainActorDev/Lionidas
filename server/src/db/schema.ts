@@ -213,6 +213,10 @@ export function migrateM1(db: Database.Database): void {
     'ALTER TABLE devices ADD COLUMN os_version TEXT',
     // manual sessions gain the recorder steps store (QA records flows for templates)
     'ALTER TABLE manual_sessions ADD COLUMN recording_json TEXT',
+    // templates bind to the app they were recorded in — playback launches it first
+    'ALTER TABLE templates ADD COLUMN app_bundle_id TEXT',
+    'ALTER TABLE templates ADD COLUMN app_name TEXT',
+    'ALTER TABLE templates ADD COLUMN app_version TEXT',
   ]) {
     try { db.exec(col); } catch { /* column exists */ }
   }

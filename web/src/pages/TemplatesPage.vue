@@ -8,6 +8,7 @@ interface Template {
   id: string; name: string; description: string | null; ticketKey: string | null;
   udid: string; logicalW: number | null; logicalH: number | null;
   steps: Step[]; defaultPresetId: string | null;
+  appBundleId: string | null; appName: string | null; appVersion: string | null;
   createdBy: string; createdAt: number; updatedAt: number;
 }
 
@@ -126,7 +127,16 @@ onMounted(() => void load());
           <span class="tpl-chevron">{{ expanded === t.id ? '▾' : '▸' }}</span>
           <span class="tpl-name">{{ t.name }}</span>
           <span v-if="t.ticketKey" class="tag">{{ t.ticketKey }}</span>
-          <span class="tpl-meta">{{ t.steps.length }} steps · {{ t.udid.slice(0, 8) }} · {{ new Date(t.updatedAt).toLocaleDateString() }}</span>
+          <span class="tpl-meta">
+            <img
+              v-if="t.appBundleId && t.udid" class="tpl-icon" alt=""
+              :src="`/api/devices/${t.udid}/apps/${encodeURIComponent(t.appBundleId)}/icon`"
+              @error="(e: Event) => (e.target as HTMLImageElement).style.display = 'none'"
+            />
+            <span v-if="t.appBundleId" class="tpl-app">{{ t.appName ?? t.appBundleId }}</span>
+            <span v-if="t.appVersion" class="tpl-ver">v{{ t.appVersion }}</span>
+            <span v-if="!t.appBundleId" class="tpl-app tpl-app-none">no app bound</span>
+            <span class="tpl-sep">·</span>{{ t.steps.length }} steps · {{ new Date(t.updatedAt).toLocaleDateString() }}</span>
           <span class="tpl-actions">
             <button class="btn btn-sm" :disabled="playing !== null" @click.stop="play(t)">{{ playing === t.id ? 'starting…' : '▶ run' }}</button>
             <button class="btn btn-sm btn-ghost" @click.stop="startRename(t)">edit</button>
@@ -168,7 +178,12 @@ onMounted(() => void load());
 .tpl-chevron { color: var(--color-steel); font-size: 10px; }
 .tpl-name { font-weight: 600; font-size: 13px; }
 .tag { font-size: 10px; color: var(--color-ember); border: 1px solid var(--color-iron); padding: 1px 6px; border-radius: 3px; }
-.tpl-meta { flex: 1; color: var(--color-steel); font-size: 10px; text-align: right; }
+.tpl-meta { flex: 1; color: var(--color-steel); font-size: 10px; text-align: right; display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.tpl-icon { width: 16px; height: 16px; border-radius: 4px; display: block; }
+.tpl-app { color: var(--color-ash); }
+.tpl-app-none { color: var(--color-steel); font-style: italic; }
+.tpl-ver { font-size: 9px; }
+.tpl-sep { opacity: 0.5; }
 .tpl-actions { display: flex; gap: var(--s-1); opacity: 0; }
 .tpl-row:hover .tpl-actions { opacity: 1; }
 .tpl-edit { display: flex; gap: var(--s-2); padding: var(--s-2) var(--s-3); border-top: 1px solid var(--color-iron); flex-wrap: wrap; }

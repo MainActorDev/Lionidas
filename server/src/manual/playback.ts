@@ -36,6 +36,7 @@ interface TemplateRow {
   ticket_key: string | null;
   udid: string;
   steps_json: string;
+  app_bundle_id: string | null;
 }
 
 function stepName(s: PlaybackStep): string {
@@ -78,14 +79,17 @@ function rowToPresetSpec(p: Record<string, unknown>): Preset {
  *  Phase 4: opts.scenarioId activates that scenario's presets (hybrid) for the
  *  run duration, restoring the previous forge state after — network choice is
  *  per-run, template stays network-agnostic (its defaultPresetId is a hint). */
-export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string }): Promise<string> {
-  const t = deps.db.prepare('SELECT id, name, ticket_key, udid, steps_json FROM templates WHERE id = ?').get(templateId) as TemplateRow | undefined;
+export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string; bundleId?: string }): Promise<string> {
+  const t = deps.db.prepare('SELECT id, name, ticket_key, udid, steps_json, app_bundle_id FROM templates WHERE id = ?').get(templateId) as TemplateRow | undefined;
   if (!t) throw new Error(`template ${templateId} not found`);
   let steps: PlaybackStep[] = [];
   try { steps = JSON.parse(t.steps_json) as PlaybackStep[]; } catch { /* empty */ }
   if (steps.length === 0) throw new Error('template has no steps');
 
   const udid = opts.udid ?? t.udid;
+  // app binding: playback launches the app the template was recorded in —
+  // steps land on a known screen, not whatever happened to be foreground
+  const appToLaunch = opts.bundleId ?? t.app_bundle_id ?? 'com.apple.Preferences';
   const runId = `run_${createHash('sha256').update(`playback${templateId}${Date.now()}`).digest('hex').slice(0, 8)}`;
   deps.db
     .prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, note)
@@ -118,7 +122,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
        VALUES (?, ?, ?, 'step', ?, ?, ?, ?, ?, ?)`,
     );
     try {
-      const open = (await alloy.dispatch('alloy_apps', { action: 'open', app: 'com.apple.Preferences', udid, hold: false }, deps.dispatchDeps)) as { ok: boolean; error?: { message: string } };
+      const open = (await alloy.dispatch('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false }, deps.dispatchDeps)) as { ok: boolean; error?: { message: string } };
       if (!open.ok) throw new Error(`open failed: ${open.error?.message ?? 'engine error'}`);
 
       for (const s of steps) {

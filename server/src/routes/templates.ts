@@ -15,6 +15,9 @@ interface TemplateRow {
   logical_h: number | null;
   steps_json: string;
   default_preset_id: string | null;
+  app_bundle_id: string | null;
+  app_name: string | null;
+  app_version: string | null;
   created_by: string;
   created_at: number;
   updated_at: number;
@@ -31,6 +34,9 @@ function rowToTemplate(r: TemplateRow): Record<string, unknown> {
     logicalH: r.logical_h,
     steps: JSON.parse(r.steps_json) as unknown[],
     defaultPresetId: r.default_preset_id,
+    appBundleId: r.app_bundle_id,
+    appName: r.app_name,
+    appVersion: r.app_version,
     createdBy: r.created_by,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -67,12 +73,30 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       try { steps = (JSON.parse(sess.recording_json) as { steps?: unknown[] }).steps ?? []; } catch { /* empty */ }
     }
     if (steps.length === 0) return reply.code(400).send({ error: 'no recorded steps in session' });
+    // app binding: the recorded app is captured at save time — foreground
+    // non-Apple UIKit app on the session's device (fallback: explicit body)
+    let appBundleId = (b as { appBundleId?: string }).appBundleId ?? null;
+    let appName: string | null = null;
+    let appVersion: string | null = null;
+    if (!appBundleId) {
+      try {
+        const { foregroundApp } = await import('../manual/apps.ts');
+        const fg = await foregroundApp(sess.udid);
+        if (fg) { appBundleId = fg.bundleId; appName = fg.name; appVersion = fg.version; }
+      } catch { /* app binding best-effort — template still saves */ }
+    } else {
+      try {
+        const { listSimulatorApps } = await import('../manual/apps.ts');
+        const found = (await listSimulatorApps(sess.udid)).find((a) => a.bundleId === appBundleId);
+        if (found) { appName = found.name; appVersion = found.version; }
+      } catch { /* enrich best-effort */ }
+    }
     const id = `tpl_${randomUUID().slice(0, 8)}`;
     const now = Date.now();
     db.prepare(
-      `INSERT INTO templates(id, name, description, ticket_key, udid, logical_w, logical_h, steps_json, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(id, b.name.trim(), b.description ?? null, b.ticketKey ?? null, sess.udid, sess.logical_w, sess.logical_h, JSON.stringify(steps), b.createdBy ?? sess.operator, now, now);
+      `INSERT INTO templates(id, name, description, ticket_key, udid, logical_w, logical_h, steps_json, app_bundle_id, app_name, app_version, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(id, b.name.trim(), b.description ?? null, b.ticketKey ?? null, sess.udid, sess.logical_w, sess.logical_h, JSON.stringify(steps), appBundleId, appName, appVersion, b.createdBy ?? sess.operator, now, now);
     const row = db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow;
     return rowToTemplate(row);
   });
