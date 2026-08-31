@@ -29,6 +29,9 @@ export interface PlaybackStep {
   y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
   text?: string;
+  /** Maestro-style soft step: a dispatch miss records skip, run stays green
+   *  (interstitial popups, "dismiss if shown"). Missing env still hard-fails. */
+  optional?: boolean;
 }
 
 interface TemplateRow {
@@ -150,8 +153,14 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           if (!r.ok) throw new Error(r.error?.message ?? 'engine error');
           insStep.run(runId, s.idx, t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify(resolved));
         } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (s.optional) {
+            // optional miss: record and continue — the run stays green
+            insStep.run(runId, s.idx, t.name, stepName(s), 'skip', `optional miss: ${msg}`, t0, Date.now() - t0, '[]', JSON.stringify(resolved));
+            continue;
+          }
           runStatus = 'failed';
-          insStep.run(runId, s.idx, t.name, stepName(s), 'fail', err instanceof Error ? err.message : String(err), t0, Date.now() - t0, '[]', JSON.stringify(resolved));
+          insStep.run(runId, s.idx, t.name, stepName(s), 'fail', msg, t0, Date.now() - t0, '[]', JSON.stringify(resolved));
           // remaining steps are skipped (deterministic replay stops at first failure)
           for (const rest of steps.filter((x) => x.idx > s.idx)) {
             insStep.run(runId, rest.idx, t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null);
