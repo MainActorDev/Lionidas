@@ -19,6 +19,10 @@ export interface DeviceStream {
   failure: Ref<string>;
   start(udid: string): void;
   stop(): void;
+  /** post-action screenshot fast-path — draws one still onto the live canvas
+   *  without resizing it and without racing the decode loop (no-ops when the
+   *  stream is actively painting — see paintStillImage). */
+  paintStillImage(source: ImageBitmap | HTMLImageElement): void;
 }
 
 export function useDeviceStream(): DeviceStream {
@@ -53,6 +57,24 @@ export function useDeviceStream(): DeviceStream {
   //    drop-on-newer-arrival approach froze the canvas under motion).
   let pendingBuf: ArrayBuffer | null = null;
   let decoding = false;
+  let lastPaintAt = 0; // stream-frame paint time — gates the standalone fast-path
+
+  /** Draw a standalone image (post-action screenshot fast-path) WITHOUT
+   *  resizing the canvas and WITHOUT racing the live decode loop:
+   *  - scaled onto the current canvas dims (assigning width clears → flash);
+   *  - skipped entirely when a stream frame painted within the last 150ms —
+   *    during animation the stream is fresher than the snapshot, and an
+   *    older-over-newer paint reads as the stream jumping backwards. The
+   *    fast-path exists for QUIET screens (~0.5fps), which is exactly when
+   *    it runs. */
+  function paintStillImage(source: ImageBitmap | HTMLImageElement): void {
+    const canvas = canvasRef.value;
+    if (!canvas || !canvas.width || !canvas.height) return;
+    if (Date.now() - lastPaintAt < 150) return; // stream is flowing — stand down
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+  }
 
   async function decodeLoop(): Promise<void> {
     if (decoding) return;
@@ -78,6 +100,7 @@ export function useDeviceStream(): DeviceStream {
           }
         }
         bitmap.close();
+        lastPaintAt = Date.now();
         frameCount++;
         const now = Date.now();
         if (now - lastFpsTime >= 1000) {
@@ -156,6 +179,7 @@ export function useDeviceStream(): DeviceStream {
       failure.value = '';
       teardown();
     },
+    paintStillImage,
   };
 }
 

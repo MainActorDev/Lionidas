@@ -54,17 +54,10 @@ async function fastPathFrame(): Promise<void> {
     const path = r['path'] as string | undefined;
     if (path && stream.canvasRef.value) {
       const img = new Image();
-      img.onload = () => {
-        const canvas = stream.canvasRef.value;
-        if (canvas) {
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            canvas.width = img.naturalWidth;
-            canvas.height = img.naturalHeight;
-            ctx.drawImage(img, 0, 0);
-          }
-        }
-      };
+      // drawStill path: no canvas resize (resize = clear = flash) and no race
+      // with the live decode loop — stream.paintStillImage stands down while
+      // stream frames are flowing (it targets quiet screens by design).
+      img.onload = () => stream.paintStillImage(img);
       img.src = `/api/manual-frame?path=${encodeURIComponent(path)}&t=${Date.now()}`;
     }
   } catch { /* fast-path only — stream remains the truth */ }
