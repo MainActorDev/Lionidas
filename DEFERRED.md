@@ -33,7 +33,11 @@ Items below were identified and NOT yet fixed. Fixed items are NOT listed
 (fixed: OS-proxy orphaning; app binding/settings hijack; iPad exclusion;
 template plaintext secrets — B10, via A1 env substitution; cross-device
 blind replay — B3, via A6 selectors + scaling; playback concurrency — B5,
-via device-busy guard).*
+via device-busy guard; **proxy lifecycle orphaning — the "no internet every
+boot" defect, 2026-08-31: all-service heal at boot/close/API + launchd
+dead-man watchdog + Apple/MDM bypass domains; plan + drills at
+`docs/plans/2026-08-31-proxy-resilience.md`; watchdog activation is
+per-machine, one command: `pnpm --dir server tsx scripts/install-watchdog.ts`)**).*
 
 ### B1. Traffic attribution to runs is structurally dead — P0
 - **What:** `addon.py:208` always writes `run_id: None`; the Python addon has
@@ -107,3 +111,18 @@ via device-busy guard).*
   config reference) unexplored.
 - **Trigger:** before extending subflow semantics (conditionals, outputs) —
   their composition docs live there.
+
+### C4. Cloud-Mac (MacStadium) routing — end-state option pending
+- **What:** host-proxy routing is now watchdog-guarded and bypass-scoped
+  (shipped 2026-08-31), but remains host-global by nature. Ethernet-only
+  MacStadium machines work (routing resolves the default-route service, not
+  Wi-Fi specifically), yet a VPN/bridge interface (`utun*`, `bridge*`) as
+  default route has NO hardware-port service → `primaryNetworkService()`
+  throws; an explicit `FORGE_NETWORK_SERVICE` override is not yet built.
+- **Rejected permanently:** pf/transparent redirect (a bad rule eats SSH —
+  the remote-access lifeline).
+- **End-state if host-proxy fights the cloud:** app-level proxy in int-dev
+  builds (launch arg → `connectionProxyDictionary`) — per-app, per-run, zero
+  host coupling. Costs an ios-consumer change.
+- **Trigger:** first MacStadium staging run — verify service resolution, sim
+  inheritance after reboot, watchdog drill, before production.
