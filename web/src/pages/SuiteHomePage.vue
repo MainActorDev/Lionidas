@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /** Suite home — the front door. Answers "is the app OK?" in one screen:
- *  every case's verdict + trend, attention-first ordering, run-the-suite
+ *  every case's latest verdict, attention-first ordering, run-the-suite
  *  and plans one click away, live-updating as runs finish. */
 import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { useSuite, verdictKind, verdictStatusClass, verdictLabel, trendGlyphs, relTime } from '../composables/suite.ts';
+import { useSuite, verdictKind, verdictStatusClass, verdictLabel } from '../composables/suite.ts';
 import { useLiveEvents } from '../stores/live.ts';
 
 const router = useRouter();
@@ -122,9 +122,6 @@ function openCase(c: { verdict: { lastRunId: string | null } | null; id: string 
           <span class="sh-name">{{ c.name }}</span>
           <span v-if="c.appName ?? c.appBundleId" class="sh-app">{{ c.appName ?? c.appBundleId }}</span>
         </div>
-        <span v-if="trendGlyphs(c).length" class="trend sh-trend" title="history: last runs, oldest → newest — pass ✓ / fail ✕ / blocked ◆ / aborted ◌">
-          <span v-for="(g, i) in trendGlyphs(c)" :key="i" :class="g.cls">{{ g.g }}</span>
-        </span>
         <span :class="`status ${verdictStatusClass(c)}`">{{ verdictLabel(c) }}</span>
       </article>
     </div>
@@ -139,7 +136,6 @@ function openCase(c: { verdict: { lastRunId: string | null } | null; id: string 
 .sh-head h1 { font-size: var(--text-heading); font-weight: var(--weight-bold); margin: 0; }
 .sh-sub { margin: 2px 0 0; font-size: var(--text-caption); color: var(--color-ash); }
 .sh-title-group { flex-direction: column; align-items: flex-start; gap: 0; }
-.sh-trend::after { content: ' history'; font-size: 9px; color: var(--color-steel); margin-left: 4px; }
 .sh-actions { display: flex; gap: var(--s-2); }
 
 .sh-plans { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; margin-bottom: var(--s-3); }
@@ -160,7 +156,6 @@ function openCase(c: { verdict: { lastRunId: string | null } | null; id: string 
 .sh-card-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .sh-name { font-weight: var(--weight-bold); font-size: var(--text-label); color: var(--color-paper); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sh-app { font-size: var(--text-caption); color: var(--color-ash); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sh-card .trend { flex: none; }
 
 .sh-empty { padding: var(--s-7); }
 .sh-empty-title { color: var(--color-fog); font-size: var(--text-body); margin-bottom: var(--s-4); }
