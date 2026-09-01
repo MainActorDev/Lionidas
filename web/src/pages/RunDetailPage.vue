@@ -20,9 +20,25 @@ async function load(): Promise<void> {
   ]);
   run.value = r.run;
   steps.value = s.steps;
+  void loadTraffic();
 }
 
 const attachMsg = ref('');
+
+/** B1: this run's own HTTP traffic — what the app (and the host, while the
+ *  proxy routes it) talked to while THIS run executed. Empty + proxy down =
+ *  hint, not silence (pages teach themselves). */
+interface TrafficRow { id: string; run_id: string | null; ts: number; method: string; host: string; path: string; status: number; latency_ms: number }
+const traffic = ref<TrafficRow[]>([]);
+const proxyRunning = ref(false);
+async function loadTraffic(): Promise<void> {
+  const [t, m] = await Promise.all([
+    fetch(`/api/forge/traffic?runId=${runId}`).then((x) => x.json()) as Promise<{ traffic: TrafficRow[] }>,
+    fetch('/api/forge/mitm/status').then((x) => x.json()) as Promise<{ running: boolean }>,
+  ]);
+  traffic.value = t.traffic ?? [];
+  proxyRunning.value = m.running;
+}
 async function attachJira(): Promise<void> {
   const res = await fetch(`/api/runs/${runId}/attach`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
   const body = await res.json() as { attached?: boolean; commentId?: string; ticket?: string; error?: string };
@@ -120,6 +136,25 @@ onMounted(() => {
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <div class="section-label">network</div>
+    <div v-if="traffic.length > 0" class="table-wrap">
+      <table>
+        <thead><tr><th>method</th><th>host</th><th>path</th><th>status</th><th>latency</th></tr></thead>
+        <tbody>
+          <tr v-for="t in traffic" :key="t.id" style="cursor: default;">
+            <td class="mono">{{ t.method }}</td>
+            <td style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ t.host }}</td>
+            <td style="color: var(--color-ash); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" :title="t.path">{{ t.path }}</td>
+            <td><span class="status" :class="t.status < 400 ? 'status-pass' : 'status-fail'">{{ t.status }}</span></td>
+            <td style="color: var(--color-steel);">{{ t.latency_ms }}ms</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div v-else class="card" style="font-size: 12px; color: var(--color-steel);">
+      no traffic captured for this run<span v-if="!proxyRunning"> — <RouterLink to="/forge">the network proxy was not running</RouterLink>; start it there before a run to capture</span>
     </div>
 
     <TriagePanel :key="runId" />
