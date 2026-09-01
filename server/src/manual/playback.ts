@@ -103,6 +103,47 @@ export class PlaybackError extends Error {
   constructor(public code: 'DEVICE_BUSY', message: string) { super(message); }
 }
 
+// ── B2: abort registry + step watchdog ─────────────────────────────────────
+// Manual/template runs hold a device for their whole life; a wedged dispatch
+// used to leave the run `running` forever (B2). Abort is checked at every
+// loop seam; the watchdog races each dispatch with a timeout so the RUN
+// record + device always unblock. (The dispatch promise itself is NOT
+// cancellable — alloy has no abort; the guarantee is bookkeeping + lease
+// release, not zombie reaping. Documented honesty.)
+const abortedRuns = new Set<string>();
+
+/** Test hook: clear the registry between tests. */
+export function __setAbortRegistryForTest(): void { abortedRuns.clear(); }
+
+/** Mark a run aborted. Terminal runs are a no-op ({already}) — idempotent. */
+export function abortRun(db: Database.Database, runId: string): { ok: true } | { already: 'finished' } {
+  const run = db.prepare(`SELECT status FROM runs WHERE id = ?`).get(runId) as { status: string } | undefined;
+  if (!run) throw new Error(`run ${runId} not found`);
+  if (run.status !== 'queued' && run.status !== 'running') return { already: 'finished' };
+  abortedRuns.add(runId);
+  return { ok: true };
+}
+
+function isAborted(runId: string): boolean { return abortedRuns.has(runId); }
+
+/** Race a dispatch with the step timeout. On timeout the step fails with a
+ *  parseable reason and the run is marked blocked (infrastructure). */
+async function withWatchdog<T>(runId: string, dispatch: Promise<T>, stepNameForError: string): Promise<T> {
+  const ms = Number(process.env.CRUCIBLE_STEP_TIMEOUT_MS ?? 90_000);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      dispatch,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`step timeout after ${Math.round(ms / 1000)}s: ${stepNameForError}`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+
 export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string; bundleId?: string; env?: Record<string, string> }): Promise<{ runId: string; done: Promise<void> }> {
   const t = deps.db.prepare('SELECT id, name, ticket_key, udid, steps_json, app_bundle_id, logical_w, logical_h FROM templates WHERE id = ?').get(templateId) as TemplateRow | undefined;
   if (!t) throw new Error(`template ${templateId} not found`);
@@ -155,6 +196,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       } catch { /* network best-effort — run proceeds without scenario */ }
     }
     let runStatus: 'passed' | 'failed' | 'aborted' = 'passed';
+    let runBlocked = 0;
     const insStep = deps.db.prepare(
       `INSERT INTO run_steps(run_id, idx, flow_name, kind, name, status, reason, started_at, duration_ms, evidence_ids_json, evaluated_json)
        VALUES (?, ?, ?, 'step', ?, ?, ?, ?, ?, ?, ?)`,
@@ -186,6 +228,12 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
 
       for (const s of execSteps) {
         const t0 = Date.now();
+        // B2: operator abort — checked between steps; remaining steps skipped,
+        // run aborted, device freed (B5 guard reads terminal status).
+        if (isAborted(runId)) {
+          insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'skip', 'aborted by operator', Date.now(), 0, '[]', null);
+          continue;
+        }
         // env substitution (A1): resolve ${env.KEY} BEFORE dispatch — a missing
         // key fails the step deterministically; never type a half-resolved
         // string. Even optional steps hard-fail on missing env: a missing
@@ -264,7 +312,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           if (s.action === 'tap') input = { udid, action: 'press', target: { x: tx, y: ty }, settle: true };
           else if (s.action === 'scroll') input = { udid, action: 'scroll', direction: s.direction, settle: true };
           else input = { udid, action: 'fill', target: { x: tx, y: ty }, text: resolved.text ?? '', settle: true };
-          const r = (await alloy.dispatch('alloy_act', input, deps.dispatchDeps)) as { ok: boolean; error?: { message: string } };
+          const r = (await withWatchdog(runId, alloy.dispatch('alloy_act', input, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, stepName(s))) as { ok: boolean; error?: { message: string } };
           if (!r.ok) throw new Error(r.error?.message ?? 'engine error');
           insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify({ ...resolved, resolvedBy, ...(s.flow ? { flow: s.flow } : {}) }));
         } catch (err) {
@@ -275,6 +323,8 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             continue;
           }
           runStatus = 'failed';
+          // step watchdog timeouts are infrastructure, not app failures
+          if (msg.includes('step timeout')) runBlocked = 1;
           insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', msg, t0, Date.now() - t0, '[]', JSON.stringify(resolved));
           // remaining steps are skipped (deterministic replay stops at first failure)
           for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
@@ -303,7 +353,10 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
         } catch { /* restore best-effort */ }
       }
       deps.forgeState.activeRunId = null;
-      deps.db.prepare(`UPDATE runs SET status = ?, finished_at = ? WHERE id = ?`).run(runStatus, Date.now(), runId);
+      // B2: operator abort wins over the loop's natural verdict
+      if (isAborted(runId)) runStatus = 'aborted';
+      abortedRuns.delete(runId); // registry entry no longer needed once terminal
+      deps.db.prepare(`UPDATE runs SET status = ?, finished_at = ?, blocked = ? WHERE id = ?`).run(runStatus, Date.now(), runBlocked, runId);
       deps.bus.emit('run.finished', { runId, status: runStatus });
     }
   })();

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { existsSync } from 'node:fs';
 import { enqueue, abort, type QueueSpec } from '../queue/store.ts';
+import { abortRun } from '../manual/playback.ts';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { executeRun } from '../alloy/runner.ts';
 import { jiraConfig, buildCommentBody, postComment } from '../integrations/jira.ts';
@@ -82,6 +83,19 @@ export function registerRunRoutes(app: FastifyInstance, db: Database.Database, b
     const run = db.prepare('SELECT * FROM runs WHERE id = ?').get(id) as RunRow | undefined;
     if (!run) return reply.code(404).send({ error: 'run not found' });
     return { run };
+  });
+
+  // B2: abort a running manual/template run — idempotent on terminal runs.
+  // Wedged dispatch promises can't be cancelled (no engine abort), but the
+  // run record terminates and the device frees (B5 guard reads status).
+  app.post('/api/runs/:id/abort', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    try {
+      const res = abortRun(db, id);
+      return res;
+    } catch (err) {
+      return reply.code(404).send({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   // Triage bundle for one failed step: reason + evidence (screenshot/diff/video/logs/network)
