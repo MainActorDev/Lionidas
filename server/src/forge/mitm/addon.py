@@ -25,6 +25,7 @@ class ForgeState:
         self.mode = "hybrid"
         self.presets = []
         self.cursors = {}
+        self.active_run_id = None  # B1: set from state file when reloaded
 
     def reload_if_changed(self):
         path = os.path.join(self.state_dir, "forge-mitm-state.json")
@@ -40,6 +41,9 @@ class ForgeState:
                 data = json.load(f)
             self.mode = data.get("mode", "hybrid")
             self.presets = data.get("presets", [])
+            # B1: the run traffic attributes to — written by playback at run
+            # start/end; None = no run active.
+            self.active_run_id = data.get("activeRunId")
         except (OSError, ValueError):
             pass  # keep last-good state
 
@@ -205,7 +209,7 @@ class ForgeRouter:
             "matched_preset_id": preset_id,
             "status": status if t0 not in (-1, -2) else (0 if t0 == -1 else 599),
             "latency_ms": int((time.time() - t0) * 1000) if t0 and t0 > 0 else 0,
-            "run_id": None,
+            "run_id": self.state.active_run_id,
             "req": capture_body(flow.request),
             "res": capture_body(flow.response) if flow.response else None,
         }

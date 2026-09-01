@@ -25,11 +25,13 @@ let proc: ChildProcess | null = null;
 let tailTimer: ReturnType<typeof setInterval> | null = null;
 let tailOffset = 0;
 
-export function writeStateFile(stateDir: string, mode: string, presets: Preset[]): string {
-  const payload = { mode, presets, hash: createHash('sha256').update(JSON.stringify({ mode, presets })).digest('hex') };
+export function writeStateFile(stateDir: string, mode: string, presets: Preset[], activeRunId: string | null = null): string {
+  // activeRunId (B1): the run traffic should attribute to — the addon mtime-tails
+  // this file and stamps every row with it; null = no run active.
+  const payload = { mode, presets, activeRunId, hash: createHash('sha256').update(JSON.stringify({ mode, presets, activeRunId })).digest('hex') };
   const path = join(stateDir, 'forge-mitm-state.json');
   mkdirSync(stateDir, { recursive: true });
-  writeFileSync(path, JSON.stringify(payload), 'utf8');
+  writeFileSync(path, JSON.stringify(payload), 'utf8'); // legacy write — B4 tracks atomicity separately
   return path;
 }
 

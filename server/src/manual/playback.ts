@@ -182,6 +182,15 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     const alloy = crucibleAlloy();
     // traffic attribution: everything the proxy sees while active belongs to this run
     deps.forgeState.activeRunId = runId;
+    // B1: mirror to the addon state file so the mitm addon stamps rows with
+    // this run id (in-process proxy reads forgeState directly; the addon tails
+    // the file). Best-effort: attribution fails soft if the dir is missing.
+    try {
+      const { writeStateFile } = await import('../forge/mitm/manager.ts');
+      const stateDir = process.env['CRUCIBLE_MITM_STATE_DIR'] ?? '/tmp/forge-mitm';
+      const currentPresets = deps.db.prepare('SELECT * FROM presets ORDER BY created_at DESC').all() as Array<Record<string, unknown>>;
+      writeStateFile(stateDir, deps.forgeState.mode, currentPresets.map(rowToPresetSpec), runId);
+    } catch { /* attribution best-effort */ }
     // network choice (phase 4): scenario presets active ONLY during the run
     let restorePresets: Array<Record<string, unknown>> | null = null;
     let restoreStateDir: string | null = null;
@@ -358,6 +367,15 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
         } catch { /* restore best-effort */ }
       }
       deps.forgeState.activeRunId = null;
+      // B1: clear the addon's attribution too — rows after this point belong
+      // to no run. (If a scenario restored above, that write already reset
+      // activeRunId implicitly via the null default — this one is explicit.)
+      try {
+        const { writeStateFile } = await import('../forge/mitm/manager.ts');
+        const stateDir = process.env['CRUCIBLE_MITM_STATE_DIR'] ?? '/tmp/forge-mitm';
+        const currentPresets = deps.db.prepare('SELECT * FROM presets ORDER BY created_at DESC').all() as Array<Record<string, unknown>>;
+        writeStateFile(stateDir, deps.forgeState.mode, currentPresets.map(rowToPresetSpec), null);
+      } catch { /* clear best-effort */ }
       // B2: operator abort wins over the loop's natural verdict
       if (isAborted(runId)) runStatus = 'aborted';
       abortedRuns.delete(runId); // registry entry no longer needed once terminal
