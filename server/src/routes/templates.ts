@@ -91,7 +91,19 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     let rows: TemplateRow[];
     if (q.ticket) rows = db.prepare('SELECT * FROM templates WHERE ticket_key = ? ORDER BY updated_at DESC').all(q.ticket) as TemplateRow[];
     else rows = db.prepare('SELECT * FROM templates ORDER BY updated_at DESC').all() as TemplateRow[];
-    return { templates: selectTemplates(rows, { tags: q.tags, app: q.app }).map(rowToTemplate) };
+    const sel = selectTemplates(rows, { tags: q.tags, app: q.app }).map(rowToTemplate) as Array<Record<string, unknown> & { id: string }>;
+    // B4: attach last-verdict + trend per case (absent = never run)
+    const { suiteVerdicts } = await import('../db/suite.ts');
+    const verdicts = suiteVerdicts(db);
+    for (const t of sel) {
+      const v = verdicts.get(t.id);
+      t.verdict = v ? {
+        lastRunId: v.lastRunId, lastStatus: v.lastStatus, lastBlocked: v.lastBlocked,
+        lastFinishedAt: v.lastFinishedAt, lastAppVersion: v.lastAppVersion,
+        trend: v.trend, totalRuns: v.totalRuns,
+      } : null;
+    }
+    return { templates: sel };
   });
 
   app.get('/api/templates/:id', async (req, reply) => {

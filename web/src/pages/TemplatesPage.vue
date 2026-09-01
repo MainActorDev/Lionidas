@@ -1,17 +1,25 @@
 <script setup lang="ts">
-/** Templates manager: recorded test configs (CRUD) — the QA regression library.
- *  Steps are plain data; playback runs them (2d). Ticket tag filters regression selection. */
-import { ref, onMounted } from 'vue';
+/** Test cases: recorded flows (CRUD) + assertions — the QA regression suite.
+ *  Each case shows its last verdict + trend; plans replay the suite in one
+ *  click; playback runs them. Ticket tag filters regression selection. */
+import { ref, onMounted, computed } from 'vue';
 
 interface Step { idx: number; action: string; x?: number; y?: number; direction?: string; text?: string; optional?: boolean; selector?: { identifier?: string; label?: string; type?: string }; templateId?: string }
+interface Verdict {
+  lastRunId: string | null; lastStatus: string | null; lastBlocked: number;
+  lastFinishedAt: number | null; lastAppVersion: string | null;
+  trend: string | null; totalRuns: number;
+}
 interface Template {
   id: string; name: string; description: string | null; ticketKey: string | null;
   udid: string; logicalW: number | null; logicalH: number | null;
   steps: Step[]; defaultPresetId: string | null;
   appBundleId: string | null; appName: string | null; appVersion: string | null;
   tags: string[];
+  verdict: Verdict | null;
   createdBy: string; createdAt: number; updatedAt: number;
 }
+interface Plan { id: string; name: string; tags: string[]; udid: string | null; appBundleId: string | null; scenarioId: string | null; env: Record<string, string> }
 
 const templates = ref<Template[]>([]);
 const loading = ref(true);
@@ -200,13 +208,103 @@ const shown = (): Template[] => {
     t.name.toLowerCase().includes(f) || (t.ticketKey ?? '').toLowerCase().includes(f) || (t.tags ?? []).some((tg) => tg.toLowerCase().includes(f)));
 };
 
-onMounted(() => void load());
+onMounted(() => { void load(); void loadPlans(); });
+
+// ── B4: verdict + trend rendering ──
+type VerdictKind = 'never' | 'green' | 'red' | 'blocked' | 'aborted';
+function verdictKind(t: Template): VerdictKind {
+  const v = t.verdict;
+  if (!v || v.lastStatus === null) return 'never';
+  if (v.lastStatus === 'passed') return 'green';
+  if (v.lastStatus === 'aborted') return 'aborted';
+  return v.lastBlocked === 1 ? 'blocked' : 'red';
+}
+function verdictLabel(t: Template): string {
+  const k = verdictKind(t);
+  if (k === 'never') return 'never run';
+  const v = t.verdict!;
+  const when = v.lastFinishedAt ? relTime(v.lastFinishedAt) : '';
+  const build = v.lastAppVersion ? ` · v${v.lastAppVersion}` : '';
+  const lbl = k === 'green' ? 'pass' : k === 'red' ? 'fail' : k === 'blocked' ? 'blocked (infra)' : 'aborted';
+  return `${lbl}${build}${when ? ` · ${when}` : ''}`;
+}
+function relTime(ms: number): string {
+  const d = Date.now() - ms;
+  if (d < 60_000) return 'just now';
+  if (d < 3_600_000) return `${Math.floor(d / 60_000)}m ago`;
+  if (d < 86_400_000) return `${Math.floor(d / 3_600_000)}h ago`;
+  return `${Math.floor(d / 86_400_000)}d ago`;
+}
+/** trend glyph → (char, class) — p/f/a + uppercase F = blocked */
+function trendGlyphs(t: Template): Array<{ g: string; cls: string }> {
+  const trend = t.verdict?.trend;
+  if (!trend) return [];
+  return trend.split('').map((g) => ({ g, cls: g === 'p' ? 'tg-p' : g === 'F' ? 'tg-F' : g === 'f' ? 'tg-f' : 'tg-a' }));
+}
+const suiteSummary = computed(() => {
+  const ks = templates.value.map(verdictKind);
+  return {
+    total: ks.length,
+    green: ks.filter((k) => k === 'green').length,
+    red: ks.filter((k) => k === 'red').length,
+    blocked: ks.filter((k) => k === 'blocked').length,
+    never: ks.filter((k) => k === 'never').length,
+  };
+});
+
+// ── B4: plans ──
+const plans = ref<Plan[]>([]);
+const planMsg = ref('');
+const runningPlan = ref<string | null>(null);
+async function loadPlans(): Promise<void> {
+  try {
+    const r = await fetch('/api/plans');
+    plans.value = ((await r.json()) as { plans: Plan[] }).plans ?? [];
+  } catch { /* plans optional */ }
+}
+async function savePlanFromCurrent(): Promise<void> {
+  const name = window.prompt('plan name (saves current filter, device, network choice and env):')?.trim();
+  if (!name) return;
+  try {
+    const activeTags = filter.value.trim().split(',').map((s) => s.trim()).filter(Boolean);
+    const r = await fetch('/api/plans', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name, tags: activeTags, scenarioId: runScenario.value || undefined, env: parseEnv() }),
+    });
+    if (!r.ok) { planMsg.value = ((await r.json()) as { error?: string }).error ?? 'failed'; return; }
+    planMsg.value = '';
+    await loadPlans();
+  } catch { planMsg.value = 'failed'; }
+}
+async function runPlan(p: Plan): Promise<void> {
+  if (runningPlan.value) return;
+  runningPlan.value = p.id;
+  planMsg.value = '';
+  try {
+    const r = await fetch(`/api/plans/${p.id}/run`, { method: 'POST' });
+    const b = (await r.json()) as { runIds?: string[]; count?: number; error?: string };
+    planMsg.value = b.error ? b.error : (b.count ? `plan ran ${b.count} case(s)` : 'no cases matched');
+    await load(); // refresh verdicts
+  } catch { planMsg.value = 'plan run failed'; }
+  finally { runningPlan.value = null; }
+}
+async function deletePlan(p: Plan): Promise<void> {
+  if (!window.confirm(`delete plan "${p.name}"?`)) return;
+  try { await fetch(`/api/plans/${p.id}`, { method: 'DELETE' }); } catch { /* ignore */ }
+  await loadPlans();
+}
+function planDesc(p: Plan): string {
+  const bits = [p.tags.length ? `#${p.tags.join(' #')}` : 'all cases'];
+  if (p.scenarioId) bits.push(`net:${p.scenarioId}`);
+  if (Object.keys(p.env).length) bits.push(`env:${Object.keys(p.env).length} vars`);
+  return bits.join(' · ');
+}
 </script>
 
 <template>
   <section class="page">
     <header class="page-head">
-      <h1>templates</h1>
+      <h1>test cases</h1>
       <input v-model="filter" class="input filter" placeholder="filter by name, ticket, or tag…" />
       <select
         v-model="runScenario" class="input" style="width: auto;"
@@ -215,16 +313,39 @@ onMounted(() => void load());
         <option value="">network: live</option>
         <option v-for="s in scenarios" :key="s.id" :value="s.id">{{ s.name }}</option>
       </select>
-      <button class="btn btn-sm" :disabled="playingAll || shown().length === 0" @click="playAll()" :title="`sequentially play every template matching the filter`">
-        {{ playingAll ? 'playing…' : '▶ play all' }}
+      <button class="btn btn-sm" :disabled="playingAll || shown().length === 0" @click="playAll()" title="sequentially run every case matching the filter">
+        {{ playingAll ? 'running…' : '▶ run filtered' }}
       </button>
-      <span class="count">{{ templates.length }}</span>
+      <button class="btn btn-sm" @click="savePlanFromCurrent" title="save the current filter + network choice + env as a named plan — one click replays this exact suite later">+ save as plan</button>
+      <span class="count" :title="`${suiteSummary.green} pass · ${suiteSummary.red} fail · ${suiteSummary.blocked} blocked · ${suiteSummary.never} never run`">
+        {{ templates.length }} cases · ✓{{ suiteSummary.green }} {{ suiteSummary.red + suiteSummary.blocked > 0 ? `✕${suiteSummary.red}` : '' }}{{ suiteSummary.blocked > 0 ? ` ◆${suiteSummary.blocked}` : '' }}
+      </span>
     </header>
+    <div class="journey" title="the authoring loop — each word is where that step happens">
+      <span class="j-step">record <span class="j-hint">devices ▸ take control</span></span>
+      <span class="j-arrow">→</span>
+      <span class="j-step">assert <span class="j-hint">recorder ▸ assert box</span></span>
+      <span class="j-arrow">→</span>
+      <span class="j-step">save <span class="j-hint">save as case</span></span>
+      <span class="j-arrow">→</span>
+      <span class="j-step">run <span class="j-hint">▶ per case or plan</span></span>
+      <span class="j-arrow">→</span>
+      <span class="j-step">verdict <span class="j-hint">runs page</span></span>
+    </div>
+    <div v-if="plans.length > 0 || planMsg" class="plan-bar">
+      <template v-for="p in plans" :key="p.id">
+        <span class="plan-chip" :title="planDesc(p)">
+          <button class="btn btn-sm btn-primary" :disabled="runningPlan !== null" @click="runPlan(p)">{{ runningPlan === p.id ? 'running…' : `▶ ${p.name}` }}</button>
+          <button class="btn btn-sm btn-ghost" title="delete this plan" @click="deletePlan(p)">✕</button>
+        </span>
+      </template>
+      <span v-if="planMsg" class="plan-msg">{{ planMsg }}</span>
+    </div>
     <div class="env-bar">
       <code class="env-key">env</code>
       <textarea
         v-model="envText" class="input env-input" rows="1" spellcheck="false"
-        placeholder="run-time secrets/values, one KEY=value per line (e.g. PASSWORD=hunter2) — sent with every play, never stored in templates"
+        placeholder="run-time secrets/values, one KEY=value per line (e.g. PASSWORD=hunter2) — sent with every play, never stored in cases"
       />
     </div>
 
@@ -251,6 +372,13 @@ onMounted(() => void load());
             <span v-if="t.appVersion" class="tpl-ver">v{{ t.appVersion }}</span>
             <span v-if="!t.appBundleId" class="tpl-app tpl-app-none">no app bound</span>
             <span class="tpl-sep">·</span>{{ t.steps.length }} steps · {{ new Date(t.updatedAt).toLocaleDateString() }}</span>
+          <span class="tpl-verdict" :title="verdictLabel(t)">
+            <span v-if="trendGlyphs(t).length" class="tpl-trend">
+              <span v-for="(g, i) in trendGlyphs(t)" :key="i" :class="g.cls">{{ g.g }}</span>
+            </span>
+            <span :class="`vd vd-${verdictKind(t)}`">{{ verdictKind(t) === 'green' ? '✓' : verdictKind(t) === 'red' ? '✕' : verdictKind(t) === 'blocked' ? '◆' : verdictKind(t) === 'aborted' ? '◌' : '·' }}</span>
+            <span class="vd-label">{{ verdictLabel(t) }}</span>
+          </span>
           <span class="tpl-actions">
             <button class="btn btn-sm" :disabled="playing !== null" @click.stop="play(t)">{{ playing === t.id ? 'starting…' : '▶ run' }}</button>
             <button class="btn btn-sm btn-ghost" @click.stop="startRename(t)">edit</button>
@@ -330,6 +458,34 @@ onMounted(() => void load());
 .tpl-sep { opacity: 0.5; }
 .tpl-actions { display: flex; gap: var(--s-1); opacity: 0; }
 .tpl-row:hover .tpl-actions { opacity: 1; }
+
+/* ── B4: verdict + trend + journey + plans ── */
+.tpl-verdict { margin-left: auto; display: flex; align-items: center; gap: 6px; flex: none; }
+.tpl-trend { font-family: var(--font-mono, monospace); font-size: 9px; letter-spacing: 1px; opacity: 0.85; }
+.tg-p { color: var(--color-moss, #6a8); }
+.tg-f { color: var(--color-ember, #e55); }
+.tg-F { color: var(--color-amber, #d80); font-weight: 700; }
+.tg-a { color: var(--color-steel, #888); }
+.vd { font-size: 12px; width: 16px; text-align: center; }
+.vd-green { color: var(--color-moss, #6a8); }
+.vd-red { color: var(--color-ember, #e55); }
+.vd-blocked { color: var(--color-amber, #d80); }
+.vd-aborted, .vd-never { color: var(--color-steel, #888); }
+.vd-label { font-size: 10px; color: var(--color-steel); max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.journey {
+  display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap;
+  font-size: 10px; color: var(--color-steel);
+  padding: 6px 0; border-bottom: 1px dashed var(--color-iron);
+  margin-bottom: var(--s-2);
+}
+.j-step { color: var(--color-fog); }
+.j-hint { color: var(--color-steel); }
+.j-arrow { opacity: 0.5; }
+
+.plan-bar { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; margin-bottom: var(--s-2); }
+.plan-chip { display: inline-flex; gap: 2px; }
+.plan-msg { font-size: 10px; color: var(--color-steel); }
 .tpl-edit { display: flex; gap: var(--s-2); padding: var(--s-2) var(--s-3); border-top: 1px solid var(--color-iron); flex-wrap: wrap; }
 .tpl-edit .input { flex: 1; min-width: 120px; }
 .tpl-body { border-top: 1px solid var(--color-iron); padding: var(--s-3); }

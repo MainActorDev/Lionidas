@@ -5,7 +5,7 @@ import TriagePanel from '../components/TriagePanel.vue';
 import { useLiveEvents } from '../stores/live.ts';
 
 interface Step { idx: number; flow_name: string; kind: string; name: string; status: string; reason: string | null; duration_ms: number; evidence_ids_json: string; evaluated_json?: string | null }
-interface Run { id: string; ticket_key: string; status: string; kind: string; triggered_by: string; device_udid: string; artifact_hash: string | null; freshness: string; launch_args_json: string; started_at: number | null; finished_at: number | null }
+interface Run { id: string; ticket_key: string; status: string; kind: string; triggered_by: string; device_udid: string; artifact_hash: string | null; freshness: string; launch_args_json: string; started_at: number | null; finished_at: number | null; template_id: string | null; app_version: string | null; blocked: number; note: string | null }
 
 const route = useRoute();
 const runId = route.params.id as string;
@@ -86,6 +86,7 @@ onMounted(() => {
 
     <div class="card">
       <div class="meta-row"><span class="k">device</span><b>{{ run.device_udid.slice(0, 8) }}…</b></div>
+      <div class="meta-row"><span class="k">build</span><b>{{ run.app_version ? `v${run.app_version}` : 'unknown' }}</b></div>
       <div class="meta-row"><span class="k">artifact</span><b>{{ run.artifact_hash?.slice(0, 12) ?? '—' }}</b></div>
       <div class="meta-row">
         <span class="k">freshness</span>
@@ -93,6 +94,13 @@ onMounted(() => {
         <span v-if="run.freshness === 'stale_ignored'" class="badge badge-accent">⚠ older than source</span>
       </div>
       <div class="meta-row"><span class="k">launch args</span><b>{{ run.launch_args_json }}</b></div>
+    </div>
+
+    <div v-if="run.blocked === 1" class="card" style="border-left: 2px solid var(--color-amber, #d80);">
+      <b style="color: var(--color-amber, #d80);">◆ blocked — infrastructure failure, not an app failure</b>
+      <div style="font-size: 11px; color: var(--color-steel); margin-top: 4px;">
+        {{ run.note?.includes('already bound') ? 'engine session bound to another device — release it (agent-device close --session alloy) or restart the server, then re-run' : 'the app never got tested — device/engine/network failed before or during the run' }}
+      </div>
     </div>
 
     <div class="section-label">steps</div>

@@ -21,7 +21,7 @@ export const router = createRouter({
     { path: '/drive', name: 'drive', component: DrivePage, meta: { title: 'manual control' } },
     { path: '/flakes', name: 'flakes', component: FlakesPage, meta: { title: 'flaky tests' } },
     { path: '/forge', name: 'forge', component: ForgePage, meta: { title: 'network' } },
-    { path: '/templates', name: 'templates', component: TemplatesPage, meta: { title: 'templates' } },
+    { path: '/templates', name: 'templates', component: TemplatesPage, meta: { title: 'test cases' } },
     { path: '/guide', name: 'guide', component: GuidePage, meta: { title: 'guide' } },
   ] satisfies RouteRecordRaw[],
 });
