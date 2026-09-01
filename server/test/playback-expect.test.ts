@@ -61,10 +61,8 @@ beforeEach(() => {
   process.env.CRUCIBLE_EXPECT_POLL_MS = '5';
   tmp = mkdtempSync(join(tmpdir(), 'a7-'));
   db = new Database(':memory:');
-  db.exec(`CREATE TABLE templates(id TEXT PRIMARY KEY, name TEXT UNIQUE, description TEXT, ticket_key TEXT, udid TEXT NOT NULL, logical_w INTEGER, logical_h INTEGER, steps_json TEXT NOT NULL, default_preset_id TEXT, created_by TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, app_bundle_id TEXT, app_name TEXT, app_version TEXT, tags_json TEXT);
-           CREATE TABLE runs(id TEXT PRIMARY KEY, ticket_key TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL, triggered_by TEXT NOT NULL, device_udid TEXT NOT NULL, artifact_path TEXT, artifact_hash TEXT, artifact_mtime INTEGER, src_path TEXT, freshness TEXT NOT NULL DEFAULT 'unchecked', launch_args_json TEXT NOT NULL DEFAULT '[]', scenario_id TEXT, scenario_sha TEXT, parent_run_id TEXT, started_at INTEGER, finished_at INTEGER, note TEXT);
-           CREATE TABLE run_steps(run_id TEXT NOT NULL, idx INTEGER NOT NULL, flow_name TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL, reason TEXT, started_at INTEGER, duration_ms INTEGER, evidence_ids_json TEXT NOT NULL DEFAULT '[]', evaluated_json TEXT, PRIMARY KEY(run_id, idx));
-           CREATE TABLE manual_sessions(id TEXT PRIMARY KEY, run_id TEXT NOT NULL, udid TEXT NOT NULL, operator TEXT NOT NULL, logical_w INTEGER, logical_h INTEGER, started_at INTEGER NOT NULL, last_activity INTEGER NOT NULL, finished_at INTEGER, recording_json TEXT);`);
+  const { migrateM1 } = require('../src/db/schema.ts') as typeof import('../src/db/schema.ts');
+  migrateM1(db);
   dispatchLog = [];
   allowAct = false;
   snapshotNodes = nodes(['Home', 'Login']);
