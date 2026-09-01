@@ -234,4 +234,20 @@ export function migrateM1(db: Database.Database): void {
   // build anchoring: filter/index runs by app version
   db.exec('CREATE INDEX IF NOT EXISTS idx_runs_app_version ON runs(app_version, started_at DESC)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_runs_template ON runs(template_id, started_at DESC)');
+  // Batch 4 — plans: remembered suite invocations (tag filter + device + app +
+  // scenario + env) replayed through the same play-all path
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS plans(
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      tags_json TEXT NOT NULL DEFAULT '[]',
+      udid TEXT,
+      app_bundle_id TEXT,
+      scenario_id TEXT,
+      env_json TEXT NOT NULL DEFAULT '{}',
+      created_by TEXT NOT NULL DEFAULT 'qa',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
 }

@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { createReadStream, statSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, manualProbeSelector, finishManualSession, setRecording, getRecording, deleteRecordedStep, recordExpectStep, ManualSessionError } from '../manual/session.ts';
 import { listSimulatorApps } from '../manual/apps.ts';
 import { runTemplatePlayback, PlaybackError } from '../manual/playback.ts';
@@ -242,13 +243,14 @@ export function registerManualRoutes(
   });
 
   // ── batch regression run (A2): play every template matching the filter,
-  // sequentially — one device at a time, wedged run can't wedge the batch ──
-  app.post('/api/templates/play-all', async (req, reply) => {
-    const b = (req.body ?? {}) as { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string> };
+  // sequentially — one device at a time. Shared by play-all AND plans (one
+  // engine, no parallel mechanism). ──
+  async function runBatch(b: { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string> }):
+    Promise<{ ok: true; runIds: string[]; count: number } | { ok: false; code: 400 | 409; error: string; runIds: string[] }> {
     const { selectTemplates } = await import('./templates.ts');
     const rows = db.prepare('SELECT * FROM templates ORDER BY updated_at DESC').all() as Array<{ id: string; app_bundle_id: string | null; tags_json: string | null }>;
     const sel = selectTemplates(rows as never, { tags: b.tags, app: b.app });
-    if (sel.length === 0) return reply.code(400).send({ error: 'no templates match' });
+    if (sel.length === 0) return { ok: false, code: 400, error: 'no templates match', runIds: [] };
     const runIds: string[] = [];
     for (const t of sel) {
       let started: { runId: string; done: Promise<void> };
@@ -259,19 +261,94 @@ export function registerManualRoutes(
           { ...(b.udid !== undefined ? { udid: b.udid } : {}), ...(b.triggeredBy !== undefined ? { triggeredBy: b.triggeredBy } : {}), ...(b.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}), ...(b.env !== undefined ? { env: b.env } : {}) },
         );
       } catch (err) {
-        // B5: device freed mid-batch (manual session started, or a prior run
-        // wedged past the 5-min cap) — abort the REST of the batch, report what ran
+        // B5: device freed mid-batch — abort the REST, report what ran
         if (err instanceof PlaybackError && err.code === 'DEVICE_BUSY') {
-          return reply.code(409).send({ error: `batch aborted at template ${t.id}: device busy`, code: 'DEVICE_BUSY', runIds });
+          return { ok: false, code: 409, error: `batch aborted at template ${t.id}: device busy`, runIds };
         }
         throw err;
       }
       const { runId, done } = started;
       runIds.push(runId);
-      // cap: a hung dispatch leaves the run running forever (B2, deferred) —
-      // this race keeps the BATCH moving; the wedged run itself stays wedged
+      // B2 watchdog now bounds each run; the batch cap remains a belt-and-braces
       await Promise.race([done, new Promise<void>((res) => setTimeout(res, 5 * 60_000))]);
     }
-    return { runIds, count: sel.length };
+    return { ok: true, runIds, count: sel.length };
+  }
+
+  app.post('/api/templates/play-all', async (req, reply) => {
+    const b = (req.body ?? {}) as { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string> };
+    const r = await runBatch(b);
+    if (!r.ok) return reply.code(r.code).send({ error: r.error, code: r.code === 409 ? 'DEVICE_BUSY' : undefined, runIds: r.runIds });
+    return { runIds: r.runIds, count: r.count };
+  });
+
+  // ── plans (B4): remembered suite invocations — tag filter + device + app +
+  // scenario + env, replayed through runBatch. CRUD lives with templates —
+  // a plan IS a saved templates-page state, not a separate world. ──
+  const planRow = (r: { id: string; name: string; tags_json: string; udid: string | null; app_bundle_id: string | null; scenario_id: string | null; env_json: string; created_by: string; created_at: number; updated_at: number }) => ({
+    id: r.id, name: r.name, tags: JSON.parse(r.tags_json) as string[], udid: r.udid, appBundleId: r.app_bundle_id, scenarioId: r.scenario_id, env: JSON.parse(r.env_json) as Record<string, string>, createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
+  });
+  const normalizeTags = (raw: unknown): string[] => [...new Set((Array.isArray(raw) ? raw : []).map((t) => String(t).trim()).filter(Boolean))].slice(0, 8);
+
+  app.get('/api/plans', async () => {
+    const rows = db.prepare('SELECT * FROM plans ORDER BY updated_at DESC').all() as never[];
+    return { plans: rows.map(planRow) };
+  });
+
+  app.post('/api/plans', async (req, reply) => {
+    const b = (req.body ?? {}) as { name?: string; tags?: string[]; udid?: string; appBundleId?: string; scenarioId?: string; env?: Record<string, string>; createdBy?: string };
+    if (!b.name?.trim()) return reply.code(400).send({ error: 'name required' });
+    const id = `plan_${randomUUID().slice(0, 8)}`;
+    const now = Date.now();
+    try {
+      db.prepare(`INSERT INTO plans(id, name, tags_json, udid, app_bundle_id, scenario_id, env_json, created_by, created_at, updated_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(id, b.name.trim(), JSON.stringify(normalizeTags(b.tags)), b.udid ?? null, b.appBundleId ?? null, b.scenarioId ?? null, JSON.stringify(b.env ?? {}), b.createdBy ?? 'qa', now, now);
+    } catch { return reply.code(409).send({ error: 'plan name already exists' }); }
+    return planRow(db.prepare('SELECT * FROM plans WHERE id = ?').get(id) as never);
+  });
+
+  app.patch('/api/plans/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = (req.body ?? {}) as { name?: string; tags?: string[]; udid?: string | null; appBundleId?: string | null; scenarioId?: string | null; env?: Record<string, string> };
+    const row = db.prepare('SELECT * FROM plans WHERE id = ?').get(id) as { id: string } | undefined;
+    if (!row) return reply.code(404).send({ error: 'not found' });
+    if (b.name !== undefined && !b.name.trim()) return reply.code(400).send({ error: 'name cannot be empty' });
+    const prev = db.prepare('SELECT * FROM plans WHERE id = ?').get(id) as { name: string; tags_json: string; udid: string | null; app_bundle_id: string | null; scenario_id: string | null; env_json: string };
+    db.prepare(`UPDATE plans SET name = ?, tags_json = ?, udid = ?, app_bundle_id = ?, scenario_id = ?, env_json = ?, updated_at = ? WHERE id = ?`)
+      .run(
+        b.name !== undefined ? b.name.trim() : prev.name,
+        b.tags !== undefined ? JSON.stringify(normalizeTags(b.tags)) : prev.tags_json,
+        b.udid !== undefined ? b.udid : prev.udid,
+        b.appBundleId !== undefined ? b.appBundleId : prev.app_bundle_id,
+        b.scenarioId !== undefined ? b.scenarioId : prev.scenario_id,
+        b.env !== undefined ? JSON.stringify(b.env) : prev.env_json,
+        Date.now(), id,
+      );
+    return planRow(db.prepare('SELECT * FROM plans WHERE id = ?').get(id) as never);
+  });
+
+  app.delete('/api/plans/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const r = db.prepare('DELETE FROM plans WHERE id = ?').run(id);
+    if (r.changes === 0) return reply.code(404).send({ error: 'not found' });
+    return { ok: true };
+  });
+
+  app.post('/api/plans/:id/run', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const row = db.prepare('SELECT * FROM plans WHERE id = ?').get(id) as { tags_json: string; udid: string | null; app_bundle_id: string | null; scenario_id: string | null; env_json: string } | undefined;
+    if (!row) return reply.code(404).send({ error: 'not found' });
+    const p = planRow({ ...row, id, name: '', created_by: 'qa', created_at: 0, updated_at: 0 });
+    const r = await runBatch({
+      tags: (p.tags as string[]).join(','),
+      ...(p.appBundleId !== null ? { app: p.appBundleId } : {}),
+      ...(p.udid !== null ? { udid: p.udid } : {}),
+      ...(p.scenarioId !== null ? { scenarioId: p.scenarioId } : {}),
+      env: p.env,
+      triggeredBy: `plan:${p.name || id}`,
+    });
+    if (!r.ok) return reply.code(r.code).send({ error: r.error, code: r.code === 409 ? 'DEVICE_BUSY' : undefined, runIds: r.runIds });
+    return { runIds: r.runIds, count: r.count };
   });
 }
