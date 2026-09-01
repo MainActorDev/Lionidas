@@ -568,7 +568,7 @@ function stepKindTitle(action: string): string {
 .tc-body { border-top: 1px solid var(--color-iron); padding: var(--s-3); }
 .tc-desc { color: var(--color-fog); font-size: var(--text-caption); margin: 0 0 var(--s-3); }
 .tc-steps { display: flex; flex-direction: column; gap: 2px; }
-.tc-step { display: flex; align-items: center; gap: var(--s-2); padding: 3px var(--s-1); border-radius: var(--r-sm); font-size: var(--text-caption); color: var(--color-fog); min-height: 26px; }
+.tc-step { display: flex; align-items: center; gap: var(--s-2); padding: 3px 0; border-radius: var(--r-sm); font-size: var(--text-caption); color: var(--color-fog); min-height: 26px; min-width: 0; }
 .tc-step:hover { background: var(--color-graphite); }
 .tc-step-n { color: var(--color-steel); width: 18px; text-align: right; flex: none; }
 .tc-step-kind { flex: none; font-size: 10px; padding: 0 var(--s-1); min-width: 44px; justify-content: center; }
@@ -577,12 +577,17 @@ function stepKindTitle(action: string): string {
 .kind-type { color: var(--color-paper); }
 .kind-expect { border-color: var(--color-ember-dim); color: var(--color-ember); }
 .kind-runFlow { border-style: dashed; }
-.tc-step-label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tc-step-label { flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tc-step-sel { color: var(--color-steel); font-size: 10px; flex: none; }
 .tc-step-assert { color: var(--color-ember); }
-.tc-step-controls { margin-left: auto; display: flex; gap: var(--s-3); flex: none; }
-.tc-step-ctl { font-size: 10px; color: var(--color-steel); cursor: pointer; user-select: none; white-space: nowrap; }
-.tc-step-ctl input { vertical-align: middle; }
+.tc-step-controls { display: flex; gap: var(--s-3); flex: none; margin-left: var(--s-2); }
+.tc-step-ctl {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; color: var(--color-steel);
+  cursor: pointer; user-select: none; white-space: nowrap;
+  overflow: hidden; flex: none;
+}
+.tc-step-ctl input { margin: 0; }
 .tc-body-actions { display: flex; gap: var(--s-2); margin-top: var(--s-3); }
 
 .tc-play-msg { margin-top: var(--s-3); color: var(--color-steel); font-size: var(--text-caption); }

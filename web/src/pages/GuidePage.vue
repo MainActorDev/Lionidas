@@ -16,7 +16,7 @@ const sections: Array<{ id: SectionId; label: string; group: string }> = [
   { id: 'baselines', label: 'approvals', group: 'verify' },
   { id: 'flakes', label: 'flaky tests', group: 'verify' },
   { id: 'forge', label: 'network control', group: 'control' },
-  { id: 'templates', label: 'test templates', group: 'control' },
+  { id: 'templates', label: 'test cases', group: 'control' },
   { id: 'drive', label: 'manual control', group: 'control' },
   { id: 'shortcuts', label: 'keyboard', group: 'control' },
 ];
@@ -273,28 +273,39 @@ const groups = computed(() => {
 
       <!-- ═══ TEMPLATES ═══ -->
       <div v-if="active === 'templates'">
-        <div class="page-title">test templates</div>
-        <p style="color: var(--color-ash); margin: var(--s-2) 0;">Record a manual test once — replay it as a regression any time, with any network conditions.</p>
+        <div class="page-title">test cases</div>
+        <p style="color: var(--color-ash); margin: var(--s-2) 0;">Record a flow once, add assertions, replay it as a regression any time — under any network conditions. A case is three things at once: the steps, the executor, and the evidence.</p>
 
-        <div class="section-label">record</div>
+        <div class="section-label">author — the loop</div>
         <div class="card">
-          <div class="meta-row"><span class="k">1 · take control</span><b>wall → control a simulator — you drive, the screen streams back</b></div>
-          <div class="meta-row"><span class="k">2 · record</span><b>recorder toggle in the sidebar — every tap, scroll, and typed text becomes a step with a thumbnail</b></div>
-          <div class="meta-row"><span class="k">3 · save</span><b>"save as template" — name it, tag it with a Jira ticket, done</b></div>
+          <div class="meta-row"><span class="k">1 · record</span><b>devices, take control, record toggle — every tap/scroll/type becomes a step (with the element it hit, when identifiable)</b></div>
+          <div class="meta-row"><span class="k">2 · assert</span><b>recorder's "assert screen contains…" — type a label, CHECK proves exactly 1 match, ASSERT saves it. Replay fails red if that element ever disappears</b></div>
+          <div class="meta-row"><span class="k">3 · save</span><b>"save as case" — name it, tag it (tags group cases for plans)</b></div>
         </div>
 
-        <div class="section-label">replay</div>
+        <div class="section-label">the case table</div>
         <div class="card">
-          <div class="meta-row"><span class="k">▶ run</span><b>replays the steps on a booted simulator — same taps, same order</b></div>
-          <div class="meta-row"><span class="k">network: live</span><b>default — the app talks to the real network</b></div>
-          <div class="meta-row"><span class="k">network: scenario</span><b>pick one and its presets fake endpoints for the run's duration — restored after</b></div>
-          <div class="meta-row"><span class="k">truth</span><b>steps executed + final screenshot + the traffic the app produced — no image assertions</b></div>
+          <div class="meta-row"><span class="k">case</span><b>name + ticket + tag chips (click a tag to filter)</b></div>
+          <div class="meta-row"><span class="k">app</span><b>the app this case runs against — bound at save time; replay launches it first</b></div>
+          <div class="meta-row"><span class="k">trend</span><b>last 10 runs as glyphs — ✓ pass · ✕ fail · ◆ blocked · ◌ aborted (oldest to newest)</b></div>
+          <div class="meta-row"><span class="k">verdict</span><b>last result + which build + when. hover a row for run / edit / delete</b></div>
+          <div class="meta-row"><span class="k">expand</span><b>click a row — steps with kind chips (tap/scroll/type/assert/flow), per-step switches: "param" turns typed text into a play-time secret, "optional" makes a miss a skip instead of a failure; + subflow / + assert append steps</b></div>
         </div>
 
-        <div class="section-label">regression</div>
+        <div class="section-label">run and plans</div>
         <div class="card">
-          <div class="meta-row"><span class="k">ticket tag</span><b>filter templates by ticket key — rerun exactly what a story needs</b></div>
-          <div class="meta-row"><span class="k">runs page</span><b>every replay is a run: steps, evidence, and attached network traffic</b></div>
+          <div class="meta-row"><span class="k">run filtered</span><b>runs every case matching the filter, sequentially — one device at a time</b></div>
+          <div class="meta-row"><span class="k">+ plan</span><b>saves the current filter + network choice + env as a named chip — "regression-rc1" replays that exact suite forever</b></div>
+          <div class="meta-row"><span class="k">network</span><b>live = real network; a scenario fakes endpoints for each run's duration, then restores</b></div>
+          <div class="meta-row"><span class="k">env</span><b>play-time secrets (KEY=value lines) sent with every run — never stored in the case. The badge counts keys in effect</b></div>
+        </div>
+
+        <div class="section-label">reading results</div>
+        <div class="card">
+          <div class="meta-row"><span class="k">pass / fail</span><b>the app worked / the app is broken — click the run for step-by-step evidence (screenshots, video, network)</b></div>
+          <div class="meta-row"><span class="k">blocked</span><b>infrastructure failed — device offline, engine busy, session bound. NOT an app failure; the run detail tells you how to fix it</b></div>
+          <div class="meta-row"><span class="k">stop</span><b>runs page — abort a stuck run; remaining steps skip, the device frees immediately</b></div>
+          <div class="meta-row"><span class="k">never run</span><b>a case with no runs yet — it counts as neither green nor red</b></div>
         </div>
       </div>
 
