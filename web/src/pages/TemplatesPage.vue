@@ -554,7 +554,8 @@ function stepKindTitle(action: string): string {
 .tc-hover-actions {
   position: absolute; right: var(--s-2); top: 50%; transform: translateY(-50%);
   display: flex; gap: var(--s-1); opacity: 0;
-  background: var(--color-graphite); padding: 2px 0 2px var(--s-3);
+  background: linear-gradient(to right, transparent, var(--color-graphite) 24px);
+  padding: 2px 0;
 }
 .tc-row:hover .tc-hover-actions { opacity: 1; }
 
