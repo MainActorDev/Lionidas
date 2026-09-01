@@ -27,7 +27,7 @@ table rebuilds), vitest, Vue 3. No new dependencies.
 - A7 settle window uses env-injectable polling — the abort flag checks between steps (Task 2 rides the same loop seams).
 - `manual/apps.ts listSimulatorApps` — returns `{bundleId, name, version}` — the app-version source for build anchoring.
 - TemplatesPage/RunsPage/WallPage — no last-verdict, no trend, no plan UI anywhere yet (grep confirmed).
-- Cross-device session binding: `agent-device close --session alloy` recovery is manual — Task 5 classifies its failure signature as blocked.
+- Cross-device session binding: engine-level session release is manual — Task 5 classifies its failure signature as blocked.
 
 ---
 
