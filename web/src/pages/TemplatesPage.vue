@@ -305,178 +305,284 @@ function planDesc(p: Plan): string {
   if (Object.keys(p.env).length) bits.push(`env:${Object.keys(p.env).length} vars`);
   return bits.join(' · ');
 }
-</script>
 
+// ── revamp: env disclosure + step-kind labels ──
+const envOpen = ref(false);  // collapsed until asked — env is an advanced control
+const envKeyCount = computed(() => Object.keys(parseEnv()).length);
+function stepKindLabel(action: string): string {
+  return action === 'tap' ? 'tap' : action === 'scroll' ? 'scroll' : action === 'type' ? 'type' : action === 'expect' ? 'assert' : action === 'runFlow' ? 'flow' : action;
+}
+function stepKindTitle(action: string): string {
+  return action === 'tap' ? 'tap at recorded coordinates (selector-resolved when possible)' : action === 'scroll' ? 'scroll gesture' : action === 'type' ? 'type text into the focused field' : action === 'expect' ? 'existence assertion — replay fails red if the element disappears' : action === 'runFlow' ? 'run another case as a subflow' : action;
+}
+</script>
 <template>
   <section class="page">
-    <header class="page-head">
-      <h1>test cases</h1>
-      <input v-model="filter" class="input filter" placeholder="filter by name, ticket, or tag…" />
+    <!-- ── header: title · suite summary · primary actions ── -->
+    <header class="tc-head">
+      <div class="tc-title-group">
+        <h1>test cases</h1>
+        <span class="stat-summary" :title="`${suiteSummary.green} pass · ${suiteSummary.red} fail · ${suiteSummary.blocked} blocked · ${suiteSummary.never} never run`">
+          <span class="n">{{ suiteSummary.total }}</span> {{ suiteSummary.total === 1 ? 'case' : 'cases' }}
+          <span class="sym" title="passing">✓{{ suiteSummary.green }}</span>
+          <span v-if="suiteSummary.red" class="sym" title="failing">✕{{ suiteSummary.red }}</span>
+          <span v-if="suiteSummary.blocked" class="sym" title="blocked (infra)">◆{{ suiteSummary.blocked }}</span>
+          <span v-if="suiteSummary.never" class="sym" title="never run">◌{{ suiteSummary.never }}</span>
+        </span>
+      </div>
+      <div class="tc-actions">
+        <button class="btn" :disabled="playingAll || shown().length === 0" @click="playAll()" title="sequentially run every case matching the filter">
+          {{ playingAll ? 'running…' : '▶ run filtered' }}
+        </button>
+        <button class="btn btn-ghost" @click="savePlanFromCurrent" title="save the current filter + network choice + env as a named plan — one click replays this exact suite later">+ plan</button>
+      </div>
+    </header>
+
+    <!-- ── controls: filter · network · env disclosure ── -->
+    <div class="tc-controls">
+      <input v-model="filter" class="input tc-filter" placeholder="filter by name, ticket, or tag…" />
       <select
-        v-model="runScenario" class="input" style="width: auto;"
+        v-model="runScenario" class="input tc-scenario"
         title="network scenario active during runs — its presets fake endpoints for the run's duration, then restore"
       >
         <option value="">network: live</option>
         <option v-for="s in scenarios" :key="s.id" :value="s.id">{{ s.name }}</option>
       </select>
-      <button class="btn btn-sm" :disabled="playingAll || shown().length === 0" @click="playAll()" title="sequentially run every case matching the filter">
-        {{ playingAll ? 'running…' : '▶ run filtered' }}
+      <button class="btn btn-ghost tc-env-toggle" :class="{ active: envOpen || !!envText }" @click="envOpen = !envOpen" title="run-time env values (KEY=value lines) sent with every play — never stored in cases">
+        env{{ envKeyCount ? ` · ${envKeyCount}` : '' }} {{ envOpen ? '▾' : '▸' }}
       </button>
-      <button class="btn btn-sm" @click="savePlanFromCurrent" title="save the current filter + network choice + env as a named plan — one click replays this exact suite later">+ save as plan</button>
-      <span class="stat-summary" :title="`${suiteSummary.green} pass · ${suiteSummary.red} fail · ${suiteSummary.blocked} blocked · ${suiteSummary.never} never run`">
-        {{ templates.length }} {{ templates.length === 1 ? 'case' : 'cases' }}
-        <span class="sym">✓ <span class="n">{{ suiteSummary.green }}</span></span>
-        <span v-if="suiteSummary.red" class="sym">✕ <span class="n">{{ suiteSummary.red }}</span></span>
-        <span v-if="suiteSummary.blocked" class="sym">◆ <span class="n">{{ suiteSummary.blocked }}</span></span>
-      </span>
-    </header>
-    <div class="hint-bar" title="the authoring loop — each word is where that step happens">
-      <span class="h-step">record <span>▸ devices</span></span>
-      <span class="h-arrow">→</span>
-      <span class="h-step">assert <span>▸ recorder</span></span>
-      <span class="h-arrow">→</span>
-      <span class="h-step">save <span>▸ sidebar</span></span>
-      <span class="h-arrow">→</span>
-      <span class="h-step">run <span>▶ case or plan</span></span>
-      <span class="h-arrow">→</span>
-      <span class="h-step">verdict <span>▸ runs</span></span>
     </div>
-    <div v-if="plans.length > 0 || planMsg" class="plan-bar">
+    <div v-if="envOpen" class="tc-env">
+      <textarea
+        v-model="envText" class="input" rows="3" spellcheck="false"
+        placeholder="secrets at play time — one KEY=value per line (e.g. PASSWORD=hunter2). never stored in cases."
+      />
+    </div>
+
+    <!-- ── plans (saved suite invocations) ── -->
+    <div v-if="plans.length > 0" class="tc-plans">
+      <span class="tc-plans-label">plans</span>
       <span v-for="p in plans" :key="p.id" class="chip" :title="planDesc(p)">
-        <button class="btn btn-sm btn-primary" :disabled="runningPlan !== null" @click="runPlan(p)">{{ runningPlan === p.id ? 'running…' : `▶ ${p.name}` }}</button>
+        <button class="chip-click" :disabled="runningPlan !== null" @click="runPlan(p)">{{ runningPlan === p.id ? 'running…' : `▶ ${p.name}` }}</button>
         <button class="chip-x" title="delete this plan" @click="deletePlan(p)">✕</button>
       </span>
-      <span v-if="planMsg" class="page-desc">{{ planMsg }}</span>
-    </div>
-    <div class="env-bar">
-      <code class="env-key">env</code>
-      <textarea
-        v-model="envText" class="input env-input" rows="1" spellcheck="false"
-        placeholder="run-time secrets/values, one KEY=value per line (e.g. PASSWORD=hunter2) — sent with every play, never stored in cases"
-      />
+      <span v-if="planMsg" class="tc-plan-msg">{{ planMsg }}</span>
     </div>
 
     <div v-if="loading" class="empty">loading…</div>
     <div v-else-if="error" class="empty" style="color: var(--color-ember);">{{ error }}</div>
-    <div v-else-if="shown().length === 0" class="empty">
-      no templates yet — take control of a device on the wall, record a flow, save it
+
+    <div v-else-if="shown().length === 0" class="empty tc-empty">
+      <div class="tc-empty-title">{{ templates.length === 0 ? 'no test cases yet' : 'no cases match the filter' }}</div>
+      <div class="hint-bar tc-empty-journey">
+        <span class="h-step">record <span>▸ devices</span></span>
+        <span class="h-arrow">→</span>
+        <span class="h-step">assert <span>▸ recorder</span></span>
+        <span class="h-arrow">→</span>
+        <span class="h-step">save <span>▸ sidebar</span></span>
+        <span class="h-arrow">→</span>
+        <span class="h-step">run <span>▶ here</span></span>
+      </div>
     </div>
 
-    <div v-else class="tpl-list">
-      <article v-for="t in shown()" :key="t.id" class="tpl" :class="{ open: expanded === t.id }">
-        <div class="tpl-row" @click="expanded = expanded === t.id ? null : t.id">
-          <span class="tpl-chevron">{{ expanded === t.id ? '▾' : '▸' }}</span>
-          <span class="tpl-name">{{ t.name }}</span>
-          <span v-if="t.ticketKey" class="tag">{{ t.ticketKey }}</span>
-          <span v-for="tg in t.tags ?? []" :key="tg" class="tag tag-chip" title="click to filter by this tag" @click.stop="filter = tg">{{ tg }}</span>
-          <span class="tpl-meta">
-            <img
-              v-if="t.appBundleId && t.udid" class="tpl-icon" alt=""
-              :src="`/api/devices/${t.udid}/apps/${encodeURIComponent(t.appBundleId)}/icon`"
-              @error="(e: Event) => (e.target as HTMLImageElement).style.display = 'none'"
-            />
-            <span v-if="t.appBundleId" class="tpl-app">{{ t.appName ?? t.appBundleId }}</span>
-            <span v-if="t.appVersion" class="tpl-ver">v{{ t.appVersion }}</span>
-            <span v-if="!t.appBundleId" class="tpl-app tpl-app-none">no app bound</span>
-            <span class="tpl-sep">·</span>{{ t.steps.length }} steps · {{ new Date(t.updatedAt).toLocaleDateString() }}</span>
-          <span class="tpl-verdict">
-            <span v-if="trendGlyphs(t).length" class="trend" title="last 10 runs, oldest → newest (✓ pass · ✕ fail · ◆ blocked · ◌ aborted)">
+    <!-- ── case table: column headers + grid rows ── -->
+    <div v-else class="tc-table">
+      <div class="tc-thead">
+        <span class="col-expander"></span>
+        <span class="col-case">case</span>
+        <span class="col-app">app</span>
+        <span class="col-steps">steps</span>
+        <span class="col-updated">updated</span>
+        <span class="col-trend" title="last 10 runs, oldest → newest (✓ pass · ✕ fail · ◆ blocked · ◌ aborted)">trend</span>
+        <span class="col-verdict">verdict</span>
+      </div>
+
+      <article v-for="t in shown()" :key="t.id" class="tc-row-card" :class="{ open: expanded === t.id }">
+        <div class="tc-row" @click="expanded = expanded === t.id ? null : t.id">
+          <span class="col-expander">{{ expanded === t.id ? '▾' : '▸' }}</span>
+          <span class="col-case">
+            <span class="tc-name">{{ t.name }}</span>
+            <span v-if="t.ticketKey" class="tc-ticket">{{ t.ticketKey }}</span>
+            <span v-for="tg in t.tags ?? []" :key="tg" class="chip tc-tag" title="click to filter by this tag" @click.stop="filter = tg">{{ tg }}</span>
+          </span>
+          <span class="col-app">
+            <template v-if="t.appBundleId">
+              <img
+                v-if="t.udid" class="tc-app-icon" alt=""
+                :src="`/api/devices/${t.udid}/apps/${encodeURIComponent(t.appBundleId)}/icon`"
+                @error="(e: Event) => (e.target as HTMLImageElement).style.display = 'none'"
+              />
+              <span class="tc-app-name">{{ t.appName ?? t.appBundleId }}</span>
+              <span v-if="t.appVersion" class="tc-app-ver">v{{ t.appVersion }}</span>
+            </template>
+            <span v-else class="tc-app-none">no app</span>
+          </span>
+          <span class="col-steps">{{ t.steps.length }}</span>
+          <span class="col-updated" :title="new Date(t.updatedAt).toLocaleString()">{{ relTime(t.updatedAt) }}</span>
+          <span class="col-trend">
+            <span v-if="t.verdict?.trend" class="trend" title="last 10 runs, oldest → newest (✓ pass · ✕ fail · ◆ blocked · ◌ aborted)">
               <span v-for="(g, i) in trendGlyphs(t)" :key="i" :class="g.cls">{{ g.g }}</span>
             </span>
+            <span v-else class="tc-trend-none">—</span>
+          </span>
+          <span class="col-verdict">
             <span v-if="t.verdict" :class="`status ${verdictStatusClass(t)}`" :title="verdictLabel(t)">{{ verdictLabel(t) }}</span>
             <span v-else class="status status-none">never run</span>
           </span>
-          <span class="tpl-actions">
+          <span class="tc-hover-actions">
             <button class="btn btn-sm" :disabled="playing !== null" @click.stop="play(t)">{{ playing === t.id ? 'starting…' : '▶ run' }}</button>
             <button class="btn btn-sm btn-ghost" @click.stop="startRename(t)">edit</button>
             <button class="btn btn-sm btn-ghost" @click.stop="remove(t.id)">delete</button>
           </span>
         </div>
 
-        <div v-if="renaming === t.id" class="tpl-edit">
+        <div v-if="renaming === t.id" class="tc-edit">
           <input v-model="renameName" class="input" placeholder="name" />
           <input v-model="renamingTicket" class="input" placeholder="ticket key (e.g. LP-123)" />
           <input v-model="renamingDesc" class="input" placeholder="description" />
           <input v-model="renamingTags" class="input" placeholder="tags (comma list, e.g. smoke, login)" />
-          <button class="btn btn-sm" @click="saveRename(t.id)">save</button>
-          <button class="btn btn-sm btn-ghost" @click="renaming = null">cancel</button>
+          <span class="tc-edit-actions">
+            <button class="btn btn-sm" @click="saveRename(t.id)">save</button>
+            <button class="btn btn-sm btn-ghost" @click="renaming = null">cancel</button>
+          </span>
         </div>
 
-        <div v-if="expanded === t.id" class="tpl-body">
-          <p v-if="t.description" class="tpl-desc">{{ t.description }}</p>
-          <ol class="tpl-steps">
-            <li v-for="s in t.steps" :key="s.idx">
-              <span class="tpl-step-idx">{{ s.idx + 1 }}</span> {{ stepLabel(s) }}
+        <div v-if="expanded === t.id" class="tc-body">
+          <p v-if="t.description" class="tc-desc">{{ t.description }}</p>
+          <div class="tc-steps">
+            <div v-for="s in t.steps" :key="s.idx" class="tc-step">
+              <span class="tc-step-n">{{ s.idx + 1 }}</span>
+              <span class="chip tc-step-kind" :class="`kind-${s.action}`" :title="stepKindTitle(s.action)">{{ stepKindLabel(s.action) }}</span>
+              <span class="tc-step-label">{{ stepLabel(s) }}</span>
               <span
                 v-if="s.selector && (s.selector.identifier || s.selector.label) && s.action !== 'expect'"
-                class="tpl-step-sel"
-                :title="`element selector (A6): ${JSON.stringify(s.selector)}`"
+                class="tc-step-sel"
+                :title="`element selector: ${JSON.stringify(s.selector)}`"
               >⚓ {{ s.selector.identifier ?? s.selector.label }}</span>
-              <span
-                v-if="s.action === 'expect' && s.selector"
-                class="tpl-step-sel"
-                :title="`assertion (A7): replay fails if this element disappears — ${JSON.stringify(s.selector)}`"
-              >🎯 {{ s.selector.label ?? s.selector.identifier }}</span>
-              <label v-if="s.action === 'type'" class="tpl-step-ctl" title="replace literal text with ${env.KEY} — the value is provided at play time (env box above), never stored in the template">
-                <input type="checkbox" :checked="(s.text ?? '').startsWith('${env.')" @change="parameterize(t, s)" /> param
-              </label>
-              <label class="tpl-step-ctl" title="optional step: a miss records skip, the run stays green (popups, interstitials)">
-                <input type="checkbox" :checked="!!s.optional" @change="toggleOptional(t, s)" /> optional
-              </label>
-            </li>
-          </ol>
-          <div style="display: flex; gap: var(--s-2); margin-top: var(--s-2);">
-            <button class="btn btn-sm" @click="addSubflow(t)" title="append a runFlow step — this template will run another template's steps as part of its own">+ subflow</button>
+              <span v-if="s.action === 'expect' && s.selector" class="tc-step-sel tc-step-assert" :title="`assertion: replay fails if this element disappears — ${JSON.stringify(s.selector)}`">assert</span>
+              <span class="tc-step-controls">
+                <label v-if="s.action === 'type'" class="tc-step-ctl" title="replace literal text with ${env.KEY} — the value is provided at play time (env box above), never stored in the case">
+                  <input type="checkbox" :checked="(s.text ?? '').startsWith('${env.')" @change="parameterize(t, s)" /> param
+                </label>
+                <label class="tc-step-ctl" title="optional step: a miss records skip, the run stays green (popups, interstitials)">
+                  <input type="checkbox" :checked="!!s.optional" @change="toggleOptional(t, s)" /> optional
+                </label>
+              </span>
+            </div>
+          </div>
+          <div class="tc-body-actions">
+            <button class="btn btn-sm" @click="addSubflow(t)" title="append a runFlow step — this case will run another case's steps as part of its own">+ subflow</button>
             <button class="btn btn-sm" @click="addExpectation(t)" title="append an assertion — replay fails red if the element disappears from the screen">+ assert</button>
           </div>
         </div>
       </article>
     </div>
-    <div v-if="playMsg" class="play-msg">{{ playMsg }}</div>
+    <div v-if="playMsg" class="tc-play-msg">{{ playMsg }}</div>
   </section>
 </template>
 
 <style scoped>
-.page { padding: var(--s-5); max-width: 900px; margin: 0 auto; }
-.page-head { display: flex; align-items: baseline; gap: var(--s-3); margin-bottom: var(--s-4); }
-.page-head h1 { font-size: 20px; font-weight: 600; margin: 0; }
-.filter { flex: 1; max-width: 280px; }
-.count { color: var(--color-steel); font-size: 11px; }
-.empty { color: var(--color-steel); font-size: 12px; padding: var(--s-8) 0; text-align: center; }
-.tpl-list { display: flex; flex-direction: column; gap: var(--s-2); }
-.tpl { border: 1px solid var(--color-iron); border-radius: 6px; background: var(--color-panel); }
-.tpl.open { border-color: var(--color-ash); }
-.tpl-row { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-2) var(--s-3); cursor: pointer; }
-.tpl-chevron { color: var(--color-steel); font-size: 10px; }
-.tpl-name { font-weight: 600; font-size: 13px; }
-.tag { font-size: 10px; color: var(--color-ember); border: 1px solid var(--color-iron); padding: 1px 6px; border-radius: 3px; }
-.tag-chip { color: var(--color-fog); cursor: pointer; }
-.tag-chip:hover { border-color: var(--color-ash); }
-.env-bar { display: flex; align-items: center; gap: var(--s-2); margin-bottom: var(--s-3); }
-.env-key { font-size: 10px; color: var(--color-steel); }
-.env-input { flex: 1; font-family: var(--font-mono, monospace); font-size: 11px; resize: vertical; min-height: 26px; }
-.tpl-step-ctl { font-size: 10px; color: var(--color-steel); margin-left: 8px; cursor: pointer; user-select: none; }
-.tpl-step-ctl input { vertical-align: middle; }
-.tpl-meta { flex: 1; color: var(--color-steel); font-size: 10px; text-align: right; display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
-.tpl-icon { width: 16px; height: 16px; border-radius: 4px; display: block; }
-.tpl-app { color: var(--color-ash); }
-.tpl-app-none { color: var(--color-steel); font-style: italic; }
-.tpl-ver { font-size: 9px; }
-.tpl-sep { opacity: 0.5; }
-.tpl-row { position: relative; }
-.tpl-actions { position: absolute; right: var(--s-2); top: 50%; transform: translateY(-50%); display: flex; gap: var(--s-1); opacity: 0; background: var(--color-carbon); padding-left: var(--s-3); }
-.tpl-row:hover .tpl-actions { opacity: 1; }
+.page { padding: var(--s-5); max-width: 1160px; margin: 0 auto; }
 
-/* verdict cell layout only — all visual primitives are system classes
-   (.status-*, .trend, .chip, .stat-summary, .hint-bar in components.css) */
-.tpl-verdict { display: flex; align-items: center; gap: var(--s-2); flex: none; }
-.plan-bar { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; margin-bottom: var(--s-3); }
-.tpl-edit { display: flex; gap: var(--s-2); padding: var(--s-2) var(--s-3); border-top: 1px solid var(--color-iron); flex-wrap: wrap; }
-.tpl-edit .input { flex: 1; min-width: 120px; }
-.tpl-body { border-top: 1px solid var(--color-iron); padding: var(--s-3); }
-.tpl-desc { color: var(--color-fog); font-size: 12px; margin: 0 0 var(--s-2); }
-.tpl-steps { margin: 0; padding-left: 20px; color: var(--color-fog); font-size: 12px; }
-.tpl-steps li { margin: 2px 0; }
-.tpl-step-idx { color: var(--color-steel); }
-.play-msg { margin-top: var(--s-3); color: var(--color-steel); font-size: 11px; }
+/* ── header ── */
+.tc-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); margin-bottom: var(--s-4); }
+.tc-title-group { display: flex; align-items: baseline; gap: var(--s-4); }
+.tc-head h1 { font-size: var(--text-heading); font-weight: var(--weight-bold); margin: 0; }
+.tc-actions { display: flex; gap: var(--s-2); }
+
+/* ── controls ── */
+.tc-controls { display: flex; align-items: center; gap: var(--s-2); margin-bottom: var(--s-3); }
+.tc-filter { flex: 1; max-width: 340px; }
+.tc-scenario { width: auto; }
+.tc-env-toggle { min-width: 72px; justify-content: center; }
+.tc-env-toggle.active { color: var(--color-paper); border-color: var(--color-slate); }
+.tc-env { margin-bottom: var(--s-3); }
+.tc-env textarea { resize: vertical; font-size: var(--text-caption); }
+
+/* ── plans ── */
+.tc-plans { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; margin-bottom: var(--s-3); }
+.tc-plans-label { font-size: var(--text-caption); color: var(--color-steel); text-transform: uppercase; letter-spacing: 0.08em; }
+.tc-plan-msg { font-size: var(--text-caption); color: var(--color-ash); }
+
+/* ── empty state ── */
+.tc-empty { padding: var(--s-7); }
+.tc-empty-title { color: var(--color-fog); font-size: var(--text-body); margin-bottom: var(--s-4); }
+.tc-empty-journey { border-bottom: none; justify-content: center; margin-bottom: 0; }
+
+/* ── the table: grid columns shared by header + rows ── */
+.tc-thead, .tc-row {
+  display: grid;
+  grid-template-columns: 20px minmax(220px, 1.6fr) minmax(150px, 1fr) 52px 72px minmax(84px, auto) minmax(150px, auto);
+  gap: var(--s-2);
+  align-items: center;
+}
+.tc-thead {
+  font-size: var(--text-caption);
+  color: var(--color-ash);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0 var(--s-3) var(--s-2);
+}
+.tc-thead .col-steps, .tc-thead .col-updated { text-align: right; }
+.tc-thead .col-trend { text-align: center; }
+.tc-thead .col-verdict { text-align: right; }
+
+.tc-table { display: flex; flex-direction: column; gap: var(--s-2); }
+.tc-row-card { border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); }
+.tc-row-card.open { border-color: var(--color-slate); }
+.tc-row { position: relative; padding: var(--s-2) var(--s-3); cursor: pointer; min-height: 44px; }
+.tc-row:hover { background: var(--color-graphite); }
+
+.col-expander { color: var(--color-steel); font-size: 10px; }
+.col-case { display: flex; align-items: center; gap: var(--s-2); min-width: 0; flex-wrap: wrap; }
+.tc-name { font-weight: var(--weight-bold); font-size: var(--text-label); color: var(--color-paper); }
+.tc-ticket { font-size: var(--text-caption); color: var(--color-ash); }
+.tc-tag { font-size: 10px; padding: 0 var(--s-1); }
+
+.col-app { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tc-app-icon { width: 18px; height: 18px; border-radius: 3px; display: block; flex: none; }
+.tc-app-name { color: var(--color-ash); font-size: var(--text-caption); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tc-app-ver { color: var(--color-steel); font-size: 10px; flex: none; }
+.tc-app-none { color: var(--color-steel); font-size: var(--text-caption); font-style: italic; }
+
+.col-steps, .col-updated { text-align: right; color: var(--color-ash); font-size: var(--text-caption); }
+.col-trend { text-align: center; }
+.tc-trend-none { color: var(--color-pewter); }
+.col-verdict { text-align: right; }
+
+/* hover actions overlay — zero reserve, verdict stays flush */
+.tc-hover-actions {
+  position: absolute; right: var(--s-2); top: 50%; transform: translateY(-50%);
+  display: flex; gap: var(--s-1); opacity: 0;
+  background: var(--color-graphite); padding: 2px 0 2px var(--s-3);
+}
+.tc-row:hover .tc-hover-actions { opacity: 1; }
+
+/* ── edit strip ── */
+.tc-edit { display: flex; gap: var(--s-2); padding: var(--s-2) var(--s-3); border-top: 1px solid var(--color-iron); flex-wrap: wrap; align-items: center; }
+.tc-edit .input { flex: 1; min-width: 120px; }
+.tc-edit-actions { display: flex; gap: var(--s-2); }
+
+/* ── expanded body: structured steps ── */
+.tc-body { border-top: 1px solid var(--color-iron); padding: var(--s-3); }
+.tc-desc { color: var(--color-fog); font-size: var(--text-caption); margin: 0 0 var(--s-3); }
+.tc-steps { display: flex; flex-direction: column; gap: 2px; }
+.tc-step { display: flex; align-items: center; gap: var(--s-2); padding: 3px var(--s-1); border-radius: var(--r-sm); font-size: var(--text-caption); color: var(--color-fog); min-height: 26px; }
+.tc-step:hover { background: var(--color-graphite); }
+.tc-step-n { color: var(--color-steel); width: 18px; text-align: right; flex: none; }
+.tc-step-kind { flex: none; font-size: 10px; padding: 0 var(--s-1); min-width: 44px; justify-content: center; }
+.kind-tap { color: var(--color-paper); }
+.kind-scroll { color: var(--color-ash); }
+.kind-type { color: var(--color-paper); }
+.kind-expect { border-color: var(--color-ember-dim); color: var(--color-ember); }
+.kind-runFlow { border-style: dashed; }
+.tc-step-label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tc-step-sel { color: var(--color-steel); font-size: 10px; flex: none; }
+.tc-step-assert { color: var(--color-ember); }
+.tc-step-controls { margin-left: auto; display: flex; gap: var(--s-3); flex: none; }
+.tc-step-ctl { font-size: 10px; color: var(--color-steel); cursor: pointer; user-select: none; white-space: nowrap; }
+.tc-step-ctl input { vertical-align: middle; }
+.tc-body-actions { display: flex; gap: var(--s-2); margin-top: var(--s-3); }
+
+.tc-play-msg { margin-top: var(--s-3); color: var(--color-steel); font-size: var(--text-caption); }
 </style>
