@@ -221,7 +221,17 @@ export function migrateM1(db: Database.Database): void {
     // step logging (post-substitution audit truth)
     'ALTER TABLE templates ADD COLUMN tags_json TEXT',
     'ALTER TABLE run_steps ADD COLUMN evaluated_json TEXT',
+    // Batch 4 — suite management: runs carry their template (case) for
+    // history/trend joins, the app build they tested, and the blocked
+    // dimension (infra failure ≠ app failure; boolean, NOT a status value —
+    // the status CHECK constraint would need a table rebuild).
+    'ALTER TABLE runs ADD COLUMN template_id TEXT REFERENCES templates(id) ON DELETE SET NULL',
+    'ALTER TABLE runs ADD COLUMN app_version TEXT',
+    'ALTER TABLE runs ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0',
   ]) {
     try { db.exec(col); } catch { /* column exists */ }
   }
+  // build anchoring: filter/index runs by app version
+  db.exec('CREATE INDEX IF NOT EXISTS idx_runs_app_version ON runs(app_version, started_at DESC)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_runs_template ON runs(template_id, started_at DESC)');
 }

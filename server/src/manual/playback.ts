@@ -122,10 +122,17 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
   // steps land on a known screen, not whatever happened to be foreground
   const appToLaunch = opts.bundleId ?? t.app_bundle_id ?? 'com.apple.Preferences';
   const runId = `run_${createHash('sha256').update(`playback${templateId}${Date.now()}`).digest('hex').slice(0, 8)}`;
+  // build anchoring: stamp the installed app's version at run creation
+  // (best-effort — non-bundle fallbacks render 'unknown')
+  let appVersion: string | null = null;
+  try {
+    const { listSimulatorApps } = await import('./apps.ts');
+    appVersion = (await listSimulatorApps(udid)).find((a) => a.bundleId === appToLaunch)?.version ?? null;
+  } catch { /* version best-effort */ }
   deps.db
-    .prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, note)
-              VALUES (?, ?, 'manual', 'running', ?, ?, ?, ?)`)
-    .run(runId, t.ticket_key ?? 'TEMPLATE', opts.triggeredBy ?? 'qa', udid, Date.now(), `template:${templateId} ${t.name}`);
+    .prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, note, template_id, app_version)
+              VALUES (?, ?, 'manual', 'running', ?, ?, ?, ?, ?, ?)`)
+    .run(runId, t.ticket_key ?? 'TEMPLATE', opts.triggeredBy ?? 'qa', udid, Date.now(), `template:${templateId} ${t.name}`, templateId, appVersion);
   deps.bus.emit('run.started', { runId, ticketKey: t.ticket_key ?? 'TEMPLATE' });
 
   // background execution — route returns immediately; done settles at finish
