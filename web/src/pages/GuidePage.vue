@@ -2,11 +2,12 @@
 import { ref, computed } from 'vue';
 import GuideSlices from '../components/GuideSlices.vue';
 
-type SectionId = 'quickstart' | 'wall' | 'runs' | 'matrix' | 'triage' | 'baselines' | 'forge' | 'templates' | 'drive' | 'flakes' | 'status' | 'shortcuts';
+type SectionId = 'yourday' | 'quickstart' | 'wall' | 'runs' | 'matrix' | 'triage' | 'baselines' | 'forge' | 'templates' | 'drive' | 'flakes' | 'status' | 'shortcuts';
 
 const active = ref<SectionId>('quickstart');
 
 const sections: Array<{ id: SectionId; label: string; group: string }> = [
+  { id: 'yourday', label: 'your day', group: 'basics' },
   { id: 'quickstart', label: 'quick start', group: 'basics' },
   { id: 'wall', label: 'devices', group: 'basics' },
   { id: 'runs', label: 'runs & queue', group: 'basics' },
@@ -46,7 +47,21 @@ const groups = computed(() => {
     <!-- content -->
     <div>
       <!-- ═══ QUICKSTART ═══ -->
-      <div v-if="active === 'quickstart'">
+      
+<div v-if="active === 'yourday'" class="sec">
+  <h2>your day</h2>
+  <p class="lead">The whole point of this tool, as one journey — the pages exist to serve these three moments.</p>
+  <div class="meta-row"><span>morning</span><span class="mono">suite health → /</span></div>
+  <p>Open Crucible and you land on the <b>suite health board</b>. One screen answers the only question that matters at 9am: <b>is the app OK?</b> Every case as a card — verdict, last 10 runs as glyphs, app + build it last ran against. Failures and blocked runs sort to the top so attention goes where it should; passing cases stay visible because the board shows the suite's whole shape, not just its problems.</p>
+  <p>From there: <b>▶ run suite</b> plays every case back-to-back (verdicts update live as runs finish), or hit a <b>plan chip</b> — a saved slice of the suite (a tag filter on a device, say <span class="mono">smoke</span> on the iPhone 14 Plus) replayed in one click.</p>
+  <div class="meta-row"><span>authoring</span><span class="mono">devices → record → assert → save</span></div>
+  <p>A new case starts on the <b>devices</b> page: open a simulator, start a session with the app, and drive it while the recorder captures every tap, scroll, and typed text as steps. The recorder sidebar's <b>assert</b> turns a recording into a <i>test</i> — pick something on screen, the probe checks it resolves to exactly one match, and the expectation is committed as a step. Save the recording and it appears in <b>test cases</b> with its steps, tags, env params, and plans.</p>
+  <div class="meta-row"><span>investigating</span><span class="mono">red card → run detail</span></div>
+  <p>Click a red card and you're in the failing run: every step with what it resolved against (<span class="mono">selector</span> vs <span class="mono">coordinate</span>), the final screenshot, and — when the network proxy is running — <b>the run's own HTTP traffic</b>: every request the app made while this specific run executed, with statuses and latencies. Video-grade evidence without maintaining a separate artifact: the case, its executor, and its evidence are one thing.</p>
+  <p class="cap">Blocked runs (◆) sit beside failures with an honest label — the infrastructure failed, not the app. They're sorted high too, because a flaky rig is its own kind of fire.</p>
+</div>
+
+<div v-if="active === 'quickstart'">
         <div class="page-title">how to use crucible</div>
         <p style="color: var(--color-ash); margin: var(--s-2) 0 var(--s-4); font-size: var(--text-body); line-height: 1.6;">
           Crucible verifies that your app works on a real device. It runs test flows on simulators,
