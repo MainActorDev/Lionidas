@@ -24,9 +24,18 @@ let cached: AlloyExports | null = null;
 let testOverride: AlloyExports | null = null;
 
 /** Test-only: swap the alloy implementation (fake dispatch) — prod code
- *  never calls this; without it, resolveAlloyPath + require run as before. */
+ *  never calls this; without it, resolveAlloyPath + require run as before.
+ *  Reset for self-heal uses resetEngineCache (prod seam) — test override
+ *  always wins over both. */
 export function __setAlloyForTest(fake: AlloyExports | null): void {
   testOverride = fake;
+  cached = null;
+}
+
+/** Prod seam: drop cached engine clients so the next crucibleAlloy() call
+ *  re-resolves and re-requires — fresh engine-A/B clients, fresh tool-server
+ *  spawn chain. Used by withEngineHeal on known staleness signatures. */
+export function resetEngineCache(): void {
   cached = null;
 }
 

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { createReadStream, statSync } from 'node:fs';
+import { withEngineHeal } from '../alloy/heal.ts';
 import { crucibleAlloy } from '../alloy/client.ts';
 import { alloyDispatchDepsSync } from '../alloy/runtime.ts';
 
@@ -63,8 +64,10 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
     if (booted.kind !== 'simulator') {
       return reply.code(422).send({ error: 'live stream is simulator-only (no MJPEG source for physical devices)', code: 'SIM_ONLY' });
     }
-    const alloy = crucibleAlloy();
-    const r = (await alloy.dispatch('alloy_stream', { udid }, alloyDispatchDepsSync())) as
+    // self-heal: a dead tool-server ("fetch failed") is the known staleness
+    // class — one engine reset + retry before surfacing the error
+    const r = (await withEngineHeal(async () =>
+      crucibleAlloy().dispatch('alloy_stream', { udid }, alloyDispatchDepsSync()))) as
       | { ok: true; result: { streamUrl: string; platform: string } }
       | { ok: false; error: { code: string; message: string } };
     if (!r.ok) return reply.code(503).send({ error: `stream unavailable: ${r.error.message}`, code: r.error.code });
