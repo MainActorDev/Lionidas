@@ -70,12 +70,13 @@ function openCase(c: { verdict: { lastRunId: string | null } | null; id: string 
     <header class="sh-head">
       <div class="sh-title-group">
         <h1>suite health</h1>
+        <p class="sh-sub">every case's latest verdict — click a card to open its last run</p>
         <span class="stat-summary" :title="`${summary.green} pass · ${summary.red} fail · ${summary.blocked} blocked · ${summary.never} never run`">
           <span class="n">{{ summary.total }}</span> {{ summary.total === 1 ? 'case' : 'cases' }}
-          <span class="sym" title="passing">✓{{ summary.green }}</span>
-          <span v-if="summary.red" class="sym" title="failing">✕{{ summary.red }}</span>
-          <span v-if="summary.blocked" class="sym" title="blocked (infra)">◆{{ summary.blocked }}</span>
-          <span v-if="summary.never" class="sym" title="never run">◌{{ summary.never }}</span>
+          <span class="sym" title="passing">passing {{ summary.green }}</span>
+          <span v-if="summary.red" class="sym" title="failing">failing {{ summary.red }}</span>
+          <span v-if="summary.blocked" class="sym" title="blocked (infrastructure failed, not the app)">blocked {{ summary.blocked }}</span>
+          <span v-if="summary.never" class="sym" title="never run">never run {{ summary.never }}</span>
         </span>
       </div>
       <div class="sh-actions">
@@ -119,9 +120,9 @@ function openCase(c: { verdict: { lastRunId: string | null } | null; id: string 
       >
         <div class="sh-card-main">
           <span class="sh-name">{{ c.name }}</span>
-          <span v-if="c.appName ?? c.appBundleId" class="sh-app">{{ c.appName ?? c.appBundleId }}<span v-if="c.verdict?.lastAppVersion"> · v{{ c.verdict.lastAppVersion }}</span></span>
+          <span v-if="c.appName ?? c.appBundleId" class="sh-app">{{ c.appName ?? c.appBundleId }}</span>
         </div>
-        <span v-if="trendGlyphs(c).length" class="trend" title="last 10 runs, oldest → newest">
+        <span v-if="trendGlyphs(c).length" class="trend sh-trend" title="history: last runs, oldest → newest — pass ✓ / fail ✕ / blocked ◆ / aborted ◌">
           <span v-for="(g, i) in trendGlyphs(c)" :key="i" :class="g.cls">{{ g.g }}</span>
         </span>
         <span :class="`status ${verdictStatusClass(c)}`">{{ verdictLabel(c) }}</span>
@@ -136,6 +137,9 @@ function openCase(c: { verdict: { lastRunId: string | null } | null; id: string 
 .sh-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); margin-bottom: var(--s-4); }
 .sh-title-group { display: flex; align-items: baseline; gap: var(--s-4); }
 .sh-head h1 { font-size: var(--text-heading); font-weight: var(--weight-bold); margin: 0; }
+.sh-sub { margin: 2px 0 0; font-size: var(--text-caption); color: var(--color-ash); }
+.sh-title-group { flex-direction: column; align-items: flex-start; gap: 0; }
+.sh-trend::after { content: ' history'; font-size: 9px; color: var(--color-steel); margin-left: 4px; }
 .sh-actions { display: flex; gap: var(--s-2); }
 
 .sh-plans { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; margin-bottom: var(--s-3); }
