@@ -100,9 +100,11 @@ batch, plan at `docs/plans/2026-09-01-suite-management.md`).*
 
 ## C. Older deferred items (pre-Maestro)
 
-### C1. iPad exclusion is model-based — revisit toggle
-- **What:** poller filters `/^iPad/` on simctl model (commit 2026-08-31).
-  One-line removal if iPad testing is ever wanted.
+*Formerly C1 (iPad exclusion "model-based — revisit toggle"): REMOVED
+2026-09-01 — not a deferred flaw but a settled product decision, verified in
+code (`poll/devices.ts` filters iPad device types with an explanatory
+comment; one-line removal if iPad testing is ever wanted lives as that
+comment). The entry was describing intentional behavior as pending work.*
 
 ### C2. Settings fallback in session start
 - **What:** `startManualSession` falls back to `com.apple.Preferences` when no
