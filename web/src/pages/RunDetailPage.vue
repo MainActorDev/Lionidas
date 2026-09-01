@@ -96,8 +96,8 @@ onMounted(() => {
       <div class="meta-row"><span class="k">launch args</span><b>{{ run.launch_args_json }}</b></div>
     </div>
 
-    <div v-if="run.blocked === 1" class="card" style="border-left: 2px solid var(--color-amber, #d80);">
-      <b style="color: var(--color-amber, #d80);">◆ blocked — infrastructure failure, not an app failure</b>
+    <div v-if="run.blocked === 1" class="card card-accent" style="border-left-style: dashed;">
+      <b>◆ blocked — infrastructure failure, not an app failure</b>
       <div style="font-size: 11px; color: var(--color-steel); margin-top: 4px;">
         {{ run.note?.includes('already bound') ? 'engine session bound to another device — release it (engine close --session alloy) or restart the server, then re-run' : 'the app never got tested — device/engine/network failed before or during the run' }}
       </div>

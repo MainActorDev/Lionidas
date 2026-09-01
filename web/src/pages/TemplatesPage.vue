@@ -219,6 +219,12 @@ function verdictKind(t: Template): VerdictKind {
   if (v.lastStatus === 'aborted') return 'aborted';
   return v.lastBlocked === 1 ? 'blocked' : 'red';
 }
+/** verdict → existing .status-* system class (symbols carry status per Axiom:
+ *  ✓ pass · ✕ fail · ◆ blocked (dashed) · ◌ aborted · · never). */
+function verdictStatusClass(t: Template): string {
+  const k = verdictKind(t);
+  return k === 'green' ? 'status-pass' : k === 'red' ? 'status-fail' : k === 'blocked' ? 'status-blocked' : k === 'aborted' ? 'status-quarantined' : 'status-none';
+}
 function verdictLabel(t: Template): string {
   const k = verdictKind(t);
   if (k === 'never') return 'never run';
@@ -235,11 +241,11 @@ function relTime(ms: number): string {
   if (d < 86_400_000) return `${Math.floor(d / 3_600_000)}h ago`;
   return `${Math.floor(d / 86_400_000)}d ago`;
 }
-/** trend glyph → (char, class) — p/f/a + uppercase F = blocked */
+/** trend glyph → (symbol, system class) — mirrors .status-* semantics */
 function trendGlyphs(t: Template): Array<{ g: string; cls: string }> {
   const trend = t.verdict?.trend;
   if (!trend) return [];
-  return trend.split('').map((g) => ({ g, cls: g === 'p' ? 'tg-p' : g === 'F' ? 'tg-F' : g === 'f' ? 'tg-f' : 'tg-a' }));
+  return trend.split('').map((g) => ({ g: g === 'p' ? '✓' : g === 'F' ? '◆' : g === 'f' ? '✕' : '◌', cls: g === 'p' ? 't-pass' : g === 'F' ? 't-blocked' : g === 'f' ? 't-fail' : 't-abort' }));
 }
 const suiteSummary = computed(() => {
   const ks = templates.value.map(verdictKind);
@@ -317,29 +323,30 @@ function planDesc(p: Plan): string {
         {{ playingAll ? 'running…' : '▶ run filtered' }}
       </button>
       <button class="btn btn-sm" @click="savePlanFromCurrent" title="save the current filter + network choice + env as a named plan — one click replays this exact suite later">+ save as plan</button>
-      <span class="count" :title="`${suiteSummary.green} pass · ${suiteSummary.red} fail · ${suiteSummary.blocked} blocked · ${suiteSummary.never} never run`">
-        {{ templates.length }} cases · ✓{{ suiteSummary.green }} {{ suiteSummary.red + suiteSummary.blocked > 0 ? `✕${suiteSummary.red}` : '' }}{{ suiteSummary.blocked > 0 ? ` ◆${suiteSummary.blocked}` : '' }}
+      <span class="stat-summary" :title="`${suiteSummary.green} pass · ${suiteSummary.red} fail · ${suiteSummary.blocked} blocked · ${suiteSummary.never} never run`">
+        {{ templates.length }} {{ templates.length === 1 ? 'case' : 'cases' }}
+        <span class="sym">✓ <span class="n">{{ suiteSummary.green }}</span></span>
+        <span v-if="suiteSummary.red" class="sym">✕ <span class="n">{{ suiteSummary.red }}</span></span>
+        <span v-if="suiteSummary.blocked" class="sym">◆ <span class="n">{{ suiteSummary.blocked }}</span></span>
       </span>
     </header>
-    <div class="journey" title="the authoring loop — each word is where that step happens">
-      <span class="j-step">record <span class="j-hint">devices ▸ take control</span></span>
-      <span class="j-arrow">→</span>
-      <span class="j-step">assert <span class="j-hint">recorder ▸ assert box</span></span>
-      <span class="j-arrow">→</span>
-      <span class="j-step">save <span class="j-hint">save as case</span></span>
-      <span class="j-arrow">→</span>
-      <span class="j-step">run <span class="j-hint">▶ per case or plan</span></span>
-      <span class="j-arrow">→</span>
-      <span class="j-step">verdict <span class="j-hint">runs page</span></span>
+    <div class="hint-bar" title="the authoring loop — each word is where that step happens">
+      <span class="h-step">record <span>▸ devices</span></span>
+      <span class="h-arrow">→</span>
+      <span class="h-step">assert <span>▸ recorder</span></span>
+      <span class="h-arrow">→</span>
+      <span class="h-step">save <span>▸ sidebar</span></span>
+      <span class="h-arrow">→</span>
+      <span class="h-step">run <span>▶ case or plan</span></span>
+      <span class="h-arrow">→</span>
+      <span class="h-step">verdict <span>▸ runs</span></span>
     </div>
     <div v-if="plans.length > 0 || planMsg" class="plan-bar">
-      <template v-for="p in plans" :key="p.id">
-        <span class="plan-chip" :title="planDesc(p)">
-          <button class="btn btn-sm btn-primary" :disabled="runningPlan !== null" @click="runPlan(p)">{{ runningPlan === p.id ? 'running…' : `▶ ${p.name}` }}</button>
-          <button class="btn btn-sm btn-ghost" title="delete this plan" @click="deletePlan(p)">✕</button>
-        </span>
-      </template>
-      <span v-if="planMsg" class="plan-msg">{{ planMsg }}</span>
+      <span v-for="p in plans" :key="p.id" class="chip" :title="planDesc(p)">
+        <button class="btn btn-sm btn-primary" :disabled="runningPlan !== null" @click="runPlan(p)">{{ runningPlan === p.id ? 'running…' : `▶ ${p.name}` }}</button>
+        <button class="chip-x" title="delete this plan" @click="deletePlan(p)">✕</button>
+      </span>
+      <span v-if="planMsg" class="page-desc">{{ planMsg }}</span>
     </div>
     <div class="env-bar">
       <code class="env-key">env</code>
@@ -372,12 +379,12 @@ function planDesc(p: Plan): string {
             <span v-if="t.appVersion" class="tpl-ver">v{{ t.appVersion }}</span>
             <span v-if="!t.appBundleId" class="tpl-app tpl-app-none">no app bound</span>
             <span class="tpl-sep">·</span>{{ t.steps.length }} steps · {{ new Date(t.updatedAt).toLocaleDateString() }}</span>
-          <span class="tpl-verdict" :title="verdictLabel(t)">
-            <span v-if="trendGlyphs(t).length" class="tpl-trend">
+          <span class="tpl-verdict">
+            <span v-if="trendGlyphs(t).length" class="trend" title="last 10 runs, oldest → newest (✓ pass · ✕ fail · ◆ blocked · ◌ aborted)">
               <span v-for="(g, i) in trendGlyphs(t)" :key="i" :class="g.cls">{{ g.g }}</span>
             </span>
-            <span :class="`vd vd-${verdictKind(t)}`">{{ verdictKind(t) === 'green' ? '✓' : verdictKind(t) === 'red' ? '✕' : verdictKind(t) === 'blocked' ? '◆' : verdictKind(t) === 'aborted' ? '◌' : '·' }}</span>
-            <span class="vd-label">{{ verdictLabel(t) }}</span>
+            <span v-if="t.verdict" :class="`status ${verdictStatusClass(t)}`" :title="verdictLabel(t)">{{ verdictLabel(t) }}</span>
+            <span v-else class="status status-none">never run</span>
           </span>
           <span class="tpl-actions">
             <button class="btn btn-sm" :disabled="playing !== null" @click.stop="play(t)">{{ playing === t.id ? 'starting…' : '▶ run' }}</button>
@@ -456,36 +463,14 @@ function planDesc(p: Plan): string {
 .tpl-app-none { color: var(--color-steel); font-style: italic; }
 .tpl-ver { font-size: 9px; }
 .tpl-sep { opacity: 0.5; }
-.tpl-actions { display: flex; gap: var(--s-1); opacity: 0; }
+.tpl-row { position: relative; }
+.tpl-actions { position: absolute; right: var(--s-2); top: 50%; transform: translateY(-50%); display: flex; gap: var(--s-1); opacity: 0; background: var(--color-carbon); padding-left: var(--s-3); }
 .tpl-row:hover .tpl-actions { opacity: 1; }
 
-/* ── B4: verdict + trend + journey + plans ── */
-.tpl-verdict { margin-left: auto; display: flex; align-items: center; gap: 6px; flex: none; }
-.tpl-trend { font-family: var(--font-mono, monospace); font-size: 9px; letter-spacing: 1px; opacity: 0.85; }
-.tg-p { color: var(--color-moss, #6a8); }
-.tg-f { color: var(--color-ember, #e55); }
-.tg-F { color: var(--color-amber, #d80); font-weight: 700; }
-.tg-a { color: var(--color-steel, #888); }
-.vd { font-size: 12px; width: 16px; text-align: center; }
-.vd-green { color: var(--color-moss, #6a8); }
-.vd-red { color: var(--color-ember, #e55); }
-.vd-blocked { color: var(--color-amber, #d80); }
-.vd-aborted, .vd-never { color: var(--color-steel, #888); }
-.vd-label { font-size: 10px; color: var(--color-steel); max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.journey {
-  display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap;
-  font-size: 10px; color: var(--color-steel);
-  padding: 6px 0; border-bottom: 1px dashed var(--color-iron);
-  margin-bottom: var(--s-2);
-}
-.j-step { color: var(--color-fog); }
-.j-hint { color: var(--color-steel); }
-.j-arrow { opacity: 0.5; }
-
-.plan-bar { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; margin-bottom: var(--s-2); }
-.plan-chip { display: inline-flex; gap: 2px; }
-.plan-msg { font-size: 10px; color: var(--color-steel); }
+/* verdict cell layout only — all visual primitives are system classes
+   (.status-*, .trend, .chip, .stat-summary, .hint-bar in components.css) */
+.tpl-verdict { display: flex; align-items: center; gap: var(--s-2); flex: none; }
+.plan-bar { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; margin-bottom: var(--s-3); }
 .tpl-edit { display: flex; gap: var(--s-2); padding: var(--s-2) var(--s-3); border-top: 1px solid var(--color-iron); flex-wrap: wrap; }
 .tpl-edit .input { flex: 1; min-width: 120px; }
 .tpl-body { border-top: 1px solid var(--color-iron); padding: var(--s-3); }

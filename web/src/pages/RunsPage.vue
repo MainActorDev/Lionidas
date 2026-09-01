@@ -103,7 +103,3 @@ onUnmounted(() => { if (poll) clearInterval(poll); unwatch(); live.release(); })
     </div>
   </div>
 </template>
-
-<style scoped>
-.status-blocked { color: var(--color-amber, #d80); }
-</style>

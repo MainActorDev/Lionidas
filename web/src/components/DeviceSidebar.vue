@@ -410,7 +410,7 @@ async function endSession(): Promise<void> {
               <button class="btn btn-sm" :disabled="assertBusy || !assertText.trim()" @click="probeAssert" title="check how many elements on the CURRENT screen match this label">check</button>
               <button class="btn btn-sm btn-primary" :disabled="assertMatched !== 1" @click="commitAssert" title="add as an assertion step — replay fails red if this element disappears">assert</button>
             </div>
-            <div v-if="assertMatched !== null" class="assert-feedback" :style="{ color: assertMatched === 1 ? 'var(--color-moss)' : 'var(--color-ember)' }">
+            <div v-if="assertMatched !== null" class="assert-feedback" :style="{ color: assertMatched === 1 ? 'var(--color-paper)' : 'var(--color-ash)' }">
               {{ assertMatched === 1 ? '✓ 1 match — assertion will check for this' : assertMatched === 0 ? '✕ 0 matches — nothing to assert yet' : `? ${assertMatched} matches — ambiguous, pick a more specific label` }}
             </div>
             <div v-if="steps.length > 0" class="steps">

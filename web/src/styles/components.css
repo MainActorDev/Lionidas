@@ -131,6 +131,8 @@ tbody tr:hover { background: var(--color-carbon); }
 .status-queued::before { content: '·'; }
 .status-changes-pending { color: var(--color-paper); border-color: var(--color-ember); }
 .status-changes-pending::before { content: '◆'; }
+.status-blocked { color: var(--color-paper); border-color: var(--color-slate); border-style: dashed; }
+.status-blocked::before { content: '◆'; }
 .status-quarantined { color: var(--color-steel); }
 .status-quarantined::before { content: '◌'; }
 .status-none { color: var(--color-steel); }
@@ -150,6 +152,65 @@ tbody tr:hover { background: var(--color-carbon); }
   white-space: nowrap;
 }
 .badge-accent { border-color: var(--color-ember-dim); color: var(--color-ember); }
+
+/* ─── Chips (interactive pills: tags, plan chips, filters) ─── */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 1px var(--s-2);
+  border: 1px solid var(--color-iron);
+  border-radius: var(--r-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  color: var(--color-fog);
+  white-space: nowrap;
+  background: var(--color-carbon);
+}
+a.chip, button.chip, .chip-click { cursor: pointer; transition: all var(--t); }
+a.chip:hover, button.chip:hover, .chip-click:hover { color: var(--color-paper); border-color: var(--color-slate); }
+.chip .chip-x { color: var(--color-steel); padding: 0 var(--s-1); }
+.chip .chip-x:hover { color: var(--color-paper); }
+
+/* ─── Trend (run-history glyphs; symbols carry status per Axiom — p ✓, f ✕, F ◆ dashed, a ◌) ─── */
+.trend {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  letter-spacing: 0.12em;
+  color: var(--color-steel);
+  white-space: nowrap;
+}
+.trend .t-pass { color: var(--color-fog); }
+.trend .t-fail { color: var(--color-paper); }
+.trend .t-blocked { color: var(--color-fog); text-decoration: underline dotted; }
+.trend .t-abort { color: var(--color-steel); }
+
+/* ─── Stat summary (page-head count chips: "N · ✓a ✕b ◆c") ─── */
+.stat-summary {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  color: var(--color-ash);
+  white-space: nowrap;
+}
+.stat-summary .sym { margin-left: var(--s-2); }
+.stat-summary .sym:first-child { margin-left: 0; }
+.stat-summary .n { color: var(--color-paper); }
+
+/* ─── Hint bar (single-line guidance strip: journey breadcrumbs, mode captions) ─── */
+.hint-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  color: var(--color-steel);
+  padding: var(--s-1) 0;
+  border-bottom: 1px dashed var(--color-iron);
+  margin-bottom: var(--s-3);
+}
+.hint-bar .h-step { color: var(--color-fog); }
+.hint-bar .h-arrow { color: var(--color-pewter); }
 
 /* ─── Empty state ─── */
 .empty {
