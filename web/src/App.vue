@@ -15,7 +15,8 @@ const isActive = (name: string): boolean => route.name === name;
     <nav class="sidebar">
       <div class="nav-group">
         <div class="nav-group-label">testing</div>
-        <RouterLink to="/" class="nav-item" :class="{ active: isActive('wall') }">devices</RouterLink>
+        <RouterLink to="/" class="nav-item" :class="{ active: isActive('suite') }">suite</RouterLink>
+        <RouterLink to="/devices" class="nav-item" :class="{ active: isActive('wall') }">devices</RouterLink>
         <RouterLink to="/runs" class="nav-item" :class="{ active: isActive('runs') || isActive('runDetail') }">runs</RouterLink>
       </div>
       <div class="nav-group">

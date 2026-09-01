@@ -34,7 +34,7 @@ void bootedDevices().then((d) => (devices.value = d));
 
 const commands = computed<Command[]>(() => {
   const base: Command[] = [
-    { label: 'devices', hint: 'device grid + queue', run: () => router.push('/') },
+    { label: 'devices', hint: 'device grid + queue', run: () => router.push('/devices') },
     { label: 'new run', hint: 'queue a ticket run', run: () => router.push('/?new=1') },
     { label: 'runs', hint: 'history', run: () => router.push('/runs') },
     { label: 'network', hint: 'traffic + mock responses', run: () => router.push('/forge') },
@@ -46,7 +46,7 @@ const commands = computed<Command[]>(() => {
     base.push({
       label: `watch ${d.name}`,
       hint: d.kind === 'simulator' ? 'live stream' : 'live stream (sim-only)',
-      run: () => router.push(`/?watch=${encodeURIComponent(d.udid)}`),
+      run: () => router.push(`/devices?watch=${encodeURIComponent(d.udid)}`),
     });
   }
   for (const t of tickets.value) {

@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import WallPage from './pages/WallPage.vue';
+import SuiteHomePage from './pages/SuiteHomePage.vue';
 import RunsPage from './pages/RunsPage.vue';
 import RunDetailPage from './pages/RunDetailPage.vue';
 import MatrixPage from './pages/MatrixPage.vue';
@@ -13,7 +14,8 @@ import GuidePage from './pages/GuidePage.vue';
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', name: 'wall', component: WallPage, meta: { title: 'devices' } },
+    { path: '/', name: 'suite', component: SuiteHomePage, meta: { title: 'suite' } },
+    { path: '/devices', name: 'wall', component: WallPage, meta: { title: 'devices' } },
     { path: '/runs', name: 'runs', component: RunsPage, meta: { title: 'runs' } },
     { path: '/runs/:id', name: 'runDetail', component: RunDetailPage, meta: { title: 'run' } },
     { path: '/tickets/:key', name: 'matrix', component: MatrixPage, meta: { title: 'acceptance criteria' } },
