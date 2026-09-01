@@ -70,11 +70,15 @@ export function registerRunRoutes(app: FastifyInstance, db: Database.Database, b
   });
 
   app.get('/api/runs', async (req) => {
-    const q = req.query as { ticket?: string; limit?: string };
+    const q = req.query as { ticket?: string; limit?: string; template?: string; app_version?: string };
     const limit = Math.min(Number.parseInt(q.limit ?? '50', 10) || 50, 200);
-    const rows = q.ticket
-      ? db.prepare('SELECT * FROM runs WHERE ticket_key = ? ORDER BY started_at DESC LIMIT ?').all(q.ticket, limit)
-      : db.prepare('SELECT * FROM runs ORDER BY started_at DESC LIMIT ?').all(limit);
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (q.ticket) { where.push('ticket_key = ?'); params.push(q.ticket); }
+    if (q.template) { where.push('template_id = ?'); params.push(q.template); }
+    if (q.app_version) { where.push('app_version = ?'); params.push(q.app_version); }
+    const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const rows = db.prepare(`SELECT * FROM runs ${clause} ORDER BY started_at DESC LIMIT ?`).all(...params, limit);
     return { runs: rows as RunRow[] };
   });
 

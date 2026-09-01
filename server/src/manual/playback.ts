@@ -13,6 +13,7 @@ import { crucibleAlloy } from '../alloy/client.ts';
 import type { ForgeState } from '../forge/proxy.ts';
 import type { Preset } from '../forge/matcher.ts';
 import { substituteStep } from './template-env.ts';
+import { classifyBlocked } from '../db/blocked.ts';
 import { resolveSelector, countMatches } from './selector.ts';
 import type { SnapNode } from './selector.ts';
 import { expandFlows } from './flows.ts';
@@ -323,8 +324,9 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             continue;
           }
           runStatus = 'failed';
-          // step watchdog timeouts are infrastructure, not app failures
-          if (msg.includes('step timeout')) runBlocked = 1;
+          // blocked = infrastructure failure (open/session/lease/timeout) —
+          // renders amber ◆, distinct from an app-failure red.
+          if (classifyBlocked(msg)) runBlocked = 1;
           insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', msg, t0, Date.now() - t0, '[]', JSON.stringify(resolved));
           // remaining steps are skipped (deterministic replay stops at first failure)
           for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
@@ -335,6 +337,9 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       }
     } catch (err) {
       runStatus = 'aborted';
+      // outer failures (open failed, engine dead, session binding) are ALL
+      // infrastructure — the app never got a chance to be tested
+      runBlocked = 1;
       deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run(`${err instanceof Error ? err.message : String(err)}`, runId);
     } finally {
       // final screenshot = run evidence (best-effort)
