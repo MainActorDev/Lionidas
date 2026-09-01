@@ -52,12 +52,18 @@ no abort; documented honesty); blocked ≠ failed classification from real
 infra signatures renders ◆ amber; plans/build-anchoring/trends shipped same
 batch, plan at `docs/plans/2026-09-01-suite-management.md`).*
 
-### B1. Traffic attribution to runs is structurally dead — P0
-- **What:** `addon.py:208` always writes `run_id: None`; the Python addon has
-  no channel to learn the active run. Run-detail traffic tab is always empty.
-- **Fix sketch:** write `activeRunId` into the mitm state file (or sidecar)
-  the addon already tails; addon stamps rows on ingest.
-- **Trigger:** before promising per-run network audit to anyone.
+### B1. FIXED (batch 5, 2026-09-01) — traffic attribution to runs
+- **Shipped:** `writeStateFile` carries `activeRunId` (default null); playback
+  writes the run id at run start and null in the finally; the addon reads it
+  in `reload_if_changed` and stamps `run_id` on every row (was hardcoded
+  `None`). Run-detail gained a `network` section querying
+  `/api/forge/traffic?runId=` with an honest empty state (proxy-down hint).
+- **Live-verified:** state file flipped `None → run_x → None` around a real
+  playback; 19 ndjson rows attributed to that run; DB + API + run-detail
+  network tab all served them (`POST as.atlassian.com → 200 · 105ms`).
+- Known boundary: requests in flight at run-end may attribute to null
+  (attribution window = run wall-clock) — same boundary the in-process proxy
+  has; accepted.
 
 ### B4. State file: non-atomic writes, four writers, two models — P1
 - **What:** `writeFileSync` onto the live path (addon can read torn JSON);
