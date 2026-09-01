@@ -43,7 +43,14 @@ from the live hierarchy, replayed as pass/fail with not-found vs ambiguous
 reasons, optional=soft, cold-launch settle window ~8s; live-verified
 green/red/ambiguous/soft/subflow/cross-device 2026-08-31, plan at
 `docs/plans/2026-08-31-assertions.md` — value-equality + image-diff
-assertions deliberately NOT built, trigger = first real demand).*
+assertions deliberately NOT built, trigger = first real demand;
+**playback timeout/abort — B2, via batch 4 (2026-09-01): per-step watchdog
+(90s default, `CRUCIBLE_STEP_TIMEOUT_MS`) + `POST /api/runs/:id/abort`
+(idempotent); abort checked between steps; timeout → failed+blocked; device
+always frees — dispatch promises themselves remain un-cancellable (engine has
+no abort; documented honesty); blocked ≠ failed classification from real
+infra signatures renders ◆ amber; plans/build-anchoring/trends shipped same
+batch, plan at `docs/plans/2026-09-01-suite-management.md`).*
 
 ### B1. Traffic attribution to runs is structurally dead — P0
 - **What:** `addon.py:208` always writes `run_id: None`; the Python addon has
@@ -51,13 +58,6 @@ assertions deliberately NOT built, trigger = first real demand).*
 - **Fix sketch:** write `activeRunId` into the mitm state file (or sidecar)
   the addon already tails; addon stamps rows on ingest.
 - **Trigger:** before promising per-run network audit to anyone.
-
-### B2. Playback has no timeout/abort — P0
-- **What:** a hung dispatch leaves the run `running` and scenario presets
-  active forever (restore never fires). No cancel endpoint.
-- **Fix sketch:** per-step + per-run watchdog; `POST /api/templates/:id/runs/:rid/abort`
-  → mark aborted, restore state, release lease.
-- **Trigger:** first wedged run in real use.
 
 ### B4. State file: non-atomic writes, four writers, two models — P1
 - **What:** `writeFileSync` onto the live path (addon can read torn JSON);
