@@ -269,7 +269,9 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
     db.prepare(
       `INSERT OR REPLACE INTO presets(id, method, path_pattern, match, status, headers_json, body_path, delay_ms, seq_json, failure, throttle_kbps, created_by, created_at, sha256)
        VALUES (?, ?, ?, 'exact', ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?)`,
-    ).run(pid, t.method, t.path.split('?')[0], t.status, // B9: path identity — query stays a guard concern headers ? JSON.stringify(headers) : null, bodyPath, 'save-as-preset', Date.now(), createHash('sha256').update(`${t.res_sha}`).digest('hex'));
+    // B9: path identity — the stored pattern drops the query string;
+    // query-intent lives in preset guards (already supported by the addon).
+    ).run(pid, t.method, t.path.split('?')[0], t.status, headers ? JSON.stringify(headers) : null, bodyPath, 'save-as-preset', Date.now(), createHash('sha256').update(`${t.res_sha}`).digest('hex'));
     syncPresetsToMitm();
     return { id: pid, bodyPath };
   });
