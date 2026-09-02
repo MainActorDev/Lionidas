@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { createReadStream, statSync } from 'node:fs';
-import { withEngineHeal } from '../alloy/heal.ts';
 import { crucibleAlloy } from '../alloy/client.ts';
+import { dispatchWithHeal } from '../alloy/heal.ts';
 import { alloyDispatchDepsSync } from '../alloy/runtime.ts';
 
 export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database): void {
@@ -65,13 +65,22 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
       return reply.code(422).send({ error: 'live stream is simulator-only (no MJPEG source for physical devices)', code: 'SIM_ONLY' });
     }
     // self-heal: a dead tool-server ("fetch failed") is the known staleness
-    // class — one engine reset + retry before surfacing the error
-    const r = (await withEngineHeal(async () =>
-      crucibleAlloy().dispatch('alloy_stream', { udid }, alloyDispatchDepsSync()))) as
-      | { ok: true; result: { streamUrl: string; platform: string } }
-      | { ok: false; error: { code: string; message: string } };
-    if (!r.ok) return reply.code(503).send({ error: `stream unavailable: ${r.error.message}`, code: r.error.code });
-    return r.result;
+    // class — dispatchWithHeal inspects the IN-BAND error envelope (dispatch
+    // never throws engine errors), resets alloy's engine clients (fresh
+    // engine-B client respawns tool-server), retries once before surfacing.
+    const r = await dispatchWithHeal('alloy_stream', { udid }, alloyDispatchDepsSync());
+    if (!r.ok) {
+      // TRANSPORT_STALE: stale engine handle class (dead tool-server / broken
+      // spawn chain) — retrying the whole stream resolve usually recovers,
+      // so the UI offers a retry. Anything else is surfaced as-is.
+      const stale = /fetch failed|ECONNREFUSED|COMMAND_FAILED/i.test(r.error?.message ?? '');
+      return reply.code(503).send({
+        error: `stream unavailable: ${r.error?.message ?? 'engine error'}`,
+        code: r.error?.code,
+        retryable: stale,
+      });
+    }
+    return r.result as { streamUrl: string; platform: string };
   });
 
   // frame file serve for watch (same guard shape as manual-frame but allows a booted device)

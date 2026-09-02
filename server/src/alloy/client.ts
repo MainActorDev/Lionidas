@@ -17,6 +17,11 @@ export interface AlloyExports {
   registerPhase0Tools: (deps: { state: unknown }) => void;
   LeaseManager: new () => unknown;
   routingTable: readonly { tool: string; engine: string; lease: string }[];
+  /** alloy dist ≥ 2026-09-02: drop alloy's OWN per-engine client caches so the
+   * next engine call re-creates clients (engine B respawn of tool-server).
+   * Optional — older dists lack these; heal falls back to the local reset. */
+  resetEngineACache?: () => void;
+  resetEngineBCache?: () => void;
   [k: string]: unknown;
 }
 

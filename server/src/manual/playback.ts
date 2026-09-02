@@ -10,7 +10,7 @@ import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { crucibleAlloy } from '../alloy/client.ts';
-import { withEngineHeal } from '../alloy/heal.ts';
+import { dispatchWithHeal } from '../alloy/heal.ts';
 import type { ForgeState } from '../forge/proxy.ts';
 import { presetRowToSpec, type Preset } from '../forge/matcher.ts';
 import { forgeStateService } from '../forge/state.ts';
@@ -192,9 +192,9 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     );
     try {
       // self-heal: stale session binding / dead engine is the known class —
-      // reset + one retry before failing the run
-      const open = (await withEngineHeal(async () =>
-        crucibleAlloy().dispatch('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false }, deps.dispatchDeps))) as { ok: boolean; error?: { message: string } };
+      // dispatchWithHeal reads the in-band envelope (dispatch never throws),
+      // resets engine clients, retries once before failing the run
+      const open = (await dispatchWithHeal('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false }, deps.dispatchDeps)) as { ok: boolean; error?: { message: string } };
       if (!open.ok) throw new Error(`open failed: ${open.error?.message ?? 'engine error'}`);
 
       // A5: expand subflows flat — child steps carry flow + inherited optional

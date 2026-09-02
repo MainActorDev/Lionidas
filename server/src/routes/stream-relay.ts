@@ -27,11 +27,22 @@ interface UpstreamSubscription {
   clients: Set<StreamClient>;
   abortController: AbortController;
   refCount: number;
+  /** at least one frame ever pumped — distinguishes "never worked" from "lost mid-stream" */
+  everGotFrame: boolean;
+  /** clients were notified of the current outage (notify once per outage, not per retry) */
+  notifiedOutage: boolean;
+  /** when the current outage began — bounds how long we retry a dead url before
+   * closing clients (their reconnect re-resolves a FRESH url via the POST route) */
+  outageStartedAt: number;
 }
 
 const upstreams = new Map<string, UpstreamSubscription>();
 
 const FIRST_FRAME_TIMEOUT_MS = 10_000;
+/** How long the pump retries a dead upstream url (after frames flowed) before
+ * closing clients — their reconnect re-POSTs and gets a FRESH url. Long enough
+ * to ride out a same-port respawn; short enough that recovery feels instant. */
+const OUTAGE_CLOSE_MS = 5_000;
 
 async function pumpUpstream(url: string, sub: UpstreamSubscription): Promise<void> {
   const boundary = Buffer.from('--NextFrame');
@@ -41,6 +52,7 @@ async function pumpUpstream(url: string, sub: UpstreamSubscription): Promise<voi
     try {
       const resp = await fetch(url, { signal: sub.abortController.signal });
       if (!resp.ok || !resp.body) throw new Error(`upstream ${resp.status}`);
+      sub.notifiedOutage = false; // source answered — outage over
 
       const reader = resp.body.getReader();
       // eslint-disable-next-line no-constant-condition
@@ -69,6 +81,7 @@ async function pumpUpstream(url: string, sub: UpstreamSubscription): Promise<voi
           // the frame in <5ms, so ship it as-is and let the browser decode.
           // LATEST-WINS per client keeps memory flat even at burst framerates.
           const frame = jpeg;
+          sub.everGotFrame = true;
           for (const c of sub.clients) {
             c.latestFrame = frame;
             void drain(c);
@@ -79,6 +92,37 @@ async function pumpUpstream(url: string, sub: UpstreamSubscription): Promise<voi
       }
     } catch {
       if (sub.refCount === 0) return;
+      // upstream died mid-stream. Tell watching clients ONCE per outage so the
+      // canvas shows "reconnecting" instead of a silently frozen "live" frame
+      // (screen-change-gated emission means absence of frames alone is NOT
+      // proof of death; a transport error IS). Then keep retrying the SAME url
+      // for a bounded window — a respawned source often re-uses its port. If
+      // the outage persists, CLOSE the client sockets: the stream URL is
+      // per-spawn (a new simulator-server usually means a new port), so the
+      // old URL will never come back — the browser's reconnect loop re-POSTs
+      // /api/devices/:udid/stream, which re-resolves (and self-heals the
+      // engine chain) and hands out the fresh URL. Recovery is automatic.
+      if (sub.everGotFrame) {
+        if (!sub.notifiedOutage) {
+          sub.notifiedOutage = true;
+          sub.outageStartedAt = Date.now();
+          for (const c of sub.clients) {
+            try { c.socket.send(JSON.stringify({ status: 'source-lost', retrying: true })); } catch { /* gone */ }
+          }
+        } else if (Date.now() - sub.outageStartedAt > OUTAGE_CLOSE_MS) {
+          for (const c of [...sub.clients]) {
+            try { c.socket.send(JSON.stringify({ error: 'stream source lost — reconnecting', retryable: true })); } catch { /* gone */ }
+            try { c.socket.close(); } catch { /* gone */ }
+            sub.clients.delete(c);
+            sub.refCount--;
+          }
+          if (sub.refCount === 0) {
+            sub.abortController.abort();
+            upstreams.delete(url);
+            return;
+          }
+        }
+      }
       // upstream died — retry after a beat (clients see stalled frames → fallback)
       await new Promise((r) => setTimeout(r, 1000));
     }
@@ -115,8 +159,8 @@ export async function registerStreamRelay(app: FastifyInstance): Promise<void> {
         const port = Number(process.env['CRUCIBLE_PORT'] ?? 9230);
         const resp = await fetch(`http://127.0.0.1:${port}/api/devices/${udid}/stream`, { method: 'POST' });
         if (!resp.ok) {
-          const body = await resp.json() as { error?: string };
-          socket.send(JSON.stringify({ error: body.error ?? `route ${resp.status}` }));
+          const body = await resp.json() as { error?: string; retryable?: boolean };
+          socket.send(JSON.stringify({ error: body.error ?? `route ${resp.status}`, retryable: body.retryable ?? false }));
           socket.close();
           return;
         }
@@ -124,7 +168,7 @@ export async function registerStreamRelay(app: FastifyInstance): Promise<void> {
         const url = body.streamUrl;
         let sub = upstreams.get(url);
         if (!sub) {
-          sub = { url, clients: new Set(), abortController: new AbortController(), refCount: 0 };
+          sub = { url, clients: new Set(), abortController: new AbortController(), refCount: 0, everGotFrame: false, notifiedOutage: false, outageStartedAt: 0 };
           upstreams.set(url, sub);
         }
 
@@ -138,7 +182,7 @@ export async function registerStreamRelay(app: FastifyInstance): Promise<void> {
         void pumpUpstream(url, sub);
 
         const firstTimer = setTimeout(() => {
-          try { socket.send(JSON.stringify({ error: 'no frames from stream source (timeout)' })); socket.close(); } catch { /* gone */ }
+          try { socket.send(JSON.stringify({ error: 'no frames from stream source (timeout)', retryable: true })); socket.close(); } catch { /* gone */ }
         }, FIRST_FRAME_TIMEOUT_MS);
         firstFramePromise.then(() => clearTimeout(firstTimer));
 
