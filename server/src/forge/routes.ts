@@ -256,9 +256,10 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
       | undefined;
     if (!body) return reply.code(409).send({ error: 'body row missing' });
 
+    // B6: bodies go under the server data dir via the state service —
+    // /tmp gets purged by macOS and presets silently served nothing.
     const { writeFileSync, mkdirSync } = await import('node:fs');
-    const stateDir = process.env['CRUCIBLE_MITM_STATE_DIR'] ?? '/tmp/forge-mitm';
-    const bodiesDir = join(stateDir, 'preset-bodies');
+    const bodiesDir = forgeStateService({ db, forgeState }).bodiesDir;
     mkdirSync(bodiesDir, { recursive: true });
     const bodyPath = join(bodiesDir, `${id}.body`);
     writeFileSync(bodyPath, Buffer.from(body.body));

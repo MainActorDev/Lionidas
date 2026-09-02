@@ -10,6 +10,8 @@
  *  The env default ('/tmp/forge-mitm') is resolved ONCE here; the seven
  *  duplicated literals at call sites collapse into this module. */
 import type Database from 'better-sqlite3';
+import { mkdirSync, writeFileSync, copyFileSync, existsSync, readdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { presetRowToSpec, type Preset } from './matcher.ts';
 import { writeStateFile } from './mitm/manager.ts';
 
@@ -26,6 +28,9 @@ export interface ForgeStateDeps {
 
 export interface ForgeStateService {
   readonly stateDir: string;
+  /** B6: frozen bodies live here — under the server data dir (DB path's
+   *  root), NOT /tmp which macOS purges. */
+  readonly bodiesDir: string;
   /** DB presets → file (dashboard CRUD sync). Honors an active override. */
   sync(): void;
   /** Set the scenario override and write the composed state. */
@@ -49,7 +54,26 @@ export function forgeStateService(deps: ForgeStateDeps): ForgeStateService {
   if (cached) return cached;
 
   const stateDir = process.env['CRUCIBLE_MITM_STATE_DIR'] ?? '/tmp/forge-mitm';
+  // B6: bodies under the data root (wherever the DB lives — CRUCIBLE_DB_PATH's
+  // dir, defaulting to cwd), overridable for tests.
+  const bodiesDir = process.env['CRUCIBLE_MITM_BODIES_DIR'] ?? join(dirname(process.env['CRUCIBLE_DB_PATH'] ?? './crucible.db'), 'preset-bodies');
   let override: Preset[] | null = null;
+
+  // B6 migration: copy legacy /tmp bodies into bodiesDir (non-destructive),
+  // rewrite presets.body_path rows that still point at the old dir.
+  try {
+    const legacyDir = join(stateDir, 'preset-bodies');
+    if (existsSync(legacyDir) && legacyDir !== bodiesDir) {
+      mkdirSync(bodiesDir, { recursive: true });
+      for (const f of readdirSync(legacyDir)) {
+        if (!f.endsWith('.body')) continue;
+        const from = join(legacyDir, f);
+        const to = join(bodiesDir, f);
+        if (!existsSync(to)) copyFileSync(from, to);
+        deps.db.prepare(`UPDATE presets SET body_path = ? WHERE body_path = ?`).run(to, from);
+      }
+    }
+  } catch { /* migration best-effort */ }
 
   const dbPresets = (): Preset[] =>
     (deps.db.prepare('SELECT * FROM presets ORDER BY created_at DESC').all() as Array<Record<string, unknown>>).map(presetRowToSpec);
@@ -69,6 +93,7 @@ export function forgeStateService(deps: ForgeStateDeps): ForgeStateService {
 
   const svc: ForgeStateService = {
     stateDir,
+    bodiesDir,
     sync: () => enqueue(compose),
     activateScenario: (presets: Preset[]) => { enqueue(() => { override = presets; compose(); }); },
     clearScenario: () => { enqueue(() => { override = null; compose(); }); },

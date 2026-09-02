@@ -28,6 +28,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   delete process.env['CRUCIBLE_MITM_STATE_DIR'];
+  delete process.env['CRUCIBLE_MITM_BODIES_DIR'];
   rmSync(dir, { recursive: true, force: true });
   db.close();
 });
@@ -92,5 +93,27 @@ describe('forgeStateService (B4b single owner)', () => {
     const st = readState();
     expect(st.presets.map((p) => p.id)).toEqual(['db_p']);
     expect(st.activeRunId).toBeNull();
+  });
+});
+
+describe('preset bodies migration (B6)', () => {
+  it('moves old /tmp bodies to the data dir and rewrites presets.body_path', () => {
+    const { mkdirSync, writeFileSync, existsSync } = require('node:fs') as typeof import('node:fs');
+    // old location (what macOS purges)
+    const oldDir = join(dir, 'preset-bodies'); // legacy location = stateDir/preset-bodies (the /tmp default in prod)
+    mkdirSync(oldDir, { recursive: true });
+    writeFileSync(join(oldDir, 'p_old.body'), 'FROZEN-CONTENT');
+    // a presets row pointing at the old absolute path
+    db.prepare(`INSERT INTO presets(id, method, path_pattern, match, status, body_path, created_by, created_at, sha256) VALUES ('p_old', 'GET', '/frozen', 'exact', 200, ?, 't', 0, 'x')`)
+      .run(join(oldDir, 'p_old.body'));
+
+    process.env['CRUCIBLE_MITM_BODIES_DIR'] = join(dir, 'data-bodies');
+    const svc = forgeStateService({ db, forgeState: { mode: 'hybrid', presets: [], activeRunId: null } });
+    const newDir = svc.bodiesDir;
+    expect(newDir).toBe(join(dir, 'data-bodies'));       // env-resolved — prod derives from CRUCIBLE_DB_PATH
+    expect(existsSync(join(newDir, 'p_old.body'))).toBe(true);
+    const row = db.prepare('SELECT body_path FROM presets WHERE id = ?').get('p_old') as { body_path: string };
+    expect(row.body_path).toBe(join(newDir, 'p_old.body'));
+    expect(existsSync(join(oldDir, 'p_old.body'))).toBe(true); // non-destructive: copy, never delete
   });
 });
