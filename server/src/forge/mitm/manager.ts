@@ -1,7 +1,7 @@
 /** Forge MITM manager: spawns mitmdump with the addon, writes the state file,
  *  tails traffic.ndjson into SQLite + WS (idempotent, offset-based re-tail). */
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
-import { openSync, readSync, fstatSync, closeSync, mkdirSync, writeFileSync } from 'node:fs';
+import { openSync, readSync, fstatSync, closeSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import type Database from 'better-sqlite3';
@@ -31,7 +31,13 @@ export function writeStateFile(stateDir: string, mode: string, presets: Preset[]
   const payload = { mode, presets, activeRunId, hash: createHash('sha256').update(JSON.stringify({ mode, presets, activeRunId })).digest('hex') };
   const path = join(stateDir, 'forge-mitm-state.json');
   mkdirSync(stateDir, { recursive: true });
-  writeFileSync(path, JSON.stringify(payload), 'utf8'); // legacy write — B4 tracks atomicity separately
+  // B4a: atomic write — the addon mtime-tails this file; a bare write can be
+  // read half-formed (torn JSON → addon silently keeps last-good state).
+  // tmp+rename on the same directory/filesystem is POSIX-atomic and still
+  // bumps the target's mtime, so reload-on-change semantics are preserved.
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, JSON.stringify(payload), 'utf8');
+  renameSync(tmp, path);
   return path;
 }
 
