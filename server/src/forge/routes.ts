@@ -3,8 +3,9 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import type { ForgeState } from './proxy.ts';
-import { matchPreset, type Preset, presetRowToSpec} from './matcher.ts';
-import { startMitm, stopMitmIfRunning, writeStateFile, mitmRunning } from './mitm/manager.ts';
+import { matchPreset, type Preset, presetRowToSpec } from './matcher.ts';
+import { forgeStateService } from './state.ts';
+import { startMitm, stopMitmIfRunning, mitmRunning } from './mitm/manager.ts';
 import { simRoutingState, enableSimRouting, healStaleProxies, installRootCertToSims } from './sim-routing.ts';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
@@ -13,13 +14,9 @@ import { existsSync } from 'node:fs';
 export function registerForgeRoutes(app: FastifyInstance, db: Database.Database, forgeState: ForgeState, forgeBus?: { emit: (type: never, payload: never) => void }): void {
   // presets created/changed from the dashboard must reach the live addon —
   // the state file is the only transport (addon reloads on mtime change).
-  const syncPresetsToMitm = (): void => {
-    const rows = db.prepare('SELECT * FROM presets ORDER BY created_at DESC').all() as Array<Record<string, unknown>>;
-    const stateDir = process.env['CRUCIBLE_MITM_STATE_DIR'] ?? '/tmp/forge-mitm';
-    try {
-      writeStateFile(stateDir, forgeState.mode, rows.map(presetRowToSpec));
-    } catch { /* sync best-effort — addon keeps last-good state */ }
-  };
+  // B4b: all state-file writes go through the single-owner service —
+  // composition (override ?? DB presets) + serialization live there.
+  const syncPresetsToMitm = (): void => forgeStateService({ db, forgeState }).sync();
 
   app.post('/api/forge/presets', async (req, reply) => {
     const b = req.body as Record<string, unknown>;
@@ -89,11 +86,8 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
     const presets = db.prepare(
       `SELECT p.* FROM presets p JOIN scenario_overrides so ON so.preset_id = p.id WHERE so.scenario_id = ? AND so.enabled = 1`,
     ).all(id) as Array<Record<string, unknown>>;
-    // mirror the scenario into the MITM state file (addon reloads on mtime change)
-    try {
-      const stateDir = process.env['CRUCIBLE_MITM_STATE_DIR'] ?? '/tmp/forge-mitm';
-      writeStateFile(stateDir, forgeState.mode, presets.map(presetRowToSpec));
-    } catch { /* mitm state write best-effort */ }
+    // mirror the scenario into the MITM state file (single owner)
+    forgeStateService({ db, forgeState }).activateScenario(presets.map(presetRowToSpec));
     forgeState.presets = presets.map((p) => ({
       id: p['id'] as string,
       method: p['method'] as string,

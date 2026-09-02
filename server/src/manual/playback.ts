@@ -13,6 +13,7 @@ import { crucibleAlloy } from '../alloy/client.ts';
 import { withEngineHeal } from '../alloy/heal.ts';
 import type { ForgeState } from '../forge/proxy.ts';
 import { presetRowToSpec, type Preset } from '../forge/matcher.ts';
+import { forgeStateService } from '../forge/state.ts';
 import { substituteStep } from './template-env.ts';
 import { classifyBlocked } from '../db/blocked.ts';
 import { resolveSelector, countMatches } from './selector.ts';
@@ -171,24 +172,16 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     // B1: mirror to the addon state file so the mitm addon stamps rows with
     // this run id (in-process proxy reads forgeState directly; the addon tails
     // the file). Best-effort: attribution fails soft if the dir is missing.
-    try {
-      const { writeStateFile } = await import('../forge/mitm/manager.ts');
-      const stateDir = process.env['CRUCIBLE_MITM_STATE_DIR'] ?? '/tmp/forge-mitm';
-      const currentPresets = deps.db.prepare('SELECT * FROM presets ORDER BY created_at DESC').all() as Array<Record<string, unknown>>;
-      writeStateFile(stateDir, deps.forgeState.mode, currentPresets.map(presetRowToSpec), runId);
-    } catch { /* attribution best-effort */ }
+    try { forgeStateService(deps).setActiveRun(runId); } catch { /* attribution best-effort */ }
     // network choice (phase 4): scenario presets active ONLY during the run
-    let restorePresets: Array<Record<string, unknown>> | null = null;
-    let restoreStateDir: string | null = null;
+    let restorePresets: Array<Record<string, unknown>> | null = null; // non-null ⇒ scenario activated (service owns restore)
     if (opts.scenarioId) {
       const presets = deps.db.prepare(
         `SELECT p.* FROM presets p JOIN scenario_overrides so ON so.preset_id = p.id WHERE so.scenario_id = ? AND so.enabled = 1`,
       ).all(opts.scenarioId) as Array<Record<string, unknown>>;
       restorePresets = deps.db.prepare('SELECT * FROM presets ORDER BY created_at DESC').all() as Array<Record<string, unknown>>;
-      restoreStateDir = process.env['CRUCIBLE_MITM_STATE_DIR'] ?? '/tmp/forge-mitm';
       try {
-        const { writeStateFile } = await import('../forge/mitm/manager.ts');
-        writeStateFile(restoreStateDir, 'hybrid', presets.map(presetRowToSpec));
+        forgeStateService(deps).activateScenario(presets.map(presetRowToSpec));
       } catch { /* network best-effort — run proceeds without scenario */ }
     }
     let runStatus: 'passed' | 'failed' | 'aborted' = 'passed';
@@ -349,22 +342,16 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
         }
       } catch { /* evidence best-effort */ }
       // restore prior forge state — scenario was run-scoped by contract
-      if (restorePresets && restoreStateDir) {
+      if (restorePresets) {
         try {
-          const { writeStateFile } = await import('../forge/mitm/manager.ts');
-          writeStateFile(restoreStateDir, deps.forgeState.mode, restorePresets.map(presetRowToSpec));
+          forgeStateService(deps).clearScenario();
         } catch { /* restore best-effort */ }
       }
       deps.forgeState.activeRunId = null;
       // B1: clear the addon's attribution too — rows after this point belong
       // to no run. (If a scenario restored above, that write already reset
       // activeRunId implicitly via the null default — this one is explicit.)
-      try {
-        const { writeStateFile } = await import('../forge/mitm/manager.ts');
-        const stateDir = process.env['CRUCIBLE_MITM_STATE_DIR'] ?? '/tmp/forge-mitm';
-        const currentPresets = deps.db.prepare('SELECT * FROM presets ORDER BY created_at DESC').all() as Array<Record<string, unknown>>;
-        writeStateFile(stateDir, deps.forgeState.mode, currentPresets.map(presetRowToSpec), null);
-      } catch { /* clear best-effort */ }
+      try { forgeStateService(deps).setActiveRun(null); } catch { /* clear best-effort */ }
       // B2: operator abort wins over the loop's natural verdict
       if (isAborted(runId)) runStatus = 'aborted';
       abortedRuns.delete(runId); // registry entry no longer needed once terminal
