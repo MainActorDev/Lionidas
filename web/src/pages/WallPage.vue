@@ -73,13 +73,15 @@ watch(
 );
 
 async function power(udid: string, action: 'boot' | 'shutdown'): Promise<void> {
-  powerMsg.value = `${action}ing…`;
+  const ing = action === 'shutdown' ? 'shutting down' : 'booting';
+  const done = action === 'shutdown' ? 'shut down' : 'booted';
+  powerMsg.value = `${ing}…`;
   try {
     const res = await fetch(`/api/devices/${udid}/power`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action }),
     });
     const body = await res.json() as { ok?: boolean; error?: string };
-    powerMsg.value = body.ok ? `${action} sent` : (body.error ?? `${action} failed`);
+    powerMsg.value = body.ok ? done : (body.error ?? `${action} failed`);
     if (body.ok) setTimeout(() => { void load(); }, 1500);
   } catch { powerMsg.value = `${action} request failed`; }
 }
@@ -178,6 +180,7 @@ onUnmounted(() => { if (poll) clearInterval(poll); closeSidebar(); unwatchEvents
               <td style="text-align: right; white-space: nowrap;" @click.stop>
                 <button class="btn btn-sm" @click="openSidebar(d, 'watch')">watch</button>
                 <button class="btn btn-sm btn-ghost" style="margin-left: 6px;" @click="openSidebar(d, 'control')">take control</button>
+                <button class="btn btn-sm btn-danger" style="margin-left: 6px;" @click="power(d.udid, 'shutdown')">shut down</button>
               </td>
             </tr>
           </tbody>
