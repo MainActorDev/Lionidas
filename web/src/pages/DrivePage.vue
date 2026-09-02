@@ -149,7 +149,10 @@ onUnmounted(() => {
         <div v-if="stream.state.value !== 'live'" class="stream-overlay">
           <span v-if="stream.state.value === 'connecting'">connecting to device stream…</span>
           <span v-else-if="stream.state.value === 'reconnecting'">stream reconnecting…</span>
-          <span v-else-if="stream.state.value === 'failed'">{{ stream.failure.value || 'stream unavailable' }}</span>
+          <template v-else-if="stream.state.value === 'failed'">
+            <span>{{ stream.failure.value || 'stream unavailable' }}</span>
+            <button v-if="stream.retryable.value" class="btn btn-sm stream-retry" @click="stream.retry()">retry stream</button>
+          </template>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 4px; font-size: 10px; color: var(--color-steel);">
           <span>
@@ -197,4 +200,8 @@ onUnmounted(() => {
   font-size: var(--text-caption);
   pointer-events: none;
 }
+/* failed state with a retry button: stack message + action, make ONLY the
+ * button clickable (canvas interactions stay dead while the stream is down) */
+.stream-overlay:has(.stream-retry) { flex-direction: column; gap: var(--s-2); padding: var(--s-2); text-align: center; }
+.stream-overlay .stream-retry { pointer-events: auto; }
 </style>

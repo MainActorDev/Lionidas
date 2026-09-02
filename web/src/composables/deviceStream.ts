@@ -17,11 +17,15 @@ export interface DeviceStream {
   frames: Ref<number>;
   /** human-readable failure reason when state === 'failed' */
   failure: Ref<string>;
+  /** server said a retry is likely to recover (stale-engine class) — show a retry button */
+  retryable: Ref<boolean>;
   start(udid: string): void;
   stop(): void;
+  /** re-connect after a failure (manual retry from the failed overlay) */
+  retry(): void;
   /** post-action screenshot fast-path — draws one still onto the live canvas
-   *  without resizing it and without racing the decode loop (no-ops when the
-   *  stream is actively painting — see paintStillImage). */
+   * without resizing it and without racing the decode loop (no-ops when the
+   * stream is actively painting — see paintStillImage). */
   paintStillImage(source: ImageBitmap | HTMLImageElement): void;
 }
 
@@ -30,6 +34,7 @@ export function useDeviceStream(): DeviceStream {
   const state = ref<StreamState>('idle');
   const fps = ref(0);
   const failure = ref('');
+  const retryable = ref(false);
   const frames = ref(0); // total received — distinguishes "connected, idle screen" from "nothing ever"
 
   // Vue assigns template refs inside v-for as ARRAYS — normalize to one element.
@@ -42,6 +47,8 @@ export function useDeviceStream(): DeviceStream {
   let ws: WebSocket | null = null;
   let currentUdid = '';
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let autoRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  let autoRetried = false; // ONE automatic attempt per failure chain — no spin
   let frameCount = 0;
   let lastFpsTime = Date.now();
   let generation = 0; // invalidate stale async work after stop()/restart()
@@ -164,15 +171,19 @@ export function useDeviceStream(): DeviceStream {
     ws.onmessage = (ev) => {
       if (gen !== generation) return;
       if (typeof ev.data === 'string') {
-        // typed error from the relay — surface it and stop retrying silently
+        // typed messages from the relay — error (terminal, stop retrying) or
+        // status (mid-stream source loss, server keeps retrying underneath)
         try {
-          const body = JSON.parse(ev.data) as { error?: string };
-          if (body.error) fail(body.error);
+          const body = JSON.parse(ev.data) as { error?: string; retryable?: boolean; status?: string };
+          if (body.error) fail(body.error, body.retryable ?? false);
+          else if (body.status === 'source-lost') state.value = 'reconnecting';
         } catch { /* not JSON — ignore */ }
         return;
       }
       state.value = 'live';
       failure.value = '';
+      retryable.value = false;
+      autoRetried = false; // healthy again — a future outage gets its own auto-retry
       frames.value++;
       pendingBuf = ev.data as ArrayBuffer;
       void decodeLoop();
@@ -188,16 +199,39 @@ export function useDeviceStream(): DeviceStream {
     ws.onerror = () => { /* onclose fires */ };
   }
 
-  function fail(reason: string): void {
+  function fail(reason: string, canRetry: boolean): void {
     state.value = 'failed';
     failure.value = reason;
+    retryable.value = canRetry;
     teardown();
+    // server-flagged retryable (stale-engine class): the resolve route's
+    // self-heal respawns the engine chain, so ONE automatic attempt recovers
+    // almost always. Bounded — if it fails again, the button is the path.
+    if (canRetry && !autoRetried) {
+      autoRetried = true;
+      const udid = currentUdid;
+      autoRetryTimer = setTimeout(() => {
+        autoRetryTimer = null;
+        if (state.value === 'failed' && udid && udid === currentUdid) retry();
+      }, 2500);
+    }
+  }
+
+  /** manual retry from the failed overlay — re-resolves the stream (the
+   * server's self-heal respawns the engine chain on the POST) */
+  function retry(): void {
+    if (!currentUdid || state.value !== 'failed') return;
+    const udid = currentUdid;
+    failure.value = '';
+    retryable.value = false;
+    connect(udid, false);
   }
 
   function teardown(): void {
     generation++;
     if (ws) { ws.onclose = null; ws.onmessage = null; ws.close(); ws = null; }
     if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+    if (autoRetryTimer) { clearTimeout(autoRetryTimer); autoRetryTimer = null; }
   }
 
   return {
@@ -207,19 +241,23 @@ export function useDeviceStream(): DeviceStream {
     fps,
     frames,
     failure,
+    retryable,
     start(udid: string): void {
       if (currentUdid === udid && (state.value === 'live' || state.value === 'connecting' || state.value === 'reconnecting')) return;
       teardown();
       currentUdid = udid;
       failure.value = '';
+      retryable.value = false;
       connect(udid, false);
     },
     stop(): void {
       currentUdid = '';
       state.value = 'idle';
       failure.value = '';
+      retryable.value = false;
       teardown();
     },
+    retry,
     paintStillImage,
   };
 }
