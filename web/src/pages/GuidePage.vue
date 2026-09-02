@@ -115,6 +115,7 @@ const groups = computed(() => {
         <div class="section-label">actions</div>
         <div class="card">
           <div class="meta-row"><span class="k">watch</span><b>live MJPEG video stream of the screen (read-only — takes no lease, blocks nothing). Simulators only — physical devices have no stream source</b></div>
+          <div class="meta-row"><span class="k">stream stopped?</span><b>if the overlay shows an error with a retry stream button, click it — the server rebuilds its connection to the device engine automatically (no restart needed). "reconnecting…" means it is already retrying on its own</b></div>
           <div class="meta-row"><span class="k">take control</span><b>opens the drive cockpit — you tap the screen directly</b></div>
           <div class="meta-row"><span class="k">shut down / boot</span><b>power-cycle a simulator (blocked while a run or manual session holds it)</b></div>
           <div class="meta-row"><span class="k">+ new run</span><b>opens the run form (ticket, flows, device, app, artifact)</b></div>
