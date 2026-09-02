@@ -65,31 +65,50 @@ batch, plan at `docs/plans/2026-09-01-suite-management.md`).*
   (attribution window = run wall-clock) — same boundary the in-process proxy
   has; accepted.
 
-### B4. State file: non-atomic writes, four writers, two models — P1
-- **What:** `writeFileSync` onto the live path (addon can read torn JSON);
-  UI-sync vs scenario-activate write different shapes (full list vs subset) —
-  preset creation during an active scenario clobbers the override.
-- **Fix sketch:** temp-file+rename; single owner of "what's active".
-- **Trigger:** before scenarios see any real use.
+### B4. FIXED (batch 6, 2026-09-02) — state-file atomicity + single owner
+- **Shipped:** `writeStateFile` is tmp+rename atomic (torn reads impossible,
+  mtime semantics kept); `forge/state.ts` `forgeStateService()` is the ONE
+  owner — every write composes mode + (scenario override ?? DB presets) +
+  activeRunId through a serialized promise chain; the seven direct writers
+  (routes sync, scenario activate, playback attribution ×2, scenario
+  restore) now route through it; env default resolved once.
+- **Live-verified:** mid-run preset CRUD kept attribution + all presets
+  composed (the clobber case verbatim); run passed; attribution cleared.
 
-### B6. Frozen preset bodies in /tmp — P2
-- **What:** `/tmp/forge-mitm/preset-bodies/` is purged by macOS; DB rows
-  survive, presets silently serve nothing.
-- **Fix sketch:** move under server data dir; migration copies existing.
-- **Trigger:** next session touching presets.
+### B6. FIXED (batch 6, 2026-09-02) — preset bodies out of /tmp
+- **Shipped:** bodies live under the server data dir (`preset-bodies/`
+  beside the DB, absolute-resolved, `CRUCIBLE_MITM_BODIES_DIR` override);
+  non-destructive migration copies legacy `/tmp` bodies + rewrites rows at
+  service init.
+- **Live-verified:** freeze lands in `server/preset-bodies/`; one legacy
+  preset whose /tmp body macOS had ALREADY purged surfaced as a dead
+  pointer — deleted honestly (the flaw's exact predicted symptom, caught
+  by the drill).
 
-### B7. `traffic_bodies` unbounded growth — P2
-- **Fix sketch:** retention GC (age + count caps) — same pattern as evidence GC.
+### B7. FIXED (batch 6, 2026-09-02) — traffic-body retention
+- **Shipped:** `gcTrafficBodies` in the existing GC cycle — age rule (30d,
+  `CRUCIBLE_TRAFFIC_BODY_DAYS`) with reference-keep (a body survives while
+  any traffic row inside the window points at it), count cap 200k
+  (`CRUCIBLE_TRAFFIC_BODY_CAP`), oldest first.
+- **Live-verified:** no-op today is CORRECT (DB is 2 days old; all 3,392
+  bodies referenced by visible traffic) — unit tests cover the delete paths.
 
-### B8. Three drifted row→spec mappers — P2
-- **What:** playback's `rowToPresetSpec` drops `throttleKbps` (routes keeps it)
-  — throttling scenarios silently lose throttling in runs.
-- **Fix sketch:** one shared mapper in `forge/matcher.ts`.
-- **Trigger:** with B4 (state-owner pass).
+### B8. FIXED (batch 6, 2026-09-02) — one shared preset mapper
+- **Shipped:** `presetRowToSpec()` in `forge/matcher.ts` is the only
+  row→wire-spec mapper (routes sync + scenario activate + playback all use
+  it); `throttleKbps` included. New preset columns get added HERE.
+- **Live-verified:** a 256-kbps preset survives the playback attribution
+  write into the state file with `throttleKbps: 256` intact (the exact
+  path that used to drop it).
 
-### B9. Freeze matches exact query string — P2
-- **What:** volatile query params (timestamps, nonces) never re-match.
-- **Fix sketch:** match on path + sorted stable params, ignore volatile keys.
+### B9. FIXED (batch 6, 2026-09-02) — path-identity matching
+- **Shipped:** addon `path_matches` strips the query string from BOTH the
+  stored pattern and the live path (exact + glob; regex semantics
+  unchanged) — legacy query-laden patterns self-heal; save-preset stores
+  the query-less path; query-intent stays a guard concern (supported).
+- **Contract-verified against the real addon source:** `/api/x` matches
+  `/api/x?ts=1`; legacy `/api/x?a=1` matches `/api/x?ts=2`; different
+  paths don't match.
 
 ### B11. Unauthenticated API — conceptual, accepted
 - **What:** any local process can drive devices / read captured bodies
