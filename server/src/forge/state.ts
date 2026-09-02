@@ -11,7 +11,7 @@
  *  duplicated literals at call sites collapse into this module. */
 import type Database from 'better-sqlite3';
 import { mkdirSync, writeFileSync, copyFileSync, existsSync, readdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import { presetRowToSpec, type Preset } from './matcher.ts';
 import { writeStateFile } from './mitm/manager.ts';
 
@@ -56,7 +56,7 @@ export function forgeStateService(deps: ForgeStateDeps): ForgeStateService {
   const stateDir = process.env['CRUCIBLE_MITM_STATE_DIR'] ?? '/tmp/forge-mitm';
   // B6: bodies under the data root (wherever the DB lives — CRUCIBLE_DB_PATH's
   // dir, defaulting to cwd), overridable for tests.
-  const bodiesDir = process.env['CRUCIBLE_MITM_BODIES_DIR'] ?? join(dirname(process.env['CRUCIBLE_DB_PATH'] ?? './crucible.db'), 'preset-bodies');
+  const bodiesDir = process.env['CRUCIBLE_MITM_BODIES_DIR'] ?? resolve(join(dirname(process.env['CRUCIBLE_DB_PATH'] ?? './crucible.db'), 'preset-bodies'));
   let override: Preset[] | null = null;
 
   // B6 migration: copy legacy /tmp bodies into bodiesDir (non-destructive),
