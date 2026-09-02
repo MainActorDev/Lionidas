@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import type { ForgeState } from './proxy.ts';
-import { matchPreset, type Preset } from './matcher.ts';
+import { matchPreset, type Preset, presetRowToSpec} from './matcher.ts';
 import { startMitm, stopMitmIfRunning, writeStateFile, mitmRunning } from './mitm/manager.ts';
 import { simRoutingState, enableSimRouting, healStaleProxies, installRootCertToSims } from './sim-routing.ts';
 import { join } from 'node:path';
@@ -17,32 +17,8 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
     const rows = db.prepare('SELECT * FROM presets ORDER BY created_at DESC').all() as Array<Record<string, unknown>>;
     const stateDir = process.env['CRUCIBLE_MITM_STATE_DIR'] ?? '/tmp/forge-mitm';
     try {
-      writeStateFile(stateDir, forgeState.mode, rows.map((p) => ({
-        id: p['id'] as string,
-        method: p['method'] as string,
-        pathPattern: p['path_pattern'] as string,
-        match: p['match'] as Preset['match'],
-        ...(p['headers_json'] ? { headers: JSON.parse(p['headers_json'] as string) as Record<string, string> } : {}),
-        status: p['status'] as number,
-        ...(p['body_path'] ? { bodyPath: p['body_path'] as string } : {}),
-        ...(p['delay_ms'] ? { delayMs: p['delay_ms'] as number } : {}),
-        ...(p['seq_json'] ? { seq: JSON.parse(p['seq_json'] as string) as Array<{ status: number }> } : {}),
-        ...(p['failure'] ? { failure: p['failure'] as 'timeout' | 'reset' | 'malformed' | 'throttle' } : {}),
-      })));
-    } catch { /* mitm state write best-effort */ }
-    forgeState.presets = rows.map((p) => ({
-      id: p['id'] as string,
-      method: p['method'] as string,
-      pathPattern: p['path_pattern'] as string,
-      match: p['match'] as 'exact' | 'glob' | 'regex',
-      ...(p['headers_json'] ? { headers: JSON.parse(p['headers_json'] as string) as Record<string, string> } : {}),
-      status: p['status'] as number,
-      ...(p['body_path'] ? { bodyPath: p['body_path'] as string } : {}),
-      ...(p['delay_ms'] ? { delayMs: p['delay_ms'] as number } : {}),
-      ...(p['seq_json'] ? { seq: JSON.parse(p['seq_json'] as string) as Array<{ status: number }> } : {}),
-      ...(p['failure'] ? { failure: p['failure'] as 'timeout' | 'reset' | 'malformed' | 'throttle' } : {}),
-      ...(p['throttle_kbps'] ? { throttleKbps: p['throttle_kbps'] as number } : {}),
-    }));
+      writeStateFile(stateDir, forgeState.mode, rows.map(presetRowToSpec));
+    } catch { /* sync best-effort — addon keeps last-good state */ }
   };
 
   app.post('/api/forge/presets', async (req, reply) => {
@@ -116,18 +92,7 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
     // mirror the scenario into the MITM state file (addon reloads on mtime change)
     try {
       const stateDir = process.env['CRUCIBLE_MITM_STATE_DIR'] ?? '/tmp/forge-mitm';
-      writeStateFile(stateDir, forgeState.mode, presets.map((p) => ({
-        id: p['id'] as string,
-        method: p['method'] as string,
-        pathPattern: p['path_pattern'] as string,
-        match: p['match'] as Preset['match'],
-        ...(p['headers_json'] ? { headers: JSON.parse(p['headers_json'] as string) as Record<string, string> } : {}),  // eslint-disable-line unicorn/no-useless-fallback-in-spread
-        status: p['status'] as number,
-        ...(p['body_path'] ? { bodyPath: p['body_path'] as string } : {}),
-        ...(p['delay_ms'] ? { delayMs: p['delay_ms'] as number } : {}),
-        ...(p['seq_json'] ? { seq: JSON.parse(p['seq_json'] as string) as Array<{ status: number }> } : {}),
-        ...(p['failure'] ? { failure: p['failure'] as 'timeout' | 'reset' | 'malformed' | 'throttle' } : {}),
-      })));
+      writeStateFile(stateDir, forgeState.mode, presets.map(presetRowToSpec));
     } catch { /* mitm state write best-effort */ }
     forgeState.presets = presets.map((p) => ({
       id: p['id'] as string,

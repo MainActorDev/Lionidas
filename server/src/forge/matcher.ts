@@ -90,3 +90,24 @@ export function advanceSeq(presetId: string, runId: string | null): void {
 export function resetSeqForTests(): void {
   cursors.clear();
 }
+
+/** B8: the ONE shared DB-row → wire-Preset mapper. Every consumer of
+ *  preset rows that writes the addon state file maps through here — the
+ *  drift this kills was playback's local mapper omitting throttle_kbps
+ *  (throttling presets silently un-throttled in runs). Add new preset
+ *  columns HERE, never at a call site. */
+export function presetRowToSpec(p: Record<string, unknown>): Preset {
+  return {
+    id: p['id'] as string,
+    method: p['method'] as string,
+    pathPattern: p['path_pattern'] as string,
+    match: p['match'] as MatchKind,
+    ...(p['headers_json'] ? { headers: JSON.parse(p['headers_json'] as string) as Record<string, string> } : {}),
+    status: p['status'] as number,
+    ...(p['body_path'] ? { bodyPath: p['body_path'] as string } : {}),
+    ...(p['delay_ms'] ? { delayMs: p['delay_ms'] as number } : {}),
+    ...(p['seq_json'] ? { seq: JSON.parse(p['seq_json'] as string) as Array<{ status: number }> } : {}),
+    ...(p['throttle_kbps'] ? { throttleKbps: p['throttle_kbps'] as number } : {}),
+    ...(p['failure'] ? { failure: p['failure'] as NonNullable<Preset['failure']> } : {}),
+  };
+}

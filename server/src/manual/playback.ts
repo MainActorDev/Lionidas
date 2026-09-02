@@ -12,7 +12,7 @@ import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { crucibleAlloy } from '../alloy/client.ts';
 import { withEngineHeal } from '../alloy/heal.ts';
 import type { ForgeState } from '../forge/proxy.ts';
-import type { Preset } from '../forge/matcher.ts';
+import { presetRowToSpec, type Preset } from '../forge/matcher.ts';
 import { substituteStep } from './template-env.ts';
 import { classifyBlocked } from '../db/blocked.ts';
 import { resolveSelector, countMatches } from './selector.ts';
@@ -79,21 +79,6 @@ function ingestEvidence(deps: PlaybackDeps, runId: string, bundleId: string, typ
 }
 
 /** preset DB row → addon state spec (single mapping, reused by restore). */
-function rowToPresetSpec(p: Record<string, unknown>): Preset {
-  return {
-    id: p['id'] as string,
-    method: p['method'] as string,
-    pathPattern: p['path_pattern'] as string,
-    match: p['match'] as 'exact' | 'glob' | 'regex',
-    ...(p['headers_json'] ? { headers: JSON.parse(p['headers_json'] as string) as Record<string, string> } : {}),
-    status: p['status'] as number,
-    ...(p['body_path'] ? { bodyPath: p['body_path'] as string } : {}),
-    ...(p['delay_ms'] ? { delayMs: p['delay_ms'] as number } : {}),
-    ...(p['seq_json'] ? { seq: JSON.parse(p['seq_json'] as string) as Array<{ status: number }> } : {}),
-    ...(p['failure'] ? { failure: p['failure'] as NonNullable<Preset['failure']> } : {}),
-  };
-}
-
 /** Fire-and-forget playback: resolves to { runId, done } once the run row
  *  exists. `done` settles when the run finishes (any status) — single plays
  *  ignore it; play-all awaits it (with a cap) to serialize the batch.
@@ -190,7 +175,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       const { writeStateFile } = await import('../forge/mitm/manager.ts');
       const stateDir = process.env['CRUCIBLE_MITM_STATE_DIR'] ?? '/tmp/forge-mitm';
       const currentPresets = deps.db.prepare('SELECT * FROM presets ORDER BY created_at DESC').all() as Array<Record<string, unknown>>;
-      writeStateFile(stateDir, deps.forgeState.mode, currentPresets.map(rowToPresetSpec), runId);
+      writeStateFile(stateDir, deps.forgeState.mode, currentPresets.map(presetRowToSpec), runId);
     } catch { /* attribution best-effort */ }
     // network choice (phase 4): scenario presets active ONLY during the run
     let restorePresets: Array<Record<string, unknown>> | null = null;
@@ -203,7 +188,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       restoreStateDir = process.env['CRUCIBLE_MITM_STATE_DIR'] ?? '/tmp/forge-mitm';
       try {
         const { writeStateFile } = await import('../forge/mitm/manager.ts');
-        writeStateFile(restoreStateDir, 'hybrid', presets.map(rowToPresetSpec));
+        writeStateFile(restoreStateDir, 'hybrid', presets.map(presetRowToSpec));
       } catch { /* network best-effort — run proceeds without scenario */ }
     }
     let runStatus: 'passed' | 'failed' | 'aborted' = 'passed';
@@ -367,7 +352,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       if (restorePresets && restoreStateDir) {
         try {
           const { writeStateFile } = await import('../forge/mitm/manager.ts');
-          writeStateFile(restoreStateDir, deps.forgeState.mode, restorePresets.map(rowToPresetSpec));
+          writeStateFile(restoreStateDir, deps.forgeState.mode, restorePresets.map(presetRowToSpec));
         } catch { /* restore best-effort */ }
       }
       deps.forgeState.activeRunId = null;
@@ -378,7 +363,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
         const { writeStateFile } = await import('../forge/mitm/manager.ts');
         const stateDir = process.env['CRUCIBLE_MITM_STATE_DIR'] ?? '/tmp/forge-mitm';
         const currentPresets = deps.db.prepare('SELECT * FROM presets ORDER BY created_at DESC').all() as Array<Record<string, unknown>>;
-        writeStateFile(stateDir, deps.forgeState.mode, currentPresets.map(rowToPresetSpec), null);
+        writeStateFile(stateDir, deps.forgeState.mode, currentPresets.map(presetRowToSpec), null);
       } catch { /* clear best-effort */ }
       // B2: operator abort wins over the loop's natural verdict
       if (isAborted(runId)) runStatus = 'aborted';
