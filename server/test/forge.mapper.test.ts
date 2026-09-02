@@ -40,3 +40,41 @@ describe('presetRowToSpec (B8 shared mapper)', () => {
     expect('delayMs' in bare).toBe(false);
   });
 });
+
+/** B9 contract: the addon's path_matches strips query strings from BOTH the
+ *  stored pattern and the live path — volatile params (ts, nonce) can no
+ *  longer defeat a frozen preset. Verified against the REAL addon source. */
+describe('addon path_matches query normalization (B9)', () => {
+  const addonPath = new URL('../src/forge/mitm/addon.py', import.meta.url).pathname;
+  const call = (pattern: string, kind: string, path: string): boolean => {
+    const { execFileSync } = require('node:child_process') as typeof import('node:child_process');
+    const out = execFileSync('python3', ['-c', `
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("addon", ${JSON.stringify(addonPath)})
+m = importlib.util.module_from_spec(spec)
+sys.modules["addon"] = m
+spec.loader.exec_module(m)  # module-level only — addons list built later
+try:
+    spec.loader.exec_module(m)
+except SystemExit:
+    pass
+print(json.dumps(m.path_matches(${JSON.stringify(pattern)}, ${JSON.stringify(kind)}, ${JSON.stringify(path)})))
+`], { encoding: 'utf8' });
+    return JSON.parse(out.trim().split('\n').pop() as string) as boolean;
+  };
+
+  it('exact: path identity survives differing query strings', () => {
+    expect(call('/api/x', 'exact', '/api/x?ts=123')).toBe(true);
+    expect(call('/api/x?a=1', 'exact', '/api/x?ts=999')).toBe(true); // legacy stored WITH query self-heals
+    expect(call('/api/x', 'exact', '/api/y')).toBe(false);
+  });
+
+  it('glob: * matches any path regardless of query', () => {
+    expect(call('/api/*', 'glob', '/api/deep/thing?x=1&ts=2')).toBe(true);
+    expect(call('/api/*', 'glob', '/other')).toBe(false);
+  });
+
+  it('regex kind unchanged (author chose regex semantics)', () => {
+    expect(call('/api/\\d+', 'regex', '/api/12345')).toBe(true);
+  });
+});

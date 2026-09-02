@@ -54,10 +54,14 @@ def _glob_to_regex(pattern):
 
 
 def path_matches(pattern, kind, path):
+    # B9: the PATH is the preset identity — query strings carry volatile
+    # params (ts, nonce) that would defeat matching. Strip from BOTH sides:
+    # live requests AND legacy stored patterns (which self-heal here).
+    # Query-intent belongs to guards (preset["query"]), already supported.
     if kind == "exact":
-        return pattern == path
+        return pattern.split("?", 1)[0] == path.split("?", 1)[0]
     if kind == "glob":
-        return bool(_glob_to_regex(pattern).match(path))
+        return bool(_glob_to_regex(pattern.split("?", 1)[0]).match(path.split("?", 1)[0]))
     try:
         return bool(re.compile(pattern).search(path))
     except re.error:

@@ -89,6 +89,8 @@ export function runGc(db: Database.Database, artifactsDir: string): GcReport {
     }
   } catch { /* artifacts dir missing */ }
 
+  gcTrafficBodies(db, Date.now()); // B7: captured bodies follow the same cycle
+
   try { db.exec('VACUUM'); } catch { /* WAL busy — next cycle */ }
 
   const state = diskState(artifactsDir);
@@ -109,4 +111,38 @@ export function startGcLoop(db: Database.Database, artifactsDir: string, interva
   setTimeout(() => { run(); }, 5_000);
   const timer = setInterval(() => { run(); }, intervalMs);
   return () => clearInterval(timer);
+}
+
+// ── B7: traffic-body retention ─────────────────────────────────────────────
+// Captured request/response blobs grow forever otherwise. Age rule: a body
+// dies only when older than the window AND unreferenced by any traffic row
+// still inside the window (run detail opens bodies via req_sha/res_sha).
+// Count rule: beyond the row cap, oldest die first. Env-tunable.
+
+export const TRAFFIC_BODY_DAYS = Number.parseInt(process.env['CRUCIBLE_TRAFFIC_BODY_DAYS'] ?? '', 10) || 30;
+export const TRAFFIC_BODY_ROW_CAP = Number.parseInt(process.env['CRUCIBLE_TRAFFIC_BODY_CAP'] ?? '', 10) || 200_000;
+
+export function gcTrafficBodies(db: Database.Database, now: number, rowCap = TRAFFIC_BODY_ROW_CAP): { deleted: number } {
+  const cutoff = now - TRAFFIC_BODY_DAYS * DAY;
+  const ageSweep = db.prepare(`
+    DELETE FROM traffic_bodies
+     WHERE first_seen < ?
+       AND sha NOT IN (
+         SELECT req_sha FROM traffic WHERE req_sha IS NOT NULL AND ts >= ?
+         UNION
+         SELECT res_sha FROM traffic WHERE res_sha IS NOT NULL AND ts >= ?
+       )`);
+  const byAge = ageSweep.run(cutoff, cutoff, cutoff).changes;
+
+  // count cap: oldest first_seen beyond the cap
+  const excess = (db.prepare('SELECT COUNT(*) c FROM traffic_bodies').get() as { c: number }).c - rowCap;
+  let byCount = 0;
+  if (excess > 0) {
+    const capSweep = db.prepare(`
+      DELETE FROM traffic_bodies WHERE sha IN (
+        SELECT sha FROM traffic_bodies ORDER BY first_seen ASC LIMIT ?
+      )`);
+    byCount = capSweep.run(excess).changes;
+  }
+  return { deleted: byAge + byCount };
 }
