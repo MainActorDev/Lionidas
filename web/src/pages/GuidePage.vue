@@ -347,7 +347,7 @@ const groups = computed(() => {
         <div class="card">
           <div class="meta-row"><span class="k">case</span><b>name + ticket + tag chips (click a tag to filter)</b></div>
           <div class="meta-row"><span class="k">app</span><b>the app this case runs against — bound at save time; replay launches it first</b></div>
-          <div class="meta-row"><span class="k">trend</span><b>last 10 runs as glyphs — ✓ pass · ✕ fail · ◆ blocked · ◌ aborted (oldest to newest)</b></div>
+          <div class="meta-row"><span class="k">trend</span><b>last 5 runs as glyphs — ✓ pass · ✕ fail · ◆ blocked · ◌ aborted (oldest to newest)</b></div>
           <div class="meta-row"><span class="k">verdict</span><b>last result + which build + when. hover a row for run / edit / delete</b></div>
           <div class="meta-row"><span class="k">expand</span><b>click a row — steps with kind chips (tap/scroll/type/assert/flow), per-step switches: "param" turns typed text into a play-time secret, "optional" makes a miss a skip instead of a failure; + subflow / + assert append steps</b></div>
         </div>

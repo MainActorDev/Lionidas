@@ -394,7 +394,7 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
         <span class="col-app">app</span>
         <span class="col-steps">steps</span>
         <span class="col-updated">updated</span>
-        <span class="col-trend" title="last 10 runs, oldest → newest (✓ pass · ✕ fail · ◆ blocked · ◌ aborted)">trend</span>
+        <span class="col-trend" title="last 5 runs, oldest → newest (✓ pass · ✕ fail · ◆ blocked · ◌ aborted)">trend</span>
         <span class="col-verdict">verdict</span>
       </div>
 
@@ -418,7 +418,7 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
           <span class="col-steps">{{ t.steps.length }}</span>
           <span class="col-updated" :title="new Date(t.updatedAt).toLocaleString()">{{ relTime(t.updatedAt) }}</span>
           <span class="col-trend">
-            <span v-if="t.verdict?.trend" class="trend" title="last 10 runs, oldest → newest">
+            <span v-if="t.verdict?.trend" class="trend" title="last 5 runs, oldest → newest">
               <span v-for="(g, i) in trendGlyphs(t)" :key="i" :class="g.cls">{{ g.g }}</span>
             </span>
             <span v-else class="a2-trend-none">—</span>

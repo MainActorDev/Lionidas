@@ -68,11 +68,11 @@ describe('suiteVerdicts (last verdict + trend per case)', () => {
     expect(v.lastBlocked).toBe(1);
   });
 
-  it('trend window capped at 10 (oldest dropped)', () => {
+  it('trend window capped at 5 (oldest dropped), totalRuns keeps counting', () => {
     seedTpl('t1', 'login');
     for (let i = 0; i < 13; i++) seedRun(`r${i}`, 't1', 'passed', 0, 1000 + i * 10);
     const v = suiteVerdicts(db).get('t1')!;
-    expect(v.trend!.length).toBe(10);
+    expect(v.trend!.length).toBe(5);
     expect(v.totalRuns).toBe(13);
   });
 

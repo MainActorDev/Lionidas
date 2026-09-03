@@ -54,7 +54,7 @@ export function suiteVerdicts(db: Database.Database): Map<string, CaseVerdict> {
               END AS g
               FROM ranked t2
               WHERE t2.template_id = ranked.template_id
-              ORDER BY t2.started_at DESC LIMIT 10
+              ORDER BY t2.started_at DESC LIMIT 5
            )) AS trend_desc
     FROM ranked WHERE rn = 1
   `).all() as Array<{
