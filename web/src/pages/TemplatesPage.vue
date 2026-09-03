@@ -242,6 +242,8 @@ function hopYaml(dir: -1 | 1): void {
   if (next) yamlOpenId.value = next.id;
 }
 const yamlCase = computed(() => (yamlOpenId.value ? shown().find((t) => t.id === yamlOpenId.value) ?? null : null));
+// A2 locked header: "N cases · M tags" (the mockup's page-desc)
+const tagCount = computed(() => new Set(templates.value.flatMap((t) => t.tags ?? [])).size);
 // A2 lock: freeze the app's scroll container while the panel is open
 watch(yamlOpenId, (id) => {
   document.body.classList.toggle('yaml-panel-open', id !== null);
@@ -367,8 +369,18 @@ function stepKindTitle(action: string): string {
 </script>
 <template>
   <section class="page" :class="{ 'yaml-locked': yamlOpenId !== null }">
-    <!-- ── header: title · suite summary · primary actions ── -->
-    <header class="tc-head">
+    <!-- LOCKED state header — exactly the A2 mockup's chrome: minimal one-row
+         header; the full controls return when the panel closes (esc). -->
+    <header v-if="yamlOpenId" class="a2-head">
+      <span class="page-title">test cases</span>
+      <span class="a2-desc">{{ templates.length }} case{{ templates.length === 1 ? '' : 's' }} · {{ tagCount }} tag{{ tagCount === 1 ? '' : 's' }}</span>
+      <span class="a2-spacer"></span>
+      <input ref="filterEl" v-model="filter" class="a2-search" placeholder="search cases…  ⌘F" />
+      <button class="btn" @click="createCaseYaml" title="hand-author a new case as yaml — opens the editor with a minimal starter">+ case (yaml)</button>
+    </header>
+
+    <!-- ── header: title · suite summary · primary actions (normal state) ── -->
+    <header v-else class="tc-head">
       <div class="tc-title-group">
         <h1>test cases</h1>
         <span class="stat-summary" :title="`${suiteSummary.green} pass · ${suiteSummary.red} fail · ${suiteSummary.blocked} blocked · ${suiteSummary.never} never run`">
@@ -388,8 +400,9 @@ function stepKindTitle(action: string): string {
       </div>
     </header>
 
-    <!-- ── controls: filter · network · env disclosure ── -->
-    <div class="tc-controls">
+    <!-- ── controls: filter · network · env disclosure (hidden while the yaml
+         panel is open — the locked header carries the search box) ── -->
+    <div v-if="!yamlOpenId" class="tc-controls">
       <input ref="filterEl" v-model="filter" class="input tc-filter" placeholder="filter by name, ticket, or tag…" title="⌘F jumps here while the yaml panel is open" />
       <select
         v-model="runScenario" class="input tc-scenario"
@@ -409,8 +422,8 @@ function stepKindTitle(action: string): string {
       />
     </div>
 
-    <!-- ── plans (saved suite invocations) ── -->
-    <div v-if="plans.length > 0" class="tc-plans">
+    <!-- ── plans (saved suite invocations — hidden in the locked state) ── -->
+    <div v-if="plans.length > 0 && !yamlOpenId" class="tc-plans">
       <span class="tc-plans-label">plans</span>
       <span v-for="p in plans" :key="p.id" class="chip" :title="planDesc(p)">
         <button class="chip-click" :disabled="runningPlan !== null" @click="runPlan(p)">{{ runningPlan === p.id ? 'running…' : `▶ ${p.name}` }}</button>
@@ -555,6 +568,17 @@ function stepKindTitle(action: string): string {
    table region / panel). The table region scrolls INSIDE itself, the panel
    anchors below and never moves, and the edited row highlights + scrolls
    into view inside the table region. Close → normal page flow returns. ── */
+/* ── A2 locked-state header — the mockup's minimal chrome ── */
+.a2-head { display: flex; align-items: baseline; gap: 14px; flex: none; }
+.a2-head .page-title { font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
+.a2-desc { color: var(--color-steel); font-size: 11px; }
+.a2-spacer { flex: 1; }
+.a2-search {
+  background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm);
+  color: var(--color-fog); font: inherit; font-size: 12px; padding: 4px 10px; width: 220px;
+}
+.a2-search:focus { outline: none; border-color: var(--color-ember); }
+
 .page.yaml-locked {
   /* Lock is applied at the SCROLL CONTAINER (.main) via a body class — see
      the watcher below. Here we just make the page a column that fits. */
