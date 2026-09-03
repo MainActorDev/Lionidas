@@ -360,6 +360,16 @@ const groups = computed(() => {
           <div class="meta-row"><span class="k">env</span><b>play-time secrets (KEY=value lines) sent with every run — never stored in the case. The badge counts keys in effect</b></div>
         </div>
 
+        <div class="section-label">yaml editing</div>
+        <div class="card">
+          <div class="meta-row"><span class="k">yaml</span><b>row action on any case — the case opens as an editable yaml file (Maestro-style) in a split panel: steps outline left, syntax-highlighted editor right</b></div>
+          <div class="meta-row"><span class="k">the format</span><b>name, tags, app, then steps: — each step is one action: tap (point + on), scroll (direction), type (text + on), runFlow (a case name), expect (on)</b></div>
+          <div class="meta-row"><span class="k">on:</span><b>the element a step targets — its label, or an asset id like ic_barcode. It rides along with coordinates: replay resolves the element live first, coordinates are the fallback</b></div>
+          <div class="meta-row"><span class="k">same data</span><b>yaml and the step rows are one storage — edit either, the other follows. Saving validates: unknown keys and bad shapes error with line numbers, nothing is silently dropped</b></div>
+          <div class="meta-row"><span class="k">live outline</span><b>the left panel re-parses as you type — it freezes (marked stale) when the yaml has errors, and error lines highlight in the editor</b></div>
+          <div class="meta-row"><span class="k">‹ › hop</span><b>move between the filtered cases without leaving the editor — edit, ⌘↵ save, hop, repeat</b></div>
+        </div>
+
         <div class="section-label">reading results</div>
         <div class="card">
           <div class="meta-row"><span class="k">pass / fail</span><b>the app worked / the app is broken — click the run for step-by-step evidence (screenshots, video, network)</b></div>
