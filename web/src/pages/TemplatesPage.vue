@@ -3,6 +3,7 @@
  *  Each case shows its last verdict + trend; plans replay the suite in one
  *  click; playback runs them. Ticket tag filters regression selection. */
 import { ref, onMounted, computed } from 'vue';
+import YamlCasePanel from '../components/YamlCasePanel.vue';
 
 interface Step { idx: number; action: string; x?: number; y?: number; direction?: string; text?: string; optional?: boolean; selector?: { identifier?: string; label?: string; type?: string }; templateId?: string }
 interface Verdict {
@@ -207,6 +208,27 @@ const shown = (): Template[] => {
   return templates.value.filter((t) =>
     t.name.toLowerCase().includes(f) || (t.ticketKey ?? '').toLowerCase().includes(f) || (t.tags ?? []).some((tg) => tg.toLowerCase().includes(f)));
 };
+
+// ── A2 yaml split panel: viewport-locked while open ──
+const yamlOpenId = ref<string | null>(null);
+const yamlPosition = computed(() => {
+  if (!yamlOpenId.value) return { pos: 1, total: 1 };
+  const list = shown();
+  const i = list.findIndex((t) => t.id === yamlOpenId.value);
+  return { pos: i >= 0 ? i + 1 : 1, total: list.length };
+});
+function openYaml(t: Template): void {
+  yamlOpenId.value = t.id;
+  expanded.value = null;
+}
+function hopYaml(dir: -1 | 1): void {
+  const list = shown();
+  const i = list.findIndex((t) => t.id === yamlOpenId.value);
+  if (i < 0) return;
+  const next = list[i + dir];
+  if (next) yamlOpenId.value = next.id;
+}
+const yamlCase = computed(() => (yamlOpenId.value ? shown().find((t) => t.id === yamlOpenId.value) ?? null : null));
 
 onMounted(() => { void load(); void loadPlans(); });
 
@@ -432,6 +454,7 @@ function stepKindTitle(action: string): string {
           <span class="tc-hover-actions">
             <button class="btn btn-sm" :disabled="playing !== null" @click.stop="play(t)">{{ playing === t.id ? 'starting…' : '▶ run' }}</button>
             <button class="btn btn-sm btn-ghost" @click.stop="startRename(t)">edit</button>
+            <button class="btn btn-sm btn-ghost" @click.stop="openYaml(t)">yaml</button>
             <button class="btn btn-sm btn-ghost" @click.stop="remove(t.id)">delete</button>
           </span>
         </div>
@@ -478,11 +501,37 @@ function stepKindTitle(action: string): string {
       </article>
     </div>
     <div v-if="playMsg" class="tc-play-msg">{{ playMsg }}</div>
+
+    <!-- A2: yaml split panel — page locks while open (table region scrolls internally) -->
+    <div v-if="yamlOpenId" class="yaml-region">
+      <YamlCasePanel
+        v-if="yamlCase"
+        :template-id="yamlCase.id"
+        :case-name="yamlCase.name"
+        :position="yamlPosition.pos"
+        :total="yamlPosition.total"
+        @close="yamlOpenId = null"
+        @saved="() => void load()"
+        @hop="hopYaml"
+      />
+    </div>
   </section>
 </template>
 
 <style scoped>
 .page { padding: var(--s-5); max-width: 1160px; margin: 0 auto; }
+
+/* ── A2 yaml split panel: while open, the PAGE locks into a viewport column —
+   header/env stay, the case list region scrolls INSIDE itself, the panel
+   anchors below and never moves. Implemented via position:fixed overlay so
+   no parent layout can fight it; esc/close tears it down. ── */
+.yaml-region {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+  padding: 0 var(--s-5) var(--s-4);
+  display: flex; justify-content: center;
+  pointer-events: none; /* the strip itself is click-through… */
+}
+.yaml-region > :deep(*) { pointer-events: auto; max-width: 1160px; width: 100%; } /* …the panel is not */
 
 /* ── header ── */
 .tc-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); margin-bottom: var(--s-4); }
