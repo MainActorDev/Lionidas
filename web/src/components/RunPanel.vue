@@ -33,6 +33,9 @@ const stream = useDeviceStream();
 
 const rows = ref<Row[]>([]);
 const status = ref<'running' | 'passed' | 'failed' | 'aborted'>('running');
+/** readiness gate phase — 'stream' → 'app' → 'steps' (run.phase events);
+ *  null once steps begin (plan/step events take over) */
+const gate = ref<'stream' | 'app' | 'steps' | null>('stream');
 const startedAt = ref<number | null>(null);
 const finishedAt = ref<number | null>(null);
 const blocked = ref(false);
@@ -80,12 +83,16 @@ function onEvent(ev: { type: string; payload: Record<string, unknown> }): void {
   const p = ev.payload;
   const rid = p['runId'] as string | undefined;
   if (!rid || rid !== props.runId) return;
-  if (ev.type === 'run.plan') {
+  if (ev.type === 'run.phase') {
+    gate.value = (p['phase'] as typeof gate.value) ?? null;
+  } else if (ev.type === 'run.plan') {
     const steps = (p['steps'] as PlanStep[] | undefined) ?? [];
     if (rows.value.length === 0) {
       rows.value = steps.map((s) => ({ ...s, status: 'pending', durationMs: null, reason: null }));
     }
+    gate.value = null; // steps own the footer from here
   } else if (ev.type === 'step.started') {
+    gate.value = null; // adopted runs skip run.plan — steps own the footer
     const idx = p['idx'] as number;
     const row = rows.value.find((r) => r.idx === idx);
     if (row) row.status = 'running';
@@ -173,7 +180,7 @@ function requestClose(): void {
 
     <div class="rp-stream">
       <span class="rp-fps" v-if="stream.state.value !== 'failed'">{{ stream.state.value === 'live' ? `live · ${stream.fps.value}fps` : stream.state.value }}</span>
-      <canvas ref="stream.setCanvas"></canvas>
+      <canvas :ref="stream.setCanvas"></canvas>
       <div v-if="stream.state.value === 'failed'" class="rp-stream-fail">
         <span>stream unavailable</span>
         <span class="rp-fail-reason">{{ stream.failure.value }}</span>
@@ -193,7 +200,11 @@ function requestClose(): void {
     </div>
 
     <footer class="rp-foot">
-      <template v-if="status === 'running'">
+      <template v-if="gate">
+        <span class="rp-gate">{{ gate === 'stream' ? '◦ waiting for device stream…' : gate === 'app' ? '◦ reopening app…' : '◦ preparing steps…' }}</span>
+        <div class="rp-bar rp-bar-gate"><i></i></div>
+      </template>
+      <template v-else-if="status === 'running'">
         <span>step {{ Math.min((activeIdx ?? 0) + 1, rows.length) }} / {{ rows.length }}</span>
         <div class="rp-bar"><i :style="{ width: `${Math.round(progress * 100)}%` }"></i></div>
         <span class="rp-clock">{{ clock }}</span>
@@ -214,7 +225,8 @@ function requestClose(): void {
    rows-only grid sizes its implicit column to max-content; min-width: 0 on all
    flexible flex children or they refuse to shrink (long step text). */
 .rp-dock {
-  position: fixed; right: 0; top: 0; bottom: 0; width: 420px; z-index: 80;
+  /* below the app topbar — the shell's top strip is not ours to cover */
+  position: fixed; right: 0; top: var(--topbar-h); bottom: 0; width: 420px; z-index: 80;
   display: grid; grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto minmax(120px, 1fr) auto;
   background: var(--color-void); border-left: 1px solid var(--color-iron);
@@ -231,8 +243,12 @@ function requestClose(): void {
 .rp-meta { color: var(--color-steel); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
 .rp-lock { color: var(--color-steel); font-size: 10px; border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 1px 6px; flex: none; }
 
-.rp-stream { position: relative; height: 248px; border-bottom: 1px solid var(--color-iron); background: #000; display: grid; place-items: center; padding: 12px 16px; }
-.rp-stream canvas { height: 100%; aspect-ratio: 9 / 19.5; border: 1px solid var(--color-iron); border-radius: 8px; background: var(--color-void); }
+.rp-stream { position: relative; height: 248px; border-bottom: 1px solid var(--color-iron); background: #000; display: flex; align-items: center; justify-content: center; padding: 12px 16px; overflow: hidden; }
+/* canvas sizing must come from the BOX, not the intrinsic 300×150 backing
+   store (pre-frames it fell back to intrinsic + aspect-ratio → 302×654).
+   Flex centering (not grid place-items) so the implicit row can't grow to
+   content height and defeat max-height: 100%. */
+.rp-stream canvas { max-height: 100%; max-width: 100%; aspect-ratio: 9 / 19.5; border: 1px solid var(--color-iron); border-radius: 8px; background: var(--color-void); }
 .rp-fps { position: absolute; right: 18px; top: 14px; color: var(--color-steel); font-size: 10px; background: rgba(0, 0, 0, 0.6); padding: 1px 5px; border-radius: 2px; }
 .rp-stream-fail { display: flex; flex-direction: column; gap: 6px; align-items: center; color: var(--color-steel); font-size: 12px; padding: 0 24px; text-align: center; }
 .rp-fail-reason { font-size: 10px; color: var(--color-steel); word-break: break-word; }
@@ -272,6 +288,9 @@ function requestClose(): void {
 .rp-bar { flex: 1; height: 4px; background: var(--color-iron); border-radius: 2px; overflow: hidden; min-width: 0; }
 .rp-bar i { display: block; height: 100%; background: var(--color-ember); transition: width 0.3s; }
 .rp-clock { font-variant-numeric: tabular-nums; flex: none; }
+.rp-gate { color: var(--color-fog); font-size: 11px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-bar-gate i { width: 30%; animation: rp-gate-sweep 1.4s ease-in-out infinite; }
+@keyframes rp-gate-sweep { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
 .rp-verdict { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; }
 .rp-verdict.ok .rp-big { color: var(--color-mint, #2fbf71); }
 .rp-verdict.fail .rp-big { color: var(--color-lava, #e5484d); }

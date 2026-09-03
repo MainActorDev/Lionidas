@@ -7,7 +7,10 @@
 import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { join } from 'node:path';
+const execFileAsync = promisify(execFile);
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { crucibleAlloy } from '../alloy/client.ts';
 import { dispatchWithHeal } from '../alloy/heal.ts';
@@ -27,6 +30,10 @@ export interface PlaybackDeps {
   dispatchDeps: unknown;
   artifactsDir: string;
   forgeState: ForgeState;
+  /** readiness gate seam: proves the device stream is live before the app
+   *  relaunch + steps. Default = the HTTP probe against the resolve route.
+   *  Tests inject a stub; null skips the gate (legacy direct mode). */
+  awaitStreamLive?: ((udid: string) => Promise<void>) | null;
 }
 
 export interface PlaybackStep {
@@ -195,6 +202,53 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     }
     let runStatus: 'passed' | 'failed' | 'aborted' = 'passed';
     let runBlocked = 0;
+    /** readiness gate (user contract): every run waits for (1) the device
+     *  stream to be provably live, (2) the target app freshly reopened —
+     *  only then steps. Stream-live proof: fetch the resolve route (self-
+     *  heals the engine chain), then HTTP-probe the MJPEG upstream until a
+     *  JPEG frame is seen or the budget expires. */
+    async function defaultAwaitStreamLive(gateUdid: string): Promise<void> {
+      const budgetMs = Number(process.env['CRUCIBLE_STREAM_GATE_MS'] ?? 30_000);
+      const deadline = Date.now() + budgetMs;
+      let lastErr = 'stream never became live';
+      while (Date.now() < deadline) {
+        if (isAborted(runId)) return;
+        try {
+          const resp = await fetch(`http://127.0.0.1:${Number(process.env['CRUCIBLE_PORT'] ?? 9230)}/api/devices/${gateUdid}/stream`, { method: 'POST' });
+          if (resp.ok) {
+            const { streamUrl } = await resp.json() as { streamUrl: string };
+            // probe the upstream directly: a JPEG SOI in the first bytes
+            // proves frames flow (emit-on-change MJPEG: even a static screen
+            // emits the first full frame)
+            const ctrl = new AbortController();
+            const kill = setTimeout(() => ctrl.abort(), 4000);
+            try {
+              const body = await fetch(streamUrl, { signal: ctrl.signal });
+              const reader = body.body!.getReader();
+              // first chunk = multipart boundary text + headers + JPEG start.
+              // scan for the SOI marker ANYWHERE in the chunk (also handles a
+              // source that leads with raw JPEG bytes)
+              const { value } = await reader.read();
+              let soiAt = -1;
+              if (value) {
+                const scanEnd = Math.min(value.length, 4096);
+                for (let i = 0; i + 3 <= scanEnd; i++) {
+                  if (value[i] === 0xff && value[i + 1] === 0xd8 && value[i + 2] === 0xff) { soiAt = i; break; }
+                }
+              }
+              if (value && soiAt !== -1 && value.length > 500) {
+                try { await reader.cancel(); } catch { /* upstream gone */ }
+                return; // stream is live
+              }
+              lastErr = value ? `stream source sent no JPEG frame (${value.length}B first chunk)` : 'stream source sent nothing';
+            } finally { clearTimeout(kill); }
+          } else { lastErr = `resolve route ${resp.status}`; }
+        } catch (err) { lastErr = err instanceof Error ? err.message : String(err); }
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+      throw new Error(`stream gate failed: ${lastErr}`);
+    }
+    deps.bus.emit('run.phase', { runId, phase: 'stream' });
     const insStmt = deps.db.prepare(
       `INSERT INTO run_steps(run_id, idx, flow_name, kind, name, status, reason, started_at, duration_ms, evidence_ids_json, evaluated_json)
        VALUES (?, ?, ?, 'step', ?, ?, ?, ?, ?, ?, ?)`,
@@ -209,12 +263,23 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       },
     };
     try {
+      // ── readiness gate, phase 1: stream live ──
+      // injectable seam (tests stub it); null skips (legacy direct mode)
+      if (deps.awaitStreamLive !== null) {
+        await (deps.awaitStreamLive ?? defaultAwaitStreamLive)(udid);
+      }
       // self-heal: stale session binding / dead engine is the known class —
       // dispatchWithHeal reads the in-band envelope (dispatch never throws),
       // resets engine clients, retries once before failing the run
-      // the watchdog covers this dispatch too: a dead engine (stale daemon,
-      // respawn loop) otherwise wedges the run at 0 steps forever — found
-      // live when the device daemon was mid-respawn
+      // ── readiness gate, phase 2: fresh app ──
+      // contract: ALWAYS reopen the target app before running — a stale
+      // foreground app or leftover session state fails steps for the wrong
+      // reason. simctl terminate is best-effort (not-running app → error we
+      // ignore); then a fresh open with the watchdog.
+      deps.bus.emit('run.phase', { runId, phase: 'app' });
+      try {
+        await execFileAsync('xcrun', ['simctl', 'terminate', udid, appToLaunch]);
+      } catch { /* app not running — exactly what we want */ }
       const open = (await withWatchdog(runId, dispatchWithHeal('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, `open ${appToLaunch}`)) as { ok: boolean; error?: { message: string } };
       if (!open.ok) throw new Error(`open failed: ${open.error?.message ?? 'engine error'}`);
 
@@ -234,6 +299,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
         runId, templateId, udid,
         steps: execSteps.map((s) => ({ idx: s.idx, action: s.action, name: stepLabel(s), flow: s.flow ?? null, optional: s.optional === true })),
       });
+      deps.bus.emit('run.phase', { runId, phase: 'steps' });
       // cross-device scaling (flaw #6): scale recorded coords by target/recorded
       // logical dims — applied only to steps WITHOUT a usable selector.
       let targetW: number | null = null; let targetH: number | null = null;

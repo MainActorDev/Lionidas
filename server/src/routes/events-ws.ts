@@ -34,6 +34,7 @@ export async function registerEventsWs(app: FastifyInstance, bus: TypedEventBus<
       'queue.changed',
       'run.started',
       'run.freshness.checked',
+      'run.phase',
       'run.plan',
       'step.started',
       'step.finished',

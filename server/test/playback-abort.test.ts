@@ -36,7 +36,7 @@ function seed(id: string, steps: unknown[]): void {
 }
 
 async function play(id: string): Promise<string> {
-  const r = await runTemplatePlayback({ db, bus, dispatchDeps: null, artifactsDir: tmp, forgeState: { activeRunId: null } } as never, id, {});
+  const r = await runTemplatePlayback({ db, bus, dispatchDeps: null, artifactsDir: tmp, forgeState: { activeRunId: null }, awaitStreamLive: async () => undefined } as never, id, {});
   await r.done;
   return r.runId;
 }
@@ -87,7 +87,7 @@ describe('B2: watchdog + abort', () => {
       { idx: 2, action: 'tap', x: 3, y: 3 },
     ]);
     // abort after the run exists: intercept via registry — start, poll for run row, abort
-    const p = runTemplatePlayback({ db, bus, dispatchDeps: null, artifactsDir: tmp, forgeState: { activeRunId: null } } as never, 'a', {});
+    const p = runTemplatePlayback({ db, bus, dispatchDeps: null, artifactsDir: tmp, forgeState: { activeRunId: null }, awaitStreamLive: async () => undefined } as never, 'a', {});
     const { runId, done } = await p;
     // abort as soon as the run row exists — before/early in the step loop.
     // The seam checks abort BETWEEN steps; with the 30ms fake dispatch the

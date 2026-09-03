@@ -46,7 +46,7 @@ function seedTemplate(id: string, steps: unknown[]): void {
 }
 
 async function play(id: string): Promise<{ runId: string; done: Promise<void> }> {
-  const r = await runTemplatePlayback({ db, bus, dispatchDeps: null, artifactsDir: tmp, forgeState: { activeRunId: null } } as never, id, {});
+  const r = await runTemplatePlayback({ db, bus, dispatchDeps: null, artifactsDir: tmp, forgeState: { activeRunId: null }, awaitStreamLive: async () => undefined } as never, id, {});
   await r.done;
   return r;
 }
