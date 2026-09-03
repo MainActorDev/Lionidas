@@ -34,7 +34,7 @@ const groups = computed(() => {
 </script>
 
 <template>
-  <div style="display: grid; grid-template-columns: 180px 1fr; gap: var(--s-5); max-width: 1000px;">
+  <div style="display: grid; grid-template-columns: 180px 1fr; gap: var(--s-5);">
     <!-- section nav -->
     <nav>
       <div v-for="g in groups" :key="g.label" class="nav-group" style="margin-bottom: var(--s-4);">

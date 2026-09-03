@@ -130,7 +130,6 @@ function openCase(c: { verdict: { lastRunId: string | null } | null; id: string 
 </template>
 
 <style scoped>
-.page { padding: var(--s-5); max-width: 1160px; margin: 0 auto; }
 .sh-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); margin-bottom: var(--s-4); }
 .sh-title-group { display: flex; align-items: baseline; gap: var(--s-4); }
 .sh-head h1 { font-size: var(--text-heading); font-weight: var(--weight-bold); margin: 0; }

@@ -497,8 +497,7 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 .a2-page {
   display: flex; flex-direction: column;
   gap: var(--s-3);
-  max-width: 1160px; margin: 0 auto; width: 100%;
-  padding: 0 var(--s-5);
+  width: 100%;
   box-sizing: border-box;
 }
 /* header */
