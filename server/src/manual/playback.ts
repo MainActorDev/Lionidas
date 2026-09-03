@@ -130,6 +130,41 @@ export function abortRun(db: Database.Database, runId: string): { ok: true } | {
 
 function isAborted(runId: string): boolean { return abortedRuns.has(runId); }
 
+/** Compact UI-state signature: label/type/identifier multiset. Rects are
+ *  deliberately excluded — rounded-int jitter would never stabilize; content
+ *  changes (nav, scroll bringing new labels into view) still flip the sig. */
+function hierarchySig(nodes: SnapNode[]): string {
+  return (nodes ?? [])
+    .map((n) => `${n.type ?? ''}|${n.label ?? ''}|${n.identifier ?? ''}`)
+    .sort()
+    .join(';');
+}
+
+/** State-based settle: poll the hierarchy until two consecutive reads agree
+ *  (animations/navigations done) or the budget expires. Replaces the engine's
+ *  fixed ~2.4s post-action settle (measured live: settle:true dispatch ≈
+ *  2846ms vs settle:false ≈ 470ms) with an adaptive wait that exits as soon
+ *  as the UI is actually quiet — faster AND stronger: a fixed 2.4s can still
+ *  catch mid-animation; this cannot exit before stability. */
+async function awaitUiStable(
+  dispatchSnap: () => Promise<SnapNode[] | null>,
+  runId: string,
+  budgetMs: number,
+): Promise<boolean> {
+  const t0 = Date.now();
+  let prev: string | null = null;
+  while (Date.now() - t0 < budgetMs && !isAborted(runId)) {
+    const nodes = await dispatchSnap();
+    if (nodes) {
+      const sig = hierarchySig(nodes);
+      if (sig === prev) return true; // two identical reads — UI quiet
+      prev = sig;
+    }
+    await new Promise((r) => setTimeout(r, 60));
+  }
+  return false;
+}
+
 /** Race a dispatch with the step timeout. On timeout the step fails with a
  *  parseable reason and the run is marked blocked (infrastructure). */
 async function withWatchdog<T>(runId: string, dispatch: Promise<T>, stepNameForError: string): Promise<T> {
@@ -343,7 +378,8 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       const scaleX = targetW && t.logical_w && t.logical_w > 0 ? targetW / t.logical_w : 1;
       const scaleY = targetH && t.logical_h && t.logical_h > 0 ? targetH / t.logical_h : 1;
 
-      for (const s of execSteps) {
+      for (let si = 0; si < execSteps.length; si++) {
+        const s = execSteps[si]!;
         const t0 = Date.now();
         // B2: operator abort — checked between steps; remaining steps skipped,
         // run aborted, device freed (B5 guard reads terminal status).
@@ -423,7 +459,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // fallback taps BEFORE the UI exists. Poll until resolved or the
             // settle budget expires, THEN fall back.
             const settleBudgetMs = Number(process.env.CRUCIBLE_STEP_SETTLE_MS ?? 8000);
-            const settlePollMs = Number(process.env.CRUCIBLE_STEP_SETTLE_POLL_MS ?? 250);
+            const settlePollMs = Number(process.env.CRUCIBLE_STEP_SETTLE_POLL_MS ?? 60);
             let hit: { x: number; y: number; rect: { x: number; y: number; width: number; height: number } } | null = null;
             const settleStart = Date.now();
             // ⛔ keep the poll ABORT-AWARE: an operator ■ stop must not wait
@@ -480,17 +516,37 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           }
           let input: Record<string, unknown>;
           if (s.action === 'tap') {
-            input = { udid, action: 'press', target: { x: tx, y: ty }, settle: true };
+            // settle:false — the engine's fixed ~2.4s settle is replaced by the
+            // state-based wait below (next-step selector poll / UI-stability)
+            input = { udid, action: 'press', target: { x: tx, y: ty }, settle: false };
             // run panel overlay: where this tap lands, in logical pts
             // (targetW/H — same dims the scaling math uses, null pre-snapshot)
             if (tx !== undefined && ty !== undefined) {
               deps.bus.emit('step.tap', { runId, idx: s.idx, x: tx, y: ty, logicalW: targetW ?? 0, logicalH: targetH ?? 0 });
             }
           }
-          else if (s.action === 'scroll') input = { udid, action: 'scroll', direction: s.direction, settle: true };
-          else input = { udid, action: 'fill', target: { x: tx, y: ty }, text: resolved.text ?? '', settle: true };
+          else if (s.action === 'scroll') input = { udid, action: 'scroll', direction: s.direction, settle: false };
+          else input = { udid, action: 'fill', target: { x: tx, y: ty }, text: resolved.text ?? '', settle: false };
           const r = (await withWatchdog(runId, alloy.dispatch('alloy_act', input, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, stepName(s))) as { ok: boolean; error?: { message: string } };
           if (!r.ok) throw new Error(r.error?.message ?? 'engine error');
+          // ── adaptive settle (replaces settle:true's fixed ~2.4s) ──
+          // If the NEXT step resolves by selector, its settle-poll waits for
+          // the exact target to exist — a stronger wait than any time-based
+          // one, so no extra cost here. Only when the next step fires blind
+          // (raw coordinates) or this is the last step (final evidence
+          // screenshot must not catch mid-animation) do we wait for the UI
+          // to actually go quiet.
+          const nextStep = si + 1 < execSteps.length ? execSteps[si + 1]! : null;
+          const nextPollsSelector = !!(nextStep && (nextStep.action === 'tap' || nextStep.action === 'type' || nextStep.action === 'expect')
+            && nextStep.selector && (nextStep.selector.identifier || nextStep.selector.label));
+          if (!nextPollsSelector) {
+            const budgetMs = Number(process.env.CRUCIBLE_UI_STABLE_MS ?? 1500);
+            await awaitUiStable(async () => {
+              const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
+                | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
+              return snap.ok ? (snap.result.nodes ?? []) : null;
+            }, runId, budgetMs);
+          }
           // 'selector-point-scaled' folds into 'selector' for the audit trail —
           // the scale factors already live in evaluated_json's scale context
           const resolvedByOut = resolvedBy === 'selector-point-scaled' ? 'selector' : resolvedBy;
