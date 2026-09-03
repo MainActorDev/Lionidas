@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useLiveEvents } from '../stores/live.ts';
+import PresetEditorModal from '../components/PresetEditorModal.vue';
 
 interface TrafficRow {
   id: string; ts: number; mode: string; method: string; host: string | null; path: string;
@@ -10,16 +11,30 @@ interface TrafficRow {
 interface BodyInfo { sha: string; contentType: string | null; bytes: number; text: string; pretty: string | null }
 interface TrafficDetail extends TrafficRow { reqBody: BodyInfo | null; resBody: BodyInfo | null }
 interface PresetRow { id: string; method: string; path_pattern: string; match: string; status: number; body_path: string | null; created_by: string | null }
+interface ScenarioRow { id: string; name: string; description: string | null; immutable_since: number | null }
+interface ScenarioMember { preset_id: string; enabled: number; method: string; path_pattern: string; status: number }
 
 const live = useLiveEvents();
 const traffic = ref<TrafficRow[]>([]);
 const presets = ref<PresetRow[]>([]);
+const scenarios = ref<ScenarioRow[]>([]);
 const mode = ref('hybrid');
 const msg = ref('');
 const search = ref('');
 const selected = ref<TrafficDetail | null>(null);
 const detailSide = ref<'res' | 'req'>('res');
 const savingPreset = ref(false);
+
+// ── M3: preset editor + scenario manager ──
+const editingPreset = ref<string | null>(null);
+const scnCreating = ref(false);
+const scnNewName = ref('');
+const scnMembersOpen = ref<string | null>(null);
+const scnMembers = ref<ScenarioMember[]>([]);
+const scnMemberBusy = ref(false);
+const scnRenaming = ref<string | null>(null);
+const scnRenameText = ref('');
+const scnConfirmDelete = ref<string | null>(null);
 
 const MODE_HELP: Record<string, string> = {
   record: 'watch only — real traffic passes through and is logged',
@@ -116,6 +131,76 @@ async function deletePreset(id: string): Promise<void> {
   await loadPresets();
 }
 
+// ── M3 scenario manager ──
+async function loadScenarios(): Promise<void> {
+  const res = await fetch('/api/forge/scenarios');
+  scenarios.value = (await res.json() as { scenarios: ScenarioRow[] }).scenarios;
+}
+async function createScenario(): Promise<void> {
+  const name = scnNewName.value.trim();
+  if (!name) return;
+  const res = await fetch('/api/forge/scenarios', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  const b = (await res.json()) as { id?: string; error?: string };
+  if (b.id) {
+    scnNewName.value = '';
+    scnCreating.value = false;
+    await loadScenarios();
+    await openMembers(b.id); // straight into membership editing
+  } else msg.value = b.error ?? 'create failed';
+}
+async function renameScenario(id: string): Promise<void> {
+  const name = scnRenameText.value.trim();
+  if (!name) return;
+  const res = await fetch(`/api/forge/scenarios/${id}`, {
+    method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }),
+  });
+  const b = (await res.json()) as { ok?: boolean; error?: string };
+  if (!b.ok) msg.value = b.error ?? 'rename failed';
+  scnRenaming.value = null;
+  await loadScenarios();
+}
+async function deleteScenario(id: string): Promise<void> {
+  const res = await fetch(`/api/forge/scenarios/${id}`, { method: 'DELETE' });
+  const b = (await res.json()) as { ok?: boolean; error?: string };
+  if (!b.ok) msg.value = b.error ?? 'delete failed';
+  scnConfirmDelete.value = null;
+  if (scnMembersOpen.value === id) scnMembersOpen.value = null;
+  await loadScenarios();
+}
+async function openMembers(id: string): Promise<void> {
+  scnMembersOpen.value = scnMembersOpen.value === id ? null : id;
+  if (scnMembersOpen.value !== id) return;
+  const res = await fetch(`/api/forge/scenarios/${id}`);
+  if (!res.ok) { msg.value = 'scenario not found'; await loadScenarios(); return; }
+  scnMembers.value = ((await res.json()) as { members: ScenarioMember[] }).members;
+}
+async function saveMembers(id: string): Promise<void> {
+  scnMemberBusy.value = true;
+  try {
+    const members = scnMembers.value.map((m) => ({ presetId: m.preset_id, enabled: m.enabled === 1 }));
+    const res = await fetch(`/api/forge/scenarios/${id}/members`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ members }),
+    });
+    const b = (await res.json()) as { ok?: boolean; error?: string };
+    if (!b.ok) msg.value = b.error ?? 'members save failed';
+    else msg.value = `scenario saved — ${members.length} member${members.length === 1 ? '' : 's'}`;
+  } finally { scnMemberBusy.value = false; }
+}
+async function toggleMember(m: ScenarioMember): Promise<void> {
+  m.enabled = m.enabled === 1 ? 0 : 1;
+}
+function addPresetToMembers(p: PresetRow): void {
+  if (!scnMembers.value.some((m) => m.preset_id === p.id)) {
+    scnMembers.value = [{ preset_id: p.id, enabled: 1, method: p.method, path_pattern: p.path_pattern, status: p.status }, ...scnMembers.value];
+  }
+}
+function removeMember(idx: number): void {
+  scnMembers.value.splice(idx, 1);
+}
+
 const detailBody = computed((): BodyInfo | null => {
   if (!selected.value) return null;
   return detailSide.value === 'res' ? selected.value.resBody : selected.value.reqBody;
@@ -130,6 +215,7 @@ onMounted(() => {
   live.connect();
   void loadTraffic();
   void loadPresets();
+  void loadScenarios();
   void loadMitm();
   void loadRouting();
 });
@@ -168,7 +254,7 @@ onUnmounted(() => { unwatch(); live.release(); if (searchTimer) clearTimeout(sea
     <div class="card">
       <div class="card-header">
         <span class="card-title">presets · {{ presets.length }}</span>
-        <span style="font-size: var(--text-caption); color: var(--color-steel);">a preset fakes one endpoint — 'save as preset' on a request below captures its real response</span>
+        <span style="font-size: var(--text-caption); color: var(--color-steel);">a preset fakes one endpoint — 'save as preset' on a request below captures its real response; edit rewrites what it serves</span>
       </div>
       <div v-if="presets.length === 0" class="empty" style="border: none; padding: var(--s-3);">no presets — open a request below and save as preset</div>
       <div v-else class="table-wrap">
@@ -181,10 +267,78 @@ onUnmounted(() => { unwatch(); live.release(); if (searchTimer) clearTimeout(sea
               <td>{{ p.status }}</td>
               <td style="color: var(--color-steel);">{{ p.body_path ? '✓' : '—' }}</td>
               <td style="color: var(--color-steel);">{{ p.created_by }}</td>
-              <td><button class="btn btn-sm btn-ghost" @click="deletePreset(p.id)">✕</button></td>
+              <td style="white-space: nowrap;">
+                <button class="btn btn-sm" @click="editingPreset = p.id">edit</button>
+                <button class="btn btn-sm btn-ghost" style="margin-left: 4px;" @click="deletePreset(p.id)">✕</button>
+              </td>
             </tr>
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- M3: scenario manager — named groups of presets picked at run time -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">scenarios · {{ scenarios.length }}</span>
+        <span style="font-size: var(--text-caption); color: var(--color-steel);">a scenario is a named set of presets — pick it when running a test case to fake those endpoints for that run only</span>
+        <button class="btn btn-sm" style="margin-left: auto;" @click="scnCreating = !scnCreating">+ scenario</button>
+      </div>
+      <div v-if="scnCreating" class="meta-row" style="padding: var(--s-2) var(--s-3);">
+        <span class="k">name</span>
+        <input v-model="scnNewName" placeholder="e.g. tariff api down" style="flex: 1;" @keydown.enter="createScenario" />
+        <button class="btn btn-sm btn-primary" :disabled="!scnNewName.trim()" @click="createScenario">create</button>
+        <button class="btn btn-sm" @click="scnCreating = false">cancel</button>
+      </div>
+      <div v-if="scenarios.length === 0" class="empty" style="border: none; padding: var(--s-3); text-align: left;">
+        no scenarios yet —
+        1. create one above,
+        2. check presets into it,
+        3. pick it on the test cases page when playing
+      </div>
+      <div v-else>
+        <div v-for="s in scenarios" :key="s.id" class="scn-row">
+          <template v-if="scnRenaming === s.id">
+            <input v-model="scnRenameText" style="flex: 1;" @keydown.enter="renameScenario(s.id)" @keydown.esc="scnRenaming = null" />
+            <button class="btn btn-sm btn-primary" @click="renameScenario(s.id)">save</button>
+            <button class="btn btn-sm" @click="scnRenaming = null">cancel</button>
+          </template>
+          <template v-else>
+            <span style="color: var(--color-paper);">{{ s.name }}</span>
+            <span v-if="s.immutable_since" class="badge" title="used by at least one run before — membership edits apply from the next play">used</span>
+            <span style="flex: 1;"></span>
+            <span v-if="scnConfirmDelete === s.id" style="font-size: var(--text-caption); color: var(--color-ember);">
+              saved plans referencing it fall back to live traffic —
+              <a style="text-decoration: underline; cursor: pointer;" @click="deleteScenario(s.id)">delete</a> /
+              <a style="text-decoration: underline; cursor: pointer;" @click="scnConfirmDelete = null">keep</a>
+            </span>
+            <span v-else class="scn-actions">
+              <button class="btn btn-sm" @click="openMembers(s.id)">{{ scnMembersOpen === s.id ? 'close' : 'presets' }}</button>
+              <button class="btn btn-sm" @click="scnRenaming = s.id; scnRenameText = s.name">rename</button>
+              <button class="btn btn-sm btn-danger" @click="scnConfirmDelete = s.id">delete</button>
+            </span>
+          </template>
+          <!-- membership editor -->
+          <div v-if="scnMembersOpen === s.id" class="scn-members">
+            <div v-if="scnMembers.length === 0" style="font-size: var(--text-caption); color: var(--color-steel); padding: var(--s-2);">no presets checked in — add from the list below</div>
+            <div v-for="(m, i) in scnMembers" :key="m.preset_id" class="meta-row">
+              <span class="k"><input type="checkbox" :checked="m.enabled === 1" title="enabled presets are served when this scenario runs" @change="toggleMember(m)" /></span>
+              <b style="min-width: 44px;">{{ m.method }}</b>
+              <span style="flex: 1; font-family: var(--font-mono, monospace); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ m.path_pattern }}</span>
+              <span class="status" :class="m.status >= 500 ? 'status-fail' : m.status >= 400 ? 'status-changes-pending' : 'status-passed'">{{ m.status }}</span>
+              <button class="btn btn-sm btn-ghost" @click="removeMember(i)">✕</button>
+            </div>
+            <!-- add: presets not yet members -->
+            <div class="meta-row" style="border-top: 1px solid var(--color-iron);">
+              <span class="k">add</span>
+              <select style="flex: 1;" @change="($event.target as HTMLSelectElement).value && (addPresetToMembers(presets.find((p) => p.id === ($event.target as HTMLSelectElement).value)!), (($event.target as HTMLSelectElement).value = ''))">
+                <option value="">pick a preset…</option>
+                <option v-for="p in presets.filter((p) => !scnMembers.some((m) => m.preset_id === p.id))" :key="p.id" :value="p.id">{{ p.method }} {{ p.path_pattern }} ({{ p.status }})</option>
+              </select>
+              <button class="btn btn-sm btn-primary" :disabled="scnMemberBusy" @click="saveMembers(s.id)">{{ scnMemberBusy ? 'saving…' : 'save scenario' }}</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -244,7 +398,12 @@ onUnmounted(() => { unwatch(); live.release(); if (searchTimer) clearTimeout(sea
           title="future hits to this exact endpoint return this captured response — status, headers, body"
           @click="saveAsPreset"
         >{{ savingPreset ? 'saving…' : 'save as preset' }}</button>
-        <span v-else-if="selected.matched_preset_id" style="margin-left: auto; color: var(--color-ember); font-size: var(--text-caption);">served by {{ selected.matched_preset_id }}</span>
+        <button
+          v-else-if="selected.matched_preset_id"
+          class="btn btn-sm" style="margin-left: auto;"
+          title="edit what this preset serves"
+          @click="editingPreset = selected.matched_preset_id"
+        >edit preset</button>
         <button class="btn btn-sm btn-ghost" :style="{ marginLeft: selected.matched_preset_id || !selected.res_sha ? 'auto' : undefined }" @click="selected = null">✕</button>
       </div>
       <div class="detail-tabs">
@@ -257,6 +416,7 @@ onUnmounted(() => { unwatch(); live.release(); if (searchTimer) clearTimeout(sea
         no {{ detailSide === 'res' ? 'response' : 'request' }} body captured (empty, binary, or over the 256KB capture bound)
       </div>
     </div>
+    <PresetEditorModal v-if="editingPreset" :preset-id="editingPreset" @close="editingPreset = null" @saved="msg = 'preset saved — serving updated'; void loadPresets()" />
   </div>
 </template>
 
@@ -264,6 +424,22 @@ onUnmounted(() => { unwatch(); live.release(); if (searchTimer) clearTimeout(sea
 .row-selected { background: color-mix(in srgb, var(--color-ember) 8%, transparent); }
 .detail-card { border-color: var(--color-ash); }
 .detail-tabs { display: flex; gap: var(--s-2); padding: var(--s-2) var(--s-3) 0; align-items: center; }
+.scn-row {
+  display: flex; align-items: center; gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border-bottom: 1px solid var(--color-iron);
+  flex-wrap: wrap;
+}
+.scn-row:last-child { border-bottom: none; }
+.scn-actions { display: flex; gap: 4px; }
+.scn-members {
+  width: 100%;
+  background: var(--color-void);
+  border: 1px solid var(--color-iron);
+  border-radius: var(--r-sm);
+  padding: var(--s-2);
+  margin-top: var(--s-2);
+}
 .detail-body {
   margin: var(--s-2) var(--s-3) var(--s-3);
   padding: var(--s-3);
