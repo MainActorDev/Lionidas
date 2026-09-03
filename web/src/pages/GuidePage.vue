@@ -272,10 +272,12 @@ const groups = computed(() => {
 
         <div class="section-label">presets &amp; scenarios</div>
         <div class="card">
-          <div class="meta-row"><span class="k">preset</span><b>one endpoint's fake behavior: status, body, delay, or a failure (timeout/reset/malformed)</b></div>
+          <div class="meta-row"><span class="k">preset</span><b>one endpoint's fake behavior: status, body, delay, throttle, or a failure (timeout/reset/malformed)</b></div>
+          <div class="meta-row"><span class="k">edit</span><b>every preset is editable in the dashboard — change what it serves, slow it down, break it; saving updates the live proxy immediately</b></div>
+          <div class="meta-row"><span class="k">test pattern</span><b>in the editor, paste a URL to check whether the preset would match it — same matcher the proxy uses</b></div>
           <div class="meta-row"><span class="k">sequence</span><b>200 → 500 → 500… — for testing retry paths</b></div>
-          <div class="meta-row"><span class="k">scenario</span><b>a named set of presets — attach one to a run for reproducible conditions</b></div>
-          <div class="meta-row"><span class="k">freeze</span><b>see a real response in traffic → freeze it as a preset with one click</b></div>
+          <div class="meta-row"><span class="k">scenario</span><b>a named set of presets — create, rename, and check presets in on the network page; pick it when running a test case</b></div>
+          <div class="meta-row"><span class="k">freeze</span><b>see a real response in traffic → freeze it as a preset with one click; edit it afterwards like any preset</b></div>
         </div>
 
         <div class="card card-accent">
