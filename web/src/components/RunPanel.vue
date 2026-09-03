@@ -220,11 +220,11 @@ function requestClose(): void {
       <span class="rp-lock" :title="status === 'running' ? 'the panel stays open until the run finishes' : 'run finished — panel can be closed'">
         {{ status === 'running' ? '🔒 until done' : 'unlocked' }}
       </span>
+      <span class="rp-fps" v-if="stream.state.value !== 'failed'">{{ stream.state.value === 'live' ? `live · ${stream.fps.value}fps` : stream.state.value }}</span>
     </header>
 
     <div class="rp-body">
       <div class="rp-stream" ref="streamEl">
-        <span class="rp-fps" v-if="stream.state.value !== 'failed'">{{ stream.state.value === 'live' ? `live · ${stream.fps.value}fps` : stream.state.value }}</span>
         <div class="rp-canvas-wrap">
           <canvas :ref="stream.setCanvas"></canvas>
           <span
@@ -323,7 +323,7 @@ function requestClose(): void {
 .rp-tap i:last-child { width: 14px; height: 14px; border-color: rgba(245, 165, 36, 0.9); animation: rp-tap-ring 1.2s ease-out forwards; }
 @keyframes rp-tap-pop { from { transform: scale(0.4); } to { transform: scale(1); } }
 @keyframes rp-tap-ring { from { transform: scale(0.8); opacity: 0.9; } to { transform: scale(3.2); opacity: 0; } }
-.rp-fps { position: absolute; right: 18px; top: 14px; color: var(--color-steel); font-size: 10px; background: rgba(0, 0, 0, 0.6); padding: 1px 5px; border-radius: 2px; }
+.rp-fps { flex: none; color: var(--color-steel); font-size: 10px; background: rgba(0, 0, 0, 0.6); padding: 1px 5px; border-radius: 2px; }
 .rp-stream-fail { display: flex; flex-direction: column; gap: 6px; align-items: center; color: var(--color-steel); font-size: 12px; padding: 0 24px; text-align: center; }
 .rp-fail-reason { font-size: 10px; color: var(--color-steel); word-break: break-word; }
 
