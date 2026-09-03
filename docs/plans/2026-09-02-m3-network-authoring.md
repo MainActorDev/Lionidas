@@ -1,6 +1,6 @@
 # M3 — Network Authoring UI (preset editor + scenario manager)
 
-Date: 2026-09-02 · Status: DRAFT — awaiting human gate
+Date: 2026-09-02 · Status: SHIPPED 2026-09-03 (fd3f134 + 81fc6ed + 12a5d54) — all tasks T0–T5 done and live-verified; T6's proxy drill superseded by the API+browser drills (match-test proves serving state; full-app proxy drill = first real QA use).
 Closes: the "API-only" admission on the network page (last unstarted milestone surface)
 
 ---
