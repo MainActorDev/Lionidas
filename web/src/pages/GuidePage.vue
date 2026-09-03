@@ -50,15 +50,18 @@ const groups = computed(() => {
       
 <div v-if="active === 'yourday'" class="sec">
   <h2>your day</h2>
-  <p class="lead">The whole point of this tool, as one journey — the pages exist to serve these three moments.</p>
-  <div class="meta-row"><span>morning</span><span class="mono">suite health → /</span></div>
-  <p>Open Crucible and you land on the <b>suite health board</b>. One screen answers the only question that matters at 9am: <b>is the app OK?</b> Every case as a card — verdict, last 10 runs as glyphs, app + build it last ran against. Failures and blocked runs sort to the top so attention goes where it should; passing cases stay visible because the board shows the suite's whole shape, not just its problems.</p>
-  <p>From there: <b>▶ run suite</b> plays every case back-to-back (verdicts update live as runs finish), or hit a <b>plan chip</b> — a saved slice of the suite (a tag filter on a device, say <span class="mono">smoke</span> on the iPhone 14 Plus) replayed in one click.</p>
-  <div class="meta-row"><span>authoring</span><span class="mono">devices → record → assert → save</span></div>
-  <p>A new case starts on the <b>devices</b> page: open a simulator, start a session with the app, and drive it while the recorder captures every tap, scroll, and typed text as steps. The recorder sidebar's <b>assert</b> turns a recording into a <i>test</i> — pick something on screen, the probe checks it resolves to exactly one match, and the expectation is committed as a step. Save the recording and it appears in <b>test cases</b> with its steps, tags, env params, and plans.</p>
-  <div class="meta-row"><span>investigating</span><span class="mono">red card → run detail</span></div>
-  <p>Click a red card and you're in the failing run: every step with what it resolved against (<span class="mono">selector</span> vs <span class="mono">coordinate</span>), the final screenshot, and — when the network proxy is running — <b>the run's own HTTP traffic</b>: every request the app made while this specific run executed, with statuses and latencies. Video-grade evidence without maintaining a separate artifact: the case, its executor, and its evidence are one thing.</p>
-  <p class="cap">Blocked runs (◆) sit beside failures with an honest label — the infrastructure failed, not the app. They're sorted high too, because a flaky rig is its own kind of fire.</p>
+  <p class="lead">What you actually do with Crucible, as three tasks. Every page exists to serve one of them.</p>
+
+  <div class="meta-row"><span>1 · check the app</span><span class="mono">home page → run suite → read verdicts</span></div>
+  <p>Open Crucible. The home page lists every test case as a card with its latest verdict. Press <b>run suite</b> and every case replays back-to-back — cards flip to their new verdict as runs finish. A passing card needs nothing from you. Click a red one to see exactly which step broke, with the screenshot at the moment it broke.</p>
+
+  <div class="meta-row"><span>2 · capture a new test</span><span class="mono">devices → take control → record → assert → save</span></div>
+  <p>Have a flow worth keeping? Go to <b>devices</b>, boot a simulator, click <b>take control</b>, and turn on <b>record</b>. Now just use the app — every tap, scroll, and typed text becomes a step in the sidebar as you go. Before saving, add a check with <b>assert</b>: type something you can see on screen ("Login"), and Crucible confirms it points at exactly one element. Save the recording, name it, tag it — it's now a test case that replays forever.</p>
+
+  <div class="meta-row"><span>3 · test bad network days</span><span class="mono">network → freeze or edit a preset → scenario → run with it</span></div>
+  <p>Does the app survive when the API is down or slow? On the <b>network</b> page: start the proxy, use the app so real traffic appears, then <b>freeze</b> any response to make it replay forever — or press <b>edit</b> to rewrite what it serves (a 500, a 3-second delay, a broken connection). Group fakes into a named <b>scenario</b> ("tariff API down") and pick it next to the run button on the test cases page. The fakes apply for that run only; live traffic is restored after.</p>
+
+  <p class="cap">That's the whole tool. Everything else — runs, trends, blocked verdicts, approvals — is detail you can look up in the other sections of this guide when you need it.</p>
 </div>
 
 <div v-if="active === 'quickstart'">
@@ -69,19 +72,26 @@ const groups = computed(() => {
           with the proof one click away.
         </p>
 
-        <div class="section-label">the 60-second version</div>
+        <div class="section-label">first 10 minutes — do this once</div>
         <div class="card card-accent">
-          <div class="meta-row"><span class="k">1</span><b>Open devices</b> — see your devices, which are booted, who's using them</div>
-          <div class="meta-row"><span class="k">2</span><b>Queue a run</b> — pick a ticket's flow set + device, click "queue run"</div>
-          <div class="meta-row"><span class="k">3</span><b>Watch it execute live</b> — steps appear as they run (not after)</div>
-          <div class="meta-row"><span class="k">4</span><b>Read the matrix</b> — green ✓ = proven, red ✕ = broken (click for evidence)</div>
-          <div class="meta-row"><span class="k">5</span><b>Judge amber ◆</b> — visual changes need your approval before they count</div>
+          <div class="meta-row"><span class="k">1</span><b>Open <span class="mono">/devices</span></b> — boot a simulator with the boot button</div>
+          <div class="meta-row"><span class="k">2</span><b>Take control</b> — pick the app, drive the screen by clicking it</div>
+          <div class="meta-row"><span class="k">3</span><b>Record + assert</b> — turn on record, do a short flow, add one assert, save as a case</div>
+          <div class="meta-row"><span class="k">4</span><b>Replay it</b> — <span class="mono">/templates</span> → run — watch it go green</div>
+          <div class="meta-row"><span class="k">5</span><b>Break the network</b> — <span class="mono">/forge</span> → start proxy → route sims → freeze a response → replay the case against it</div>
+        </div>
+
+        <div class="section-label">the ideas behind it</div>
+        <div class="card">
+          <div class="meta-row"><span class="k">record once</span><b>a recording IS the test — steps, executor, and evidence come from the same artifact, not three documents three people maintain</b></div>
+          <div class="meta-row"><span class="k">manual never counts</span><b>your own driving reproduces and records, but structurally never changes a verdict</b></div>
+          <div class="meta-row"><span class="k">verdicts are honest</span><b>blocked (infra failed) is never mixed with failed (app broke) — a red means investigate</b></div>
         </div>
 
         <div class="section-label">who does what</div>
         <div class="card">
-          <div class="meta-row"><span class="k">QA</span><b>reads the matrix, judges baselines, drives manually to reproduce</b></div>
-          <div class="meta-row"><span class="k">engineer</span><b>opens the failed step, reads logs/video/diff, re-runs the fragment</b></div>
+          <div class="meta-row"><span class="k">QA</span><b>records cases, reads verdicts, judges visual approvals, reproduces by hand</b></div>
+          <div class="meta-row"><span class="k">engineer</span><b>opens the failed step — screenshot, network traffic, what the selector resolved against</b></div>
           <div class="meta-row"><span class="k">agent/lioclaw</span><b>queues runs via the API (agent token, priority 2 — yields to humans)</b></div>
         </div>
 
@@ -368,4 +378,8 @@ const groups = computed(() => {
 
 <style scoped>
 .slice-demo { margin: var(--s-3) 0; }
+.sec :deep(h2) { font-size: var(--text-h3); color: var(--color-paper); margin: 0 0 var(--s-2); }
+.sec .lead { color: var(--color-fog); font-size: var(--text-body); line-height: 1.6; margin: 0 0 var(--s-4); }
+.sec p { color: var(--color-ash); font-size: var(--text-body); line-height: 1.7; margin: 0 0 var(--s-3); }
+.sec .cap { font-size: var(--text-caption); color: var(--color-steel); margin-top: var(--s-2); }
 </style>
