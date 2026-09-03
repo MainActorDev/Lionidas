@@ -144,13 +144,38 @@ function tick(): void {
   const s = Math.max(0, Math.floor((end - startedAt.value) / 1000));
   clock.value = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
+// ── stream box: deterministic phone fit ──
+// aspect-ratio + max-width clamps NON-deterministically: when the width clamp
+// wins (tall windows), CSS keeps the full height and the phone letterboxes
+// with big black bands — the "content pushed to bottom" look. Size the wrap
+// from the measured box instead: the largest phone-ratio rectangle that fits.
+const streamEl = ref<HTMLElement | null>(null);
+function fitStreamBox(): void {
+  const box = streamEl.value;
+  const wrap = box?.querySelector<HTMLElement>('.rp-canvas-wrap');
+  if (!box || !wrap) return;
+  const availW = box.clientWidth - 32; // .rp-stream padding (16px each side)
+  const availH = box.clientHeight - 32;
+  const ratio = 9 / 19.5; // phone aspect (portrait)
+  let w = availH * ratio;
+  let h = availH;
+  if (w > availW) { w = availW; h = w / ratio; }
+  wrap.style.width = `${Math.max(1, Math.round(w))}px`;
+  wrap.style.height = `${Math.max(1, Math.round(h))}px`;
+}
+let ro: ResizeObserver | null = null;
 onMounted(() => {
   live.connect();
   stream.start(props.udid);
   void hydrate();
   clockTimer = setInterval(tick, 500);
+  // keep the phone box fitted through window resizes / dock relayouts
+  ro = new ResizeObserver(() => fitStreamBox());
+  if (streamEl.value) ro.observe(streamEl.value);
+  nextTick(() => fitStreamBox());
 });
 onBeforeUnmount(() => {
+  ro?.disconnect(); ro = null;
   unwatch();
   live.release();
   stream.stop();
@@ -193,7 +218,7 @@ function requestClose(): void {
     </header>
 
     <div class="rp-body">
-      <div class="rp-stream">
+      <div class="rp-stream" ref="streamEl">
         <span class="rp-fps" v-if="stream.state.value !== 'failed'">{{ stream.state.value === 'live' ? `live · ${stream.fps.value}fps` : stream.state.value }}</span>
         <div class="rp-canvas-wrap">
           <canvas :ref="stream.setCanvas"></canvas>
@@ -280,7 +305,7 @@ function requestClose(): void {
    stream column is definite there; width follows the 9:19.5 ratio) — the
    canvas just fills it. object-fit guards the extreme-narrow fallback
    (92vw clamp) where the box ratio breaks: the bitmap stays undistorted. */
-.rp-canvas-wrap { position: relative; height: 100%; aspect-ratio: 9 / 19.5; max-width: 100%; display: flex; }
+.rp-canvas-wrap { position: relative; display: flex; } /* JS-sized: fitStreamBox() */
 .rp-stream canvas { width: 100%; height: 100%; object-fit: contain; border: 1px solid var(--color-iron); border-radius: 8px; background: var(--color-void); display: block; }
 /* tap ripple: fraction-positioned over the canvas — the canvas maps the same
    logical space the fractions were computed from */
