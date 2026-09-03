@@ -14,12 +14,15 @@ let dispatchLog: string[];
 let snapshotNodes: SnapNode[];
 
 const nodes = (labels: string[], opts: { hittable?: boolean; type?: string } = {}): SnapNode[] =>
-  labels.map((label, i) => ({
-    index: i, parentIndex: -1,
+  [{ // app root — playback's settle gate needs root + ≥1 UI node (minNodes=2)
+    index: 0, parentIndex: -1, type: 'Application', label: 'App',
+    rect: { x: 0, y: 0, width: 428, height: 926 }, hittable: false, ref: 'root',
+  }, ...labels.map((label, i) => ({
+    index: i + 1, parentIndex: 0,
     type: opts.type ?? 'StaticText', label,
     rect: { x: 0, y: i * 10, width: 100, height: 10 },
-    hittable: opts.hittable ?? true, ref: `n${i}`,
-  }));
+    hittable: opts.hittable ?? true, ref: `n${i + 1}`,
+  }))];
 
 let allowAct = false;
 function fakeAlloy(): AlloyExports {

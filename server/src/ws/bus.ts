@@ -9,7 +9,7 @@ export type AppEvents = {
   'step.finished': { runId: string; idx: number; flow: string; name: string; status: string; durationMs: number };
   /** readiness phases before the first step — the panel shows them as the
    *  gate (stream → app → steps); phase 'steps' == run.plan follows */
-  'run.phase': { runId: string; phase: 'stream' | 'app' | 'steps' };
+  'run.phase': { runId: string; phase: 'stream' | 'app' | 'settle' | 'steps' };
   /** run plan (A6 run panel): the expanded step list a run will execute —
    *  subflows flattened + reindexed, exactly as run_steps will be written.
    *  Emitted once, right after run.started. */

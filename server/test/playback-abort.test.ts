@@ -16,7 +16,7 @@ function fakeAlloy(): AlloyExports {
   return {
     dispatch: async (tool: string) => {
       if (tool === 'alloy_apps') return { ok: true, result: {} };
-      if (tool === 'alloy_snapshot') return { ok: true, result: { nodes: [{ index: 0, type: 'StaticText', label: 'Home', rect: { x: 0, y: 0, width: 10, height: 10 }, hittable: true }] } };
+      if (tool === 'alloy_snapshot') return { ok: true, result: { nodes: [{ index: 0, parentIndex: -1, type: 'Application', label: 'App', rect: { x: 0, y: 0, width: 428, height: 926 }, hittable: false, ref: 'root' }, { index: 1, parentIndex: 0, type: 'StaticText', label: 'Home', rect: { x: 0, y: 0, width: 10, height: 10 }, hittable: true, ref: 'n1' }] } };
       if (tool === 'alloy_act') {
         if (mode === 'wedge') await new Promise(() => undefined); // never resolves
         await new Promise((r) => setTimeout(r, 30)); // window for mid-run abort

@@ -283,6 +283,36 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       const open = (await withWatchdog(runId, dispatchWithHeal('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, `open ${appToLaunch}`)) as { ok: boolean; error?: { message: string } };
       if (!open.ok) throw new Error(`open failed: ${open.error?.message ?? 'engine error'}`);
 
+      // ── readiness gate, phase 2b: UI settle ──
+      // 'open' resolves at PROCESS LAUNCH — the AX hierarchy is still empty
+      // (measured live: Home labels appear at t+7.5s after a cold relaunch,
+      // hierarchy=1 label until then). Steps dispatched into that window tap
+      // a screen that does not exist yet — the recorded coordinate is right,
+      // the moment is wrong. Poll until the app exposes a populated UI.
+      deps.bus.emit('run.phase', { runId, phase: 'settle' });
+      {
+        const budgetMs = Number(process.env.CRUCIBLE_SETTLE_BUDGET_MS ?? 20_000);
+        const pollMs = Number(process.env.CRUCIBLE_SETTLE_POLL_MS ?? 500);
+        const minNodes = Number(process.env.CRUCIBLE_SETTLE_MIN_NODES ?? 2);
+        const tStart = Date.now();
+        for (;;) {
+          const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
+            | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
+          const n = snap.ok ? (snap.result.nodes?.length ?? 0) : 0;
+          // populated = the app root plus real UI content. minNodes defaults
+          // to 5; tests inject small static hierarchies (3 nodes) — they set
+          // CRUCIBLE_SETTLE_MIN_NODES=3 so the poll exits immediately.
+          if (n >= minNodes) break;
+          if (Date.now() - tStart > budgetMs) {
+            // never wedged: proceed with whatever exists — the app may render
+            // a splash with no AX content; steps' own settle-polls continue
+            // waiting for their selectors
+            break;
+          }
+          await new Promise((r) => setTimeout(r, pollMs));
+        }
+      }
+
       // A5: expand subflows flat — child steps carry flow + inherited optional
       let execSteps: PlaybackStep[];
       try {
