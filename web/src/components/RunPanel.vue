@@ -153,13 +153,18 @@ const streamEl = ref<HTMLElement | null>(null);
 function fitStreamBox(): void {
   const box = streamEl.value;
   const wrap = box?.querySelector<HTMLElement>('.rp-canvas-wrap');
-  if (!box || !wrap) return;
-  const availW = box.clientWidth - 32; // .rp-stream padding (16px each side)
-  const availH = box.clientHeight - 32;
+  const dock = box?.closest<HTMLElement>('.rp-dock');
+  if (!box || !wrap || !dock) return;
+  const pad = 32; // .rp-stream padding (16px each side)
+  const availH = box.clientHeight - pad;
   const ratio = 9 / 19.5; // phone aspect (portrait)
-  let w = availH * ratio;
+  // height-first: the phone spans the FULL column height, width follows the
+  // ratio — flush top-to-bottom, no voids. Cap so the steps column keeps a
+  // minimum of ~320px; only genuinely narrow docks letterbox (graceful).
+  const maxW = dock.clientWidth - pad - 320;
   let h = availH;
-  if (w > availW) { w = availW; h = w / ratio; }
+  let w = h * ratio;
+  if (w > maxW) { w = maxW; h = w / ratio; }
   wrap.style.width = `${Math.max(1, Math.round(w))}px`;
   wrap.style.height = `${Math.max(1, Math.round(h))}px`;
 }
@@ -282,7 +287,10 @@ function requestClose(): void {
   min-height: 0;
 }
 .rp-body {
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  /* stream column sizes to the fitted phone (auto) — the phone fills the
+     full height flush; steps get the remainder. An equal 420/420 split can
+     never be filled by a 9:19.5 phone: it letterboxes with big voids. */
+  display: grid; grid-template-columns: auto minmax(0, 1fr);
   min-height: 0; border-bottom: 1px solid var(--color-iron);
 }
 .rp-head {
