@@ -67,7 +67,7 @@ export function useDeviceStream(): DeviceStream {
   let lastPaintAt = 0; // stream-frame paint time — gates the standalone fast-path
   // Reusable offscreen for stepped downscaling (mip-style halving) — created
   // lazily, sized to the largest halving step, reused across frames.
-  let halfCanvas: HTMLCanvasElement | null = null;
+  // ping-pong scratch buffers for drawScaled (see its comment)
 
   /** High-quality downscale draw: halve repeatedly (≤2x per step) into the
    *  offscreen, then one final scale onto the display canvas. A single-step
@@ -77,18 +77,26 @@ export function useDeviceStream(): DeviceStream {
     let w = srcW;
     let h = srcH;
     let source: CanvasImageSource = src;
+    // ping-pong: resizing a canvas CLEARS it — a single scratch buffer ends
+    // up drawing itself onto itself post-clear and paints pure transparency
+    // once the halving chain needs 2+ steps (narrow canvases) — found live
+    // when the run panel's 101px stream drew 79 blank frames at 25fps
+    let ping = false;
+    let a: HTMLCanvasElement | null = null;
+    let b: HTMLCanvasElement | null = null;
     while (w > dstW * 2 && h > 2) {
-      if (!halfCanvas) halfCanvas = document.createElement('canvas');
+      const dst = ping ? b ?? (b = document.createElement('canvas')) : a ?? (a = document.createElement('canvas'));
+      ping = !ping;
       const nw = Math.max(dstW, Math.floor(w / 2));
       const nh = Math.max(1, Math.floor(h / 2));
-      if (halfCanvas.width !== nw || halfCanvas.height !== nh) { halfCanvas.width = nw; halfCanvas.height = nh; }
-      const hctx = halfCanvas.getContext('2d');
+      if (dst.width !== nw || dst.height !== nh) { dst.width = nw; dst.height = nh; }
+      const hctx = dst.getContext('2d');
       if (!hctx) break;
       hctx.imageSmoothingEnabled = true;
       hctx.imageSmoothingQuality = 'high';
       hctx.clearRect(0, 0, nw, nh);
       hctx.drawImage(source, 0, 0, nw, nh);
-      source = halfCanvas;
+      source = dst;
       w = nw;
       h = nh;
     }

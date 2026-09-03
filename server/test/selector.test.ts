@@ -21,11 +21,21 @@ describe('captureSelectorAt', () => {
   });
   it('walks to parent when hit node has no label/identifier', () => {
     // node 5 (Other, no label) → parent chain via parentIndex leads to node 1
-    // 'Home' (hittable). Non-hittable sibling 'Banner' (6) is never walked to.
-    expect(captureSelectorAt(NODES, 200, 230)?.label).toBe('Home');
+    // 'Home' (428×926 screen container — now REJECTED by the container guard,
+    // same class as the app root: coordinate fallback is more precise).
+    // Regression note: pre-guard this captured {label:'Home'} and playback
+    // redirected taps to the screen center.
+    expect(captureSelectorAt(NODES, 200, 230)).toBeNull();
   });
   it('returns null when nothing hittable contains the point', () => {
     expect(captureSelectorAt(NODES, -5, -5)).toBeNull();
+  });
+  it('container guard: never captures the app root / screen-sized ancestor', () => {
+    // tap lands on unlabeled chrome deep in the hierarchy; the walk would
+    // climb to node 0 (Application, screen-sized) — the guard must refuse
+    // and let playback use the recorded coordinates instead
+    const sel = captureSelectorAt(NODES, 10, 10);
+    expect(sel).toBeNull();
   });
 });
 
@@ -42,5 +52,10 @@ describe('resolveSelector', () => {
   });
   it('returns null when gone (no match)', () => {
     expect(resolveSelector(NODES, { label: 'Deleted' })).toBeNull();
+  });
+  it('container guard: legacy screen-sized selector resolves to nothing (coordinate fallback wins)', () => {
+    // tnc-style legacy template: {label:'Lion Parcel', type:'Application'} —
+    // resolving it would tap the app-root CENTER, far from the recorded point
+    expect(resolveSelector(NODES, { label: 'Lion Parcel', type: 'Application' })).toBeNull();
   });
 });
