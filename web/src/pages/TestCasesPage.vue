@@ -499,9 +499,9 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
   width: 100%;
   box-sizing: border-box;
 }
-/* while the run dock (fixed, 420px right) is open, keep page content clear
+/* while the run dock (fixed, 840px right) is open, keep page content clear
    of it — the dock is an overlay, not a grid column */
-.a2-page:has(.rp-dock) { padding-right: 436px; }
+.a2-page:has(.rp-dock) { padding-right: 856px; }
 /* header */
 .a2-head { display: flex; align-items: baseline; gap: 14px; flex: none; }
 .page-title { font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }

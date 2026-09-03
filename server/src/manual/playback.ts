@@ -385,9 +385,22 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           let ty = s.y;
           let resolvedBy: 'selector' | 'coordinate-fallback' | 'coordinate-fallback-scaled' | 'coordinate' | 'coordinate-scaled' = 'coordinate';
           if ((s.action === 'tap' || s.action === 'type') && s.selector && (s.selector.identifier || s.selector.label)) {
-            const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
-              | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
-            const hit = snap.ok ? resolveSelector(snap.result.nodes ?? [], s.selector) : null;
+            // launch-settle poll (same class as expect A7): a fresh relaunch
+            // takes ~2-3s to populate the AX hierarchy — resolving against
+            // one immediate snapshot misses the selector and the coordinate
+            // fallback taps BEFORE the UI exists. Poll until resolved or the
+            // settle budget expires, THEN fall back.
+            const settleBudgetMs = Number(process.env.CRUCIBLE_STEP_SETTLE_MS ?? 8000);
+            const settlePollMs = Number(process.env.CRUCIBLE_STEP_SETTLE_POLL_MS ?? 1000);
+            let hit: { x: number; y: number } | null = null;
+            const settleStart = Date.now();
+            while (Date.now() - settleStart < settleBudgetMs) {
+              const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
+                | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
+              hit = snap.ok ? resolveSelector(snap.result.nodes ?? [], s.selector) : null;
+              if (hit) break;
+              await new Promise((r) => setTimeout(r, settlePollMs));
+            }
             if (hit) { tx = hit.x; ty = hit.y; resolvedBy = 'selector'; }
             else {
               resolvedBy = 'coordinate-fallback';
@@ -408,7 +421,14 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             resolvedBy = 'coordinate-scaled';
           }
           let input: Record<string, unknown>;
-          if (s.action === 'tap') input = { udid, action: 'press', target: { x: tx, y: ty }, settle: true };
+          if (s.action === 'tap') {
+            input = { udid, action: 'press', target: { x: tx, y: ty }, settle: true };
+            // run panel overlay: where this tap lands, in logical pts
+            // (targetW/H — same dims the scaling math uses, null pre-snapshot)
+            if (tx !== undefined && ty !== undefined) {
+              deps.bus.emit('step.tap', { runId, idx: s.idx, x: tx, y: ty, logicalW: targetW ?? 0, logicalH: targetH ?? 0 });
+            }
+          }
           else if (s.action === 'scroll') input = { udid, action: 'scroll', direction: s.direction, settle: true };
           else input = { udid, action: 'fill', target: { x: tx, y: ty }, text: resolved.text ?? '', settle: true };
           const r = (await withWatchdog(runId, alloy.dispatch('alloy_act', input, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, stepName(s))) as { ok: boolean; error?: { message: string } };

@@ -5,6 +5,7 @@ export type AppEvents = {
   'run.started': { runId: string; ticketKey: string };
   'run.freshness.checked': { runId: string; freshness: string };
   'step.started': { runId: string; idx: number; flow: string; name: string };
+  'step.tap': { runId: string; idx: number; x: number; y: number; logicalW: number; logicalH: number };
   'step.finished': { runId: string; idx: number; flow: string; name: string; status: string; durationMs: number };
   /** readiness phases before the first step — the panel shows them as the
    *  gate (stream → app → steps); phase 'steps' == run.plan follows */

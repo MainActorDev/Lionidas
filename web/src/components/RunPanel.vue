@@ -36,6 +36,9 @@ const status = ref<'running' | 'passed' | 'failed' | 'aborted'>('running');
 /** readiness gate phase — 'stream' → 'app' → 'steps' (run.phase events);
  *  null once steps begin (plan/step events take over) */
 const gate = ref<'stream' | 'app' | 'steps' | null>('stream');
+/** tap markers — fired by step.tap events, fade after ~1.4s */
+const taps = ref<Array<{ id: number; fx: number; fy: number }>>([]);
+let tapSeq = 0;
 const startedAt = ref<number | null>(null);
 const finishedAt = ref<number | null>(null);
 const blocked = ref(false);
@@ -85,6 +88,17 @@ function onEvent(ev: { type: string; payload: Record<string, unknown> }): void {
   if (!rid || rid !== props.runId) return;
   if (ev.type === 'run.phase') {
     gate.value = (p['phase'] as typeof gate.value) ?? null;
+  } else if (ev.type === 'step.tap') {
+    // logical → fraction; canvas maps the same logical space, so the marker
+    // tracks the canvas regardless of its rendered size
+    const x = p['x'] as number; const y = p['y'] as number;
+    const w = p['logicalW'] as number; const h = p['logicalH'] as number;
+    if (w > 0 && h > 0) {
+      const id = ++tapSeq;
+      taps.value.push({ id, fx: x / w, fy: y / h });
+      if (taps.value.length > 4) taps.value.shift();
+      setTimeout(() => { taps.value = taps.value.filter((t) => t.id !== id); }, 1400);
+    }
   } else if (ev.type === 'run.plan') {
     const steps = (p['steps'] as PlanStep[] | undefined) ?? [];
     if (rows.value.length === 0) {
@@ -178,24 +192,31 @@ function requestClose(): void {
       </span>
     </header>
 
-    <div class="rp-stream">
-      <span class="rp-fps" v-if="stream.state.value !== 'failed'">{{ stream.state.value === 'live' ? `live · ${stream.fps.value}fps` : stream.state.value }}</span>
-      <canvas :ref="stream.setCanvas"></canvas>
-      <div v-if="stream.state.value === 'failed'" class="rp-stream-fail">
-        <span>stream unavailable</span>
-        <span class="rp-fail-reason">{{ stream.failure.value }}</span>
-        <button v-if="stream.retryable.value" class="btn btn-sm" @click="stream.retry()">retry stream</button>
+    <div class="rp-body">
+      <div class="rp-stream">
+        <span class="rp-fps" v-if="stream.state.value !== 'failed'">{{ stream.state.value === 'live' ? `live · ${stream.fps.value}fps` : stream.state.value }}</span>
+        <div class="rp-canvas-wrap">
+          <canvas :ref="stream.setCanvas"></canvas>
+          <span
+            v-for="t in taps" :key="t.id" class="rp-tap" :style="{ left: `${t.fx * 100}%`, top: `${t.fy * 100}%` }"
+          ><i></i><i></i></span>
+        </div>
+        <div v-if="stream.state.value === 'failed'" class="rp-stream-fail">
+          <span>stream unavailable</span>
+          <span class="rp-fail-reason">{{ stream.failure.value }}</span>
+          <button v-if="stream.retryable.value" class="btn btn-sm" @click="stream.retry()">retry stream</button>
+        </div>
       </div>
-    </div>
 
-    <div class="rp-steps" ref="stepsEl">
-      <div class="rp-steps-title">steps · {{ doneCount }} / {{ rows.length }}</div>
-      <div v-for="r in rows" :key="r.idx" class="rp-step" :class="r.status">
-        <span class="rp-idx">{{ r.idx + 1 }}</span>
-        <span class="rp-kind" :title="r.action">{{ r.action }}</span>
-        <span class="rp-detail">{{ r.name }}</span>
-        <span v-if="r.flow" class="rp-flow" :title="`subflow: ${r.flow}`">↳ {{ r.flow }}</span>
-        <span class="rp-dur">{{ r.status === 'running' ? '…' : r.durationMs !== null ? `${(r.durationMs / 1000).toFixed(1)}s` : '' }}</span>
+      <div class="rp-steps" ref="stepsEl">
+        <div class="rp-steps-title">steps · {{ doneCount }} / {{ rows.length }}</div>
+        <div v-for="r in rows" :key="r.idx" class="rp-step" :class="r.status">
+          <span class="rp-idx">{{ r.idx + 1 }}</span>
+          <span class="rp-kind" :title="r.action">{{ r.action }}</span>
+          <span class="rp-detail">{{ r.name }}</span>
+          <span v-if="r.flow" class="rp-flow" :title="`subflow: ${r.flow}`">↳ {{ r.flow }}</span>
+          <span class="rp-dur">{{ r.status === 'running' ? '…' : r.durationMs !== null ? `${(r.durationMs / 1000).toFixed(1)}s` : '' }}</span>
+        </div>
       </div>
     </div>
 
@@ -224,13 +245,20 @@ function requestClose(): void {
    Grid traps (both measured in the sketch): explicit minmax(0,1fr) column — a
    rows-only grid sizes its implicit column to max-content; min-width: 0 on all
    flexible flex children or they refuse to shrink (long step text). */
+/* horizontal split: stream left, steps right, equal halves (user request —
+   the vertical stack made the 9:19.5 stream too small to read). Grid traps
+   from the vertical spec still apply: minmax(0,1fr) columns, min-width: 0. */
 .rp-dock {
   /* below the app topbar — the shell's top strip is not ours to cover */
-  position: fixed; right: 0; top: var(--topbar-h); bottom: 0; width: 420px; z-index: 80;
+  position: fixed; right: 0; top: var(--topbar-h); bottom: 0; width: min(840px, 92vw); z-index: 80;
   display: grid; grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto auto minmax(120px, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   background: var(--color-void); border-left: 1px solid var(--color-iron);
   min-height: 0;
+}
+.rp-body {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-height: 0; border-bottom: 1px solid var(--color-iron);
 }
 .rp-head {
   display: flex; align-items: center; gap: 10px; padding: 12px 16px;
@@ -243,12 +271,25 @@ function requestClose(): void {
 .rp-meta { color: var(--color-steel); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
 .rp-lock { color: var(--color-steel); font-size: 10px; border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 1px 6px; flex: none; }
 
-.rp-stream { position: relative; height: 248px; border-bottom: 1px solid var(--color-iron); background: #000; display: flex; align-items: center; justify-content: center; padding: 12px 16px; overflow: hidden; }
+.rp-stream { position: relative; border-right: 1px solid var(--color-iron); background: #000; display: flex; align-items: center; justify-content: center; padding: 16px; overflow: hidden; min-height: 0; }
 /* canvas sizing must come from the BOX, not the intrinsic 300×150 backing
    store (pre-frames it fell back to intrinsic + aspect-ratio → 302×654).
    Flex centering (not grid place-items) so the implicit row can't grow to
    content height and defeat max-height: 100%. */
-.rp-stream canvas { max-height: 100%; max-width: 100%; aspect-ratio: 9 / 19.5; border: 1px solid var(--color-iron); border-radius: 8px; background: var(--color-void); }
+/* canvas sizing: the WRAP is the aspect-locked box (height 100% of the
+   stream column is definite there; width follows the 9:19.5 ratio) — the
+   canvas just fills it. object-fit guards the extreme-narrow fallback
+   (92vw clamp) where the box ratio breaks: the bitmap stays undistorted. */
+.rp-canvas-wrap { position: relative; height: 100%; aspect-ratio: 9 / 19.5; max-width: 100%; display: flex; }
+.rp-stream canvas { width: 100%; height: 100%; object-fit: contain; border: 1px solid var(--color-iron); border-radius: 8px; background: var(--color-void); display: block; }
+/* tap ripple: fraction-positioned over the canvas — the canvas maps the same
+   logical space the fractions were computed from */
+.rp-tap { position: absolute; translate: -50% -50%; width: 0; height: 0; pointer-events: none; z-index: 2; }
+.rp-tap i { position: absolute; left: 0; top: 0; border-radius: 999px; translate: -50% -50%; border: 2px solid var(--color-ember, #f5a524); }
+.rp-tap i:first-child { width: 14px; height: 14px; background: var(--color-ember, #f5a524); opacity: 0.9; animation: rp-tap-pop 0.18s ease-out; }
+.rp-tap i:last-child { width: 14px; height: 14px; border-color: rgba(245, 165, 36, 0.9); animation: rp-tap-ring 1.2s ease-out forwards; }
+@keyframes rp-tap-pop { from { transform: scale(0.4); } to { transform: scale(1); } }
+@keyframes rp-tap-ring { from { transform: scale(0.8); opacity: 0.9; } to { transform: scale(3.2); opacity: 0; } }
 .rp-fps { position: absolute; right: 18px; top: 14px; color: var(--color-steel); font-size: 10px; background: rgba(0, 0, 0, 0.6); padding: 1px 5px; border-radius: 2px; }
 .rp-stream-fail { display: flex; flex-direction: column; gap: 6px; align-items: center; color: var(--color-steel); font-size: 12px; padding: 0 24px; text-align: center; }
 .rp-fail-reason { font-size: 10px; color: var(--color-steel); word-break: break-word; }

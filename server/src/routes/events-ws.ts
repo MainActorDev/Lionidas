@@ -37,6 +37,7 @@ export async function registerEventsWs(app: FastifyInstance, bus: TypedEventBus<
       'run.phase',
       'run.plan',
       'step.started',
+      'step.tap',
       'step.finished',
       'run.finished',
       'run.aborted',
