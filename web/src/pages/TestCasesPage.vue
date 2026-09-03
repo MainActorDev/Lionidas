@@ -533,13 +533,16 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
    when the list outgrows the available space (flex shrink engages then). */
 .a2-table {
   flex: 0 1 auto;
-  overflow-y: auto; overscroll-behavior: contain;
+  /* fit the width — never h-scroll: overflow-y:auto computes overflow-x to
+     auto too (CSS spec), so lock x to hidden explicitly. The grid's
+     minmax(0, fr) columns compress; long names ellipsize. */
+  overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
   border: 1px solid var(--color-iron); border-radius: var(--r-sm);
   background: var(--color-carbon);
 }
 .a2-thead {
   position: sticky; top: 0; z-index: 2; background: var(--color-graphite);
-  display: grid; grid-template-columns: 1.9fr 1.2fr 64px 92px 110px 150px;
+  display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(0, 1.2fr) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 150px);
   gap: var(--s-2); padding: 8px 12px;
   font-size: 10px; color: var(--color-steel); text-transform: uppercase; letter-spacing: 0.08em;
 }
@@ -547,12 +550,17 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 .a2-row-card.editing { border-color: var(--color-ember); }
 .a2-row-card.editing .a2-row { background: color-mix(in srgb, var(--color-ember) 6%, transparent); }
 .a2-row {
-  position: relative; display: grid; grid-template-columns: 1.9fr 1.2fr 64px 92px 110px 150px;
+  position: relative; display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(0, 1.2fr) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 150px);
   gap: var(--s-2); align-items: center; padding: 8px 12px; min-height: 44px; cursor: pointer;
 }
 .a2-row:hover { background: var(--color-graphite); }
 .col-steps, .col-updated { color: var(--color-fog); font-size: 12px; }
-.a2-name { color: var(--color-paper); }
+.a2-name { color: var(--color-paper); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.col-app { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* verdict pill ellipsizes inside its track at extreme narrow widths (the
+   pill is the unbreakable floor: mono text can't wrap) */
+.col-verdict { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.col-verdict .status { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .a2-ticket { color: var(--color-steel); font-size: 10px; margin-left: 6px; }
 .a2-app-icon { width: 16px; height: 16px; border-radius: 3px; vertical-align: -3px; margin-right: 6px; }
 .a2-app-name { color: var(--color-fog); font-size: 12px; }
