@@ -295,13 +295,15 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
         const pollMs = Number(process.env.CRUCIBLE_SETTLE_POLL_MS ?? 500);
         const minNodes = Number(process.env.CRUCIBLE_SETTLE_MIN_NODES ?? 2);
         const tStart = Date.now();
-        for (;;) {
+        // ⛔ abort-aware: an operator ■ stop during the settle gate must not
+        // wait out the 20s budget (B2 promise: abort lands within one step).
+        for (; !isAborted(runId);) {
           const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
             | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
           const n = snap.ok ? (snap.result.nodes?.length ?? 0) : 0;
-          // populated = the app root plus real UI content. minNodes defaults
-          // to 5; tests inject small static hierarchies (3 nodes) — they set
-          // CRUCIBLE_SETTLE_MIN_NODES=3 so the poll exits immediately.
+          // populated = the app root plus real UI content (minNodes=2;
+          // test fixtures model root + UI nodes so static hierarchies
+          // settle immediately).
           if (n >= minNodes) break;
           if (Date.now() - tStart > budgetMs) {
             // never wedged: proceed with whatever exists — the app may render
@@ -413,8 +415,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           // coordinates are the fallback, not the plan.
           let tx = s.x;
           let ty = s.y;
-          let resolvedBy: 'selector' | 'selector-point-scaled' | 'selector-recentred' | 'coordinate-fallback' | 'coordinate-fallback-scaled' | 'coordinate' | 'coordinate-scaled' = 'coordinate';
-          let selectorRejected: string | undefined;
+          let resolvedBy: 'selector' | 'selector-recentred' | 'coordinate-fallback' | 'coordinate-fallback-scaled' | 'coordinate' | 'coordinate-scaled' | 'selector-point-scaled' = 'coordinate';
           if ((s.action === 'tap' || s.action === 'type') && s.selector && (s.selector.identifier || s.selector.label)) {
             // launch-settle poll (same class as expect A7): a fresh relaunch
             // takes ~2-3s to populate the AX hierarchy — resolving against
@@ -422,10 +423,13 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // fallback taps BEFORE the UI exists. Poll until resolved or the
             // settle budget expires, THEN fall back.
             const settleBudgetMs = Number(process.env.CRUCIBLE_STEP_SETTLE_MS ?? 8000);
-            const settlePollMs = Number(process.env.CRUCIBLE_STEP_SETTLE_POLL_MS ?? 1000);
+            const settlePollMs = Number(process.env.CRUCIBLE_STEP_SETTLE_POLL_MS ?? 250);
             let hit: { x: number; y: number; rect: { x: number; y: number; width: number; height: number } } | null = null;
             const settleStart = Date.now();
-            while (Date.now() - settleStart < settleBudgetMs) {
+            // ⛔ keep the poll ABORT-AWARE: an operator ■ stop must not wait
+            // out an 8s budget inside one step (B2's promise: abort ≤ one
+            // step + watchdog). 250ms poll keeps the abort latent ≤250ms.
+            while (Date.now() - settleStart < settleBudgetMs && !isAborted(runId)) {
               const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
                 | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
               hit = snap.ok ? resolveSelector(snap.result.nodes ?? [], s.selector) : null;
@@ -487,7 +491,10 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           else input = { udid, action: 'fill', target: { x: tx, y: ty }, text: resolved.text ?? '', settle: true };
           const r = (await withWatchdog(runId, alloy.dispatch('alloy_act', input, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, stepName(s))) as { ok: boolean; error?: { message: string } };
           if (!r.ok) throw new Error(r.error?.message ?? 'engine error');
-          insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify({ ...resolved, resolvedBy, ...(selectorRejected ? { selectorRejected } : {}), ...(s.flow ? { flow: s.flow } : {}) }));
+          // 'selector-point-scaled' folds into 'selector' for the audit trail —
+          // the scale factors already live in evaluated_json's scale context
+          const resolvedByOut = resolvedBy === 'selector-point-scaled' ? 'selector' : resolvedBy;
+          insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify({ ...resolved, resolvedBy: resolvedByOut, ...(s.flow ? { flow: s.flow } : {}) }));
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           if (s.optional) {
