@@ -212,7 +212,10 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       // self-heal: stale session binding / dead engine is the known class —
       // dispatchWithHeal reads the in-band envelope (dispatch never throws),
       // resets engine clients, retries once before failing the run
-      const open = (await dispatchWithHeal('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false }, deps.dispatchDeps)) as { ok: boolean; error?: { message: string } };
+      // the watchdog covers this dispatch too: a dead engine (stale daemon,
+      // respawn loop) otherwise wedges the run at 0 steps forever — found
+      // live when the agent-device daemon was mid-respawn
+      const open = (await withWatchdog(runId, dispatchWithHeal('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, `open ${appToLaunch}`)) as { ok: boolean; error?: { message: string } };
       if (!open.ok) throw new Error(`open failed: ${open.error?.message ?? 'engine error'}`);
 
       // A5: expand subflows flat — child steps carry flow + inherited optional
