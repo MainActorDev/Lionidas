@@ -1,7 +1,12 @@
 <script setup lang="ts">
-/** Test cases: recorded flows (CRUD) + assertions — the QA regression suite.
- *  Each case shows its last verdict + trend; plans replay the suite in one
- *  click; playback runs them. Ticket tag filters regression selection. */
+/** Test cases — the A2 design, natively: a viewport-locked column of
+ *  header / case table (own scroll) / yaml panel. The minimal header is not
+ *  a "locked variant" — it IS the page chrome (mockup: a2-split-panel-scroll).
+ *  The advanced run controls (network scenario, env, plans) live in a
+ *  disclosure row that collapses away while editing yaml.
+ *  Everything from the old page is ported: verdicts/trends, play/playAll,
+ *  plans, rename/edit/delete, step expander (param/optional, + subflow,
+ *  + assert), tag-filter chips, suite summary. */
 import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue';
 import YamlCasePanel from '../components/YamlCasePanel.vue';
 
@@ -16,8 +21,7 @@ interface Template {
   udid: string; logicalW: number | null; logicalH: number | null;
   steps: Step[]; defaultPresetId: string | null;
   appBundleId: string | null; appName: string | null; appVersion: string | null;
-  tags: string[];
-  verdict: Verdict | null;
+  tags: string[]; verdict: Verdict | null;
   createdBy: string; createdAt: number; updatedAt: number;
 }
 interface Plan { id: string; name: string; tags: string[]; udid: string | null; appBundleId: string | null; scenarioId: string | null; env: Record<string, string> }
@@ -27,6 +31,7 @@ const loading = ref(true);
 const error = ref('');
 const expanded = ref<string | null>(null);
 const filter = ref('');
+const filterEl = ref<HTMLInputElement | null>(null);
 const renaming = ref<string | null>(null);
 const renameName = ref('');
 const renamingTicket = ref('');
@@ -43,6 +48,7 @@ const runScenario = ref<string>('');
 /** env map for plays: KEY=value lines. Prompted once, reused for every play
  *  until cleared — the Maestro envFile equivalent. */
 const envText = ref('');
+const envOpen = ref(false); // collapsed until asked — env is an advanced control
 function parseEnv(): Record<string, string> {
   const out: Record<string, string> = {};
   for (const line of envText.value.split('\n')) {
@@ -55,6 +61,7 @@ function parseEnv(): Record<string, string> {
   }
   return out;
 }
+const envKeyCount = computed(() => Object.keys(parseEnv()).length);
 
 async function play(t: Template): Promise<void> {
   if (playing.value) return;
@@ -222,7 +229,7 @@ const shown = (): Template[] => {
     t.name.toLowerCase().includes(f) || (t.ticketKey ?? '').toLowerCase().includes(f) || (t.tags ?? []).some((tg) => tg.toLowerCase().includes(f)));
 };
 
-// ── A2 yaml split panel: viewport-locked while open ──
+// ── A2 yaml split panel: the page's native editing surface ──
 const yamlOpenId = ref<string | null>(null);
 const yamlPosition = computed(() => {
   if (!yamlOpenId.value) return { pos: 1, total: 1 };
@@ -242,20 +249,21 @@ function hopYaml(dir: -1 | 1): void {
   if (next) yamlOpenId.value = next.id;
 }
 const yamlCase = computed(() => (yamlOpenId.value ? shown().find((t) => t.id === yamlOpenId.value) ?? null : null));
-// A2 locked header: "N cases · M tags" (the mockup's page-desc)
 const tagCount = computed(() => new Set(templates.value.flatMap((t) => t.tags ?? [])).size);
+/** the A2 editing state — drives header chrome swap + table share */
+const editing = computed(() => yamlOpenId.value !== null);
+
 // A2 lock: freeze the app's scroll container while the panel is open
 watch(yamlOpenId, (id) => {
   document.body.classList.toggle('yaml-panel-open', id !== null);
 });
-// A2: ⌘F jumps to the case filter while the panel is open (search-to-jump)
+// A2: ⌘F jumps to the case filter (search-to-jump)
 function onCmdF(ev: KeyboardEvent): void {
   if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'f' && yamlOpenId.value !== null) {
     ev.preventDefault();
     filterEl.value?.focus();
   }
 }
-const filterEl = ref<HTMLInputElement | null>(null);
 onMounted(() => window.addEventListener('keydown', onCmdF));
 onBeforeUnmount(() => { window.removeEventListener('keydown', onCmdF); document.body.classList.remove('yaml-panel-open'); });
 
@@ -292,6 +300,7 @@ function relTime(ms: number): string {
   if (d < 86_400_000) return `${Math.floor(d / 3_600_000)}h ago`;
   return `${Math.floor(d / 86_400_000)}d ago`;
 }
+
 /** trend glyph → (symbol, system class) — mirrors .status-* semantics */
 function trendGlyphs(t: Template): Array<{ g: string; cls: string }> {
   const trend = t.verdict?.trend;
@@ -357,100 +366,68 @@ function planDesc(p: Plan): string {
   return bits.join(' · ');
 }
 
-// ── revamp: env disclosure + step-kind labels ──
-const envOpen = ref(false);  // collapsed until asked — env is an advanced control
-const envKeyCount = computed(() => Object.keys(parseEnv()).length);
 function stepKindLabel(action: string): string {
   return action === 'tap' ? 'tap' : action === 'scroll' ? 'scroll' : action === 'type' ? 'type' : action === 'expect' ? 'assert' : action === 'runFlow' ? 'flow' : action;
 }
 function stepKindTitle(action: string): string {
   return action === 'tap' ? 'tap at recorded coordinates (selector-resolved when possible)' : action === 'scroll' ? 'scroll gesture' : action === 'type' ? 'type text into the focused field' : action === 'expect' ? 'existence assertion — replay fails red if the element disappears' : action === 'runFlow' ? 'run another case as a subflow' : action;
 }
+
+// the advanced-controls disclosure is collapsed while the yaml panel is open
+const advancedOpen = ref(false);
+watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 </script>
 <template>
-  <section class="page" :class="{ 'yaml-locked': yamlOpenId !== null }">
-    <!-- LOCKED state header — exactly the A2 mockup's chrome: minimal one-row
-         header; the full controls return when the panel closes (esc). -->
-    <header v-if="yamlOpenId" class="a2-head">
+  <section class="a2-page" :class="{ editing: yamlOpenId !== null }">
+    <!-- ── header — the mockup's minimal one-row chrome; the suite summary +
+         run controls ride in the advanced disclosure when not editing ── -->
+    <header class="a2-head">
       <span class="page-title">test cases</span>
       <span class="a2-desc">{{ templates.length }} case{{ templates.length === 1 ? '' : 's' }} · {{ tagCount }} tag{{ tagCount === 1 ? '' : 's' }}</span>
+      <span v-if="!editing" class="a2-suite" :title="`${suiteSummary.green} pass · ${suiteSummary.red} fail · ${suiteSummary.blocked} blocked · ${suiteSummary.never} never run`">
+        <span class="sym" title="passing">✓{{ suiteSummary.green }}</span>
+        <span v-if="suiteSummary.red" class="sym" title="failing">✕{{ suiteSummary.red }}</span>
+        <span v-if="suiteSummary.blocked" class="sym" title="blocked (infra)">◆{{ suiteSummary.blocked }}</span>
+        <span v-if="suiteSummary.never" class="sym" title="never run">◌{{ suiteSummary.never }}</span>
+      </span>
       <span class="a2-spacer"></span>
       <input ref="filterEl" v-model="filter" class="a2-search" placeholder="search cases…  ⌘F" />
-      <button class="btn" @click="createCaseYaml" title="hand-author a new case as yaml — opens the editor with a minimal starter">+ case (yaml)</button>
-    </header>
-
-    <!-- ── header: title · suite summary · primary actions (normal state) ── -->
-    <header v-else class="tc-head">
-      <div class="tc-title-group">
-        <h1>test cases</h1>
-        <span class="stat-summary" :title="`${suiteSummary.green} pass · ${suiteSummary.red} fail · ${suiteSummary.blocked} blocked · ${suiteSummary.never} never run`">
-          <span class="n">{{ suiteSummary.total }}</span> {{ suiteSummary.total === 1 ? 'case' : 'cases' }}
-          <span class="sym" title="passing">✓{{ suiteSummary.green }}</span>
-          <span v-if="suiteSummary.red" class="sym" title="failing">✕{{ suiteSummary.red }}</span>
-          <span v-if="suiteSummary.blocked" class="sym" title="blocked (infra)">◆{{ suiteSummary.blocked }}</span>
-          <span v-if="suiteSummary.never" class="sym" title="never run">◌{{ suiteSummary.never }}</span>
-        </span>
-      </div>
-      <div class="tc-actions">
-        <button class="btn" :disabled="playingAll || shown().length === 0" @click="playAll()" title="sequentially run every case matching the filter">
-          {{ playingAll ? 'running…' : '▶ run filtered' }}
-        </button>
-        <button class="btn" :disabled="playingAll" @click="createCaseYaml" title="hand-author a new case as yaml — opens the editor with a minimal starter">+ case (yaml)</button>
-        <button class="btn btn-ghost" @click="savePlanFromCurrent" title="save the current filter + network choice + env as a named plan — one click replays this exact suite later">+ plan</button>
-      </div>
-    </header>
-
-    <!-- ── controls: filter · network · env disclosure (hidden while the yaml
-         panel is open — the locked header carries the search box) ── -->
-    <div v-if="!yamlOpenId" class="tc-controls">
-      <input ref="filterEl" v-model="filter" class="input tc-filter" placeholder="filter by name, ticket, or tag…" title="⌘F jumps here while the yaml panel is open" />
-      <select
-        v-model="runScenario" class="input tc-scenario"
-        title="network scenario active during runs — its presets fake endpoints for the run's duration, then restore"
-      >
-        <option value="">network: live</option>
-        <option v-for="s in scenarios" :key="s.id" :value="s.id">{{ s.name }}</option>
-      </select>
-      <button class="btn btn-ghost tc-env-toggle" :class="{ active: envOpen || !!envText }" @click="envOpen = !envOpen" title="run-time env values (KEY=value lines) sent with every play — never stored in cases">
-        env{{ envKeyCount ? ` · ${envKeyCount}` : '' }} {{ envOpen ? '▾' : '▸' }}
+      <button class="btn" :disabled="playingAll" @click="createCaseYaml" title="hand-author a new case as yaml — opens the editor with a minimal starter">+ case (yaml)</button>
+      <button v-if="!editing" class="btn" :disabled="playingAll || shown().length === 0" @click="playAll()" title="sequentially run every case matching the filter">
+        {{ playingAll ? 'running…' : '▶ run filtered' }}
       </button>
-    </div>
-    <div v-if="envOpen" class="tc-env">
-      <textarea
-        v-model="envText" class="input" rows="3" spellcheck="false"
-        placeholder="secrets at play time — one KEY=value per line (e.g. PASSWORD=hunter2). never stored in cases."
-      />
-    </div>
+    </header>
 
-    <!-- ── plans (saved suite invocations — hidden in the locked state) ── -->
-    <div v-if="plans.length > 0 && !yamlOpenId" class="tc-plans">
-      <span class="tc-plans-label">plans</span>
-      <span v-for="p in plans" :key="p.id" class="chip" :title="planDesc(p)">
-        <button class="chip-click" :disabled="runningPlan !== null" @click="runPlan(p)">{{ runningPlan === p.id ? 'running…' : `▶ ${p.name}` }}</button>
-        <button class="chip-x" title="delete this plan" @click="deletePlan(p)">✕</button>
+    <!-- ── advanced controls disclosure (hidden while editing yaml) ── -->
+    <div v-if="!editing" class="a2-advanced">
+      <button class="btn btn-ghost a2-adv-toggle" :class="{ active: advancedOpen || envOpen || !!envText || runScenario !== '' }" @click="advancedOpen = !advancedOpen">
+        advanced {{ advancedOpen ? '▾' : '▸' }}
+      </button>
+      <template v-if="advancedOpen">
+        <select v-model="runScenario" class="a2-select" title="network scenario active during runs — its presets fake endpoints for the run's duration, then restore">
+          <option value="">network: live</option>
+          <option v-for="s in scenarios" :key="s.id" :value="s.id">{{ s.name }}</option>
+        </select>
+        <button class="btn btn-ghost" :class="{ active: envOpen || !!envText }" @click="envOpen = !envOpen" title="run-time env values (KEY=value lines) sent with every play — never stored in cases">
+          env{{ envKeyCount ? ` · ${envKeyCount}` : '' }} {{ envOpen ? '▾' : '▸' }}
+        </button>
+        <button class="btn btn-ghost" @click="savePlanFromCurrent" title="save the current filter + network choice + env as a named plan — one click replays this exact suite later">+ plan</button>
+        <span v-if="planMsg" class="a2-note">{{ planMsg }}</span>
+      </template>
+      <span v-if="plans.length > 0" class="a2-plans">
+        <button v-for="p in plans" :key="p.id" class="chip chip-click-wrap" :title="planDesc(p)">
+          <span class="chip-click" :disabled="runningPlan !== null" @click="runPlan(p)">{{ runningPlan === p.id ? 'running…' : `▶ ${p.name}` }}</span>
+          <span class="chip-x" title="delete this plan" @click="deletePlan(p)">✕</span>
+        </button>
       </span>
-      <span v-if="planMsg" class="tc-plan-msg">{{ planMsg }}</span>
+    </div>
+    <div v-if="!editing && envOpen" class="a2-env">
+      <textarea v-model="envText" rows="3" spellcheck="false" placeholder="secrets at play time — one KEY=value per line (e.g. PASSWORD=hunter2). never stored in cases." />
     </div>
 
-    <div v-if="loading" class="empty">loading…</div>
-    <div v-else-if="error" class="empty" style="color: var(--color-ember);">{{ error }}</div>
-
-    <div v-else-if="shown().length === 0" class="empty tc-empty">
-      <div class="tc-empty-title">{{ templates.length === 0 ? 'no test cases yet' : 'no cases match the filter' }}</div>
-      <div class="hint-bar tc-empty-journey">
-        <span class="h-step">record <span>▸ devices</span></span>
-        <span class="h-arrow">→</span>
-        <span class="h-step">assert <span>▸ recorder</span></span>
-        <span class="h-arrow">→</span>
-        <span class="h-step">save <span>▸ sidebar</span></span>
-        <span class="h-arrow">→</span>
-        <span class="h-step">run <span>▶ here</span></span>
-      </div>
-    </div>
-
-    <!-- ── case table: column headers + grid rows ── -->
-    <div v-else class="tc-table">
-      <div class="tc-thead">
+    <!-- ── case table: own scroll region, sticky header ── -->
+    <div class="a2-table">
+      <div class="a2-thead">
         <span class="col-expander"></span>
         <span class="col-case">case</span>
         <span class="col-app">app</span>
@@ -460,91 +437,86 @@ function stepKindTitle(action: string): string {
         <span class="col-verdict">verdict</span>
       </div>
 
-      <article v-for="t in shown()" :key="t.id" :ref="(el) => { if (yamlOpenId === t.id && el) (el as HTMLElement).scrollIntoView?.({ block: 'nearest' }) }" class="tc-row-card" :class="{ open: expanded === t.id, 'yaml-editing': yamlOpenId === t.id }">
-        <div class="tc-row" @click="expanded = expanded === t.id ? null : t.id">
+      <article v-for="t in shown()" :key="t.id" class="a2-row-card" :class="{ open: expanded === t.id, editing: yamlOpenId === t.id }">
+        <div class="a2-row" @click="expanded = expanded === t.id ? null : t.id">
           <span class="col-expander">{{ expanded === t.id ? '▾' : '▸' }}</span>
           <span class="col-case">
-            <span class="tc-name">{{ t.name }}</span>
-            <span v-if="t.ticketKey" class="tc-ticket">{{ t.ticketKey }}</span>
-            <span v-for="tg in t.tags ?? []" :key="tg" class="chip tc-tag" title="click to filter by this tag" @click.stop="filter = tg">{{ tg }}</span>
+            <span class="a2-name">{{ t.name }}</span>
+            <span v-if="t.ticketKey" class="a2-ticket">{{ t.ticketKey }}</span>
+            <span v-for="tg in t.tags ?? []" :key="tg" class="chip" title="click to filter by this tag" @click.stop="filter = tg">{{ tg }}</span>
           </span>
           <span class="col-app">
             <template v-if="t.appBundleId">
-              <img
-                v-if="t.udid" class="tc-app-icon" alt=""
+              <img v-if="t.udid" class="a2-app-icon" alt=""
                 :src="`/api/devices/${t.udid}/apps/${encodeURIComponent(t.appBundleId)}/icon`"
-                @error="(e: Event) => (e.target as HTMLImageElement).style.display = 'none'"
-              />
-              <span class="tc-app-name">{{ t.appName ?? t.appBundleId }}</span>
-              <span v-if="t.appVersion" class="tc-app-ver">v{{ t.appVersion }}</span>
+                @error="(e: Event) => (e.target as HTMLImageElement).style.display = 'none'" />
+              <span class="a2-app-name">{{ t.appName ?? t.appBundleId }}</span>
+              <span v-if="t.appVersion" class="a2-app-ver">v{{ t.appVersion }}</span>
             </template>
-            <span v-else class="tc-app-none">no app</span>
+            <span v-else class="a2-app-none">no app</span>
           </span>
           <span class="col-steps">{{ t.steps.length }}</span>
           <span class="col-updated" :title="new Date(t.updatedAt).toLocaleString()">{{ relTime(t.updatedAt) }}</span>
           <span class="col-trend">
-            <span v-if="t.verdict?.trend" class="trend" title="last 10 runs, oldest → newest (✓ pass · ✕ fail · ◆ blocked · ◌ aborted)">
+            <span v-if="t.verdict?.trend" class="trend" title="last 10 runs, oldest → newest">
               <span v-for="(g, i) in trendGlyphs(t)" :key="i" :class="g.cls">{{ g.g }}</span>
             </span>
-            <span v-else class="tc-trend-none">—</span>
+            <span v-else class="a2-trend-none">—</span>
           </span>
           <span class="col-verdict">
             <span v-if="t.verdict" :class="`status ${verdictStatusClass(t)}`" :title="verdictLabel(t)">{{ verdictLabel(t) }}</span>
             <span v-else class="status status-none">never run</span>
           </span>
-          <span class="tc-hover-actions">
+          <span class="a2-hover-actions">
             <button class="btn btn-sm" :disabled="playing !== null" @click.stop="play(t)">{{ playing === t.id ? 'starting…' : '▶ run' }}</button>
+            <button class="btn btn-sm" @click.stop="openYaml(t)">yaml</button>
             <button class="btn btn-sm btn-ghost" @click.stop="startRename(t)">edit</button>
-            <button class="btn btn-sm btn-ghost" @click.stop="openYaml(t)">yaml</button>
             <button class="btn btn-sm btn-ghost" @click.stop="remove(t.id)">delete</button>
           </span>
         </div>
 
-        <div v-if="renaming === t.id" class="tc-edit">
-          <input v-model="renameName" class="input" placeholder="name" />
-          <input v-model="renamingTicket" class="input" placeholder="ticket key (e.g. LP-123)" />
-          <input v-model="renamingDesc" class="input" placeholder="description" />
-          <input v-model="renamingTags" class="input" placeholder="tags (comma list, e.g. smoke, login)" />
-          <span class="tc-edit-actions">
+        <div v-if="renaming === t.id" class="a2-edit">
+          <input v-model="renameName" class="a2-input" placeholder="name" />
+          <input v-model="renamingTicket" class="a2-input" placeholder="ticket key (e.g. LP-123)" />
+          <input v-model="renamingDesc" class="a2-input" placeholder="description" />
+          <input v-model="renamingTags" class="a2-input" placeholder="tags (comma list, e.g. smoke, login)" />
+          <span class="a2-edit-actions">
             <button class="btn btn-sm" @click="saveRename(t.id)">save</button>
             <button class="btn btn-sm btn-ghost" @click="renaming = null">cancel</button>
           </span>
         </div>
 
-        <div v-if="expanded === t.id" class="tc-body">
-          <p v-if="t.description" class="tc-desc">{{ t.description }}</p>
-          <div class="tc-steps">
-            <div v-for="s in t.steps" :key="s.idx" class="tc-step">
-              <span class="tc-step-n">{{ s.idx + 1 }}</span>
-              <span class="chip tc-step-kind" :class="`kind-${s.action}`" :title="stepKindTitle(s.action)">{{ stepKindLabel(s.action) }}</span>
-              <span class="tc-step-label">{{ stepLabel(s) }}</span>
-              <span
-                v-if="s.selector && (s.selector.identifier || s.selector.label) && s.action !== 'expect'"
-                class="tc-step-sel"
-                :title="`element selector: ${JSON.stringify(s.selector)}`"
-              >⚓ {{ s.selector.identifier ?? s.selector.label }}</span>
-              <span v-if="s.action === 'expect' && s.selector" class="tc-step-sel tc-step-assert" :title="`assertion: replay fails if this element disappears — ${JSON.stringify(s.selector)}`">assert</span>
-              <span class="tc-step-controls">
-                <label v-if="s.action === 'type'" class="tc-step-ctl" title="replace literal text with ${env.KEY} — the value is provided at play time (env box above), never stored in the case">
-                  <input type="checkbox" :checked="(s.text ?? '').startsWith('${env.')" @change="parameterize(t, s)" /> param
+        <div v-if="expanded === t.id" class="a2-body">
+          <p v-if="t.description" class="a2-desc-line">{{ t.description }}</p>
+          <div class="a2-steps">
+            <div v-for="s in t.steps" :key="s.idx" class="a2-step">
+              <span class="a2-step-n">{{ s.idx + 1 }}</span>
+              <span class="chip" :title="stepKindTitle(s.action)">{{ stepKindLabel(s.action) }}</span>
+              <span class="a2-step-label">{{ stepLabel(s) }}</span>
+              <span v-if="s.selector && (s.selector.identifier || s.selector.label) && s.action !== 'expect'" class="a2-step-sel" :title="`element selector: ${JSON.stringify(s.selector)}`">⚓ {{ s.selector.identifier ?? s.selector.label }}</span>
+              <span v-if="s.action === 'expect' && s.selector" class="a2-step-sel a2-step-assert" :title="`assertion: replay fails if this element disappears — ${JSON.stringify(s.selector)}`">assert</span>
+              <span class="a2-step-controls">
+                <label v-if="s.action === 'type'" class="a2-step-ctl" title="replace literal text with ${env.KEY} — the value is provided at play time (env box above), never stored in the case">
+                  <input type="checkbox" :checked="(s.text ?? '').startsWith('${env.') && (s.text ?? '').endsWith('}')" @change="parameterize(t, s)" /> param
                 </label>
-                <label class="tc-step-ctl" title="optional step: a miss records skip, the run stays green (popups, interstitials)">
+                <label class="a2-step-ctl" title="optional step: a miss records skip, the run stays green (popups, interstitials)">
                   <input type="checkbox" :checked="!!s.optional" @change="toggleOptional(t, s)" /> optional
                 </label>
               </span>
             </div>
           </div>
-          <div class="tc-body-actions">
+          <div class="a2-body-actions">
             <button class="btn btn-sm" @click="addSubflow(t)" title="append a runFlow step — this case will run another case's steps as part of its own">+ subflow</button>
             <button class="btn btn-sm" @click="addExpectation(t)" title="append an assertion — replay fails red if the element disappears from the screen">+ assert</button>
           </div>
         </div>
       </article>
     </div>
-    <div v-if="playMsg" class="tc-play-msg">{{ playMsg }}</div>
 
-<!-- A2: yaml split panel — page locks while open (table region scrolls internally) -->
-    <div v-if="yamlOpenId" class="yaml-region">
+    <div v-if="playMsg" class="a2-note">{{ playMsg }}</div>
+
+    <!-- ── the yaml panel — native to this layout, fills the rest ── -->
+    <div v-if="yamlOpenId" class="a2-yaml">
       <YamlCasePanel
         v-if="yamlCase"
         :template-id="yamlCase.id"
@@ -561,17 +533,23 @@ function stepKindTitle(action: string): string {
 </template>
 
 <style scoped>
-.page { padding: var(--s-5); max-width: 1160px; margin: 0 auto; }
-
-/* ── A2 yaml split panel — the approved design, faithfully:
-   while the panel is open the PAGE LOCKS into a viewport column (header /
-   table region / panel). The table region scrolls INSIDE itself, the panel
-   anchors below and never moves, and the edited row highlights + scrolls
-   into view inside the table region. Close → normal page flow returns. ── */
-/* ── A2 locked-state header — the mockup's minimal chrome ── */
+/* ── the A2 layout, natively: a viewport column. Header + table (own scroll)
+   + yaml panel. The lock lives at the app's scroll container (body class),
+   set by the watcher — nothing here needs a "variant". ── */
+.a2-page {
+  display: flex; flex-direction: column;
+  height: calc(100dvh - 2 * var(--s-6)); /* .main's viewport box minus its padding */
+  box-sizing: border-box;
+  gap: var(--s-3);
+  max-width: 1160px; margin: 0 auto; width: 100%;
+  padding: 0 var(--s-5);
+}
+/* header */
 .a2-head { display: flex; align-items: baseline; gap: 14px; flex: none; }
-.a2-head .page-title { font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
+.page-title { font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
 .a2-desc { color: var(--color-steel); font-size: 11px; }
+.a2-suite { color: var(--color-steel); font-size: 11px; }
+.a2-suite .sym { margin-left: 6px; }
 .a2-spacer { flex: 1; }
 .a2-search {
   background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm);
@@ -579,145 +557,82 @@ function stepKindTitle(action: string): string {
 }
 .a2-search:focus { outline: none; border-color: var(--color-ember); }
 
-.page.yaml-locked {
-  /* Lock is applied at the SCROLL CONTAINER (.main) via a body class — see
-     the watcher below. Here we just make the page a column that fits. */
-  display: flex; flex-direction: column;
-  min-height: 0;
-  height: calc(100dvh - 2 * var(--s-6)); /* .main's viewport box minus its padding */
-  box-sizing: border-box;
-  overflow: hidden;
+/* advanced disclosure */
+.a2-advanced { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; flex: none; }
+.a2-adv-toggle.active { border-color: var(--color-ember); color: var(--color-ember); }
+.a2-select {
+  background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm);
+  color: var(--color-fog); font: inherit; font-size: 12px; padding: 4px 8px;
 }
-.page.yaml-locked .tc-table {
-  flex: 0 0 34vh;            /* A2: the table region's fixed viewport share */
-  min-height: 140px;
-  overflow-y: auto;           /* the table scrolls INSIDE itself */
-  overscroll-behavior: contain;
+.a2-note { color: var(--color-steel); font-size: 11px; }
+.a2-plans { display: flex; gap: 4px; flex-wrap: wrap; }
+.a2-env { flex: none; }
+.a2-env textarea {
+  width: 100%; background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm);
+  color: var(--color-paper); font-family: var(--font-mono); font-size: 11px; padding: var(--s-2);
 }
-.page.yaml-locked .tc-thead {
-  position: sticky; top: 0; z-index: 2;  /* A2: sticky header inside the region */
-  background: var(--color-graphite);
+
+/* table region */
+.a2-table {
+  flex: 1 1 auto; min-height: 140px;
+  overflow-y: auto; overscroll-behavior: contain;
+  border: 1px solid var(--color-iron); border-radius: var(--r-sm);
+  background: var(--color-carbon);
 }
-.page.yaml-locked .yaml-region {
-  flex: 1 1 0;
-  min-height: 0;
-  position: static;           /* in-flow, not fixed — it fills what's left */
-  padding: 0;
+.a2-thead {
+  position: sticky; top: 0; z-index: 2; background: var(--color-graphite);
+  display: grid; grid-template-columns: 24px 1.9fr 1.2fr 64px 92px 110px 150px;
+  gap: var(--s-2); padding: 8px 12px 8px 6px;
+  font-size: 10px; color: var(--color-steel); text-transform: uppercase; letter-spacing: 0.08em;
 }
-.yaml-region {
-  padding: 0 var(--s-5) var(--s-4);
-  display: flex; justify-content: center;
+.a2-row-card { border-bottom: 1px solid var(--color-iron); }
+.a2-row-card.editing { border-color: var(--color-ember); }
+.a2-row-card.editing .a2-row { background: color-mix(in srgb, var(--color-ember) 6%, transparent); }
+.a2-row {
+  position: relative; display: grid; grid-template-columns: 24px 1.9fr 1.2fr 64px 92px 110px 150px;
+  gap: var(--s-2); align-items: center; padding: 8px 12px 8px 6px; min-height: 44px; cursor: pointer;
 }
-.yaml-region > :deep(*) { max-width: 1160px; width: 100%; }
-/* the edited case's row: always findable — ember left border + tint */
-.tc-row-card.yaml-editing { border-color: var(--color-ember); }
-.tc-row-card.yaml-editing .tc-row { background: color-mix(in srgb, var(--color-ember) 6%, transparent); }
-
-/* ── header ── */
-.tc-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); margin-bottom: var(--s-4); }
-.tc-title-group { display: flex; align-items: baseline; gap: var(--s-4); }
-.tc-head h1 { font-size: var(--text-heading); font-weight: var(--weight-bold); margin: 0; }
-.tc-actions { display: flex; gap: var(--s-2); }
-
-/* ── controls ── */
-.tc-controls { display: flex; align-items: center; gap: var(--s-2); margin-bottom: var(--s-3); }
-.tc-filter { flex: 1; max-width: 340px; }
-.tc-scenario { width: auto; }
-.tc-env-toggle { min-width: 72px; justify-content: center; }
-.tc-env-toggle.active { color: var(--color-paper); border-color: var(--color-slate); }
-.tc-env { margin-bottom: var(--s-3); }
-.tc-env textarea { resize: vertical; font-size: var(--text-caption); }
-
-/* ── plans ── */
-.tc-plans { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; margin-bottom: var(--s-3); }
-.tc-plans-label { font-size: var(--text-caption); color: var(--color-steel); text-transform: uppercase; letter-spacing: 0.08em; }
-.tc-plan-msg { font-size: var(--text-caption); color: var(--color-ash); }
-
-/* ── empty state ── */
-.tc-empty { padding: var(--s-7); }
-.tc-empty-title { color: var(--color-fog); font-size: var(--text-body); margin-bottom: var(--s-4); }
-.tc-empty-journey { border-bottom: none; justify-content: center; margin-bottom: 0; }
-
-/* ── the table: grid columns shared by header + rows ── */
-.tc-thead, .tc-row {
-  display: grid;
-  grid-template-columns: 20px minmax(220px, 1.6fr) minmax(150px, 1fr) 52px 72px minmax(84px, auto) minmax(150px, auto);
-  gap: var(--s-2);
-  align-items: center;
+.a2-row:hover { background: var(--color-graphite); }
+.col-expander { color: var(--color-steel); }
+.col-steps, .col-updated { color: var(--color-fog); font-size: 12px; }
+.a2-name { color: var(--color-paper); }
+.a2-ticket { color: var(--color-steel); font-size: 10px; margin-left: 6px; }
+.a2-app-icon { width: 16px; height: 16px; border-radius: 3px; vertical-align: -3px; margin-right: 6px; }
+.a2-app-name { color: var(--color-fog); font-size: 12px; }
+.a2-app-ver { color: var(--color-steel); font-size: 10px; margin-left: 4px; }
+.a2-app-none { color: var(--color-steel); font-size: 11px; }
+.a2-trend-none { color: var(--color-steel); }
+/* hover actions: absolute right, zero reserve width, gradient fade-in (the
+   house row pattern — never covers the verdict pill) */
+.a2-hover-actions {
+  position: absolute; right: 12px; display: flex; gap: 4px;
+  background: linear-gradient(90deg, transparent, var(--color-carbon) 24px);
+  padding-left: 28px; opacity: 0; transition: opacity 0.12s;
 }
-.tc-thead {
-  font-size: var(--text-caption);
-  color: var(--color-ash);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 0 var(--s-3) var(--s-2);
+.a2-row:hover .a2-hover-actions, .a2-row-card.editing .a2-hover-actions { opacity: 1; }
+
+/* row edit + expander body */
+.a2-edit { display: flex; gap: var(--s-2); padding: var(--s-2) var(--s-3); border-top: 1px solid var(--color-iron); flex-wrap: wrap; }
+.a2-input {
+  background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm);
+  color: var(--color-paper); font: inherit; font-size: 12px; padding: 4px 8px; min-width: 120px; flex: 1;
 }
-.tc-thead .col-steps, .tc-thead .col-updated { text-align: right; }
-.tc-thead .col-trend { text-align: center; }
-.tc-thead .col-verdict { text-align: right; }
+.a2-edit-actions { display: flex; gap: 4px; }
+.a2-body { border-top: 1px solid var(--color-iron); padding: var(--s-3); }
+.a2-desc-line { color: var(--color-fog); font-size: 12px; margin: 0 0 var(--s-2); }
+.a2-steps { display: flex; flex-direction: column; gap: 2px; }
+.a2-step { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
+.a2-step-n { color: var(--color-steel); width: 18px; text-align: right; font-size: 11px; }
+.a2-step-label { color: var(--color-fog); font-size: 12px; }
+.a2-step-sel { color: var(--color-steel); font-size: 10px; margin-left: 4px; }
+.a2-step-assert { color: var(--color-ember); }
+.a2-step-controls { margin-left: auto; display: flex; gap: 10px; }
+.a2-step-ctl { color: var(--color-steel); font-size: 10px; cursor: pointer; }
+.a2-body-actions { display: flex; gap: var(--s-2); margin-top: var(--s-2); }
 
-.tc-table { display: flex; flex-direction: column; gap: var(--s-2); }
-.tc-row-card { border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); }
-.tc-row-card.open { border-color: var(--color-slate); }
-.tc-row { position: relative; padding: var(--s-2) var(--s-3); cursor: pointer; min-height: 44px; }
-.tc-row:hover { background: var(--color-graphite); }
-
-.col-expander { color: var(--color-steel); font-size: 10px; }
-.col-case { display: flex; align-items: center; gap: var(--s-2); min-width: 0; flex-wrap: wrap; }
-.tc-name { font-weight: var(--weight-bold); font-size: var(--text-label); color: var(--color-paper); }
-.tc-ticket { font-size: var(--text-caption); color: var(--color-ash); }
-.tc-tag { font-size: 10px; padding: 0 var(--s-1); }
-
-.col-app { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.tc-app-icon { width: 18px; height: 18px; border-radius: 3px; display: block; flex: none; }
-.tc-app-name { color: var(--color-ash); font-size: var(--text-caption); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tc-app-ver { color: var(--color-steel); font-size: 10px; flex: none; }
-.tc-app-none { color: var(--color-steel); font-size: var(--text-caption); font-style: italic; }
-
-.col-steps, .col-updated { text-align: right; color: var(--color-ash); font-size: var(--text-caption); }
-.col-trend { text-align: center; }
-.tc-trend-none { color: var(--color-pewter); }
-.col-verdict { text-align: right; }
-
-/* hover actions overlay — zero reserve, verdict stays flush */
-.tc-hover-actions {
-  position: absolute; right: var(--s-2); top: 50%; transform: translateY(-50%);
-  display: flex; gap: var(--s-1); opacity: 0;
-  background: linear-gradient(to right, transparent, var(--color-graphite) 24px);
-  padding: 2px 0;
-}
-.tc-row:hover .tc-hover-actions { opacity: 1; }
-
-/* ── edit strip ── */
-.tc-edit { display: flex; gap: var(--s-2); padding: var(--s-2) var(--s-3); border-top: 1px solid var(--color-iron); flex-wrap: wrap; align-items: center; }
-.tc-edit .input { flex: 1; min-width: 120px; }
-.tc-edit-actions { display: flex; gap: var(--s-2); }
-
-/* ── expanded body: structured steps ── */
-.tc-body { border-top: 1px solid var(--color-iron); padding: var(--s-3); }
-.tc-desc { color: var(--color-fog); font-size: var(--text-caption); margin: 0 0 var(--s-3); }
-.tc-steps { display: flex; flex-direction: column; gap: 2px; }
-.tc-step { display: flex; align-items: center; gap: var(--s-2); padding: 3px 0; border-radius: var(--r-sm); font-size: var(--text-caption); color: var(--color-fog); min-height: 26px; min-width: 0; }
-.tc-step:hover { background: var(--color-graphite); }
-.tc-step-n { color: var(--color-steel); width: 18px; text-align: right; flex: none; }
-.tc-step-kind { flex: none; font-size: 10px; padding: 0 var(--s-1); min-width: 44px; justify-content: center; }
-.kind-tap { color: var(--color-paper); }
-.kind-scroll { color: var(--color-ash); }
-.kind-type { color: var(--color-paper); }
-.kind-expect { border-color: var(--color-ember-dim); color: var(--color-ember); }
-.kind-runFlow { border-style: dashed; }
-.tc-step-label { flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tc-step-sel { color: var(--color-steel); font-size: 10px; flex: none; }
-.tc-step-assert { color: var(--color-ember); }
-.tc-step-controls { display: flex; gap: var(--s-3); flex: none; margin-left: var(--s-2); }
-.tc-step-ctl {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-size: 10px; color: var(--color-steel);
-  cursor: pointer; user-select: none; white-space: nowrap;
-  overflow: hidden; flex: none;
-}
-.tc-step-ctl input { margin: 0; }
-.tc-body-actions { display: flex; gap: var(--s-2); margin-top: var(--s-3); }
-
-.tc-play-msg { margin-top: var(--s-3); color: var(--color-steel); font-size: var(--text-caption); }
+/* the yaml panel fills the remaining viewport while editing */
+.a2-yaml { flex: 1 1 0; min-height: 0; display: flex; }
+.a2-yaml > :deep(*) { flex: 1; }
+/* while EDITING, the table region takes its fixed mockup share */
+.a2-page.editing .a2-table { flex: 0 0 34vh; }
 </style>
