@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>B · focus mode — full-width editor, table dimmed behind</title>
+<style>
+  :root {
+    --bg: #000; --panel: #0a0a0a; --card: #111; --line: #202020; --line2: #3a3a3a;
+    --text: #f0f0f0; --dim: #b4b4b4; --faint: #787878;
+    --ember: #ff5c1a; --ok: #2fbf71; --err: #e5484d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace; font-size: 13px; line-height: 1.55; padding: 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 2px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 10px; color: var(--faint); font-weight: 400; text-transform: uppercase; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--line); color: var(--dim); white-space: nowrap; }
+  .dimmed { opacity: 0.25; filter: blur(1px); pointer-events: none; transition: opacity .2s; }
+  .name { color: var(--text); }
+  .btn { background: var(--card); border: 1px solid var(--line); border-radius: 2px; color: var(--text); font: inherit; font-size: 11px; padding: 3px 8px; cursor: pointer; }
+  .btn-accent { border-color: var(--ember); color: var(--ember); }
+
+  /* ── focus mode: full-viewport overlay sheet ── */
+  .focus { position: fixed; inset: 0; background: rgba(0,0,0,0.92); display: flex; align-items: stretch; justify-content: center; padding: 28px 40px; z-index: 10; }
+  .sheet { width: min(1100px, 100%); display: grid; grid-template-rows: auto 1fr; background: var(--panel); border: 1px solid var(--line2); border-radius: 2px; overflow: hidden; }
+  .f-head { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--card); }
+  .f-head .crumb { color: var(--faint); font-size: 11px; }
+  .f-head .crumb b { color: var(--text); }
+  .f-head .dirty { color: var(--ember); font-size: 11px; }
+  .f-head .spacer { flex: 1; }
+  .f-main { display: grid; grid-template-columns: 1fr 260px; min-height: 0; }
+  .cm { padding: 18px 22px; white-space: pre; overflow: auto; font-size: 13px; line-height: 1.75; tab-size: 2; counter-reset: line; }
+  .ln { display: block; }
+  .ln:before { counter-increment: line; content: counter(line); display: inline-block; width: 30px; margin-right: 16px; color: #4a4a4a; text-align: right; }
+  .k { color: var(--ember); } .s { color: #d9a05b; } .n { color: #7eb8da; } .c { color: #5a5a5a; font-style: italic; } .p { color: var(--faint); } .envv { color: var(--ok); }
+
+  .rail { border-left: 1px solid var(--line); padding: 14px; overflow: auto; }
+  .rail-t { font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px; }
+  .stat { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim); padding: 3px 0; }
+  .stat b { color: var(--text); font-weight: 400; }
+  .rail .divider { border-top: 1px solid var(--line); margin: 10px 0; }
+  .mini-step { font-size: 11px; color: var(--dim); padding: 2px 0; }
+  .mini-step .n { color: #4a4a4a; }
+  .keys { margin-top: 10px; }
+  .kbd { display: inline-block; border: 1px solid var(--line2); border-radius: 2px; padding: 0 5px; font-size: 10px; color: var(--dim); margin: 1px 2px 1px 0; }
+</style>
+</head>
+<body>
+  <!-- behind: the table, dimmed -->
+  <div class="dimmed">
+    <div class="card">
+      <table>
+        <thead><tr><th>case</th><th>app</th><th>steps</th><th>verdict</th><th></th></tr></thead>
+        <tbody>
+          <tr><td class="name">login and check home</td><td>LP Consumer</td><td>7</td><td>✓ pass</td><td></td></tr>
+          <tr><td class="name">browse tariffs</td><td>LP Consumer</td><td>4</td><td>✓ pass</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- the focus sheet -->
+  <div class="focus">
+    <div class="sheet">
+      <div class="f-head">
+        <span class="crumb">test cases / <b>login and check home</b></span>
+        <span class="dirty">● unsaved</span>
+        <span class="spacer"></span>
+        <button class="btn">esc · back to table</button>
+        <button class="btn">&lt;/&gt; copy</button>
+        <button class="btn btn-accent">⌘↵ save</button>
+      </div>
+      <div class="f-main">
+        <div class="cm"><span class="ln"><span class="c"># full width for long lines — no wrapping compromise</span></span>
+<span class="ln"><span class="k">name</span><span class="p">:</span> <span class="s">login and check home</span></span>
+<span class="ln"><span class="k">tags</span><span class="p">:</span> <span class="p">[</span><span class="s">smoke</span><span class="p">, </span><span class="s">login</span><span class="p">]</span></span>
+<span class="ln"><span class="k">app</span><span class="p">:</span> <span class="s">com.lionparcel.ios</span></span>
+<span class="ln"><span class="k">env</span><span class="p">:</span>  <span class="c"># references only — values at play time</span></span>
+<span class="ln">  <span class="k">USERNAME</span><span class="p">:</span> <span class="envv">${env.USERNAME}</span></span>
+<span class="ln"></span>
+<span class="ln"><span class="k">steps</span><span class="p">:</span></span>
+<span class="ln">  <span class="p">-</span> <span class="k">tap</span><span class="p">:</span> <span class="p">{</span> <span class="k">point</span><span class="p">:</span> <span class="p">[</span><span class="n">214</span><span class="p">, </span><span class="n">462</span><span class="p">],</span> <span class="k">on</span><span class="p">:</span> <span class="s">Login</span> <span class="p">}</span></span>
+<span class="ln">  <span class="p">-</span> <span class="k">scroll</span><span class="p">:</span> <span class="s">down</span></span>
+<span class="ln">  <span class="p">-</span> <span class="k">type</span><span class="p">:</span> <span class="p">{</span> <span class="k">text</span><span class="p">:</span> <span class="envv">${env.USERNAME}</span><span class="p">, </span> <span class="k">on</span><span class="p">:</span> <span class="s">Email field</span> <span class="p">}</span></span>
+<span class="ln">  <span class="p">-</span> <span class="k">tap</span><span class="p">:</span> <span class="p">{</span> <span class="k">point</span><span class="p">:</span> <span class="p">[</span><span class="n">214</span><span class="p">, </span><span class="n">590</span><span class="p">],</span> <span class="k">on</span><span class="p">:</span> <span class="s">Continue</span> <span class="p">}</span></span>
+<span class="ln">  <span class="p">-</span> <span class="k">runFlow</span><span class="p">:</span> <span class="s">dismiss-onboarding</span></span>
+<span class="ln">  <span class="p">-</span> <span class="k">expect</span><span class="p">:</span> <span class="s">Home</span></span>
+<span class="ln">  <span class="p">-</span> <span class="k">expect</span><span class="p">:</span> <span class="p">{</span> <span class="k">on</span><span class="p">:</span> <span class="s">Log in to get the best shipping rates.</span><span class="p">, </span><span class="k">optional</span><span class="p">:</span> <span class="s">true</span> <span class="p">}</span></span></div>
+        <div class="rail">
+          <div class="rail-t">case</div>
+          <div class="stat"><span>steps</span><b>7</b></div>
+          <div class="stat"><span>asserts</span><b>2</b></div>
+          <div class="stat"><span>env refs</span><b>1 · USERNAME</b></div>
+          <div class="stat"><span>verdict</span><b style="color: var(--ok)">✓ pass</b></div>
+          <div class="stat"><span>last run</span><b>2h ago</b></div>
+          <div class="divider"></div>
+          <div class="rail-t">steps</div>
+          <div class="mini-step"><span class="n">1</span> tap 214,462</div>
+          <div class="mini-step"><span class="n">2</span> scroll down</div>
+          <div class="mini-step"><span class="n">3</span> type ${env.USERNAME}</div>
+          <div class="mini-step"><span class="n">4</span> tap 214,590</div>
+          <div class="mini-step"><span class="n">5</span> flow dismiss-onboarding</div>
+          <div class="mini-step"><span class="n">6</span> expect Home</div>
+          <div class="mini-step"><span class="n">7</span> expect (soft)</div>
+          <div class="keys">
+            <div class="rail-t" style="margin-top:12px">keys</div>
+            <span class="kbd">⌘↵ save</span> <span class="kbd">esc back</span> <span class="kbd">⌘K palette</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
