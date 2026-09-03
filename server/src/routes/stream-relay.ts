@@ -110,7 +110,7 @@ async function pumpUpstream(url: string, sub: UpstreamSubscription): Promise<voi
             try { c.socket.send(JSON.stringify({ status: 'source-lost', retrying: true })); } catch { /* gone */ }
           }
         } else if (Date.now() - sub.outageStartedAt > OUTAGE_CLOSE_MS) {
-          for (const c of [...sub.clients]) {
+          for (const c of sub.clients) {
             try { c.socket.send(JSON.stringify({ error: 'stream source lost — reconnecting', retryable: true })); } catch { /* gone */ }
             try { c.socket.close(); } catch { /* gone */ }
             sub.clients.delete(c);

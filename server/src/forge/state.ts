@@ -29,18 +29,24 @@ export interface ForgeStateDeps {
 export interface ForgeStateService {
   readonly stateDir: string;
   /** B6: frozen bodies live here — under the server data dir (DB path's
-   *  root), NOT /tmp which macOS purges. */
+   * root), NOT /tmp which macOS purges. */
   readonly bodiesDir: string;
   /** DB presets → file (dashboard CRUD sync). Honors an active override. */
   sync(): void;
-  /** Set the scenario override and write the composed state. */
-  activateScenario(presets: Preset[]): void;
-  /** Clear the override (back to DB presets), keeping the active run. */
+  /** Set the scenario override (from DB ROWS — mapped here through
+   * presetRowToSpec) and update BOTH consumers: the addon state file
+   * (compose) AND the in-process proxy's serving set
+   * (deps.forgeState.presets). M3 self-review catch: compose() writes the
+   * FILE only; the in-process proxy reads forgeState.presets, which nothing
+   * else updated — scenario runs served DB presets on that path. */
+  activateScenario(presetRows: Array<Record<string, unknown>>): void;
+  /** Clear the override (back to DB presets) — resets BOTH the file and the
+   * in-process serving set, keeping the active run. */
   clearScenario(): void;
   /** Set/clear traffic attribution; composes with the current override. */
   setActiveRun(runId: string | null): void;
   /** Resolve once every queued write has landed (tests + callers needing
-   *  read-after-write certainty). */
+   * read-after-write certainty). */
   drain(): Promise<void>;
 }
 
@@ -95,8 +101,19 @@ export function forgeStateService(deps: ForgeStateDeps): ForgeStateService {
     stateDir,
     bodiesDir,
     sync: () => enqueue(compose),
-    activateScenario: (presets: Preset[]) => { enqueue(() => { override = presets; compose(); }); },
-    clearScenario: () => { enqueue(() => { override = null; compose(); }); },
+    // ONE owner of scenario activation: map rows → spec HERE (B8) and update
+    // BOTH proxy consumers — the state file (compose) and the in-process
+    // serving set. Previously the route + playback each did half of this.
+    activateScenario: (presetRows: Array<Record<string, unknown>>) => { enqueue(() => {
+      override = presetRows.map(presetRowToSpec);
+      deps.forgeState.presets = override;
+      compose();
+    }); },
+    clearScenario: () => { enqueue(() => {
+      override = null;
+      deps.forgeState.presets = dbPresets(); // in-process proxy back to DB presets — no ghosts
+      compose();
+    }); },
     setActiveRun: (runId: string | null) => { enqueue(() => { deps.forgeState.activeRunId = runId; compose(); }); },
     drain: () => chain,
   };

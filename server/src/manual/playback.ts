@@ -181,7 +181,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       ).all(opts.scenarioId) as Array<Record<string, unknown>>;
       restorePresets = deps.db.prepare('SELECT * FROM presets ORDER BY created_at DESC').all() as Array<Record<string, unknown>>;
       try {
-        forgeStateService(deps).activateScenario(presets.map(presetRowToSpec));
+        forgeStateService(deps).activateScenario(presets);
       } catch { /* network best-effort — run proceeds without scenario */ }
     }
     let runStatus: 'passed' | 'failed' | 'aborted' = 'passed';

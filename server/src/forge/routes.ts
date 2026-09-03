@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import type { ForgeState } from './proxy.ts';
-import { matchPreset, type Preset, presetRowToSpec } from './matcher.ts';
+import { matchPreset, type Preset } from './matcher.ts';
 import { forgeStateService } from './state.ts';
 import { startMitm, stopMitmIfRunning, mitmRunning } from './mitm/manager.ts';
 import { simRoutingState, enableSimRouting, healStaleProxies, installRootCertToSims } from './sim-routing.ts';
@@ -60,6 +60,119 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
     return { presets: rows };
   });
 
+  // ── M3 preset editor: read one (with decoded body), PATCH in place, write body.
+  // PATCH must keep the SAME id: ids are referenced by scenario_overrides and
+  // matched_preset_id — the old POST-only path forked a new hash id per save
+  // while memberships kept pointing at the stale row (the editor's whole job
+  // is preventing that).
+  app.get('/api/forge/presets/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const row = db.prepare('SELECT * FROM presets WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    if (!row) return reply.code(404).send({ error: 'preset not found' });
+    let body: { text: string | null; contentType: string | null; bytes: number } = { text: null, contentType: null, bytes: 0 };
+    const bodyPath = row['body_path'] as string | null;
+    if (bodyPath && existsSync(bodyPath)) {
+      const { readFileSync } = await import('node:fs');
+      const buf = readFileSync(bodyPath);
+      const ct = (row['headers_json'] as string | null);
+      let contentType: string | null = null;
+      if (ct) {
+        try { contentType = (JSON.parse(ct) as Record<string, string>)['content-type'] ?? null; } catch { /* malformed headers */ }
+      }
+      // 256KB editor bound matches the traffic capture bound — beyond that
+      // the body is engine data (images/protobuf), not editor text.
+      body = { text: buf.length <= 262_144 ? buf.toString('utf8') : null, contentType, bytes: buf.length };
+    }
+    return { preset: row, body };
+  });
+
+  app.patch('/api/forge/presets/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = req.body as Record<string, unknown>;
+    const existing = db.prepare('SELECT id FROM presets WHERE id = ?').get(id) as { id: string } | undefined;
+    if (!existing) return reply.code(404).send({ error: 'preset not found' });
+    // partial update — only provided fields change; unknown keys ignored
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    const col = (name: string, value: unknown): void => { sets.push(`${name} = ?`); vals.push(value); };
+    if (b['method'] !== undefined) col('method', b['method'] as string);
+    if (b['pathPattern'] !== undefined) {
+      const p = b['pathPattern'] as string;
+      if (typeof p !== 'string' || !p.startsWith('/')) return reply.code(400).send({ error: 'pathPattern must be an absolute path string' });
+      col('path_pattern', p.split('?')[0]); // B9: query never lives in the pattern
+    }
+    if (b['match'] !== undefined) {
+      const m = b['match'] as string;
+      if (!['exact', 'glob', 'regex'].includes(m)) return reply.code(400).send({ error: 'match must be exact|glob|regex' });
+      col('match', m);
+    }
+    if (b['status'] !== undefined) {
+      const s = b['status'] as number;
+      if (typeof s !== 'number' || s < 100 || s > 599) return reply.code(400).send({ error: 'status must be 100-599' });
+      col('status', s);
+    }
+    if (b['headers'] !== undefined) {
+      if (b['headers'] === null) col('headers_json', null);
+      else {
+        const h = b['headers'] as Record<string, string>;
+        if (typeof h !== 'object' || Array.isArray(h)) return reply.code(400).send({ error: 'headers must be an object' });
+        col('headers_json', JSON.stringify(h));
+      }
+    }
+    if (b['delayMs'] !== undefined) col('delay_ms', (b['delayMs'] as number | null) === null ? null : Math.max(0, b['delayMs'] as number));
+    if (b['throttleKbps'] !== undefined) col('throttle_kbps', (b['throttleKbps'] as number | null) === null ? null : Math.max(0, b['throttleKbps'] as number));
+    if (b['failure'] !== undefined) {
+      const f = b['failure'] as string | null;
+      if (f !== null && !['timeout', 'reset', 'malformed', 'throttle'].includes(f)) return reply.code(400).send({ error: 'failure must be timeout|reset|malformed|throttle' });
+      col('failure', f);
+    }
+    if (b['seq'] !== undefined) {
+      if (b['seq'] === null) col('seq_json', null);
+      else {
+        const s = b['seq'] as Array<{ status: number; delayMs?: number; bodyPath?: string }>;
+        if (!Array.isArray(s) || s.length === 0 || s.some((e) => typeof e['status'] !== 'number')) {
+          return reply.code(400).send({ error: 'seq must be a non-empty array of {status, delayMs?, bodyPath?}' });
+        }
+        col('seq_json', JSON.stringify(s));
+      }
+    }
+    if (sets.length === 0) return reply.code(400).send({ error: 'no updatable fields provided' });
+    col('created_by', 'editor');
+    col('sha256', createHash('sha256').update(`${id}|${Date.now()}`).digest('hex'));
+    db.prepare(`UPDATE presets SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
+    syncPresetsToMitm();
+    return { ok: true, id };
+  });
+
+  // body write: text lands in the B6 bodies dir (tmp+rename, B4a atomicity),
+  // body_path set, optional contentType merged into headers_json.
+  app.put('/api/forge/presets/:id/body', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = req.body as { text?: string; contentType?: string | null };
+    const existing = db.prepare('SELECT id, headers_json FROM presets WHERE id = ?').get(id) as { id: string; headers_json: string | null } | undefined;
+    if (!existing) return reply.code(404).send({ error: 'preset not found' });
+    if (typeof b['text'] !== 'string') return reply.code(400).send({ error: 'text required' });
+    const buf = Buffer.from(b['text'], 'utf8');
+    if (buf.length > 262_144) return reply.code(415).send({ error: `body too large for the editor (${buf.length}B > 256KB) — edit the file at its body_path directly` });
+    const { writeFileSync, mkdirSync, renameSync } = await import('node:fs');
+    const bodiesDir = forgeStateService({ db, forgeState }).bodiesDir;
+    mkdirSync(bodiesDir, { recursive: true });
+    const finalPath = join(bodiesDir, `${id}.body`);
+    const tmpPath = `${finalPath}.${process.pid}.tmp`;
+    writeFileSync(tmpPath, buf);
+    renameSync(tmpPath, finalPath); // atomic — the addon never sees a torn body
+    if (b['contentType'] !== undefined) {
+      let headers: Record<string, string> = {};
+      try { headers = existing.headers_json ? JSON.parse(existing.headers_json) as Record<string, string> : {}; } catch { /* malformed — rebuild */ }
+      if (b['contentType'] === null || b['contentType'] === '') delete headers['content-type'];
+      else headers['content-type'] = b['contentType'];
+      db.prepare('UPDATE presets SET headers_json = ? WHERE id = ?').run(Object.keys(headers).length ? JSON.stringify(headers) : null, id);
+    }
+    db.prepare('UPDATE presets SET body_path = ? WHERE id = ?').run(finalPath, id);
+    syncPresetsToMitm();
+    return { ok: true, bodyPath: finalPath, bytes: buf.length };
+  });
+
   app.post('/api/forge/scenarios', async (req, reply) => {
     const b = req.body as { name?: string; description?: string; launchArg?: string; presetIds?: string[]; createdBy?: string };
     if (!b.name) return reply.code(400).send({ error: 'name required' });
@@ -77,7 +190,78 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
     return { scenarios: rows };
   });
 
-  // activate: load scenario presets into the shared forge state for a run
+  // ── M3 scenario management: rename, delete, membership read/write.
+  // References are by stable id (plans.scenario_id, queue scenarioId) — rename
+  // is safe for saved plans; delete leaves a dangling id that fail-opens to
+  // live traffic at play time (disclosed in the UI confirm).
+  app.patch('/api/forge/scenarios/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = req.body as { name?: string; description?: string | null; launchArg?: string | null };
+    const row = db.prepare('SELECT id FROM scenarios WHERE id = ?').get(id) as { id: string } | undefined;
+    if (!row) return reply.code(404).send({ error: 'scenario not found' });
+    if (b.name !== undefined) {
+      if (!b.name.trim()) return reply.code(400).send({ error: 'name cannot be empty' });
+      const clash = db.prepare('SELECT id FROM scenarios WHERE name = ? AND id != ?').get(b.name.trim(), id);
+      if (clash) return reply.code(409).send({ error: `a scenario named "${b.name.trim()}" already exists` });
+    }
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    if (b.name !== undefined) { sets.push('name = ?'); vals.push(b.name.trim()); }
+    if (b.description !== undefined) { sets.push('description = ?'); vals.push(b.description); }
+    if (b.launchArg !== undefined) { sets.push('launch_arg = ?'); vals.push(b.launchArg); }
+    if (sets.length === 0) return reply.code(400).send({ error: 'nothing to update' });
+    db.prepare(`UPDATE scenarios SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
+    return { ok: true, id };
+  });
+
+  app.delete('/api/forge/scenarios/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const r = db.prepare('DELETE FROM scenarios WHERE id = ?').run(id);
+    if (r.changes === 0) return reply.code(404).send({ error: 'scenario not found' });
+    // membership rows cascade (FK) — but a mid-activation delete would leave
+    // the in-process proxy serving ghost presets; clear the override path.
+    forgeStateService({ db, forgeState }).clearScenario();
+    return { ok: true };
+  });
+
+  app.get('/api/forge/scenarios/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const row = db.prepare('SELECT * FROM scenarios WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    if (!row) return reply.code(404).send({ error: 'scenario not found' });
+    const members = db.prepare(
+      `SELECT so.preset_id, so.enabled, p.method, p.path_pattern, p.status
+       FROM scenario_overrides so JOIN presets p ON p.id = so.preset_id
+       WHERE so.scenario_id = ? ORDER BY p.created_at DESC`,
+    ).all(id);
+    return { scenario: row, members };
+  });
+
+  // replace-set semantics: the body IS the full membership list.
+  app.put('/api/forge/scenarios/:id/members', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = req.body as { members?: Array<{ presetId: string; enabled?: boolean }> };
+    const row = db.prepare('SELECT id FROM scenarios WHERE id = ?').get(id) as { id: string } | undefined;
+    if (!row) return reply.code(404).send({ error: 'scenario not found' });
+    if (!Array.isArray(b.members)) return reply.code(400).send({ error: 'members array required' });
+    for (const m of b.members) {
+      if (typeof m?.presetId !== 'string') return reply.code(400).send({ error: 'each member needs presetId' });
+      if (!db.prepare('SELECT 1 FROM presets WHERE id = ?').get(m.presetId)) {
+        return reply.code(400).send({ error: `unknown preset ${m.presetId}` });
+      }
+    }
+    const tx = db.transaction(() => {
+      db.prepare('DELETE FROM scenario_overrides WHERE scenario_id = ?').run(id);
+      const ins = db.prepare('INSERT INTO scenario_overrides(scenario_id, preset_id, enabled) VALUES (?, ?, ?)');
+      for (const m of b.members!) ins.run(id, m.presetId, m.enabled === false ? 0 : 1);
+    });
+    tx();
+    return { ok: true, count: b.members.length };
+  });
+
+
+  // activate: load scenario presets into the shared forge state for a run.
+  // M3: the service owns row→spec mapping AND both proxy consumers (state
+  // file + in-process serving set) — this route is now lookup + one call.
   app.post('/api/forge/scenarios/:id/activate', async (req, reply) => {
     const { id } = req.params as { id: string };
     const row = db.prepare('SELECT * FROM scenarios WHERE id = ?').get(id) as { id: string } | undefined;
@@ -86,22 +270,8 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
     const presets = db.prepare(
       `SELECT p.* FROM presets p JOIN scenario_overrides so ON so.preset_id = p.id WHERE so.scenario_id = ? AND so.enabled = 1`,
     ).all(id) as Array<Record<string, unknown>>;
-    // mirror the scenario into the MITM state file (single owner)
-    forgeStateService({ db, forgeState }).activateScenario(presets.map(presetRowToSpec));
-    forgeState.presets = presets.map((p) => ({
-      id: p['id'] as string,
-      method: p['method'] as string,
-      pathPattern: p['path_pattern'] as string,
-      match: p['match'] as 'exact' | 'glob' | 'regex',
-      ...(p['headers_json'] ? { headers: JSON.parse(p['headers_json'] as string) as Record<string, string> } : {}),  // eslint-disable-line unicorn/no-useless-fallback-in-spread
-      status: p['status'] as number,
-      ...(p['body_path'] ? { bodyPath: p['body_path'] as string } : {}),
-      ...(p['delay_ms'] ? { delayMs: p['delay_ms'] as number } : {}),
-      ...(p['seq_json'] ? { seq: JSON.parse(p['seq_json'] as string) as Array<{ status: number }> } : {}),
-      ...(p['failure'] ? { failure: p['failure'] as 'timeout' | 'reset' | 'malformed' | 'throttle' } : {}),
-      ...(p['throttle_kbps'] ? { throttleKbps: p['throttle_kbps'] as number } : {}),
-    }));
-    return { active: forgeState.presets.length };
+    forgeStateService({ db, forgeState }).activateScenario(presets);
+    return { active: presets.length };
   });
 
   app.post('/api/forge/mode', async (req) => {
