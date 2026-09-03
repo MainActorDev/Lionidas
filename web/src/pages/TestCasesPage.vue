@@ -193,25 +193,42 @@ const yamlPosition = computed(() => {
   const i = list.findIndex((t) => t.id === yamlOpenId.value);
   return { pos: i >= 0 ? i + 1 : 1, total: list.length };
 });
+/** ONE editor at a time, with a save/abort guard: switching (or hopping)
+ *  away from dirty edits asks first — save keeps them, abort drops them. */
+const yamlPanelEl = ref<InstanceType<typeof YamlCasePanel> | Array<InstanceType<typeof YamlCasePanel>> | null>(null);
+function panel(): InstanceType<typeof YamlCasePanel> | null {
+  // template refs inside v-for arrive as ARRAYS — normalize (the setCanvas lesson)
+  const el = yamlPanelEl.value;
+  return Array.isArray(el) ? (el[0] ?? null) : (el ?? null);
+}
+const pendingSwitch = ref<string | null>(null); // case awaiting the decision
 function openYaml(t: Template): void {
+  if (yamlOpenId.value === t.id) { yamlOpenId.value = null; return; } // toggle
+  if (yamlOpenId.value !== null && panel()?.isDirty()) {
+    pendingSwitch.value = t.id;
+    return;
+  }
   yamlOpenId.value = t.id;
+}
+async function resolveSwitch(save: boolean): Promise<void> {
+  const target = pendingSwitch.value;
+  pendingSwitch.value = null;
+  if (!target) return;
+  if (save) await panel()?.saveNow();
+  yamlOpenId.value = target;
 }
 function hopYaml(dir: -1 | 1): void {
   const list = shown();
   const i = list.findIndex((t) => t.id === yamlOpenId.value);
   if (i < 0) return;
   const next = list[i + dir];
-  if (next) yamlOpenId.value = next.id;
+  if (next) openYaml(next); // same dirty guard as clicking a row
 }
 const yamlCase = computed(() => (yamlOpenId.value ? shown().find((t) => t.id === yamlOpenId.value) ?? null : null));
 const tagCount = computed(() => new Set(templates.value.flatMap((t) => t.tags ?? [])).size);
 /** the A2 editing state — drives header chrome swap + table share */
 const editing = computed(() => yamlOpenId.value !== null);
 
-// A2 lock: freeze the app's scroll container while the panel is open
-watch(yamlOpenId, (id) => {
-  document.body.classList.toggle('yaml-panel-open', id !== null);
-});
 // A2: ⌘F jumps to the case filter (search-to-jump)
 function onCmdF(ev: KeyboardEvent): void {
   if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'f' && yamlOpenId.value !== null) {
@@ -220,7 +237,7 @@ function onCmdF(ev: KeyboardEvent): void {
   }
 }
 onMounted(() => window.addEventListener('keydown', onCmdF));
-onBeforeUnmount(() => { window.removeEventListener('keydown', onCmdF); document.body.classList.remove('yaml-panel-open'); });
+onBeforeUnmount(() => { window.removeEventListener('keydown', onCmdF); });
 
 onMounted(() => { void load(); void loadPlans(); });
 
@@ -432,24 +449,43 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
           </span>
         </div>
 
+        <!-- the yaml editor opens INLINE below this row (one at a time) -->
+        <div v-if="yamlOpenId === t.id" class="a2-yaml">
+          <YamlCasePanel
+            ref="yamlPanelEl"
+            :template-id="t.id"
+            :case-name="t.name"
+            :position="yamlPosition.pos"
+            :total="yamlPosition.total"
+            :updated-at="t.updatedAt"
+            @close="yamlOpenId = null"
+            @saved="() => void load()"
+            @hop="hopYaml"
+          />
+        </div>
+
 </article>
     </div>
 
     <div v-if="playMsg" class="a2-note">{{ playMsg }}</div>
 
-    <!-- ── the yaml panel — native to this layout, fills the rest ── -->
-    <div v-if="yamlOpenId" class="a2-yaml">
-      <YamlCasePanel
-        v-if="yamlCase"
-        :template-id="yamlCase.id"
-        :case-name="yamlCase.name"
-        :position="yamlPosition.pos"
-        :total="yamlPosition.total"
-        :updated-at="yamlCase.updatedAt"
-        @close="yamlOpenId = null"
-        @saved="() => void load()"
-        @hop="hopYaml"
-      />
+
+    <!-- unsaved-changes guard: save / abort (✕ = keep editing) -->
+    <div v-if="pendingSwitch" class="a2-modal-backdrop" @click.self="pendingSwitch = null">
+      <div class="a2-modal card">
+        <div class="card-header">
+          <span class="card-title">unsaved changes</span>
+          <button class="btn btn-sm" style="margin-left: auto;" title="keep editing" @click="pendingSwitch = null">✕</button>
+        </div>
+        <p style="color: var(--color-fog); font-size: var(--text-body); line-height: 1.6; padding: var(--s-2) var(--s-3);">
+          This case has edits that are not saved yet. Save them before switching, or abort and lose the changes.
+        </p>
+        <div style="display: flex; gap: var(--s-2); justify-content: flex-end; padding: 0 var(--s-3) var(--s-3);">
+          <button class="btn" @click="pendingSwitch = null">keep editing</button>
+          <button class="btn btn-danger" @click="() => void resolveSwitch(false)">abort changes</button>
+          <button class="btn btn-primary" @click="() => void resolveSwitch(true)">save &amp; switch</button>
+        </div>
+      </div>
     </div>
   </section>
 </template>
@@ -464,10 +500,6 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
   max-width: 1160px; margin: 0 auto; width: 100%;
   padding: 0 var(--s-5);
   box-sizing: border-box;
-}
-/* the viewport lock applies ONLY while editing (normal state = page flow) */
-.a2-page.editing {
-  height: calc(100dvh - 2 * var(--s-6)); /* .main's viewport box minus its padding */
 }
 /* header */
 .a2-head { display: flex; align-items: baseline; gap: 14px; flex: none; }
@@ -545,10 +577,20 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 .a2-edit-actions { display: flex; gap: 4px; }
 
 /* the yaml panel fills the remaining viewport while editing */
-.a2-yaml { flex: 1 1 0; min-height: 0; display: flex; }
-.a2-yaml > :deep(*) { flex: 1; }
 /* while EDITING, the table region takes its fixed mockup share */
-/* while editing: the table caps at the mockup's 34vh share but stays
-   content-sized below it (a 2-row list doesn't fake 34vh of content) */
-.a2-page.editing .a2-table { flex: 0 1 auto; max-height: 34vh; }
+
+/* the inline yaml editor below its row */
+.a2-yaml { margin: 0 var(--s-2) var(--s-2); }
+.a2-yaml > :deep(*) { width: 100%; }
+/* unsaved-changes modal */
+.a2-modal-backdrop {
+  position: fixed; inset: 0; z-index: 90;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex; align-items: center; justify-content: center;
+}
+.a2-modal {
+  width: min(440px, calc(100vw - 32px));
+  background: var(--color-graphite);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
 </style>

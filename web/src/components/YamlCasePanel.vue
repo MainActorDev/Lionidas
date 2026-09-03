@@ -134,6 +134,9 @@ function hop(dir: -1 | 1): void {
   emit('hop', dir);
 }
 
+// parent-driven guard surface: the page asks before switching/closing
+defineExpose({ isDirty: () => dirty.value, saveNow: () => save() });
+
 function onKey(ev: KeyboardEvent): void {
   if (ev.key === 'Escape') { ev.stopPropagation(); maybeClose(); }
 }
