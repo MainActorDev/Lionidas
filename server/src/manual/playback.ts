@@ -287,13 +287,24 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           // coordinates are the fallback, not the plan.
           let tx = s.x;
           let ty = s.y;
-          let resolvedBy: 'selector' | 'coordinate-fallback' | 'coordinate' | 'coordinate-scaled' = 'coordinate';
+          let resolvedBy: 'selector' | 'coordinate-fallback' | 'coordinate-fallback-scaled' | 'coordinate' | 'coordinate-scaled' = 'coordinate';
           if ((s.action === 'tap' || s.action === 'type') && s.selector && (s.selector.identifier || s.selector.label)) {
             const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
               | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
             const hit = snap.ok ? resolveSelector(snap.result.nodes ?? [], s.selector) : null;
             if (hit) { tx = hit.x; ty = hit.y; resolvedBy = 'selector'; }
-            else resolvedBy = 'coordinate-fallback';
+            else {
+              resolvedBy = 'coordinate-fallback';
+              // fold-in fix (approved with YAML work): the selector missed —
+              // on a DIFFERENT-SIZED device the raw recorded coordinates
+              // would land off-target (the scaling branch above is skipped
+              // when a selector exists). Scale the fallback coordinates too.
+              if ((scaleX !== 1 || scaleY !== 1) && s.x !== undefined && s.y !== undefined) {
+                tx = Math.round(s.x * scaleX);
+                ty = Math.round(s.y * scaleY);
+                resolvedBy = 'coordinate-fallback-scaled';
+              }
+            }
           } else if ((scaleX !== 1 || scaleY !== 1) && s.x !== undefined && s.y !== undefined) {
             // selector-less step on a different-size device — scale proportionally
             tx = Math.round(s.x * scaleX);

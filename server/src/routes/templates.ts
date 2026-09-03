@@ -6,6 +6,7 @@ import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { crucibleAlloy } from '../alloy/client.ts';
 import { initAlloyRuntime } from '../alloy/runtime.ts';
+import { parseCaseYaml, caseToYaml } from '@crucible/shared/case-yaml';
 
 interface TemplateRow {
   id: string;
@@ -201,5 +202,77 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     const r = db.prepare('DELETE FROM templates WHERE id = ?').run(id);
     if (r.changes === 0) return reply.code(404).send({ error: 'not found' });
     return { ok: true };
+  });
+
+  // ── YAML authoring (the ONE format definition lives in web/src/shared/
+  // case-yaml.ts — pure module, imported by both toolchains). ──
+
+  /** validate: pure — parse + schema + env-shape checks. The SAME validator
+   *  backs the split panel's live outline and PUT /yaml, so preview and save
+   *  can never disagree. */
+  app.post('/api/templates/yaml/validate', async (req) => {
+    const b = req.body as { yaml?: string };
+    const r = parseCaseYaml(b.yaml ?? '');
+    return { ok: r.ok, errors: r.errors, case: r.case, runFlowNames: r.runFlowNames };
+  });
+
+  /** GET the case as YAML (editor load) — name resolution for runFlow:
+   *  template ids are tpl_8hex (human-hostile), so steps referencing other
+   *  cases serialize with the referenced case's NAME; the id rides in a
+   *  comment-free {name:} field and resolves on save. */
+  app.get('/api/templates/:id/yaml', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const row = db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow | undefined;
+    if (!row) return reply.code(404).send({ error: 'not found' });
+    const steps = JSON.parse(row.steps_json) as Array<Record<string, unknown>>;
+    // resolve templateId → name for runFlow display
+    const id2name = new Map<string, string>();
+    for (const s of steps) {
+      if (s['action'] === 'runFlow' && typeof s['templateId'] === 'string') {
+        const child = db.prepare('SELECT name FROM templates WHERE id = ?').get(s['templateId'] as string) as { name: string } | undefined;
+        if (child) id2name.set(s['templateId'] as string, child.name);
+      }
+    }
+    const yaml = caseToYaml({
+      name: row.name,
+      tags: (JSON.parse(row.tags_json ?? '[]') as string[]),
+      steps: steps.map((s) => (s['action'] === 'runFlow' && id2name.has(s['templateId'] as string)
+        ? { ...s, templateId: id2name.get(s['templateId'] as string) }
+        : s)),
+      ...(row.app_bundle_id ? { app: row.app_bundle_id } : {}),
+    });
+    return { yaml, logicalW: row.logical_w, logicalH: row.logical_h };
+  });
+
+  /** PUT yaml: validate → resolve runFlow names → persist steps_json + name/
+   *  tags/app. 422 carries line numbers; 409 names unresolved/colliding
+   *  subflows. What the panel validated before saving is EXACTLY what this
+   *  enforces — one validator, no drift. */
+  app.put('/api/templates/:id/yaml', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const row = db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow | undefined;
+    if (!row) return reply.code(404).send({ error: 'not found' });
+    const b = req.body as { yaml?: string };
+    const r = parseCaseYaml(b.yaml ?? '');
+    if (!r.ok || !r.case) return reply.code(422).send({ errors: r.errors });
+    // resolve runFlow names → ids. templates.name is UNIQUE (schema), so a
+    // name resolves to exactly one case or none — ambiguity is impossible.
+    for (const s of r.case.steps) {
+      if (s.action !== 'runFlow') continue;
+      const ref = s.templateId ?? '';
+      if (/^tpl_[0-9a-f]+$/.test(ref)) continue; // already an id
+      const child = db.prepare('SELECT id FROM templates WHERE name = ?').get(ref) as { id: string } | undefined;
+      if (!child) return reply.code(409).send({ errors: [{ line: 1, message: `runFlow: no case named "${ref}"` }] });
+      s.templateId = child.id;
+    }
+    // the yaml may also RENAME this case — same UNIQUE constraint applies
+    if (r.case.name !== row.name) {
+      const clash = db.prepare('SELECT id FROM templates WHERE name = ? AND id != ?').get(r.case.name, id);
+      if (clash) return reply.code(409).send({ errors: [{ line: 1, message: `a case named "${r.case.name}" already exists` }] });
+    }
+    db.prepare(
+      `UPDATE templates SET name = ?, steps_json = ?, tags_json = ?, app_bundle_id = COALESCE(?, app_bundle_id), updated_at = ? WHERE id = ?`,
+    ).run(r.case.name, JSON.stringify(r.case.steps), tagsToJson(r.case.tags), r.case.app ?? null, Date.now(), id);
+    return rowToTemplate(db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow);
   });
 }
