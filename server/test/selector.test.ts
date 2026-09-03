@@ -40,11 +40,11 @@ describe('captureSelectorAt', () => {
 });
 
 describe('resolveSelector', () => {
-  it('resolves unique hittable match to rect center', () => {
-    expect(resolveSelector(NODES, { label: 'Sign In', type: 'Button' })).toEqual({ x: 80, y: 122 });
+  it('resolves unique hittable match to rect center (rect included for proximity check)', () => {
+    expect(resolveSelector(NODES, { label: 'Sign In', type: 'Button' })).toEqual({ x: 80, y: 122, rect: { x: 20, y: 100, width: 120, height: 44 } });
   });
   it('resolves by identifier alone', () => {
-    expect(resolveSelector(NODES, { identifier: 'ic_barcode' })).toEqual({ x: 364, y: 74 });
+    expect(resolveSelector(NODES, { identifier: 'ic_barcode' })).toEqual({ x: 364, y: 74, rect: { x: 350, y: 60, width: 28, height: 28 } });
   });
   it('returns null on ambiguous (2+ matches)', () => {
     // label-only: matches node 2 (Button) AND node 4 (Other) → ambiguous

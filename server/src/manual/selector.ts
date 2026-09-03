@@ -64,11 +64,12 @@ export function countMatches(nodes: SnapNode[], sel: StepSelector): number {
   return nodes.filter((n) => matchesSelector(n, sel)).length;
 }
 
-/** Unique hittable match → its rect center. null = gone or ambiguous
+/** Unique hittable match → its rect (center AND bounds, so callers can run a
+ *  proximity check against the recorded point). null = gone or ambiguous
  *  (caller falls back to coordinates and logs it). Containers (app root,
  *  screen-covering pages) are rejected: their center is never the recorded
  *  intent — legacy templates recorded them before the capture guard. */
-export function resolveSelector(nodes: SnapNode[], sel: StepSelector): { x: number; y: number } | null {
+export function resolveSelector(nodes: SnapNode[], sel: StepSelector): { x: number; y: number; rect: { x: number; y: number; width: number; height: number } } | null {
   const matches = nodes.filter((n) => matchesSelector(n, sel));
   const hittable = matches.filter((n) => n.hittable && n.rect);
   const pool = hittable.length > 0 ? hittable : matches.filter((n) => n.rect);
@@ -76,5 +77,5 @@ export function resolveSelector(nodes: SnapNode[], sel: StepSelector): { x: numb
   const node = pool[0]!;
   if (isContainerNode(node)) return null; // coordinate fallback is more precise
   const r = node.rect!;
-  return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+  return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), rect: r };
 }

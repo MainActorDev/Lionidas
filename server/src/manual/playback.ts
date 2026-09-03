@@ -413,7 +413,8 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           // coordinates are the fallback, not the plan.
           let tx = s.x;
           let ty = s.y;
-          let resolvedBy: 'selector' | 'coordinate-fallback' | 'coordinate-fallback-scaled' | 'coordinate' | 'coordinate-scaled' = 'coordinate';
+          let resolvedBy: 'selector' | 'selector-point-scaled' | 'selector-recentred' | 'coordinate-fallback' | 'coordinate-fallback-scaled' | 'coordinate' | 'coordinate-scaled' = 'coordinate';
+          let selectorRejected: string | undefined;
           if ((s.action === 'tap' || s.action === 'type') && s.selector && (s.selector.identifier || s.selector.label)) {
             // launch-settle poll (same class as expect A7): a fresh relaunch
             // takes ~2-3s to populate the AX hierarchy — resolving against
@@ -422,7 +423,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // settle budget expires, THEN fall back.
             const settleBudgetMs = Number(process.env.CRUCIBLE_STEP_SETTLE_MS ?? 8000);
             const settlePollMs = Number(process.env.CRUCIBLE_STEP_SETTLE_POLL_MS ?? 1000);
-            let hit: { x: number; y: number } | null = null;
+            let hit: { x: number; y: number; rect: { x: number; y: number; width: number; height: number } } | null = null;
             const settleStart = Date.now();
             while (Date.now() - settleStart < settleBudgetMs) {
               const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
@@ -431,8 +432,31 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               if (hit) break;
               await new Promise((r) => setTimeout(r, settlePollMs));
             }
-            if (hit) { tx = hit.x; ty = hit.y; resolvedBy = 'selector'; }
-            else {
+            if (hit) {
+              // Recorded point is the ground truth of intent. The selector's
+              // job is to CONFIRM the target is present, never to recentre:
+              // ancestors/containers cover their children, so "point inside
+              // matched rect" is common while the rect CENTER sits on a
+              // DIFFERENT control (found live: tnc step 1's selector was the
+              // footer page-dots container; its center is the ADJACENT
+              // Privacy Policy link — the tap opened the wrong document).
+              //   inside/near → tap the recorded point (scaled if the device
+              //     differs; the settle-poll already proved the target live)
+              //   far/absent  → the element genuinely moved (reflow, other
+              //     device): selector center is the resilient choice
+              const sx = (scaleX !== 1 || scaleY !== 1) && s.x !== undefined ? Math.round(s.x * scaleX) : s.x;
+              const sy = (scaleX !== 1 || scaleY !== 1) && s.y !== undefined ? Math.round(s.y * scaleY) : s.y;
+              const slack = 44; // pt — covers two-line link rects vs visible text run
+              const near = sx !== undefined && sy !== undefined &&
+                sx >= hit.rect.x - slack && sx <= hit.rect.x + hit.rect.width + slack &&
+                sy >= hit.rect.y - slack && sy <= hit.rect.y + hit.rect.height + slack;
+              if (near) {
+                tx = sx as number; ty = sy as number;
+                resolvedBy = (sx === s.x && sy === s.y) ? 'selector' : 'selector-point-scaled';
+              } else {
+                tx = hit.x; ty = hit.y; resolvedBy = 'selector-recentred';
+              }
+            } else {
               resolvedBy = 'coordinate-fallback';
               // fold-in fix (approved with YAML work): the selector missed —
               // on a DIFFERENT-SIZED device the raw recorded coordinates
@@ -463,7 +487,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           else input = { udid, action: 'fill', target: { x: tx, y: ty }, text: resolved.text ?? '', settle: true };
           const r = (await withWatchdog(runId, alloy.dispatch('alloy_act', input, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, stepName(s))) as { ok: boolean; error?: { message: string } };
           if (!r.ok) throw new Error(r.error?.message ?? 'engine error');
-          insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify({ ...resolved, resolvedBy, ...(s.flow ? { flow: s.flow } : {}) }));
+          insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify({ ...resolved, resolvedBy, ...(selectorRejected ? { selectorRejected } : {}), ...(s.flow ? { flow: s.flow } : {}) }));
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           if (s.optional) {
