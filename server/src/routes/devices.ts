@@ -31,9 +31,18 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
       return reply.code(409).send({ error: 'a manual session holds this device' });
     }
     const alloy = crucibleAlloy();
-    const r = (await alloy.dispatch('alloy_devices', { action: b.action, udid }, alloyDispatchDepsSync())) as
-      | { ok: true }
-      | { ok: false; error: { message: string } };
+    const dispatch = () => alloy.dispatch('alloy_devices', { action: b.action, udid }, alloyDispatchDepsSync()) as
+      | Promise<{ ok: true }>
+      | Promise<{ ok: false; error: { message: string } }>;
+    let r = await dispatch();
+    // DEVICE_IN_USE with no Crucible-side run/session = engine-A's shared
+    // 'alloy' session (fixed name, re-opened by every dispatch) is still open.
+    // It's ours — release it (closes the session + clears the device claim)
+    // and retry once. Genuine third-party ownership still errors out.
+    if (!r.ok && b.action === 'shutdown' && /active session device/i.test(r.error.message)) {
+      await alloy.dispatch('alloy_release', { udid }, alloyDispatchDepsSync()).catch(() => undefined);
+      r = await dispatch();
+    }
     if (!r.ok) return reply.code(502).send({ error: `${b.action} failed: ${r.error.message}` });
     return { ok: true };
   });
