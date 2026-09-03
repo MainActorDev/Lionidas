@@ -29,7 +29,6 @@ interface Plan { id: string; name: string; tags: string[]; udid: string | null; 
 const templates = ref<Template[]>([]);
 const loading = ref(true);
 const error = ref('');
-const expanded = ref<string | null>(null);
 const filter = ref('');
 const filterEl = ref<HTMLInputElement | null>(null);
 const renaming = ref<string | null>(null);
@@ -114,20 +113,6 @@ async function patchTemplate(id: string, body: Record<string, unknown>): Promise
   await load();
 }
 
-/** parameterize (B10 fix): turn a type step's literal text into ${env.KEY} —
- *  the literal secret leaves the template; the value comes from env at play */
-async function parameterize(t: Template, s: Step): Promise<void> {
-  const key = window.prompt('env key name (used as ${env.KEY} at play time):', 'PASSWORD');
-  if (!key) return;
-  const steps = t.steps.map((x) => (x.idx === s.idx ? { ...x, text: `\${env.${key}}` } : x));
-  await patchTemplate(t.id, { steps });
-}
-
-async function toggleOptional(t: Template, s: Step): Promise<void> {
-  const steps = t.steps.map((x) => (x.idx === s.idx ? { ...x, optional: !x.optional } : x));
-  await patchTemplate(t.id, { steps });
-}
-
 async function editTags(t: Template): Promise<void> {
   const raw = window.prompt('tags (comma list, max 8):', (t.tags ?? []).join(','));
   if (raw === null) return;
@@ -193,35 +178,6 @@ async function saveRename(id: string): Promise<void> {
   await load();
 }
 
-function stepLabel(s: Step): string {
-  if (s.action === 'expect') return `expect "${s.selector?.label ?? s.selector?.identifier ?? '?'}"`;
-  if (s.action === 'runFlow') return `run flow: ${templates.value.find((t) => t.id === s.templateId)?.name ?? s.templateId ?? '?'}`;
-  if (s.action === 'tap') return `tap ${s.x},${s.y}`;
-  if (s.action === 'scroll') return `scroll ${s.direction}`;
-  if (s.action === 'type') return `type "${(s.text ?? '').slice(0, 18)}${(s.text ?? '').length > 18 ? '…' : ''}"`;
-  return s.action;
-}
-
-/** A7: append an expect step to an EXISTING template — the maintenance path
- *  (most assertions get added retroactively after a first failure). */
-async function addExpectation(t: Template): Promise<void> {
-  const label = window.prompt('assert screen contains (label):')?.trim();
-  if (!label) return;
-  const steps = [...t.steps, { idx: t.steps.length, action: 'expect', selector: { label } }];
-  await patchTemplate(t.id, { steps });
-}
-
-/** A5: append a runFlow step referencing another template by name. */
-async function addSubflow(t: Template): Promise<void> {
-  const name = window.prompt('subflow template name:')?.trim();
-  if (!name) return;
-  const target = templates.value.find((x) => x.name.toLowerCase() === name.toLowerCase());
-  if (!target) { window.alert(`no template named "${name}"`); return; }
-  if (target.id === t.id) { window.alert('a template cannot run itself'); return; }
-  const steps = [...t.steps, { idx: t.steps.length, action: 'runFlow', templateId: target.id }];
-  await patchTemplate(t.id, { steps });
-}
-
 const shown = (): Template[] => {
   const f = filter.value.trim().toLowerCase();
   if (!f) return templates.value;
@@ -239,7 +195,6 @@ const yamlPosition = computed(() => {
 });
 function openYaml(t: Template): void {
   yamlOpenId.value = t.id;
-  expanded.value = null;
 }
 function hopYaml(dir: -1 | 1): void {
   const list = shown();
@@ -366,13 +321,6 @@ function planDesc(p: Plan): string {
   return bits.join(' · ');
 }
 
-function stepKindLabel(action: string): string {
-  return action === 'tap' ? 'tap' : action === 'scroll' ? 'scroll' : action === 'type' ? 'type' : action === 'expect' ? 'assert' : action === 'runFlow' ? 'flow' : action;
-}
-function stepKindTitle(action: string): string {
-  return action === 'tap' ? 'tap at recorded coordinates (selector-resolved when possible)' : action === 'scroll' ? 'scroll gesture' : action === 'type' ? 'type text into the focused field' : action === 'expect' ? 'existence assertion — replay fails red if the element disappears' : action === 'runFlow' ? 'run another case as a subflow' : action;
-}
-
 // the advanced-controls disclosure is collapsed while the yaml panel is open
 const advancedOpen = ref(false);
 watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
@@ -428,7 +376,6 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
     <!-- ── case table: own scroll region, sticky header ── -->
     <div class="a2-table">
       <div class="a2-thead">
-        <span class="col-expander"></span>
         <span class="col-case">case</span>
         <span class="col-app">app</span>
         <span class="col-steps">steps</span>
@@ -437,9 +384,8 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
         <span class="col-verdict">verdict</span>
       </div>
 
-      <article v-for="t in shown()" :key="t.id" class="a2-row-card" :class="{ open: expanded === t.id, editing: yamlOpenId === t.id }">
-        <div class="a2-row" @click="expanded = expanded === t.id ? null : t.id">
-          <span class="col-expander">{{ expanded === t.id ? '▾' : '▸' }}</span>
+      <article v-for="t in shown()" :key="t.id" class="a2-row-card" :class="{ editing: yamlOpenId === t.id }">
+        <div class="a2-row" @click="openYaml(t)" title="click to edit this case as yaml">
           <span class="col-case">
             <span class="a2-name">{{ t.name }}</span>
             <span v-if="t.ticketKey" class="a2-ticket">{{ t.ticketKey }}</span>
@@ -486,31 +432,7 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
           </span>
         </div>
 
-        <div v-if="expanded === t.id" class="a2-body">
-          <p v-if="t.description" class="a2-desc-line">{{ t.description }}</p>
-          <div class="a2-steps">
-            <div v-for="s in t.steps" :key="s.idx" class="a2-step">
-              <span class="a2-step-n">{{ s.idx + 1 }}</span>
-              <span class="chip" :title="stepKindTitle(s.action)">{{ stepKindLabel(s.action) }}</span>
-              <span class="a2-step-label">{{ stepLabel(s) }}</span>
-              <span v-if="s.selector && (s.selector.identifier || s.selector.label) && s.action !== 'expect'" class="a2-step-sel" :title="`element selector: ${JSON.stringify(s.selector)}`">⚓ {{ s.selector.identifier ?? s.selector.label }}</span>
-              <span v-if="s.action === 'expect' && s.selector" class="a2-step-sel a2-step-assert" :title="`assertion: replay fails if this element disappears — ${JSON.stringify(s.selector)}`">assert</span>
-              <span class="a2-step-controls">
-                <label v-if="s.action === 'type'" class="a2-step-ctl" title="replace literal text with ${env.KEY} — the value is provided at play time (env box above), never stored in the case">
-                  <input type="checkbox" :checked="(s.text ?? '').startsWith('${env.') && (s.text ?? '').endsWith('}')" @change="parameterize(t, s)" /> param
-                </label>
-                <label class="a2-step-ctl" title="optional step: a miss records skip, the run stays green (popups, interstitials)">
-                  <input type="checkbox" :checked="!!s.optional" @change="toggleOptional(t, s)" /> optional
-                </label>
-              </span>
-            </div>
-          </div>
-          <div class="a2-body-actions">
-            <button class="btn btn-sm" @click="addSubflow(t)" title="append a runFlow step — this case will run another case's steps as part of its own">+ subflow</button>
-            <button class="btn btn-sm" @click="addExpectation(t)" title="append an assertion — replay fails red if the element disappears from the screen">+ assert</button>
-          </div>
-        </div>
-      </article>
+</article>
     </div>
 
     <div v-if="playMsg" class="a2-note">{{ playMsg }}</div>
@@ -581,19 +503,18 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 }
 .a2-thead {
   position: sticky; top: 0; z-index: 2; background: var(--color-graphite);
-  display: grid; grid-template-columns: 24px 1.9fr 1.2fr 64px 92px 110px 150px;
-  gap: var(--s-2); padding: 8px 12px 8px 6px;
+  display: grid; grid-template-columns: 1.9fr 1.2fr 64px 92px 110px 150px;
+  gap: var(--s-2); padding: 8px 12px;
   font-size: 10px; color: var(--color-steel); text-transform: uppercase; letter-spacing: 0.08em;
 }
 .a2-row-card { border-bottom: 1px solid var(--color-iron); }
 .a2-row-card.editing { border-color: var(--color-ember); }
 .a2-row-card.editing .a2-row { background: color-mix(in srgb, var(--color-ember) 6%, transparent); }
 .a2-row {
-  position: relative; display: grid; grid-template-columns: 24px 1.9fr 1.2fr 64px 92px 110px 150px;
-  gap: var(--s-2); align-items: center; padding: 8px 12px 8px 6px; min-height: 44px; cursor: pointer;
+  position: relative; display: grid; grid-template-columns: 1.9fr 1.2fr 64px 92px 110px 150px;
+  gap: var(--s-2); align-items: center; padding: 8px 12px; min-height: 44px; cursor: pointer;
 }
 .a2-row:hover { background: var(--color-graphite); }
-.col-expander { color: var(--color-steel); }
 .col-steps, .col-updated { color: var(--color-fog); font-size: 12px; }
 .a2-name { color: var(--color-paper); }
 .a2-ticket { color: var(--color-steel); font-size: 10px; margin-left: 6px; }
@@ -618,17 +539,6 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
   color: var(--color-paper); font: inherit; font-size: 12px; padding: 4px 8px; min-width: 120px; flex: 1;
 }
 .a2-edit-actions { display: flex; gap: 4px; }
-.a2-body { border-top: 1px solid var(--color-iron); padding: var(--s-3); }
-.a2-desc-line { color: var(--color-fog); font-size: 12px; margin: 0 0 var(--s-2); }
-.a2-steps { display: flex; flex-direction: column; gap: 2px; }
-.a2-step { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
-.a2-step-n { color: var(--color-steel); width: 18px; text-align: right; font-size: 11px; }
-.a2-step-label { color: var(--color-fog); font-size: 12px; }
-.a2-step-sel { color: var(--color-steel); font-size: 10px; margin-left: 4px; }
-.a2-step-assert { color: var(--color-ember); }
-.a2-step-controls { margin-left: auto; display: flex; gap: 10px; }
-.a2-step-ctl { color: var(--color-steel); font-size: 10px; cursor: pointer; }
-.a2-body-actions { display: flex; gap: var(--s-2); margin-top: var(--s-2); }
 
 /* the yaml panel fills the remaining viewport while editing */
 .a2-yaml { flex: 1 1 0; min-height: 0; display: flex; }
