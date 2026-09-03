@@ -396,6 +396,7 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
         <span class="col-updated">updated</span>
         <span class="col-trend" title="last 5 runs, oldest → newest (✓ pass · ✕ fail · ◆ blocked · ◌ aborted)">trend</span>
         <span class="col-verdict">verdict</span>
+        <span class="col-actions"></span>
       </div>
 
       <article v-for="t in shown()" :key="t.id" class="a2-row-card" :class="{ editing: yamlOpenId === t.id }">
@@ -427,7 +428,7 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
             <span v-if="t.verdict" :class="`status ${verdictStatusClass(t)}`" :title="verdictLabel(t)">{{ verdictLabel(t) }}</span>
             <span v-else class="status status-none">never run</span>
           </span>
-          <span class="a2-hover-actions">
+          <span class="col-actions" @click.stop>
             <button class="btn btn-sm" :disabled="playing !== null" @click.stop="play(t)">{{ playing === t.id ? 'starting…' : '▶ run' }}</button>
             <button class="btn btn-sm btn-ghost" @click.stop="openYaml(t)" title="edit this case — metadata + yaml">edit</button>
             <button class="btn btn-sm btn-ghost" @click.stop="remove(t.id)">delete</button>
@@ -542,7 +543,7 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 }
 .a2-thead {
   position: sticky; top: 0; z-index: 2; background: var(--color-graphite);
-  display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(0, 1.2fr) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 150px);
+  display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(0, 1.2fr) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 150px) minmax(0, 200px);
   gap: var(--s-2); padding: 8px 12px;
   font-size: 10px; color: var(--color-steel); text-transform: uppercase; letter-spacing: 0.08em;
 }
@@ -550,7 +551,7 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 .a2-row-card.editing { border-color: var(--color-ember); }
 .a2-row-card.editing .a2-row { background: color-mix(in srgb, var(--color-ember) 6%, transparent); }
 .a2-row {
-  position: relative; display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(0, 1.2fr) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 150px);
+  position: relative; display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(0, 1.2fr) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 150px) minmax(0, 200px);
   gap: var(--s-2); align-items: center; padding: 8px 12px; min-height: 44px; cursor: pointer;
 }
 .a2-row:hover { background: var(--color-graphite); }
@@ -567,14 +568,8 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 .a2-app-ver { color: var(--color-steel); font-size: 10px; margin-left: 4px; }
 .a2-app-none { color: var(--color-steel); font-size: 11px; }
 .a2-trend-none { color: var(--color-steel); }
-/* hover actions: absolute right, zero reserve width, gradient fade-in (the
-   house row pattern — never covers the verdict pill) */
-.a2-hover-actions {
-  position: absolute; right: 12px; display: flex; gap: 4px;
-  background: linear-gradient(90deg, transparent, var(--color-carbon) 24px);
-  padding-left: 28px; opacity: 0; transition: opacity 0.12s;
-}
-.a2-row:hover .a2-hover-actions, .a2-row-card.editing .a2-hover-actions { opacity: 1; }
+/* actions: always-visible final column — no overlay, never covers the verdict */
+.col-actions { display: flex; gap: 4px; justify-content: flex-end; }
 
 /* row edit + expander body */
 
