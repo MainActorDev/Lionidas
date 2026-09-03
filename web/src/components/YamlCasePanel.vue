@@ -16,6 +16,8 @@ const props = defineProps<{
   /** 1-based position + count within the current filter, for the hopper */
   position: number;
   total: number;
+  /** last-saved timestamp (ms) — rendered as "· saved Xm/h ago" per A2 */
+  updatedAt?: number;
 }>();
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -126,6 +128,12 @@ function maybeClose(): void {
   emit('close');
 }
 
+/** hop guard: same unsaved protection as close — hopping away discards edits */
+function hop(dir: -1 | 1): void {
+  if (dirty.value && !window.confirm('unsaved changes — move to another case anyway?')) return;
+  emit('hop', dir);
+}
+
 function onKey(ev: KeyboardEvent): void {
   if (ev.key === 'Escape') { ev.stopPropagation(); maybeClose(); }
 }
@@ -135,17 +143,28 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey, true); if (
 watch(() => props.templateId, () => { void load(); });
 
 const stepsCount = computed(() => outline.value.length);
+const savedAgo = computed((): string | null => {
+  if (!props.updatedAt) return null;
+  const s = Math.max(1, Math.round((Date.now() - props.updatedAt) / 1000));
+  if (s < 60) return `${s}s ago`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+});
 </script>
 
 <template>
   <div class="yaml-panel">
     <div class="yaml-head">
       <span class="fname">{{ caseName }}</span>
-      <span class="meta">{{ stepsCount }} step{{ stepsCount === 1 ? '' : 's' }}<template v-if="dirty"> · <span style="color: var(--color-ember);">unsaved</span></template></span>
+      <span class="meta">{{ stepsCount }} step{{ stepsCount === 1 ? '' : 's' }}<template v-if="savedAgo"> · saved {{ savedAgo }}</template><template v-if="dirty"> · <span style="color: var(--color-ember);">unsaved</span></template></span>
       <span v-if="total > 1" class="hop">
-        <button class="btn btn-sm" :disabled="position <= 1" title="previous case in filter" @click="emit('hop', -1)">‹</button>
+        <button class="btn btn-sm" :disabled="position <= 1" title="previous case in filter" @click="hop(-1)">‹</button>
         <span class="meta">{{ position }} / {{ total }}</span>
-        <button class="btn btn-sm" :disabled="position >= total" title="next case in filter" @click="emit('hop', 1)">›</button>
+        <button class="btn btn-sm" :disabled="position >= total" title="next case in filter" @click="hop(1)">›</button>
+        <span class="meta hop-hint">· hop between cases without touching the table</span>
       </span>
       <span class="spacer"></span>
       <button class="btn btn-sm" @click="maybeClose">esc · close</button>
@@ -190,6 +209,8 @@ const stepsCount = computed(() => outline.value.length);
 .fname { color: var(--color-paper); font-weight: 700; }
 .meta { color: var(--color-steel); font-size: var(--text-caption); }
 .hop { display: flex; align-items: center; gap: 4px; }
+.hop-hint { display: none; }
+@media (min-width: 1100px) { .hop-hint { display: inline; } }
 .spacer { flex: 1; }
 .yaml-body { display: grid; grid-template-columns: 300px 1fr; min-height: 0; overflow: hidden; }
 .outline { border-right: 1px solid var(--color-iron); overflow: auto; padding: 10px 0; }

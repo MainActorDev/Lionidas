@@ -2,7 +2,7 @@
 /** Test cases: recorded flows (CRUD) + assertions — the QA regression suite.
  *  Each case shows its last verdict + trend; plans replay the suite in one
  *  click; playback runs them. Ticket tag filters regression selection. */
-import { ref, onMounted, computed, watch } from 'vue';
+import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue';
 import YamlCasePanel from '../components/YamlCasePanel.vue';
 
 interface Step { idx: number; action: string; x?: number; y?: number; direction?: string; text?: string; optional?: boolean; selector?: { identifier?: string; label?: string; type?: string }; templateId?: string }
@@ -233,6 +233,16 @@ const yamlCase = computed(() => (yamlOpenId.value ? shown().find((t) => t.id ===
 watch(yamlOpenId, (id) => {
   document.body.classList.toggle('yaml-panel-open', id !== null);
 });
+// A2: ⌘F jumps to the case filter while the panel is open (search-to-jump)
+function onCmdF(ev: KeyboardEvent): void {
+  if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'f' && yamlOpenId.value !== null) {
+    ev.preventDefault();
+    filterEl.value?.focus();
+  }
+}
+const filterEl = ref<HTMLInputElement | null>(null);
+onMounted(() => window.addEventListener('keydown', onCmdF));
+onBeforeUnmount(() => { window.removeEventListener('keydown', onCmdF); document.body.classList.remove('yaml-panel-open'); });
 
 onMounted(() => { void load(); void loadPlans(); });
 
@@ -366,7 +376,7 @@ function stepKindTitle(action: string): string {
 
     <!-- ── controls: filter · network · env disclosure ── -->
     <div class="tc-controls">
-      <input v-model="filter" class="input tc-filter" placeholder="filter by name, ticket, or tag…" />
+      <input ref="filterEl" v-model="filter" class="input tc-filter" placeholder="filter by name, ticket, or tag…" title="⌘F jumps here while the yaml panel is open" />
       <select
         v-model="runScenario" class="input tc-scenario"
         title="network scenario active during runs — its presets fake endpoints for the run's duration, then restore"
@@ -514,6 +524,7 @@ function stepKindTitle(action: string): string {
         :case-name="yamlCase.name"
         :position="yamlPosition.pos"
         :total="yamlPosition.total"
+        :updated-at="yamlCase.updatedAt"
         @close="yamlOpenId = null"
         @saved="() => void load()"
         @hop="hopYaml"
@@ -540,10 +551,14 @@ function stepKindTitle(action: string): string {
   overflow: hidden;
 }
 .page.yaml-locked .tc-table {
-  flex: 0 1 auto;
+  flex: 0 0 34vh;            /* A2: the table region's fixed viewport share */
   min-height: 140px;
   overflow-y: auto;           /* the table scrolls INSIDE itself */
   overscroll-behavior: contain;
+}
+.page.yaml-locked .tc-thead {
+  position: sticky; top: 0; z-index: 2;  /* A2: sticky header inside the region */
+  background: var(--color-graphite);
 }
 .page.yaml-locked .yaml-region {
   flex: 1 1 0;
