@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>R1 · Observer dock — measured spec</title>
+<style>
+  :root {
+    --bg: #000; --panel: #0a0a0a; --card: #111; --line: #202020; --line2: #3a3a3a;
+    --text: #f0f0f0; --dim: #b4b4b4; --faint: #787878;
+    --ember: #ff5c1a; --ok: #2fbf71; --err: #e5484d;
+    /* measurement tokens — these become the real component's values */
+    --dock-w: 420px;
+    --pad-x: 16px;        /* horizontal rhythm inside the dock */
+    --pad-y: 12px;
+    --gap: 8px;           /* between stream and steps list */
+    --stream-h: 248px;    /* ~dock width minus padding, portrait phone aspect */
+    --row-h: 36px;        /* one step row (touch-friendly, mono 12px + chip) */
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace; font-size: 13px; overflow: hidden; }
+
+  .app { display: grid; grid-template-columns: minmax(0, 1fr) var(--dock-w); height: 100vh; }
+  .page { padding: 24px; opacity: 0.55; overflow: auto; min-width: 0; }
+  .page-title { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
+  .row { background: var(--card); border: 1px solid var(--line); border-radius: 2px; padding: 14px; margin-bottom: 8px; color: var(--dim); }
+
+  /* ── the dock — grid rows: head / stream / steps / footer ── */
+  .dock { border-left: 1px solid var(--line2); background: var(--panel); display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(120px, 1fr) auto; height: 100vh; min-height: 0; }
+  .dock-head { display: flex; align-items: center; gap: 10px; padding: var(--pad-y) var(--pad-x); border-bottom: 1px solid var(--line); background: var(--card); min-height: 42px; }
+  .dock-head .name { color: var(--text); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 0; }
+  .dock-head .live { color: var(--ember); font-size: 11px; flex: none; }
+  .dock-head .meta { color: var(--faint); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+  .dock-head .lock { color: var(--faint); font-size: 10px; border: 1px solid var(--line2); border-radius: 2px; padding: 1px 6px; flex: none; margin-left: auto; }
+
+  .stream { position: relative; height: var(--stream-h); border-bottom: 1px solid var(--line); background: #000; display: grid; place-items: center; padding: var(--pad-y) var(--pad-x); }
+  .stream .phone { height: 100%; aspect-ratio: 9 / 19.5; border: 1px solid var(--line2); border-radius: 8px; background: linear-gradient(160deg, #101418, #05070a); display: grid; place-items: center; color: var(--faint); font-size: 11px; }
+  .stream .fps { position: absolute; right: calc(var(--pad-x) + 2px); top: calc(var(--pad-y) + 2px); color: var(--faint); font-size: 10px; background: rgba(0,0,0,0.6); padding: 1px 5px; border-radius: 2px; }
+
+  /* steps: own scroll, sticky title, fixed row height */
+  .steps { overflow-y: auto; overscroll-behavior: contain; min-height: 0; padding: var(--gap) 0; }
+  .steps-title { position: sticky; top: 0; background: var(--panel); font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.1em; padding: 2px var(--pad-x) var(--gap); border-bottom: 1px solid var(--line); z-index: 1; }
+  .step { display: flex; gap: 10px; align-items: center; min-height: var(--row-h); padding: 4px var(--pad-x); color: var(--faint); position: relative; }
+  .step .idx { width: 22px; text-align: right; flex: none; color: inherit; font-size: 11px; }
+  .step .kind { font-size: 10px; border: 1px solid var(--line2); border-radius: 2px; padding: 1px 6px; color: var(--dim); flex: none; min-width: 44px; text-align: center; }
+  .step .detail { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; min-width: 0; flex: 1; }
+  .step .dur { margin-left: auto; color: var(--faint); font-size: 10px; flex: none; padding-left: 8px; }
+  .step.done { color: var(--dim); }
+  .step.done .idx::before { content: '✓ '; color: var(--ok); }
+  .step.active { color: var(--text); background: #1c120a; box-shadow: inset 2px 0 var(--ember); }
+  .step.active .kind { border-color: var(--ember); color: var(--ember); }
+  .step.failed { color: var(--err); }
+  .step.failed .idx::before { content: '✕ '; }
+  .step.skipped { color: var(--faint); text-decoration: line-through solid color-mix(in srgb, var(--faint) 40%, transparent); }
+
+  .dock-foot { display: flex; align-items: center; gap: 10px; padding: 10px var(--pad-x); border-top: 1px solid var(--line); background: var(--card); min-height: 44px; color: var(--faint); font-size: 11px; }
+  .bar { flex: 1; height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--ember); transition: width 0.3s; }
+  .clock { font-variant-numeric: tabular-nums; }
+
+  /* verdict state: replaces the progress footer contents */
+  .verdict { display: flex; align-items: center; gap: 10px; width: 100%; }
+  .verdict .big { font-weight: 700; font-size: 14px; }
+  .verdict.ok .big { color: var(--ok); }
+  .verdict.fail .big { color: var(--err); }
+  .verdict.blocked .big { color: var(--amber, #d9a05b); }
+  .verdict .sub { color: var(--dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .verdict .open { margin-left: auto; color: var(--ember); font-size: 11px; text-decoration: underline; cursor: pointer; flex: none; }
+
+  /* measurement overlays (spec doc only) */
+  .measure { position: fixed; left: 0; right: 0; margin: auto; width: fit-content; bottom: 8px; color: var(--faint); font-size: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 2px; padding: 4px 10px; z-index: 10; }
+</style>
+</head>
+<body>
+  <div class="app">
+    <div class="page">
+      <div class="page-title">test cases</div>
+      <div class="row">checkout with promo · 11 steps · ✓ pass</div>
+      <div class="row" style="border-color: var(--ember);">login and check home · ▸ running…</div>
+      <div class="row">browse tariffs · 4 steps · ✓ pass</div>
+      <div class="row">track a package · 8 steps · ◌ never run</div>
+      <div class="row">onboarding skip · 6 steps · ✓ pass</div>
+      <div class="row">address book edit · 9 steps · ✕ fail</div>
+      <div style="color: var(--faint); font-size: 11px; margin-top: 10px;">page scrolls normally beside the dock — run + keep working</div>
+    </div>
+
+    <!-- the dock in its RUNNING state -->
+    <div class="dock">
+      <div class="dock-head">
+        <span class="name">login and check home</span>
+        <span class="live">● live</span>
+        <span class="meta">r_8f3a… · iPhone 14 Plus</span>
+        <span class="lock">🔒 until done</span>
+      </div>
+      <div class="stream">
+        <span class="fps">live · 12fps</span>
+        <div class="phone">device stream<br>9:19.5 aspect</div>
+      </div>
+      <div class="steps">
+        <div class="steps-title">steps · 3 / 7</div>
+        <div class="step done"><span class="idx">1</span><span class="kind">tap</span><span class="detail">214, 462 · on Login</span><span class="dur">0.4s</span></div>
+        <div class="step done"><span class="idx">2</span><span class="kind">scroll</span><span class="detail">down</span><span class="dur">0.6s</span></div>
+        <div class="step done"><span class="idx">3</span><span class="kind">type</span><span class="detail">${env.USERNAME} · on Email field</span><span class="dur">0.9s</span></div>
+        <div class="step active"><span class="idx">4</span><span class="kind">tap</span><span class="detail">214, 590 · on Continue</span><span class="dur">…</span></div>
+        <div class="step"><span class="idx">5</span><span class="kind">flow</span><span class="detail">dismiss-onboarding</span></div>
+        <div class="step"><span class="idx">6</span><span class="kind">expect</span><span class="detail">Home</span></div>
+        <div class="step"><span class="idx">7</span><span class="kind">expect</span><span class="detail">Log in to get the best shipping rates. (soft)</span></div>
+      </div>
+      <div class="dock-foot">
+        <span>step 3 / 7</span>
+        <div class="bar"><i style="width: 43%"></i></div>
+        <span class="clock">00:14</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="measure">spec: dock 420 · pad 16/12 · stream 248 (9:19.5) · row 36 · head ≥42 · foot ≥44 — verify below</div>
+
+  <script>
+    // measure + report, and swap to the verdict state after 6s to check the finished layout
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        const dock = document.querySelector('.dock');
+        const head = document.querySelector('.dock-head');
+        const stream = document.querySelector('.stream');
+        const foot = document.querySelector('.dock-foot');
+        const rows = [...document.querySelectorAll('.step')];
+        const m = {
+          dockW: Math.round(dock.getBoundingClientRect().width),
+          headH: Math.round(head.getBoundingClientRect().height),
+          streamH: Math.round(stream.getBoundingClientRect().height),
+          footH: Math.round(foot.getBoundingClientRect().height),
+          rowH: Math.round(rows[0].getBoundingClientRect().height),
+          rowHs: rows.map((r) => Math.round(r.getBoundingClientRect().height)),
+          allRowsEqual: rows.every((r) => Math.abs(r.getBoundingClientRect().height - rows[0].getBoundingClientRect().height) < 1),
+          visibleRows: Math.round(document.querySelector('.steps').getBoundingClientRect().height / rows[0].getBoundingClientRect().height),
+        };
+        console.log('MEASURE', JSON.stringify(m));
+        document.querySelector('.measure').textContent =
+          `measured: dock ${m.dockW} · head ${m.headH} · stream ${m.streamH} · foot ${m.footH} · row ${m.rowH} (equal: ${m.allRowsEqual}) · ~${m.visibleRows} rows visible`;
+      }, 400);
+
+      // verdict-state swap check
+      setTimeout(() => {
+        document.querySelector('.dock-foot').innerHTML = `
+          <div class="verdict fail">
+            <span class="big">✕ FAIL</span>
+            <span class="sub">step 6 · expect Home — not found · 6/7 executed</span>
+            <span class="open">open run ↗</span>
+          </div>`;
+        const foot = document.querySelector('.dock-foot');
+        console.log('VERDICT FOOT H', Math.round(foot.getBoundingClientRect().height));
+      }, 6000);
+    });
+  </script>
+</body>
+</html>

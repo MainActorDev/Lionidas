@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>R3 · Console — the run as a live log</title>
+<style>
+  :root {
+    --bg: #000; --panel: #0a0a0a; --card: #111; --line: #202020; --line2: #3a3a3a;
+    --text: #f0f0f0; --dim: #b4b4b4; --faint: #787878;
+    --ember: #ff5c1a; --ok: #2fbf71; --err: #e5484d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace; font-size: 13px; overflow: hidden; }
+
+  .wrap { height: 100vh; display: grid; grid-template-rows: auto 1fr; }
+  .head { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--card); }
+  .head .name { font-weight: 700; }
+  .head .live { color: var(--ember); font-size: 11px; }
+  .head .lock { color: var(--faint); font-size: 10px; border: 1px solid var(--line2); border-radius: 2px; padding: 0 5px; }
+
+  .body { display: grid; grid-template-columns: 260px 1fr; min-height: 0; }
+  .stream-col { border-right: 1px solid var(--line); display: grid; grid-template-rows: 1fr auto; min-height: 0; }
+  .stream { position: relative; background: #000; display: grid; place-items: center; }
+  .device { width: 170px; height: 340px; border: 1px solid var(--line2); border-radius: 10px; background: linear-gradient(160deg, #101418, #05070a); display: grid; place-items: center; color: var(--faint); font-size: 11px; }
+  .fps { position: absolute; right: 8px; top: 6px; color: var(--faint); font-size: 10px; }
+  .verdict-box { border-top: 1px solid var(--line); padding: 10px; }
+  .verdict { border: 1px solid var(--ok); background: rgba(47,191,113,0.06); border-radius: 2px; padding: 8px 10px; }
+  .verdict .big { color: var(--ok); font-weight: 700; }
+  .verdict .sub { color: var(--faint); font-size: 10px; margin-top: 2px; }
+
+  /* the log: steps as terminal lines, newest at the bottom, auto-scrolled */
+  .log { overflow: auto; padding: 10px 14px; font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
+  .ln { display: flex; gap: 8px; align-items: baseline; color: var(--faint); }
+  .ln .t { color: #4a4a4a; width: 44px; flex: none; font-size: 10px; }
+  .ln .tag { width: 52px; flex: none; font-size: 10px; color: var(--dim); }
+  .ln.run { color: var(--dim); }
+  .ln.step-ok { color: var(--dim); }
+  .ln.step-ok .tag { color: var(--ok); }
+  .ln.step-active { color: var(--text); background: #1c120a; margin: 0 -14px; padding: 0 14px; border-left: 2px solid var(--ember); }
+  .ln.step-active .tag { color: var(--ember); }
+  .ln.step-fail { color: var(--err); }
+  .ln .dur { margin-left: auto; color: #4a4a4a; font-size: 10px; }
+  .ln .note { color: var(--faint); font-size: 11px; }
+  .cursor { color: var(--ember); animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .hint { position: absolute; bottom: 8px; left: 14px; color: var(--faint); font-size: 10px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="head">
+      <span class="name">login and check home</span>
+      <span class="live">● running · r_8f3a…</span>
+      <span style="flex:1"></span>
+      <span class="lock">🔒 locked until done</span>
+    </div>
+    <div class="body">
+      <div class="stream-col">
+        <div class="stream">
+          <span class="fps">live · 12fps</span>
+          <div class="device">device stream</div>
+        </div>
+        <div class="verdict-box">
+          <div class="verdict">
+            <div class="big">✓ PASS</div>
+            <div class="sub">7/7 steps · 28s · open run ↗ · panel unlocks</div>
+          </div>
+        </div>
+      </div>
+      <div class="log">
+        <div class="ln run"><span class="t">00:00</span><span class="tag">RUN</span><span>r_8f3a started · iPhone 14 Plus · app v3.2.0</span></div>
+        <div class="ln step-ok"><span class="t">00:01</span><span class="tag">✓ step</span><span>1 · tap 214,462 on Login</span><span class="dur">0.4s</span></div>
+        <div class="ln step-ok"><span class="t">00:02</span><span class="tag">✓ step</span><span>2 · scroll down</span><span class="dur">0.6s</span></div>
+        <div class="ln step-ok"><span class="t">00:03</span><span class="tag">✓ step</span><span>3 · type ${env.USERNAME} on Email field</span><span class="dur">0.9s</span></div>
+        <div class="ln step-active"><span class="t">00:14</span><span class="tag">▸ step</span><span>4 · tap 214,590 on Continue <span class="cursor">▊</span></span><span class="dur">…</span></div>
+        <div class="ln"><span class="t"></span><span class="tag"></span><span class="note">— steps below are pending; each appears as it starts —</span></div>
+        <div class="ln"><span class="t"></span><span class="tag"></span><span class="note">on completion: ✕/✓ verdict line + summary box (left)</span></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>R2 · Spotlight — the case IS the stage</title>
+<style>
+  :root {
+    --bg: #000; --panel: #0a0a0a; --card: #111; --line: #202020; --line2: #3a3a3a;
+    --text: #f0f0f0; --dim: #b4b4b4; --faint: #787878;
+    --ember: #ff5c1a; --ok: #2fbf71; --err: #e5484d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace; font-size: 13px; overflow: hidden; }
+
+  .stage { height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
+  .head { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--card); }
+  .head .name { font-weight: 700; }
+  .head .live { color: var(--ember); font-size: 11px; }
+  .head .lock { color: var(--faint); font-size: 10px; border: 1px solid var(--line2); border-radius: 2px; padding: 0 5px; }
+
+  .main { display: grid; grid-template-columns: 1fr 340px; min-height: 0; }
+  .device-col { display: grid; place-items: center; background: #000; position: relative; }
+  .device { width: 240px; height: 480px; border: 1px solid var(--line2); border-radius: 14px; background: linear-gradient(160deg, #101418, #05070a); display: grid; place-items: center; color: var(--faint); font-size: 12px; }
+  .fps { position: absolute; right: 14px; top: 10px; color: var(--faint); font-size: 10px; }
+
+  /* the CURRENT step, huge, beside the device */
+  .now { padding: 24px; display: flex; flex-direction: column; gap: 10px; align-self: center; }
+  .now .label { font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.12em; }
+  .now .action { font-size: 26px; font-weight: 700; }
+  .now .action em { color: var(--ember); font-style: normal; }
+  .now .detail { color: var(--dim); }
+  .now .elapsed { color: var(--faint); font-size: 12px; }
+  .timeline { display: flex; gap: 4px; margin-top: 8px; }
+  .tl { height: 6px; flex: 1; background: var(--line); border-radius: 2px; }
+  .tl.done { background: var(--ok); }
+  .tl.active { background: var(--ember); animation: pulse 1s infinite alternate; }
+  @keyframes pulse { from { opacity: 0.5; } to { opacity: 1; } }
+
+  /* compact step strip on the right */
+  .steps { border-left: 1px solid var(--line); background: var(--panel); overflow: auto; padding: 10px 0; }
+  .step { display: flex; gap: 8px; align-items: baseline; padding: 6px 14px; color: var(--faint); font-size: 12px; }
+  .step .idx { width: 18px; text-align: right; }
+  .step.done { color: var(--dim); }
+  .step.done .idx::before { content: '✓ '; color: var(--ok); }
+  .step.active { color: var(--text); background: #1c120a; border-left: 2px solid var(--ember); padding-left: 12px; }
+
+  .foot { display: flex; align-items: center; gap: 10px; padding: 10px 20px; border-top: 1px solid var(--line); background: var(--card); color: var(--faint); font-size: 11px; }
+  .foot .verdict { display: none; }
+  .foot .verdict.show { display: flex; gap: 10px; align-items: center; }
+  .foot .verdict .big { font-size: 18px; font-weight: 700; }
+  .foot .verdict .big.ok { color: var(--ok); }
+  .foot .footnote { color: var(--faint); }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="head">
+      <span class="name">login and check home</span>
+      <span class="live">● running · r_8f3a…</span>
+      <span style="flex:1"></span>
+      <span class="lock">🔒 locked until done</span>
+    </div>
+    <div class="main">
+      <div class="device-col">
+        <span class="fps">live · 12fps</span>
+        <div class="device">device stream — large, the centerpiece</div>
+      </div>
+      <div class="now">
+        <span class="label">now executing</span>
+        <span class="action">tap <em>Continue</em></span>
+        <span class="detail">point [214, 590] · selector resolved ✓</span>
+        <span class="elapsed">0:00 / step · 14s / run</span>
+        <div class="timeline">
+          <span class="tl done"></span><span class="tl done"></span><span class="tl done"></span><span class="tl active"></span><span class="tl"></span><span class="tl"></span><span class="tl"></span>
+        </div>
+        <span class="footnote" style="color: var(--faint); font-size: 11px; margin-top: 6px;">each step lands center-stage as it executes; the strip on the right keeps the whole case in view</span>
+      </div>
+    </div>
+    <div class="foot">
+      <span>step 4 / 7</span>
+      <span style="flex:1"></span>
+      <span class="footnote">on completion the verdict replaces this bar:</span>
+      <span class="verdict show"><span class="big ok">✓ PASS</span> 7/7 steps · 28s · <u>open run ↗</u> · panel unlocks</span>
+    </div>
+  </div>
+</body>
+</html>
