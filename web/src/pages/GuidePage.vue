@@ -48,20 +48,52 @@ const groups = computed(() => {
     <div>
       <!-- ═══ QUICKSTART ═══ -->
       
-<div v-if="active === 'yourday'" class="sec">
-  <h2>your day</h2>
-  <p class="lead">What you actually do with Crucible, as three tasks. Every page exists to serve one of them.</p>
+<div v-if="active === 'yourday'">
+  <div class="page-title">your day</div>
+  <p style="color: var(--color-ash); margin: var(--s-2) 0 var(--s-4); font-size: var(--text-body); line-height: 1.6;">
+    What you actually do with Crucible, as three tasks. Every page exists to serve one of them.
+  </p>
 
-  <div class="meta-row"><span>1 · check the app</span><span class="mono">home page → run suite → read verdicts</span></div>
-  <p>Open Crucible. The home page lists every test case as a card with its latest verdict. Press <b>run suite</b> and every case replays back-to-back — cards flip to their new verdict as runs finish. A passing card needs nothing from you. Click a red one to see exactly which step broke, with the screenshot at the moment it broke.</p>
+  <div class="section-label">1 · check the app</div>
+  <div class="card">
+    <div class="meta-row"><span class="k">path</span><b class="mono">home page → run suite → read verdicts</b></div>
+    <p style="color: var(--color-fog); font-size: var(--text-body); line-height: 1.6; margin: var(--s-2) 0 0;">
+      Open Crucible. The home page lists every test case as a card with its latest verdict. Press <b>run suite</b>
+      and every case replays back-to-back — cards flip to their new verdict as runs finish. A passing card needs
+      nothing from you. Click a red one to see exactly which step broke, with the screenshot at the moment it broke.
+    </p>
+  </div>
 
-  <div class="meta-row"><span>2 · capture a new test</span><span class="mono">devices → take control → record → assert → save</span></div>
-  <p>Have a flow worth keeping? Go to <b>devices</b>, boot a simulator, click <b>take control</b>, and turn on <b>record</b>. Now just use the app — every tap, scroll, and typed text becomes a step in the sidebar as you go. Before saving, add a check with <b>assert</b>: type something you can see on screen ("Login"), and Crucible confirms it points at exactly one element. Save the recording, name it, tag it — it's now a test case that replays forever.</p>
+  <div class="section-label">2 · capture a new test</div>
+  <div class="card">
+    <div class="meta-row"><span class="k">path</span><b class="mono">devices → take control → record → assert → save</b></div>
+    <p style="color: var(--color-fog); font-size: var(--text-body); line-height: 1.6; margin: var(--s-2) 0 0;">
+      Have a flow worth keeping? Go to <b>devices</b>, boot a simulator, click <b>take control</b>, and turn on
+      <b>record</b>. Now just use the app — every tap, scroll, and typed text becomes a step in the sidebar as you go.
+      Before saving, add a check with <b>assert</b>: type something you can see on screen ("Login"), and Crucible
+      confirms it points at exactly one element. Save the recording, name it, tag it — it's now a test case that
+      replays forever.
+    </p>
+  </div>
 
-  <div class="meta-row"><span>3 · test bad network days</span><span class="mono">network → freeze or edit a preset → scenario → run with it</span></div>
-  <p>Does the app survive when the API is down or slow? On the <b>network</b> page: start the proxy, use the app so real traffic appears, then <b>freeze</b> any response to make it replay forever — or press <b>edit</b> to rewrite what it serves (a 500, a 3-second delay, a broken connection). Group fakes into a named <b>scenario</b> ("tariff API down") and pick it next to the run button on the test cases page. The fakes apply for that run only; live traffic is restored after.</p>
+  <div class="section-label">3 · test bad network days</div>
+  <div class="card">
+    <div class="meta-row"><span class="k">path</span><b class="mono">network → freeze or edit a preset → scenario → run with it</b></div>
+    <p style="color: var(--color-fog); font-size: var(--text-body); line-height: 1.6; margin: var(--s-2) 0 0;">
+      Does the app survive when the API is down or slow? On the <b>network</b> page: start the proxy, use the app so
+      real traffic appears, then <b>freeze</b> any response to make it replay forever — or press <b>edit</b> to
+      rewrite what it serves (a 500, a 3-second delay, a broken connection). Group fakes into a named
+      <b>scenario</b> ("tariff API down") and pick it next to the run button on the test cases page. The fakes apply
+      for that run only; live traffic is restored after.
+    </p>
+  </div>
 
-  <p class="cap">That's the whole tool. Everything else — runs, trends, blocked verdicts, approvals — is detail you can look up in the other sections of this guide when you need it.</p>
+  <div class="card card-accent">
+    <p style="color: var(--color-fog); font-size: var(--text-body); line-height: 1.6;">
+      That's the whole tool. Everything else — runs, trends, blocked verdicts, approvals — is detail you can
+      look up in the other sections of this guide when you need it.
+    </p>
+  </div>
 </div>
 
 <div v-if="active === 'quickstart'">
@@ -378,8 +410,4 @@ const groups = computed(() => {
 
 <style scoped>
 .slice-demo { margin: var(--s-3) 0; }
-.sec :deep(h2) { font-size: var(--text-h3); color: var(--color-paper); margin: 0 0 var(--s-2); }
-.sec .lead { color: var(--color-fog); font-size: var(--text-body); line-height: 1.6; margin: 0 0 var(--s-4); }
-.sec p { color: var(--color-ash); font-size: var(--text-body); line-height: 1.7; margin: 0 0 var(--s-3); }
-.sec .cap { font-size: var(--text-caption); color: var(--color-steel); margin-top: var(--s-2); }
 </style>
