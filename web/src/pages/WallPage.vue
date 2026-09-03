@@ -162,9 +162,9 @@ onUnmounted(() => { if (poll) clearInterval(poll); closeSidebar(); unwatchEvents
             <tr v-for="d in booted" :key="d.udid" :class="{ 'row-booted': true, 'row-active': sidebar?.device.udid === d.udid }" @click="openSidebar(d, 'watch')">
               <td>
                 <div style="color: var(--color-paper);">{{ d.name ?? d.udid.slice(0, 8) }}</div>
-                <div style="font-size: 10px; color: var(--color-steel);">{{ d.udid.slice(0, 8) }}…</div>
+                <div style="font-size: 10px; color: var(--color-steel); user-select: text;">{{ d.udid }}</div>
               </td>
-              <td style="color: var(--color-fog);">
+              <td style="color: var(--color-paper);">
                 <div>{{ d.os_version ?? '—' }}</div>
                 <div v-if="d.resolution" style="font-size: 10px; color: var(--color-steel);">{{ d.resolution }}</div>
               </td>
@@ -198,8 +198,11 @@ onUnmounted(() => { if (poll) clearInterval(poll); closeSidebar(); unwatchEvents
         <table>
           <tbody>
             <tr v-for="d in shelf" :key="d.udid">
-              <td style="width: 26%;"><span style="color: var(--color-fog);">{{ d.name ?? d.udid.slice(0, 12) }}</span></td>
-              <td style="color: var(--color-steel);">
+              <td style="width: 26%;">
+                <div style="color: var(--color-fog);">{{ d.name ?? d.udid.slice(0, 12) }}</div>
+                <div style="font-size: 10px; color: var(--color-steel); user-select: text;">{{ d.udid }}</div>
+              </td>
+              <td style="color: var(--color-paper);">
               <div>{{ d.os_version ?? '—' }}</div>
               <div v-if="d.resolution" style="font-size: 10px; color: var(--color-steel);">{{ d.resolution }}</div>
             </td>
