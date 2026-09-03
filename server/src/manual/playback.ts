@@ -214,7 +214,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       // resets engine clients, retries once before failing the run
       // the watchdog covers this dispatch too: a dead engine (stale daemon,
       // respawn loop) otherwise wedges the run at 0 steps forever — found
-      // live when the agent-device daemon was mid-respawn
+      // live when the device daemon was mid-respawn
       const open = (await withWatchdog(runId, dispatchWithHeal('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, `open ${appToLaunch}`)) as { ok: boolean; error?: { message: string } };
       if (!open.ok) throw new Error(`open failed: ${open.error?.message ?? 'engine error'}`);
 
