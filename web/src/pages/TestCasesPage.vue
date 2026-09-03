@@ -8,7 +8,7 @@
  *  plans, rename/edit/delete, step expander (param/optional, + subflow,
  *  + assert), tag-filter chips, suite summary. */
 import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue';
-import YamlCasePanel from '../components/YamlCasePanel.vue';
+import CaseEditorPanel from '../components/CaseEditorPanel.vue';
 
 interface Step { idx: number; action: string; x?: number; y?: number; direction?: string; text?: string; optional?: boolean; selector?: { identifier?: string; label?: string; type?: string }; templateId?: string }
 interface Verdict {
@@ -31,11 +31,6 @@ const loading = ref(true);
 const error = ref('');
 const filter = ref('');
 const filterEl = ref<HTMLInputElement | null>(null);
-const renaming = ref<string | null>(null);
-const renameName = ref('');
-const renamingTicket = ref('');
-const renamingDesc = ref('');
-const renamingTags = ref('');
 const playing = ref<string | null>(null);
 const playMsg = ref('');
 const playingAll = ref(false);
@@ -156,28 +151,6 @@ async function createCaseYaml(): Promise<void> {
   yamlOpenId.value = t.id;
 }
 
-function startRename(t: Template): void {
-  renaming.value = t.id;
-  renameName.value = t.name;
-  renamingTicket.value = t.ticketKey ?? '';
-  renamingDesc.value = t.description ?? '';
-  renamingTags.value = (t.tags ?? []).join(', ');
-}
-
-async function saveRename(id: string): Promise<void> {
-  await fetch(`/api/templates/${id}`, {
-    method: 'PATCH', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      name: renameName.value,
-      ticketKey: renamingTicket.value || null,
-      description: renamingDesc.value || null,
-      tags: renamingTags.value.split(',').map((x) => x.trim()).filter(Boolean),
-    }),
-  });
-  renaming.value = null;
-  await load();
-}
-
 const shown = (): Template[] => {
   const f = filter.value.trim().toLowerCase();
   if (!f) return templates.value;
@@ -195,8 +168,8 @@ const yamlPosition = computed(() => {
 });
 /** ONE editor at a time, with a save/abort guard: switching (or hopping)
  *  away from dirty edits asks first — save keeps them, abort drops them. */
-const yamlPanelEl = ref<InstanceType<typeof YamlCasePanel> | Array<InstanceType<typeof YamlCasePanel>> | null>(null);
-function panel(): InstanceType<typeof YamlCasePanel> | null {
+const yamlPanelEl = ref<InstanceType<typeof CaseEditorPanel> | Array<InstanceType<typeof CaseEditorPanel>> | null>(null);
+function panel(): InstanceType<typeof CaseEditorPanel> | null {
   // template refs inside v-for arrive as ARRAYS — normalize (the setCanvas lesson)
   const el = yamlPanelEl.value;
   return Array.isArray(el) ? (el[0] ?? null) : (el ?? null);
@@ -402,7 +375,7 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
       </div>
 
       <article v-for="t in shown()" :key="t.id" class="a2-row-card" :class="{ editing: yamlOpenId === t.id }">
-        <div class="a2-row" @click="openYaml(t)" title="click to edit this case as yaml">
+        <div class="a2-row" @click="openYaml(t)" title="click to edit this case">
           <span class="col-case">
             <span class="a2-name">{{ t.name }}</span>
             <span v-if="t.ticketKey" class="a2-ticket">{{ t.ticketKey }}</span>
@@ -432,32 +405,23 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
           </span>
           <span class="a2-hover-actions">
             <button class="btn btn-sm" :disabled="playing !== null" @click.stop="play(t)">{{ playing === t.id ? 'starting…' : '▶ run' }}</button>
-            <button class="btn btn-sm" @click.stop="openYaml(t)">yaml</button>
-            <button class="btn btn-sm btn-ghost" @click.stop="startRename(t)">edit</button>
+            <button class="btn btn-sm btn-ghost" @click.stop="openYaml(t)" title="edit this case — metadata + yaml">edit</button>
             <button class="btn btn-sm btn-ghost" @click.stop="remove(t.id)">delete</button>
           </span>
         </div>
 
-        <div v-if="renaming === t.id" class="a2-edit">
-          <input v-model="renameName" class="a2-input" placeholder="name" />
-          <input v-model="renamingTicket" class="a2-input" placeholder="ticket key (e.g. LP-123)" />
-          <input v-model="renamingDesc" class="a2-input" placeholder="description" />
-          <input v-model="renamingTags" class="a2-input" placeholder="tags (comma list, e.g. smoke, login)" />
-          <span class="a2-edit-actions">
-            <button class="btn btn-sm" @click="saveRename(t.id)">save</button>
-            <button class="btn btn-sm btn-ghost" @click="renaming = null">cancel</button>
-          </span>
-        </div>
-
-        <!-- the yaml editor opens INLINE below this row (one at a time) -->
+        <!-- the case editor (metadata + yaml) opens INLINE below this row -->
         <div v-if="yamlOpenId === t.id" class="a2-yaml">
-          <YamlCasePanel
+          <CaseEditorPanel
             ref="yamlPanelEl"
             :template-id="t.id"
             :case-name="t.name"
             :position="yamlPosition.pos"
             :total="yamlPosition.total"
             :updated-at="t.updatedAt"
+            :description="t.description"
+            :ticket-key="t.ticketKey"
+            :tags="t.tags ?? []"
             @close="yamlOpenId = null"
             @saved="() => void load()"
             @hop="hopYaml"
@@ -568,12 +532,6 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 .a2-row:hover .a2-hover-actions, .a2-row-card.editing .a2-hover-actions { opacity: 1; }
 
 /* row edit + expander body */
-.a2-edit { display: flex; gap: var(--s-2); padding: var(--s-2) var(--s-3); border-top: 1px solid var(--color-iron); flex-wrap: wrap; }
-.a2-input {
-  background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm);
-  color: var(--color-paper); font: inherit; font-size: 12px; padding: 4px 8px; min-width: 120px; flex: 1;
-}
-.a2-edit-actions { display: flex; gap: 4px; }
 
 /* the yaml panel fills the remaining viewport while editing */
 /* while EDITING, the table region takes its fixed mockup share */

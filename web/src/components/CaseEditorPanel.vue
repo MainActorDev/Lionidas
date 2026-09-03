@@ -3,10 +3,9 @@ import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { parseCaseYaml } from '@crucible/shared/case-yaml';
 import { useYamlEditor } from '../composables/useYamlEditor.ts';
 
-/** A2 viewport-locked split panel: outline (live parse) | CodeMirror yaml.
- *  While open, TemplatesPage locks its layout (table scrolls internally) —
- *  this component owns only the panel itself. Case hopping (‹ ›) is driven
- *  by emitted events; the page supplies the ordered case list. */
+/** The ONE case editor: metadata (name / ticket / description / tags) above,
+ *  yaml steps below — a single component, a single save, a single dirty flag.
+ *  Opens inline under its row; the page guards switching via isDirty. */
 
 interface OutlineStep { idx: number; kind: string; detail: string; soft?: boolean }
 
@@ -16,8 +15,11 @@ const props = defineProps<{
   /** 1-based position + count within the current filter, for the hopper */
   position: number;
   total: number;
-  /** last-saved timestamp (ms) — rendered as "· saved Xm/h ago" per A2 */
+  /** last-saved timestamp (ms) — rendered as "· saved Xm/h ago" */
   updatedAt?: number;
+  description: string | null;
+  ticketKey: string | null;
+  tags: string[];
 }>();
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -25,6 +27,13 @@ const emit = defineEmits<{
   (e: 'hop', direction: -1 | 1): void;
 }>();
 
+// ── metadata ──
+const name = ref('');
+const ticket = ref('');
+const description = ref('');
+const tags = ref('');
+
+// ── yaml editor ──
 const editorHost = ref<HTMLElement | null>(null);
 const ed = useYamlEditor();
 const loading = ref(true);
@@ -78,12 +87,14 @@ async function load(): Promise<void> {
     const res = await fetch(`/api/templates/${props.templateId}/yaml`);
     if (!res.ok) { msg.value = 'case not found'; return; }
     const { yaml } = (await res.json()) as { yaml: string };
+    name.value = props.caseName;
+    ticket.value = props.ticketKey ?? '';
+    description.value = props.description ?? '';
+    tags.value = props.tags.join(', ');
     await nextTick();
     if (!editorHost.value) return;
     if (!ed.ready.value) {
       await ed.mount(editorHost.value, yaml, save);
-      // value-change listener via CM updateListener would be ideal; polling
-      // reparse on a light cadence is avoided — instead hook keyup host-wide
       editorHost.value.addEventListener('input', () => { dirty.value = true; reparse(); });
     } else {
       ed.setValue(yaml);
@@ -93,11 +104,23 @@ async function load(): Promise<void> {
   } catch { msg.value = 'load failed'; } finally { loading.value = false; }
 }
 
+/** ONE save: metadata first (name/ticket/description/tags via the template
+ *  PATCH route), then the yaml (PUT :id/yaml validates + persists steps). */
 async function save(): Promise<void> {
   if (saving.value) return;
   saving.value = true;
   msg.value = '';
   try {
+    const meta = await fetch(`/api/templates/${props.templateId}`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: name.value.trim() || props.caseName,
+        ticketKey: ticket.value.trim() || null,
+        description: description.value.trim() || null,
+        tags: tags.value.split(',').map((x) => x.trim()).filter(Boolean),
+      }),
+    });
+    if (!meta.ok) { msg.value = `metadata save failed (${meta.status})`; return; }
     const yamlText = ed.getValue();
     const res = await fetch(`/api/templates/${props.templateId}/yaml`, {
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ yaml: yamlText }),
@@ -106,12 +129,13 @@ async function save(): Promise<void> {
       const b = (await res.json()) as { errors: Array<{ line: number; message: string }> };
       errors.value = b.errors ?? [];
       ed.setErrors(errors.value.map((e) => e.line));
-      msg.value = 'not saved — fix the highlighted lines';
+      msg.value = 'metadata saved — yaml not saved (fix the highlighted lines)';
+      dirty.value = true; // yaml still unsaved
       return;
     }
     if (!res.ok) { msg.value = `save failed (${res.status})`; return; }
     dirty.value = false;
-    msg.value = 'saved — serving updated';
+    msg.value = 'saved — case updated';
     emit('saved', props.templateId);
     setTimeout(() => { msg.value = ''; }, 2500);
   } catch { msg.value = 'save request failed'; } finally { saving.value = false; }
@@ -128,7 +152,6 @@ function maybeClose(): void {
   emit('close');
 }
 
-/** hop guard: same unsaved protection as close — hopping away discards edits */
 function hop(dir: -1 | 1): void {
   if (dirty.value && !window.confirm('unsaved changes — move to another case anyway?')) return;
   emit('hop', dir);
@@ -159,22 +182,30 @@ const savedAgo = computed((): string | null => {
 </script>
 
 <template>
-  <div class="yaml-panel">
-    <div class="yaml-head">
+  <div class="ce-panel">
+    <div class="ce-head">
       <span class="fname">{{ caseName }}</span>
       <span class="meta">{{ stepsCount }} step{{ stepsCount === 1 ? '' : 's' }}<template v-if="savedAgo"> · saved {{ savedAgo }}</template><template v-if="dirty"> · <span style="color: var(--color-ember);">unsaved</span></template></span>
       <span v-if="total > 1" class="hop">
         <button class="btn btn-sm" :disabled="position <= 1" title="previous case in filter" @click="hop(-1)">‹</button>
         <span class="meta">{{ position }} / {{ total }}</span>
         <button class="btn btn-sm" :disabled="position >= total" title="next case in filter" @click="hop(1)">›</button>
-        <span class="meta hop-hint">· hop between cases without touching the table</span>
       </span>
       <span class="spacer"></span>
       <button class="btn btn-sm" @click="maybeClose">esc · close</button>
       <button class="btn btn-sm" @click="copyYaml" title="copy the yaml to clipboard">&lt;/&gt; copy</button>
       <button class="btn btn-sm btn-primary" :disabled="saving || loading" @click="save">{{ saving ? 'saving…' : '⌘↵ save' }}</button>
     </div>
-    <div class="yaml-body">
+
+    <!-- metadata: name / ticket / description / tags -->
+    <div class="ce-meta">
+      <label class="ce-field"><span>name</span><input v-model="name" @input="dirty = true" placeholder="case name" /></label>
+      <label class="ce-field"><span>ticket</span><input v-model="ticket" @input="dirty = true" placeholder="ticket key (e.g. LP-123)" /></label>
+      <label class="ce-field ce-wide"><span>description</span><input v-model="description" @input="dirty = true" placeholder="what this case verifies" /></label>
+      <label class="ce-field"><span>tags</span><input v-model="tags" @input="dirty = true" placeholder="smoke, login" title="comma list, max 8" /></label>
+    </div>
+
+    <div class="ce-body">
       <div class="outline">
         <div class="outline-title">steps<template v-if="outlineStale"> · <span style="color: var(--color-ember);">stale</span></template></div>
         <div v-for="s in outline" :key="s.idx" class="o-step" :title="s.detail">
@@ -191,20 +222,20 @@ const savedAgo = computed((): string | null => {
         <div v-show="!loading" ref="editorHost" class="cm-host"></div>
       </div>
     </div>
-    <div v-if="msg" class="yaml-foot">{{ msg }}</div>
+    <div v-if="msg" class="ce-foot">{{ msg }}</div>
   </div>
 </template>
 
 <style scoped>
-.yaml-panel {
-  display: grid; grid-template-rows: auto 1fr auto;
+.ce-panel {
+  display: grid; grid-template-rows: auto auto 1fr auto;
   min-height: 0;
   border: 1px solid var(--color-ash, #3a3a3a);
   border-radius: var(--r-sm, 2px);
   background: var(--color-void, #0a0a0a);
   overflow: hidden;
 }
-.yaml-head {
+.ce-head {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 12px; border-bottom: 1px solid var(--color-iron, #202020);
   background: var(--color-carbon, #111);
@@ -212,10 +243,25 @@ const savedAgo = computed((): string | null => {
 .fname { color: var(--color-paper); font-weight: 700; }
 .meta { color: var(--color-steel); font-size: var(--text-caption); }
 .hop { display: flex; align-items: center; gap: 4px; }
-.hop-hint { display: none; }
-@media (min-width: 1100px) { .hop-hint { display: inline; } }
 .spacer { flex: 1; }
-.yaml-body { display: grid; grid-template-columns: 300px 1fr; min-height: 0; overflow: hidden; }
+/* metadata row */
+.ce-meta {
+  display: grid; grid-template-columns: 1.2fr 0.8fr 2fr 1fr; gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border-bottom: 1px solid var(--color-iron);
+  background: var(--color-carbon, #111);
+}
+.ce-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ce-field span { font-size: 10px; color: var(--color-steel); text-transform: uppercase; letter-spacing: 0.08em; }
+.ce-field input {
+  background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm);
+  color: var(--color-paper); font: inherit; font-size: 12px; padding: 4px 8px; width: 100%;
+}
+.ce-field input:focus { outline: none; border-color: var(--color-ember); }
+.ce-wide { grid-column: span 1; }
+@media (max-width: 1000px) { .ce-meta { grid-template-columns: 1fr 1fr; } }
+/* body: outline | editor */
+.ce-body { display: grid; grid-template-columns: 300px 1fr; min-height: 0; overflow: hidden; }
 .outline { border-right: 1px solid var(--color-iron); overflow: auto; padding: 10px 0; }
 .outline-title { font-size: 10px; color: var(--color-steel); text-transform: uppercase; letter-spacing: 0.1em; padding: 2px 12px 8px; }
 .o-step { display: flex; gap: 8px; align-items: baseline; padding: 5px 12px; color: var(--color-fog); font-size: 12px; }
@@ -229,5 +275,5 @@ const savedAgo = computed((): string | null => {
 .editor { display: flex; flex-direction: column; min-height: 0; }
 .cm-host { flex: 1; min-height: 260px; overflow: hidden; display: flex; }
 .cm-host > :deep(.cm-editor) { flex: 1; }
-.yaml-foot { padding: 6px 12px; border-top: 1px solid var(--color-iron); color: var(--color-fog); font-size: var(--text-caption); background: var(--color-carbon); }
+.ce-foot { padding: 6px 12px; border-top: 1px solid var(--color-iron); color: var(--color-fog); font-size: var(--text-caption); background: var(--color-carbon); }
 </style>
