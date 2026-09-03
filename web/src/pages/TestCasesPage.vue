@@ -460,11 +460,14 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
    set by the watcher — nothing here needs a "variant". ── */
 .a2-page {
   display: flex; flex-direction: column;
-  height: calc(100dvh - 2 * var(--s-6)); /* .main's viewport box minus its padding */
-  box-sizing: border-box;
   gap: var(--s-3);
   max-width: 1160px; margin: 0 auto; width: 100%;
   padding: 0 var(--s-5);
+  box-sizing: border-box;
+}
+/* the viewport lock applies ONLY while editing (normal state = page flow) */
+.a2-page.editing {
+  height: calc(100dvh - 2 * var(--s-6)); /* .main's viewport box minus its padding */
 }
 /* header */
 .a2-head { display: flex; align-items: baseline; gap: 14px; flex: none; }
@@ -494,9 +497,10 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
   color: var(--color-paper); font-family: var(--font-mono); font-size: 11px; padding: var(--s-2);
 }
 
-/* table region */
+/* table region — content-sized: no stretch, no forced height. Scrolls only
+   when the list outgrows the available space (flex shrink engages then). */
 .a2-table {
-  flex: 1 1 auto; min-height: 140px;
+  flex: 0 1 auto;
   overflow-y: auto; overscroll-behavior: contain;
   border: 1px solid var(--color-iron); border-radius: var(--r-sm);
   background: var(--color-carbon);
@@ -544,5 +548,7 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 .a2-yaml { flex: 1 1 0; min-height: 0; display: flex; }
 .a2-yaml > :deep(*) { flex: 1; }
 /* while EDITING, the table region takes its fixed mockup share */
-.a2-page.editing .a2-table { flex: 0 0 34vh; }
+/* while editing: the table caps at the mockup's 34vh share but stays
+   content-sized below it (a 2-row list doesn't fake 34vh of content) */
+.a2-page.editing .a2-table { flex: 0 1 auto; max-height: 34vh; }
 </style>
