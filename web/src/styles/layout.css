@@ -96,6 +96,10 @@
   width: 100%;
   min-width: 0;
 }
+/* A2 yaml split panel: freeze the shell's scroll container while a case is
+   open in the yaml editor — the page locks into its viewport column and the
+   case table scrolls internally instead. Removed when the panel closes. */
+body.yaml-panel-open .main { overflow: hidden; }
 
 @media (max-width: 768px) {
   .app { grid-template-columns: 1fr; grid-template-areas: "logo" "main"; }

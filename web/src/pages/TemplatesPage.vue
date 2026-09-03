@@ -2,7 +2,7 @@
 /** Test cases: recorded flows (CRUD) + assertions — the QA regression suite.
  *  Each case shows its last verdict + trend; plans replay the suite in one
  *  click; playback runs them. Ticket tag filters regression selection. */
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import YamlCasePanel from '../components/YamlCasePanel.vue';
 
 interface Step { idx: number; action: string; x?: number; y?: number; direction?: string; text?: string; optional?: boolean; selector?: { identifier?: string; label?: string; type?: string }; templateId?: string }
@@ -229,6 +229,10 @@ function hopYaml(dir: -1 | 1): void {
   if (next) yamlOpenId.value = next.id;
 }
 const yamlCase = computed(() => (yamlOpenId.value ? shown().find((t) => t.id === yamlOpenId.value) ?? null : null));
+// A2 lock: freeze the app's scroll container while the panel is open
+watch(yamlOpenId, (id) => {
+  document.body.classList.toggle('yaml-panel-open', id !== null);
+});
 
 onMounted(() => { void load(); void loadPlans(); });
 
@@ -339,7 +343,7 @@ function stepKindTitle(action: string): string {
 }
 </script>
 <template>
-  <section class="page">
+  <section class="page" :class="{ 'yaml-locked': yamlOpenId !== null }">
     <!-- ── header: title · suite summary · primary actions ── -->
     <header class="tc-head">
       <div class="tc-title-group">
@@ -419,7 +423,7 @@ function stepKindTitle(action: string): string {
         <span class="col-verdict">verdict</span>
       </div>
 
-      <article v-for="t in shown()" :key="t.id" class="tc-row-card" :class="{ open: expanded === t.id }">
+      <article v-for="t in shown()" :key="t.id" :ref="(el) => { if (yamlOpenId === t.id && el) (el as HTMLElement).scrollIntoView?.({ block: 'nearest' }) }" class="tc-row-card" :class="{ open: expanded === t.id, 'yaml-editing': yamlOpenId === t.id }">
         <div class="tc-row" @click="expanded = expanded === t.id ? null : t.id">
           <span class="col-expander">{{ expanded === t.id ? '▾' : '▸' }}</span>
           <span class="col-case">
@@ -502,7 +506,7 @@ function stepKindTitle(action: string): string {
     </div>
     <div v-if="playMsg" class="tc-play-msg">{{ playMsg }}</div>
 
-    <!-- A2: yaml split panel — page locks while open (table region scrolls internally) -->
+<!-- A2: yaml split panel — page locks while open (table region scrolls internally) -->
     <div v-if="yamlOpenId" class="yaml-region">
       <YamlCasePanel
         v-if="yamlCase"
@@ -521,17 +525,40 @@ function stepKindTitle(action: string): string {
 <style scoped>
 .page { padding: var(--s-5); max-width: 1160px; margin: 0 auto; }
 
-/* ── A2 yaml split panel: while open, the PAGE locks into a viewport column —
-   header/env stay, the case list region scrolls INSIDE itself, the panel
-   anchors below and never moves. Implemented via position:fixed overlay so
-   no parent layout can fight it; esc/close tears it down. ── */
+/* ── A2 yaml split panel — the approved design, faithfully:
+   while the panel is open the PAGE LOCKS into a viewport column (header /
+   table region / panel). The table region scrolls INSIDE itself, the panel
+   anchors below and never moves, and the edited row highlights + scrolls
+   into view inside the table region. Close → normal page flow returns. ── */
+.page.yaml-locked {
+  /* Lock is applied at the SCROLL CONTAINER (.main) via a body class — see
+     the watcher below. Here we just make the page a column that fits. */
+  display: flex; flex-direction: column;
+  min-height: 0;
+  height: calc(100dvh - 2 * var(--s-6)); /* .main's viewport box minus its padding */
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.page.yaml-locked .tc-table {
+  flex: 0 1 auto;
+  min-height: 140px;
+  overflow-y: auto;           /* the table scrolls INSIDE itself */
+  overscroll-behavior: contain;
+}
+.page.yaml-locked .yaml-region {
+  flex: 1 1 0;
+  min-height: 0;
+  position: static;           /* in-flow, not fixed — it fills what's left */
+  padding: 0;
+}
 .yaml-region {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
   padding: 0 var(--s-5) var(--s-4);
   display: flex; justify-content: center;
-  pointer-events: none; /* the strip itself is click-through… */
 }
-.yaml-region > :deep(*) { pointer-events: auto; max-width: 1160px; width: 100%; } /* …the panel is not */
+.yaml-region > :deep(*) { max-width: 1160px; width: 100%; }
+/* the edited case's row: always findable — ember left border + tint */
+.tc-row-card.yaml-editing { border-color: var(--color-ember); }
+.tc-row-card.yaml-editing .tc-row { background: color-mix(in srgb, var(--color-ember) 6%, transparent); }
 
 /* ── header ── */
 .tc-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); margin-bottom: var(--s-4); }
