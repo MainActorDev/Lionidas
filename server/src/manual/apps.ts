@@ -39,13 +39,25 @@ export async function listSimulatorApps(udid: string): Promise<AppInfo[]> {
     apps.push({
       bundleId,
       name: a.CFBundleDisplayName ?? a.CFBundleName ?? bundleId,
-      version: a.CFBundleShortVersionString ?? a.CFBundleVersion ?? null,
+      // simctl's plist often OMITS CFBundleShortVersionString (seen live: the
+      // key absent while the bundle's own Info.plist carries '1.0.0') — read
+      // the on-disk plist before falling back to the opaque build number
+      version: a.CFBundleShortVersionString ?? shortVersionFromBundle(a.Path) ?? a.CFBundleVersion ?? null,
       path: a.Path,
       iconPath: findIcon(a.Path, a.CFBundleIconFiles),
       running: foreground.has(bundleId),
     });
   }
   return apps.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** CFBundleShortVersionString from an app bundle's Info.plist ('' on failure). */
+function shortVersionFromBundle(appPath: string): string | null {
+  try {
+    const json = execFileSync('plutil', ['-convert', 'json', '-o', '-', join(appPath, 'Info.plist')], { maxBuffer: 1024 * 1024 }).toString();
+    const v = (JSON.parse(json) as { CFBundleShortVersionString?: string }).CFBundleShortVersionString;
+    return v ?? null;
+  } catch { return null; }
 }
 
 /** plist text → JSON via plutil (synchronous subprocess on stdin). */
