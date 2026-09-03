@@ -9,10 +9,48 @@ import { crucibleAlloy } from '../alloy/client.ts';
 /** Sim metadata the engine contract doesn't carry. Sourced from simctl directly
  *  (cached until simctl's device set changes) so the wall can show OS + model.
  *  Physical devices have no simctl entry — they surface with os: null. */
-interface SimMeta { os: string | null; model: string | null }
-/** Native framebuffer size per udid — booted-only query (simctl io enumerate),
- *  cached for the process lifetime: a device's screen never changes. */
-const resolutionCache = new Map<string, string>();
+interface SimMeta { os: string | null; model: string | null; screen: string | null }
+
+/** Logical screen (points + scale) per device model — keyed by the
+ *  deviceTypeIdentifier suffix simctl reports (e.g. 'iPhone-14-Plus').
+ *  Static because a model's screen never changes; works for SHUTDOWN sims
+ *  (simctl io enumerate lies when the device is off — it enumerated the
+ *  host/garbage displays for a powered-off sim). Native pixels = points × scale. */
+const MODEL_SCREEN: Record<string, string> = {
+  'iPhone-SE--2nd-generation-': '375×667 @2x',
+  'iPhone-SE-3rd-generation': '375×667 @2x',
+  'iPhone-XR': '414×896 @2x',
+  'iPhone-11': '414×896 @2x',
+  'iPhone-XS': '375×812 @3x',
+  'iPhone-11-Pro': '375×812 @3x',
+  'iPhone-XS-Max': '414×896 @3x',
+  'iPhone-11-Pro-Max': '414×896 @3x',
+  'iPhone-12-mini': '375×812 @3x',
+  'iPhone-13-mini': '375×812 @3x',
+  'iPhone-12': '390×844 @3x',
+  'iPhone-13': '390×844 @3x',
+  'iPhone-12-Pro': '390×844 @3x',
+  'iPhone-13-Pro': '390×844 @3x',
+  'iPhone-12-Pro-Max': '428×926 @3x',
+  'iPhone-13-Pro-Max': '428×926 @3x',
+  'iPhone-14': '390×844 @3x',
+  'iPhone-14-Plus': '428×926 @3x',
+  'iPhone-14-Pro': '393×852 @3x',
+  'iPhone-14-Pro-Max': '430×932 @3x',
+  'iPhone-15': '393×852 @3x',
+  'iPhone-15-Plus': '430×932 @3x',
+  'iPhone-15-Pro': '393×852 @3x',
+  'iPhone-15-Pro-Max': '430×932 @3x',
+  'iPhone-16': '393×852 @3x',
+  'iPhone-16-Plus': '430×932 @3x',
+  'iPhone-16-Pro': '402×874 @3x',
+  'iPhone-16-Pro-Max': '440×956 @3x',
+  'iPhone-16e': '390×844 @3x',
+  'iPhone-17': '402×874 @3x',
+  'iPhone-17-Pro': '402×874 @3x',
+  'iPhone-17-Pro-Max': '440×956 @3x',
+  'iPhone-Air': '420×912 @3x',
+};
 let simMetaCache: { map: Map<string, SimMeta>; fingerprint: string } | null = null;
 
 function simMeta(): Map<string, SimMeta> {
@@ -24,9 +62,11 @@ function simMeta(): Map<string, SimMeta> {
       for (const d of arr) {
         // com.apple.CoreSimulator.SimRuntime.iOS-18-6 → iOS 18.6 ; deviceTypeIdentifier → iPhone 14 Plus
         const os = runtime.split('.').pop()?.replace(/-/g, '.').replace(/^iOS\./, 'iOS ') ?? null;
+        const typeId = d.deviceTypeIdentifier?.split('.').pop() ?? null;
         map.set(d.udid, {
           os,
-          model: d.deviceTypeIdentifier?.split('.').pop()?.replace(/-/g, ' ') ?? null,
+          model: typeId?.replace(/-/g, ' ') ?? null,
+          screen: typeId ? (MODEL_SCREEN[typeId] ?? null) : null,
         });
       }
     }
@@ -43,21 +83,6 @@ function simMeta(): Map<string, SimMeta> {
  */
 export function invalidateSimMeta(): void { simMetaCache = null; }
 
-function simResolution(udid: string, booted: boolean): string | null {
-  if (!booted) return null;
-  const hit = resolutionCache.get(udid);
-  if (hit) return hit;
-  try {
-    const raw = execFileSync('xcrun', ['simctl', 'io', udid, 'enumerate'], { encoding: 'utf8', timeout: 10_000 });
-    const m = raw.match(/Default width:\s*(\d+)\s*\n\s*Default height:\s*(\d+)/);
-    if (m) {
-      const res = `${m[1]}×${m[2]}`;
-      resolutionCache.set(udid, res);
-      return res;
-    }
-  } catch { /* shutdown mid-enumerate / simctl hiccup — keep last-known */ }
-  return null;
-}
 
 export interface DeviceMirrorRow {
   udid: string;
@@ -114,7 +139,7 @@ export async function pollDevices(db: Database.Database, bus: TypedEventBus<AppE
       // engine A reports a `booted` boolean, not a state string — map it
       const state = d.booted === true ? 'Booted' : d.booted === false ? 'Shutdown' : null;
       const os = meta.get(d.id)?.os ?? null;
-      upsert.run(d.id, d.name ?? null, state, d.platform ?? null, d.kind ?? null, os, simResolution(d.id, state === 'Booted'), lease.holder, lease.engine, Date.now());
+      upsert.run(d.id, d.name ?? null, state, d.platform ?? null, d.kind ?? null, os, meta.get(d.id)?.screen ?? null, lease.holder, lease.engine, Date.now());
       const prev = before.get(d.id);
       const nowRow = { udid: d.id, name: d.name ?? null, state, platform: d.platform ?? null, kind: d.kind ?? null, lease_holder: lease.holder, lease_engine: lease.engine };
       if (

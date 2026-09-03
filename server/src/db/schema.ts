@@ -211,8 +211,8 @@ export function migrateM1(db: Database.Database): void {
     'ALTER TABLE devices ADD COLUMN platform TEXT',
     'ALTER TABLE devices ADD COLUMN kind TEXT',
     'ALTER TABLE devices ADD COLUMN os_version TEXT',
-    // native framebuffer size (e.g. '1284×2778') — resolved via simctl io
-    // enumerate when booted; last-known value persists across shutdowns
+    // logical screen, points + scale (e.g. '428×926 @3x') — static per model
+    // (deviceTypeIdentifier table), available even while shutdown
     'ALTER TABLE devices ADD COLUMN resolution TEXT',
     // manual sessions gain the recorder steps store (QA records flows for templates)
     'ALTER TABLE manual_sessions ADD COLUMN recording_json TEXT',
