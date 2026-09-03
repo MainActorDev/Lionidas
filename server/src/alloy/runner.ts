@@ -166,7 +166,7 @@ export async function executeRun(spec: RunSpec, deps: RunnerDeps): Promise<strin
 
     for (const flow of allFlows) {
       const idx = steps.length;
-      deps.bus.emit('step.started', { runId, idx, flow: flow.name });
+      deps.bus.emit('step.started', { runId, idx, flow: flow.name, name: flow.name });
       const t0 = Date.now();
       let status: StepRecord['status'] = 'pass';
       let reason: string | undefined;
@@ -241,7 +241,7 @@ export async function executeRun(spec: RunSpec, deps: RunnerDeps): Promise<strin
         } catch { /* triage capture is best-effort; never fails the run */ }
       }
       steps.push(rec);
-      deps.bus.emit('step.finished', { runId, idx, flow: flow.name, status, durationMs: duration });
+      deps.bus.emit('step.finished', { runId, idx, flow: flow.name, name: flow.name, status, durationMs: duration });
 
       if (flow.mapped) {
         const key = `${flow.ticket}|${flow.acId}`;

@@ -66,6 +66,15 @@ function stepName(s: PlaybackStep): string {
   return `type "${(s.text ?? '').slice(0, 20)}"`;
 }
 
+/** Panel-facing summary of an expanded step (run.plan / step events). */
+function stepLabel(s: PlaybackStep): string {
+  if (s.action === 'expect') return `expect ${s.selector?.label ?? s.selector?.identifier ?? '?'}`;
+  if (s.action === 'runFlow') return `run flow ${s.templateId ?? '?'}`;
+  if (s.action === 'tap') return s.selector ? `tap ${s.selector.label ?? s.selector.identifier ?? ''}`.trim() : `tap ${s.x},${s.y}`;
+  if (s.action === 'scroll') return `scroll ${s.direction}`;
+  return `type "${(s.text ?? '').slice(0, 20)}"`;
+}
+
 function ingestEvidence(deps: PlaybackDeps, runId: string, bundleId: string, type: string, srcPath: string | undefined): string | null {
   if (!srcPath || !existsSync(srcPath)) return null;
   mkdirSync(join(deps.artifactsDir, runId), { recursive: true });
@@ -186,10 +195,19 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     }
     let runStatus: 'passed' | 'failed' | 'aborted' = 'passed';
     let runBlocked = 0;
-    const insStep = deps.db.prepare(
+    const insStmt = deps.db.prepare(
       `INSERT INTO run_steps(run_id, idx, flow_name, kind, name, status, reason, started_at, duration_ms, evidence_ids_json, evaluated_json)
        VALUES (?, ?, ?, 'step', ?, ?, ?, ?, ?, ?, ?)`,
     );
+    /** insert + emit step.finished — the write IS the finish. step.started
+     *  fires at the top of the executing iteration (before dispatch), giving
+     *  the run panel a real running window to highlight. */
+    const insStep = {
+      run(runId: string, idx: number, flow: string, name: string, status: string, reason: string | null, startedAt: number, durationMs: number, evidence: string, evaluated: string | null): void {
+        insStmt.run(runId, idx, flow, name, status, reason, startedAt, durationMs, evidence, evaluated);
+        deps.bus.emit('step.finished', { runId, idx, flow, name, status, durationMs });
+      },
+    };
     try {
       // self-heal: stale session binding / dead engine is the known class —
       // dispatchWithHeal reads the in-band envelope (dispatch never throws),
@@ -207,6 +225,12 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       } catch (err) {
         throw new Error(`subflow expansion failed: ${err instanceof Error ? err.message : String(err)}`);
       }
+      // run panel: announce the expanded plan — the panel cannot key step
+      // events to template steps (expandFlows reindexes), so the truth ships.
+      deps.bus.emit('run.plan', {
+        runId, templateId, udid,
+        steps: execSteps.map((s) => ({ idx: s.idx, action: s.action, name: stepLabel(s), flow: s.flow ?? null, optional: s.optional === true })),
+      });
       // cross-device scaling (flaw #6): scale recorded coords by target/recorded
       // logical dims — applied only to steps WITHOUT a usable selector.
       let targetW: number | null = null; let targetH: number | null = null;
@@ -226,6 +250,9 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'skip', 'aborted by operator', Date.now(), 0, '[]', null);
           continue;
         }
+        // the panel's running highlight: this step is executing NOW (the
+        // matching step.finished fires at the write, after dispatch settles)
+        deps.bus.emit('step.started', { runId, idx: s.idx, flow: s.flow ?? t.name, name: stepName(s) });
         // env substitution (A1): resolve ${env.KEY} BEFORE dispatch — a missing
         // key fails the step deterministically; never type a half-resolved
         // string. Even optional steps hard-fail on missing env: a missing

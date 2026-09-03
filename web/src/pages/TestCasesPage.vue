@@ -9,6 +9,7 @@
  *  + assert), tag-filter chips, suite summary. */
 import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue';
 import CaseEditorPanel from '../components/CaseEditorPanel.vue';
+import RunPanel from '../components/RunPanel.vue';
 
 interface Step { idx: number; action: string; x?: number; y?: number; direction?: string; text?: string; optional?: boolean; selector?: { identifier?: string; label?: string; type?: string }; templateId?: string }
 interface Verdict {
@@ -71,10 +72,33 @@ async function play(t: Template): Promise<void> {
       }),
     });
     const b = (await r.json()) as { runId?: string; error?: string };
-    playMsg.value = b.runId ? `running · ${b.runId}${runScenario.value ? ' · scenario active' : ''}` : (b.error ?? 'failed');
+    if (b.runId) {
+      playMsg.value = `running · ${b.runId}${runScenario.value ? ' · scenario active' : ''}`;
+      runPanel.value = { runId: b.runId, templateId: t.id, caseName: t.name, udid: t.udid };
+    } else {
+      playMsg.value = b.error ?? 'failed';
+    }
   } catch {
     playMsg.value = 'failed';
   } finally { playing.value = null; }
+}
+
+// ── run companion panel (R1 observer dock) ──
+const runPanel = ref<{ runId: string; templateId: string; caseName: string; udid: string } | null>(null);
+/** adopt a run already live on this page's device set — reload mid-run,
+ *  play from another tab, run started via plan/prompt. The panel hydrates
+ *  itself from GET /api/runs/:id/steps, so no template steps needed. */
+async function adoptRunningRun(): Promise<void> {
+  if (runPanel.value) return;
+  try {
+    const r = await fetch('/api/runs?limit=200');
+    const b = (await r.json()) as { runs?: Array<{ id: string; status: string; template_id: string | null; device_udid: string; note: string | null }> };
+    const liveRun = (b.runs ?? []).find((x) => x.status === 'running' && templates.value.some((t) => t.id === x.template_id));
+    if (liveRun) {
+      const t = templates.value.find((x) => x.id === liveRun.template_id)!;
+      runPanel.value = { runId: liveRun.id, templateId: t.id, caseName: t.name, udid: liveRun.device_udid };
+    }
+  } catch { /* adopt best-effort */ }
 }
 
 async function playAll(): Promise<void> {
@@ -212,7 +236,7 @@ function onCmdF(ev: KeyboardEvent): void {
 onMounted(() => window.addEventListener('keydown', onCmdF));
 onBeforeUnmount(() => { window.removeEventListener('keydown', onCmdF); });
 
-onMounted(() => { void load(); void loadPlans(); });
+onMounted(() => { void load().then(() => void adoptRunningRun()); void loadPlans(); });
 
 // ── B4: verdict + trend rendering ──
 type VerdictKind = 'never' | 'green' | 'red' | 'blocked' | 'aborted';
@@ -451,6 +475,17 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
         </div>
       </div>
     </div>
+
+    <!-- the run companion dock (R1) — locked open for the run's duration -->
+    <RunPanel
+      v-if="runPanel"
+      :run-id="runPanel.runId"
+      :template-id="runPanel.templateId"
+      :case-name="runPanel.caseName"
+      :udid="runPanel.udid"
+      @close="runPanel = null"
+      @open-run="(id) => $router.push(`/runs/${id}`)"
+    />
   </section>
 </template>
 
@@ -464,6 +499,9 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
   width: 100%;
   box-sizing: border-box;
 }
+/* while the run dock (fixed, 420px right) is open, keep page content clear
+   of it — the dock is an overlay, not a grid column */
+.a2-page:has(.rp-dock) { padding-right: 436px; }
 /* header */
 .a2-head { display: flex; align-items: baseline; gap: 14px; flex: none; }
 .page-title { font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
