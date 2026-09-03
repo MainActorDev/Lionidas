@@ -182,12 +182,12 @@ export function registerManualRoutes(
     const { id } = req.params as { id: string };
     const b = req.body as { udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string> } | null;
     try {
-      const { runId } = await runTemplatePlayback(
+      const { runId, udid } = await runTemplatePlayback(
         { db, bus: deps.bus, dispatchDeps: deps.dispatchDeps, artifactsDir: deps.artifactsDir, forgeState: deps.forgeState },
         id,
         { ...(b?.udid !== undefined ? { udid: b.udid } : {}), ...(b?.triggeredBy !== undefined ? { triggeredBy: b.triggeredBy } : {}), ...(b?.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}), ...(b?.env !== undefined ? { env: b.env } : {}) },
       );
-      return { runId };
+      return { runId, udid };
     } catch (err) {
       if (err instanceof PlaybackError && err.code === 'DEVICE_BUSY') return reply.code(409).send({ error: err.message, code: err.code });
       return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
@@ -253,7 +253,7 @@ export function registerManualRoutes(
     if (sel.length === 0) return { ok: false, code: 400, error: 'no templates match', runIds: [] };
     const runIds: string[] = [];
     for (const t of sel) {
-      let started: { runId: string; done: Promise<void> };
+      let started: { runId: string; udid: string; done: Promise<void> };
       try {
         started = await runTemplatePlayback(
           { db, bus: deps.bus, dispatchDeps: deps.dispatchDeps, artifactsDir: deps.artifactsDir, forgeState: deps.forgeState },

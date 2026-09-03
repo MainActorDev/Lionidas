@@ -71,10 +71,11 @@ async function play(t: Template): Promise<void> {
         ...(Object.keys(env).length ? { env } : {}),
       }),
     });
-    const b = (await r.json()) as { runId?: string; error?: string };
+    const b = (await r.json()) as { runId?: string; udid?: string; error?: string };
     if (b.runId) {
       playMsg.value = `running · ${b.runId}${runScenario.value ? ' · scenario active' : ''}`;
-      runPanel.value = { runId: b.runId, templateId: t.id, caseName: t.name, udid: t.udid };
+      // server-resolved device (falls back to the template's recorded udid)
+      runPanel.value = { runId: b.runId, templateId: t.id, caseName: t.name, udid: b.udid ?? t.udid };
     } else {
       playMsg.value = b.error ?? 'failed';
     }

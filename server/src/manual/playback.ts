@@ -183,14 +183,28 @@ async function withWatchdog<T>(runId: string, dispatch: Promise<T>, stepNameForE
 }
 
 
-export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string; bundleId?: string; env?: Record<string, string> }): Promise<{ runId: string; done: Promise<void> }> {
+export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string; bundleId?: string; env?: Record<string, string> }): Promise<{ runId: string; udid: string; done: Promise<void> }> {
   const t = deps.db.prepare('SELECT id, name, ticket_key, udid, steps_json, app_bundle_id, logical_w, logical_h FROM templates WHERE id = ?').get(templateId) as TemplateRow | undefined;
   if (!t) throw new Error(`template ${templateId} not found`);
+  const tpl: TemplateRow = t;
   let steps: PlaybackStep[] = [];
   try { steps = JSON.parse(t.steps_json) as PlaybackStep[]; } catch { /* empty */ }
   if (steps.length === 0) throw new Error('template has no steps');
 
-  const udid = opts.udid ?? t.udid;
+  // Device resolution (user contract: "run it on the sim I booted"):
+  //   explicit udid > recorded device if still booted > the single booted
+  //   device (user switched sims since recording) > recorded device.
+  // Without this, replaying after booting a different sim targets the
+  // recorded (now shutdown) device — stream gate 409, run aborts.
+  function resolveUdid(): string {
+    if (opts.udid) return opts.udid;
+    const states = deps.db.prepare('SELECT udid, state FROM devices').all() as Array<{ udid: string; state: string | null }>;
+    const booted = states.filter((d) => d.state === 'Booted');
+    if (booted.some((d) => d.udid === tpl.udid)) return tpl.udid;
+    if (booted.length === 1) return booted[0]!.udid;
+    return tpl.udid ?? '';
+  }
+  const udid = resolveUdid();
   // B5: no concurrency guard existed — two plays (or a play + manual session)
   // raced one device and clobbered each other's state. Guard BEFORE the run
   // row exists so no phantom run is recorded.
@@ -604,5 +618,5 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     }
   })();
 
-  return { runId, done };
+  return { runId, udid, done };
 }
