@@ -151,6 +151,19 @@ async function remove(id: string): Promise<void> {
   await load();
 }
 
+/** A2 plan: '+ case (yaml)' — hand-author a new case: create the shell row,
+ *  then open it in the yaml panel (the editor IS the authoring surface). */
+async function createCaseYaml(): Promise<void> {
+  const res = await fetch('/api/templates', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: `untitled case ${Date.now().toString(36).slice(-4)}`, steps: [{ idx: 0, action: 'scroll', direction: 'down' }] }),
+  });
+  if (!res.ok) { error.value = 'create failed'; return; }
+  const t = (await res.json()) as Template;
+  await load();
+  yamlOpenId.value = t.id;
+}
+
 function startRename(t: Template): void {
   renaming.value = t.id;
   renameName.value = t.name;
@@ -370,6 +383,7 @@ function stepKindTitle(action: string): string {
         <button class="btn" :disabled="playingAll || shown().length === 0" @click="playAll()" title="sequentially run every case matching the filter">
           {{ playingAll ? 'running…' : '▶ run filtered' }}
         </button>
+        <button class="btn" :disabled="playingAll" @click="createCaseYaml" title="hand-author a new case as yaml — opens the editor with a minimal starter">+ case (yaml)</button>
         <button class="btn btn-ghost" @click="savePlanFromCurrent" title="save the current filter + network choice + env as a named plan — one click replays this exact suite later">+ plan</button>
       </div>
     </header>
