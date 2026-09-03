@@ -9,7 +9,7 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
   app.get('/api/devices', async () => {
     // simulator-only wall: physical devices stay out of the list entirely
     const rows = db
-      .prepare("SELECT udid, name, state, platform, kind, os_version, lease_holder, lease_engine, last_seen FROM devices WHERE kind = 'simulator' ORDER BY state = 'Booted' DESC, name")
+      .prepare("SELECT udid, name, state, platform, kind, os_version, resolution, lease_holder, lease_engine, last_seen FROM devices WHERE kind = 'simulator' ORDER BY state = 'Booted' DESC, name")
       .all();
     return { devices: rows };
   });

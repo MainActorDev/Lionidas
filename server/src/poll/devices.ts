@@ -10,6 +10,9 @@ import { crucibleAlloy } from '../alloy/client.ts';
  *  (cached until simctl's device set changes) so the wall can show OS + model.
  *  Physical devices have no simctl entry — they surface with os: null. */
 interface SimMeta { os: string | null; model: string | null }
+/** Native framebuffer size per udid — booted-only query (simctl io enumerate),
+ *  cached for the process lifetime: a device's screen never changes. */
+const resolutionCache = new Map<string, string>();
 let simMetaCache: { map: Map<string, SimMeta>; fingerprint: string } | null = null;
 
 function simMeta(): Map<string, SimMeta> {
@@ -34,9 +37,27 @@ function simMeta(): Map<string, SimMeta> {
   }
 }
 
-/** Cheap staleness check: only re-run simctl when the visible device set could
- *  have changed (device.changed events / poll diff), not every 2s tick. */
+/**
+ * Cheap staleness check: only re-run simctl when the visible device set could
+ * have changed (device.changed events / poll diff), not every 2s tick.
+ */
 export function invalidateSimMeta(): void { simMetaCache = null; }
+
+function simResolution(udid: string, booted: boolean): string | null {
+  if (!booted) return null;
+  const hit = resolutionCache.get(udid);
+  if (hit) return hit;
+  try {
+    const raw = execFileSync('xcrun', ['simctl', 'io', udid, 'enumerate'], { encoding: 'utf8', timeout: 10_000 });
+    const m = raw.match(/Default width:\s*(\d+)\s*\n\s*Default height:\s*(\d+)/);
+    if (m) {
+      const res = `${m[1]}×${m[2]}`;
+      resolutionCache.set(udid, res);
+      return res;
+    }
+  } catch { /* shutdown mid-enumerate / simctl hiccup — keep last-known */ }
+  return null;
+}
 
 export interface DeviceMirrorRow {
   udid: string;
@@ -63,11 +84,12 @@ export async function pollDevices(db: Database.Database, bus: TypedEventBus<AppE
   if (health.ok) for (const l of health.result.leases) leases.set(l.udid, { engine: l.engine, holder: l.holder });
 
   const upsert = db.prepare(
-    `INSERT INTO devices(udid, name, state, platform, kind, os_version, lease_holder, lease_engine, last_seen)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO devices(udid, name, state, platform, kind, os_version, resolution, lease_holder, lease_engine, last_seen)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(udid) DO UPDATE SET
        name = excluded.name, state = excluded.state,
        platform = excluded.platform, kind = excluded.kind, os_version = excluded.os_version,
+       resolution = COALESCE(excluded.resolution, devices.resolution),
        lease_holder = excluded.lease_holder, lease_engine = excluded.lease_engine,
        last_seen = excluded.last_seen`,
   );
@@ -92,7 +114,7 @@ export async function pollDevices(db: Database.Database, bus: TypedEventBus<AppE
       // engine A reports a `booted` boolean, not a state string — map it
       const state = d.booted === true ? 'Booted' : d.booted === false ? 'Shutdown' : null;
       const os = meta.get(d.id)?.os ?? null;
-      upsert.run(d.id, d.name ?? null, state, d.platform ?? null, d.kind ?? null, os, lease.holder, lease.engine, Date.now());
+      upsert.run(d.id, d.name ?? null, state, d.platform ?? null, d.kind ?? null, os, simResolution(d.id, state === 'Booted'), lease.holder, lease.engine, Date.now());
       const prev = before.get(d.id);
       const nowRow = { udid: d.id, name: d.name ?? null, state, platform: d.platform ?? null, kind: d.kind ?? null, lease_holder: lease.holder, lease_engine: lease.engine };
       if (

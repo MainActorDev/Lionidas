@@ -4,7 +4,7 @@ import NewRunModal from '../components/NewRunModal.vue';
 import DeviceSidebar, { type SidebarDevice } from '../components/DeviceSidebar.vue';
 import { useLiveEvents } from '../stores/live.ts';
 
-interface DeviceRow { udid: string; name: string | null; state: string | null; platform: string | null; kind: string | null; os_version: string | null; lease_holder: string | null; lease_engine: string | null }
+interface DeviceRow { udid: string; name: string | null; state: string | null; platform: string | null; kind: string | null; os_version: string | null; resolution: string | null; lease_holder: string | null; lease_engine: string | null }
 interface QueueRow { id: string; state: string; priority: number; requested_by: string }
 interface RunRow { id: string; ticket_key: string; status: string; kind: string }
 
@@ -164,7 +164,10 @@ onUnmounted(() => { if (poll) clearInterval(poll); closeSidebar(); unwatchEvents
                 <div style="color: var(--color-paper);">{{ d.name ?? d.udid.slice(0, 8) }}</div>
                 <div style="font-size: 10px; color: var(--color-steel);">{{ d.udid.slice(0, 8) }}…</div>
               </td>
-              <td style="color: var(--color-fog);">{{ d.os_version ?? '—' }}</td>
+              <td style="color: var(--color-fog);">
+                <div>{{ d.os_version ?? '—' }}</div>
+                <div v-if="d.resolution" style="font-size: 10px; color: var(--color-steel);">{{ d.resolution }}</div>
+              </td>
               <td>
                 <b v-if="d.lease_holder?.startsWith('manual:')" style="color: var(--color-ember);">manual</b>
                 <b v-else-if="d.lease_holder">{{ d.lease_holder }}</b>
@@ -196,7 +199,10 @@ onUnmounted(() => { if (poll) clearInterval(poll); closeSidebar(); unwatchEvents
           <tbody>
             <tr v-for="d in shelf" :key="d.udid">
               <td style="width: 26%;"><span style="color: var(--color-fog);">{{ d.name ?? d.udid.slice(0, 12) }}</span></td>
-              <td style="color: var(--color-steel);">{{ d.os_version ?? '—' }}</td>
+              <td style="color: var(--color-steel);">
+              <div>{{ d.os_version ?? '—' }}</div>
+              <div v-if="d.resolution" style="font-size: 10px; color: var(--color-steel);">{{ d.resolution }}</div>
+            </td>
               <td style="text-align: right;"><button class="btn btn-sm" @click="power(d.udid, 'boot')">boot</button></td>
             </tr>
           </tbody>
