@@ -87,18 +87,32 @@ export function countMatches(nodes: SnapNode[], sel: StepSelector): number {
   return origins.size;
 }
 
+/** Nodes whose CENTER is not the recorded intent even when small:
+ *  scroll containers, page-dot groups — multi-child wrappers whose center
+ *  lands on a DIFFERENT control (live: 'Horizontal scroll bar, 1 page' at
+ *  358×48 re-centred a tap onto the adjacent link). Hittable wrappers stay
+ *  eligible in BOTH modes — their center IS their tap target. */
+function isRecentreUnsafe(n: SnapNode): boolean {
+  if (isContainerNode(n)) return true;
+  if (/scroll bar|scrollbar/i.test(n.label ?? '')) return true;
+  return n.type === 'Other' && n.hittable !== true;
+}
+
 /** Unique hittable match → its rect (center AND bounds, so callers can run a
  *  proximity check against the recorded point). null = gone or ambiguous
  *  (caller falls back to coordinates and logs it). Containers (app root,
  *  screen-covering pages) are rejected: their center is never the recorded
- *  intent — legacy templates recorded them before the capture guard. */
-export function resolveSelector(nodes: SnapNode[], sel: StepSelector): { x: number; y: number; rect: { x: number; y: number; width: number; height: number } } | null {
+ *  intent — legacy templates recorded them before the capture guard.
+ *  mode 'recentre' additionally rejects wrapper nodes whose center is some
+ *  other control (isRecentreUnsafe) — playback's re-centre fallback must
+ *  never aim at those; 'confirm' keeps them (presence checks are fine). */
+export function resolveSelector(nodes: SnapNode[], sel: StepSelector, mode: 'confirm' | 'recentre' = 'confirm'): { x: number; y: number; rect: { x: number; y: number; width: number; height: number } } | null {
   const matches = nodes.filter((n) => matchesSelector(n, sel));
   const hittable = matches.filter((n) => n.hittable && n.rect);
   const pool = hittable.length > 0 ? hittable : matches.filter((n) => n.rect);
   if (pool.length !== 1) return null;
   const node = pool[0]!;
-  if (isContainerNode(node)) return null; // coordinate fallback is more precise
+  if (mode === 'recentre' ? isRecentreUnsafe(node) : isContainerNode(node)) return null; // coordinate fallback is more precise
   const r = node.rect!;
   return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), rect: r };
 }

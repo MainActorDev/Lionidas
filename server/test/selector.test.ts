@@ -157,3 +157,26 @@ describe('selectorLabel (human rendering)', () => {
     expect(selectorLabel({ label: 'Beranda', ignoreCase: true })).toBe('Beranda (ignore case)');
   });
 });
+
+describe('resolveSelector recentre mode (Task 1: container guards)', () => {
+  const scrollBar = { type: 'Other', label: 'Horizontal scroll bar, 1 page', rect: { x: 36, y: 780, width: 358, height: 48 }, hittable: false };
+  const hittableCard = { type: 'Other', label: 'Promo Card', rect: { x: 10, y: 100, width: 300, height: 80 }, hittable: true };
+  const button = { type: 'Button', label: 'Log in', rect: { x: 20, y: 200, width: 120, height: 44 }, hittable: true };
+  const nodes = [scrollBar, hittableCard, button] as SnapNode[];
+
+  it('confirm mode resolves the scroll-bar container (presence check keeps it)', () => {
+    expect(resolveSelector(nodes, { label: 'Horizontal scroll bar, 1 page' })).toMatchObject({ x: 215, y: 804 });
+  });
+  it('recentre mode REJECTS the scroll-bar container (center is a different control)', () => {
+    expect(resolveSelector(nodes, { label: 'Horizontal scroll bar, 1 page' }, 'recentre')).toBeNull();
+  });
+  it('recentre mode rejects non-hittable Other wrappers', () => {
+    expect(resolveSelector(nodes, { label: 'Promo Card' }, 'recentre')).not.toBeNull(); // hittable → allowed
+    const nonHittable = [{ ...hittableCard, hittable: false }] as SnapNode[];
+    expect(resolveSelector(nonHittable, { label: 'Promo Card' }, 'recentre')).toBeNull();
+  });
+  it('buttons resolve in BOTH modes', () => {
+    expect(resolveSelector(nodes, { label: 'Log in' }, 'recentre')).toMatchObject({ x: 80, y: 222 });
+    expect(resolveSelector(nodes, { label: 'Log in' })).toMatchObject({ x: 80, y: 222 });
+  });
+});
