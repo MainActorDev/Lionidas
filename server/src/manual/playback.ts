@@ -114,7 +114,7 @@ export class PlaybackError extends Error {
   constructor(
     public code: 'DEVICE_BUSY' | 'APP_NOT_INSTALLED',
     message: string,
-    public payload?: { appBundleId?: string; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null },
+    public payload?: { appBundleId?: string; udid?: string; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null },
   ) { super(message); }
 }
 
@@ -239,7 +239,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       throw new PlaybackError(
         'APP_NOT_INSTALLED',
         `app not installed on this device: ${appToLaunch}`,
-        { appBundleId: appToLaunch, lastArtifact: last ? { path: last.artifactPath, version: last.appVersion, recordedAt: last.recordedAt } : null },
+        { appBundleId: appToLaunch, udid, lastArtifact: last ? { path: last.artifactPath, version: last.appVersion, recordedAt: last.recordedAt } : null },
       );
     }
   }

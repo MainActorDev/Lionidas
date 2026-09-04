@@ -194,7 +194,7 @@ export function registerManualRoutes(
     } catch (err) {
       if (err instanceof PlaybackError && err.code === 'DEVICE_BUSY') return reply.code(409).send({ error: err.message, code: err.code });
       if (err instanceof PlaybackError && err.code === 'APP_NOT_INSTALLED') {
-        return reply.code(409).send({ error: err.message, code: err.code, appBundleId: err.payload?.appBundleId, lastArtifact: err.payload?.lastArtifact ?? null });
+        return reply.code(409).send({ error: err.message, code: err.code, appBundleId: err.payload?.appBundleId, udid: err.payload?.udid, lastArtifact: err.payload?.lastArtifact ?? null });
       }
       return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
     }
