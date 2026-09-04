@@ -10,7 +10,7 @@
  *  The env default ('/tmp/forge-mitm') is resolved ONCE here; the seven
  *  duplicated literals at call sites collapse into this module. */
 import type Database from 'better-sqlite3';
-import { mkdirSync, writeFileSync, copyFileSync, existsSync, readdirSync } from 'node:fs';
+import { mkdirSync, copyFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { presetRowToSpec, type Preset } from './matcher.ts';
 import { writeStateFile } from './mitm/manager.ts';

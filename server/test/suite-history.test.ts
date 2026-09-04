@@ -49,7 +49,6 @@ describe('suiteVerdicts (last verdict + trend per case)', () => {
 
   it('trend ordered oldest→newest, last 10, distinct glyphs', () => {
     seedTpl('t1', 'login');
-    const seq: Array<[string, number]> = [['passed', 0], ['failed', 0], ['passed', 0], ['passed', 0], ['skippedish', 0]];
     // statuses: passed/failed/aborted; skipped shows as steps not run status — use aborted
     let t = 1000;
     for (const [st] of [['passed'], ['failed'], ['passed'], ['passed'], ['aborted']] as Array<[string]>) {
