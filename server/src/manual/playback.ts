@@ -504,6 +504,8 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           let tx = s.x;
           let ty = s.y;
           let resolvedBy: 'selector' | 'selector-recentred' | 'coordinate-fallback' | 'coordinate-fallback-scaled' | 'coordinate' | 'coordinate-scaled' | 'selector-point-scaled' = 'coordinate';
+          let recentredAudit: { recentred: true; distance: number } | null = null;
+          let lastSettleNodes: SnapNode[] | null = null; // settle poll's last read — sig-before reuse (Task 2)
           if ((s.action === 'tap' || s.action === 'type') && s.selector && (s.selector.identifier || s.selector.label)) {
             // launch-settle poll (same class as expect A7): a fresh relaunch
             // takes ~2-3s to populate the AX hierarchy — resolving against
@@ -517,9 +519,11 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // ⛔ keep the poll ABORT-AWARE: an operator ■ stop must not wait
             // out an 8s budget inside one step (B2's promise: abort ≤ one
             // step + watchdog). 250ms poll keeps the abort latent ≤250ms.
+            lastSettleNodes = null; // reset per step
             while (Date.now() - settleStart < settleBudgetMs && !isAborted(runId)) {
               const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
                 | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
+              lastSettleNodes = snap.ok ? (snap.result.nodes ?? []) : null;
               hit = snap.ok ? resolveSelector(snap.result.nodes ?? [], s.selector) : null;
               if (hit) break;
               await new Promise((r) => setTimeout(r, settlePollMs));
@@ -535,10 +539,14 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               //   inside/near → tap the recorded point (scaled if the device
               //     differs; the settle-poll already proved the target live)
               //   far/absent  → the element genuinely moved (reflow, other
-              //     device): selector center is the resilient choice
+              //     device): selector center is the resilient choice — BUT
+              //     only for recentre-SAFE nodes (wrappers whose center is
+              //     another control are rejected in 'recentre' mode → null
+              //     → coordinate fallback with scaling)
               const sx = (scaleX !== 1 || scaleY !== 1) && s.x !== undefined ? Math.round(s.x * scaleX) : s.x;
               const sy = (scaleX !== 1 || scaleY !== 1) && s.y !== undefined ? Math.round(s.y * scaleY) : s.y;
-              const slack = 44; // pt — covers two-line link rects vs visible text run
+              // scaled points carry KNOWN error — "near" must mean NEAR (Task 4)
+              const slack = (scaleX !== 1 || scaleY !== 1) ? 24 : 44; // pt — covers two-line link rects vs visible text run
               const near = sx !== undefined && sy !== undefined &&
                 sx >= hit.rect.x - slack && sx <= hit.rect.x + hit.rect.width + slack &&
                 sy >= hit.rect.y - slack && sy <= hit.rect.y + hit.rect.height + slack;
@@ -546,7 +554,17 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 tx = sx as number; ty = sy as number;
                 resolvedBy = (sx === s.x && sy === s.y) ? 'selector' : 'selector-point-scaled';
               } else {
-                tx = hit.x; ty = hit.y; resolvedBy = 'selector-recentred';
+                const safe = resolveSelector(lastSettleNodes ?? [], s.selector, 'recentre');
+                if (safe) {
+                  tx = safe.x; ty = safe.y; resolvedBy = 'selector-recentred';
+                  recentredAudit = { recentred: true, distance: Math.round(Math.hypot((tx ?? 0) - (sx ?? 0), (ty ?? 0) - (sy ?? 0))) };
+                } else {
+                  // wrapper unsafe to recentre onto → scaled coordinate fallback
+                  if ((scaleX !== 1 || scaleY !== 1) && s.x !== undefined && s.y !== undefined) {
+                    tx = Math.round(s.x * scaleX); ty = Math.round(s.y * scaleY);
+                  } else { tx = s.x; ty = s.y; }
+                  resolvedBy = 'coordinate-fallback';
+                }
               }
             } else {
               resolvedBy = 'coordinate-fallback';
@@ -561,10 +579,29 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               }
             }
           } else if ((scaleX !== 1 || scaleY !== 1) && s.x !== undefined && s.y !== undefined) {
-            // selector-less step on a different-size device — scale proportionally
-            tx = Math.round(s.x * scaleX);
-            ty = Math.round(s.y * scaleY);
-            resolvedBy = 'coordinate-scaled';
+            // selector-less step on a different-size device: proportional
+            // scaling is a GUEGE wearing a pass badge (live: 428×926 → 393×852
+            // drifted a row-tap 52pt and four taps "passed" while the target
+            // page never opened — run_f5bdb387). Fail honestly; the reason
+            // names the two fixes. optional:true skips (the author's toggle).
+            const why = 'cross-device coordinate tap without a selector — record a selector or mark the step optional';
+            if (s.optional) {
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'skip', `optional miss: ${why}`, t0, Date.now() - t0, '[]', JSON.stringify(resolved));
+              continue;
+            }
+            throw new Error(why);
+          }
+          // Task 2 — sig-before: reuse the settle poll's last read (selector
+          // steps pay ZERO extra snapshots); coordinate steps take one read.
+          let sigBefore: string | null = null;
+          if (s.action === 'tap' || s.action === 'type') {
+            if (lastSettleNodes) {
+              sigBefore = hierarchySig(lastSettleNodes);
+            } else {
+              const pre = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
+                | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
+              if (pre.ok) sigBefore = hierarchySig(pre.result.nodes ?? []);
+            }
           }
           let input: Record<string, unknown>;
           if (s.action === 'tap') {
@@ -599,10 +636,24 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               return snap.ok ? (snap.result.nodes ?? []) : null;
             }, runId, budgetMs);
           }
+          // Task 2 — sig-after: did the tap/type actually change the screen?
+          // Best-effort: snapshot failure skips verification (never blocks).
+          // v1 DECISION: no-change = WARN-pass (toggles/checkboxes legitimately
+          // don't change the AX hierarchy); the reason surfaces the lie in the
+          // run detail. Upgrade to hard-fail when usage shows warn-noise is low.
+          let screenChanged: boolean | undefined;
+          if (sigBefore !== null && (s.action === 'tap' || s.action === 'type')) {
+            try {
+              const post = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
+                | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
+              if (post.ok) screenChanged = hierarchySig(post.result.nodes ?? []) !== sigBefore;
+            } catch { /* best-effort */ }
+          }
+          const warnReason = screenChanged === false ? 'tap produced no screen change (wrong target or non-navigational tap?)' : null;
           // 'selector-point-scaled' folds into 'selector' for the audit trail —
           // the scale factors already live in evaluated_json's scale context
           const resolvedByOut = resolvedBy === 'selector-point-scaled' ? 'selector' : resolvedBy;
-          insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify({ ...resolved, resolvedBy: resolvedByOut, ...(s.flow ? { flow: s.flow } : {}) }));
+          insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', warnReason, t0, Date.now() - t0, '[]', JSON.stringify({ ...resolved, resolvedBy: resolvedByOut, ...(recentredAudit && { ...recentredAudit }), ...(screenChanged !== undefined ? { screenChanged } : {}), ...(s.flow && { flow: s.flow }) }));
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           if (s.optional) {

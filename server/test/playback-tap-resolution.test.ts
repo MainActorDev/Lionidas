@@ -154,17 +154,18 @@ describe('tap resolution: selector confirms, never recentres (A6b)', () => {
     expect(snapshotAttempts).toBeGreaterThanOrEqual(4); // settle gate + step poll actually polled
   });
 
-  it('cross-device: scaled recorded point lands in the (scaled-space) rect → selector-confirmed scaled point', async () => {
+  it('cross-device: far scaled point + RECENTRE-UNSAFE container (scroll bar) → scaled coordinate fallback, never the wrapper center', async () => {
     // recorded on 428×926, played on the same fake 428×926 target but with a
     // template DIMS mismatch forcing scale: seed with 856×1852 (2×) so the
     // target/recorded ratio = 0.5 → recorded (236,824) scales to (118,412).
+    // The old expectation here (recentre onto the scroll-bar container center)
+    // encoded the DEFECT run_f5bdb387 exposed: wrapper centers are OTHER
+    // controls. Recentre-unsafe → scaled coordinate fallback instead.
     seedTemplate('t6', [{ idx: 0, action: 'tap', x: 236, y: 824, selector: { label: 'Horizontal scroll bar, 1 page', type: 'Other' } }], { w: 856, h: 1852 });
     const runId = await play('t6');
     const steps = runRows(runId);
     expect(steps[0]!.status).toBe('pass');
-    // scaled point (118,412) is far outside the 428-space container rect
-    // (100..330, 810..870) → element "moved" → selector-recentred (resilient)
-    expect(ev(steps).resolvedBy).toBe('selector-recentred');
-    expect(lastActInput?.target).toEqual({ x: 215, y: 840 }); // container center
+    expect(ev(steps).resolvedBy).toBe('coordinate-fallback');
+    expect(lastActInput?.target).toEqual({ x: 118, y: 412 }); // scaled recorded point, NOT the container center
   });
 });
