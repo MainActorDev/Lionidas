@@ -42,6 +42,60 @@ async function loadAppOptions(): Promise<void> {
   } catch { /* picker stays on auto */ }
 }
 watch(() => props.device?.udid, () => { appOptionsLoaded = false; appOptions.value = []; appBundleId.value = ''; }, { immediate: true });
+
+// ── install app card: artifact picker (discovery: build dirs + DerivedData
+// + the Crucible store, freshest first) → explicit install → refresh list. ──
+interface ArtifactRow { path: string; bundleId: string; version: string | null; mtimeMs: number; source: string }
+const artifacts = ref<ArtifactRow[]>([]);
+const artifactsLoaded = ref(false);
+const artifactPick = ref('');
+const installing = ref(false);
+const installMsg = ref('');
+const installErr = ref('');
+let artifactsRequested = false;
+async function loadArtifacts(): Promise<void> {
+  if (!props.device || artifactsRequested) return;
+  artifactsRequested = true;
+  try {
+    const res = await fetch(`/api/devices/${props.device.udid}/artifacts`);
+    const body = await res.json() as { artifacts?: ArtifactRow[] };
+    artifacts.value = body.artifacts ?? [];
+    // preselect: match the picked app bundle, else the freshest row
+    const match = artifacts.value.find((a) => a.bundleId === appBundleId.value);
+    artifactPick.value = (match ?? artifacts.value[0])?.path ?? '';
+    artifactsLoaded.value = true;
+  } catch { artifacts.value = []; }
+}
+watch(() => props.device?.udid, () => { artifactsRequested = false; artifacts.value = []; artifactsLoaded.value = false; artifactPick.value = ''; installMsg.value = ''; installErr.value = ''; }, { immediate: true });
+function relAge(ms: number): string {
+  const m = Math.round((Date.now() - ms) / 60000);
+  if (m < 60) return `${m}m ago`;
+  if (m < 1440) return `${Math.round(m / 60)}h ago`;
+  return `${Math.round(m / 1440)}d ago`;
+}
+function artifactLabel(a: ArtifactRow): string {
+  const v = a.version ? `v${a.version}` : 'unknown';
+  const parts = a.path.split('/').filter(Boolean);
+  const job = parts.length >= 3 ? parts[parts.length - 3] : (parts[0] ?? a.path);
+  return `${v} · ${job} · ${a.source} · ${relAge(a.mtimeMs)}`;
+}
+async function installPicked(): Promise<void> {
+  if (!props.device || !artifactPick.value || installing.value) return;
+  installing.value = true; installMsg.value = ''; installErr.value = '';
+  try {
+    const r = await fetch(`/api/devices/${props.device.udid}/install`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ appPath: artifactPick.value }),
+    });
+    const b = (await r.json()) as { ok?: boolean; version?: string | null; durationMs?: number; error?: string };
+    if (!b.ok) { installErr.value = b.error ?? 'install failed'; return; }
+    installMsg.value = `installed v${b.version ?? '?'} in ${((b.durationMs ?? 0) / 1000).toFixed(1)}s`;
+    // installed list gains the new app — invalidate the cached picker
+    appOptionsLoaded = false;
+    await loadAppOptions();
+  } catch { installErr.value = 'install failed'; }
+  finally { installing.value = false; }
+}
 // note: no `booted` reference here — it's declared later in setup (TDZ); we
 // read state directly and let the udid watch reset on device change
 watch(() => [props.device?.udid, props.device?.state] as const, ([udid, state]) => { if (udid && state === 'Booted') void loadAppOptions(); }, { immediate: true });
@@ -351,6 +405,31 @@ async function endSession(): Promise<void> {
             {{ busy ? 'starting…' : booted ? 'acquire & take control' : 'device not booted' }}
           </button>
           <div v-if="error" class="meta-row" style="color: var(--color-ember); margin-top: var(--s-2);">{{ error }}</div>
+        </div>
+
+        <!-- install app: discovery picker → explicit install (repo/DerivedData
+             are pick sources only; the server clones into its own store) -->
+        <div v-if="booted && !sessionId" class="card" style="padding: var(--s-3); margin-top: var(--s-2);">
+          <div class="card-header" style="margin-bottom: var(--s-2);">
+            <span class="card-title">install app</span>
+          </div>
+          <button v-if="!artifactsLoaded" class="btn btn-sm" @click="loadArtifacts">browse artifacts…</button>
+          <template v-else-if="artifacts.length > 0">
+            <div class="meta-row">
+              <span class="k">artifact</span>
+              <select v-model="artifactPick" style="flex: 1;">
+                <option v-for="a in artifacts" :key="a.path" :value="a.path">
+                  {{ a.bundleId === appBundleId || !appBundleId ? artifactLabel(a) : `${artifactLabel(a)} (${a.bundleId})` }}
+                </option>
+              </select>
+            </div>
+            <button class="btn" style="width: 100%; margin-top: var(--s-2);" :disabled="installing || !artifactPick" @click="installPicked">
+              {{ installing ? 'installing… (≈12s)' : 'install' }}
+            </button>
+          </template>
+          <div v-else class="meta-row" style="color: var(--color-steel);">no artifacts found on disk — build the app first</div>
+          <div v-if="installMsg" class="meta-row" style="margin-top: var(--s-2);">{{ installMsg }}</div>
+          <div v-if="installErr" class="meta-row" style="color: var(--color-ember); margin-top: var(--s-2);">{{ installErr }}</div>
         </div>
 
         <template v-else>
