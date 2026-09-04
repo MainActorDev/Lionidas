@@ -352,6 +352,15 @@ const groups = computed(() => {
           <div class="meta-row"><span class="k">expand</span><b>click a row — steps with kind chips (tap/scroll/type/assert/flow), per-step switches: "param" turns typed text into a play-time secret, "optional" makes a miss a skip instead of a failure; + subflow / + assert append steps</b></div>
         </div>
 
+        <div class="section-label">missing app</div>
+        <div class="card">
+          <div class="meta-row"><span class="k">pre-check</span><b>a case whose app is not installed on the booted simulator refuses to start — no wasted run, no cryptic engine error</b></div>
+          <div class="meta-row"><span class="k">install hint</span><b>the refusal carries a one-click fix: install the last-known build, then the case auto-runs once</b></div>
+          <div class="meta-row"><span class="k">choose artifact…</span><b>pick any build found on disk (ios-consumer build folders, Xcode DerivedData, or Crucible's own store) — each row shows version, origin, and age</b></div>
+          <div class="meta-row"><span class="k">own store</span><b>whatever you pick is cloned into Crucible's storage first — a repo clean or Xcode cache prune can never break installed apps or recorded history</b></div>
+          <div class="meta-row"><span class="k">device panel</span><b>take control → "install app" — the same picker, standalone, for any booted simulator</b></div>
+        </div>
+
         <div class="section-label">run and plans</div>
         <div class="card">
           <div class="meta-row"><span class="k">run filtered</span><b>runs every case matching the filter, sequentially — one device at a time</b></div>
