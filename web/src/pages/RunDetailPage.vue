@@ -50,9 +50,9 @@ async function attachJira(): Promise<void> {
 function evaluatedText(s: Step): string | null {
   if (!s.evaluated_json) return null;
   try {
-    const ev = JSON.parse(s.evaluated_json) as { action?: string; text?: string; x?: number; y?: number; direction?: string; resolvedBy?: string; flow?: string; expect?: { label?: string; identifier?: string }; matched?: number };
+    const ev = JSON.parse(s.evaluated_json) as { action?: string; text?: string; x?: number; y?: number; direction?: string; resolvedBy?: string; flow?: string; expect?: { label?: string; labelContains?: string; ignoreCase?: boolean; identifier?: string }; matched?: number };
     const summary = ev.action === 'type' ? `type "${(ev.text ?? '').slice(0, 24)}"` : ev.action === 'tap' ? `tap ${ev.x},${ev.y}` : ev.action ? `${ev.action} ${ev.direction ?? ''}`.trim() : '';
-    const provenance = [ev.flow ? `flow:${ev.flow}` : null, ev.resolvedBy, ev.expect ? `expect ${ev.expect.label ?? ev.expect.identifier} · matched ${ev.matched ?? '?'}` : null].filter(Boolean).join(' · ');
+    const provenance = [ev.flow ? `flow:${ev.flow}` : null, ev.resolvedBy, ev.expect ? `expect ${ev.expect.labelContains !== undefined ? `contains: ${ev.expect.labelContains}` : ev.expect.label ?? ev.expect.identifier ?? '?'}${ev.expect.ignoreCase === true ? ' (ignore case)' : ''} · matched ${ev.matched ?? '?'}` : null].filter(Boolean).join(' · ');
     return [summary, provenance].filter(Boolean).join(' — ') || null;
   } catch { return null; }
 }

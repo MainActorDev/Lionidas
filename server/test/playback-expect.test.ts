@@ -151,3 +151,40 @@ describe('expect steps (A7)', () => {
     expect(dispatchLog).toContain('alloy_act'); // the scroll dispatched
   });
 });
+
+describe('expect contains: + ignoreCase playback', () => {
+  it('contains passes when exactly one heading contains the fragment', async () => {
+    snapshotNodes = nodes(['I. DEFINITION', 'II. DATA COLLECTION', 'III. DATA MANAGEMENT']);
+    seedTemplate('tpl_ic1', [{ idx: 0, action: 'expect', selector: { labelContains: 'DATA COLLECTION' } }]);
+    const { runId } = await play('tpl_ic1');
+    const rows = runRows(runId);
+    expect(rows[0]!.status).toBe('pass');
+    expect(rows[0]!.name).toBe('expect contains: DATA COLLECTION');
+  });
+
+  it('contains fails ambiguous (2) with the mode visible in the reason', async () => {
+    snapshotNodes = nodes(['I. DEFINITION', 'II. DATA COLLECTION', 'III. DATA MANAGEMENT']);
+    seedTemplate('tpl_ic2', [{ idx: 0, action: 'expect', selector: { labelContains: 'DATA' } }]);
+    const { runId } = await play('tpl_ic2');
+    const rows = runRows(runId);
+    expect(rows[0]!.status).toBe('fail');
+    expect(rows[0]!.reason).toContain('ambiguous (2 matches)');
+    expect(rows[0]!.reason).toContain('contains: DATA');
+  });
+
+  it('contains + ignoreCase passes against differently-cased screen text', async () => {
+    snapshotNodes = nodes(['I. DEFINITION', 'II. Data Collection', 'III. DATA MANAGEMENT']);
+    seedTemplate('tpl_ic3', [{ idx: 0, action: 'expect', selector: { labelContains: 'data collection', ignoreCase: true } }]);
+    const { runId } = await play('tpl_ic3');
+    const rows = runRows(runId);
+    expect(rows[0]!.status).toBe('pass');
+    expect(rows[0]!.name).toBe('expect contains: data collection (ignore case)');
+  });
+
+  it('exact label + ignoreCase passes against differently-cased text', async () => {
+    snapshotNodes = nodes(['Home', 'BERANDA']);
+    seedTemplate('tpl_ic4', [{ idx: 0, action: 'expect', selector: { label: 'beranda', ignoreCase: true } }]);
+    const { runId } = await play('tpl_ic4');
+    expect(runRows(runId)[0]!.status).toBe('pass');
+  });
+});

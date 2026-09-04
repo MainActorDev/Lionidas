@@ -122,3 +122,18 @@ describe('playback app presence pre-check', () => {
     expect(db.prepare('SELECT COUNT(*) c FROM runs').get()).toEqual({ c: 1 });
   });
 });
+
+describe('probe with labelContains/ignoreCase (pre-flight API surface)', () => {
+  it('probe-selector accepts labelContains selectors and returns honest counts', async () => {
+    // route-level check via manualProbeSelector is session-bound; test the
+    // predicate path the route calls — countMatches — with the new fields
+    const { countMatches } = await import('../src/manual/selector.ts');
+    const screen = [
+      { type: 'StaticText', label: 'I. DEFINITION', rect: { x: 0, y: 10, width: 100, height: 10 } },
+      { type: 'StaticText', label: 'II. Data Collection', rect: { x: 0, y: 30, width: 100, height: 10 } },
+    ];
+    expect(countMatches(screen, { labelContains: 'Data Collection' })).toBe(1);
+    expect(countMatches(screen, { labelContains: 'data collection', ignoreCase: true })).toBe(1);
+    expect(countMatches(screen, { labelContains: 'data collection' })).toBe(0);
+  });
+});

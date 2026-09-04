@@ -18,7 +18,7 @@ import type { ForgeState } from '../forge/proxy.ts';
 import { substituteStep } from './template-env.ts';
 import { forgeStateService } from '../forge/state.ts';
 import { classifyBlocked } from '../db/blocked.ts';
-import { resolveSelector, countMatches } from './selector.ts';
+import { resolveSelector, countMatches, selectorLabel } from './selector.ts';
 import type { SnapNode } from './selector.ts';
 import { expandFlows } from './flows.ts';
 import type { FlowStep } from './flows.ts';
@@ -73,7 +73,7 @@ interface TemplateRow {
 }
 
 function stepName(s: PlaybackStep): string {
-  if (s.action === 'expect') return `expect ${s.selector?.label ?? s.selector?.identifier ?? '?'}`;
+  if (s.action === 'expect') return `expect ${selectorLabel(s.selector ?? {})}`;
   if (s.action === 'runFlow') return `run flow ${s.templateId ?? '?'}`;
   if (s.action === 'tap') return `tap ${s.x},${s.y}`;
   if (s.action === 'scroll') return `scroll ${s.direction}`;
@@ -484,7 +484,8 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify(ev));
             } else {
               const selJson = JSON.stringify(s.selector);
-              const reason = matched === 0 ? `not found: ${selJson}` : `ambiguous (${matched} matches): ${selJson}`;
+              const human = selectorLabel(s.selector!);
+              const reason = matched === 0 ? `not found: ${human} (${selJson})` : `ambiguous (${matched} matches): ${human} (${selJson})`;
               if (s.optional) {
                 insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'skip', `optional expect miss: ${reason}`, t0, Date.now() - t0, '[]', JSON.stringify(ev));
                 continue;
