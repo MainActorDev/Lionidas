@@ -252,5 +252,12 @@ export function migrateM1(db: Database.Database): void {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS app_catalog(
+      bundle_id TEXT PRIMARY KEY,
+      artifact_path TEXT NOT NULL,
+      artifact_sha TEXT,
+      app_version TEXT,
+      recorded_at INTEGER NOT NULL
+    );
   `);
 }
