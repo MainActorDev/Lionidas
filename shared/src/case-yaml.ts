@@ -237,7 +237,7 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
 /** yaml-safe scalar quoting (plain if safe, single-quoted otherwise).
  *  `{`/`}` always trigger quoting — we emit FLOW mappings, and an unquoted
  *  ${env.X} value would parse as a nested map (invalid). */
-function yamlScalar(v: string): string {
+export function yamlScalar(v: string): string {
   if (v === '' || /[:#[\]{},&*?|>'"%@`\n]/.test(v) || /(?:^|\s)-/.test(v) || /^\s|\s$/.test(v) || /^(?:true|false|null|~|\d+(?:\.\d+)?)$/.test(v)) {
     return `'${v.replace(/'/g, "''")}'`;
   }
