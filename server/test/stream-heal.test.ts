@@ -1,0 +1,110 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import Database from 'better-sqlite3';
+import Fastify, { type FastifyInstance } from 'fastify';
+import { migrateM1 } from '../src/db/schema.ts';
+import { registerDeviceRoutes } from '../src/routes/devices.ts';
+import { __setAlloyForTest, type AlloyExports } from '../src/alloy/client.ts';
+
+const U = 'SIM-HEAL-1';
+
+let db: Database.Database;
+let app: FastifyInstance;
+let releaseCalls: number;
+let streamCalls: number;
+let shutdownCalls: number;
+
+/** Alloy fake: stream fails claim-class until released; shutdown fails claim-class until released. */
+function fakeAlloy(opts: { failStream?: boolean; failShutdown?: boolean }): AlloyExports {
+  releaseCalls = 0; streamCalls = 0; shutdownCalls = 0;
+  let released = false;
+  return {
+    createRuntime: async () => ({ state: {}, deps: null }),
+    dispatch: async (tool: string, input: unknown) => {
+      const i = input as { action?: string; udid?: string };
+      if (tool === 'alloy_release') { releaseCalls += 1; released = true; return { ok: true, result: {} }; }
+      if (tool === 'alloy_stream') {
+        streamCalls += 1;
+        if (opts.failStream && !released) return { ok: false, error: { message: 'ios device SIM-HEAL-1 is owned by session "alloy-simheal1" in workspace "…".', code: 'DEVICE_IN_USE' } };
+        return { ok: true, result: { streamUrl: 'http://127.0.0.1:1/stream.mjpeg', platform: 'ios' } };
+      }
+      if (tool === 'alloy_devices' && i?.action === 'shutdown') {
+        shutdownCalls += 1;
+        if (opts.failShutdown && !released) return { ok: false, error: { message: 'Cannot shut down an active session device directly.' } };
+        return { ok: true };
+      }
+      return { ok: true, result: {} };
+    },
+  } as unknown as AlloyExports;
+}
+
+import { initAlloyRuntime, resetAlloyRuntimeForTests } from '../src/alloy/runtime.ts';
+
+beforeEach(async () => {
+  db = new Database(':memory:');
+  migrateM1(db);
+  db.prepare(`INSERT INTO devices(udid, name, state, platform, kind, last_seen) VALUES (?, 'Heal Sim', 'Booted', 'ios', 'simulator', 0)`).run(U);
+  __setAlloyForTest(fakeAlloy({})); // placeholder so initAlloyRuntime can resolve createRuntime
+  await initAlloyRuntime();         // alloyDispatchDepsSync() needs the singleton
+  app = Fastify();
+  registerDeviceRoutes(app, db);
+  await app.ready();
+});
+afterEach(async () => {
+  __setAlloyForTest(null);
+  resetAlloyRuntimeForTests();
+  await app.close();
+  db.close();
+});
+
+describe('stream route claim-class heal (74e0bf4 pattern, stream side)', () => {
+  it('DEVICE_IN_USE + no active run → release + retry → streamUrl returned', async () => {
+    __setAlloyForTest(fakeAlloy({ failStream: true }));
+    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/stream` });
+    expect(r.statusCode).toBe(200);
+    expect((r.json() as { streamUrl: string }).streamUrl).toContain('stream.mjpeg');
+    expect(releaseCalls).toBe(1);
+    expect(streamCalls).toBe(2); // initial fail + post-release retry
+  });
+
+  it('DEVICE_IN_USE + active run holds device → NO release, error surfaces honestly', async () => {
+    __setAlloyForTest(fakeAlloy({ failStream: true }));
+    db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at)
+                VALUES ('run_h1', 'T', 'manual', 'running', 'qa', ?, 0)`).run(U);
+    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/stream` });
+    expect(r.statusCode).toBe(503);
+    expect(releaseCalls).toBe(0);
+    expect(r.json().error).toContain('is owned by session');
+  });
+
+  it('non-claim failure → no release, surfaced as-is', async () => {
+    __setAlloyForTest({
+      createRuntime: async () => ({ state: {}, deps: null }),
+      dispatch: async (tool: string) => {
+        if (tool === 'alloy_stream') return { ok: false, error: { message: 'simulator-stream: fetch failed' } };
+        return { ok: true, result: {} };
+      },
+    } as unknown as AlloyExports);
+    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/stream` });
+    expect(r.statusCode).toBe(503);
+    expect(r.json().retryable).toBe(true); // fetch-failed class stays retryable
+  });
+});
+
+describe('power route shutdown heal (74e0bf4 BACKFILL — shipped untested)', () => {
+  it('DEVICE_IN_USE + no active run → release + retry → shutdown succeeds', async () => {
+    __setAlloyForTest(fakeAlloy({ failShutdown: true }));
+    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/power`, payload: { action: 'shutdown' } });
+    expect(r.statusCode).toBe(200);
+    expect(releaseCalls).toBe(1);
+    expect(shutdownCalls).toBe(2);
+  });
+
+  it('DEVICE_IN_USE + active run → NO release, honest failure', async () => {
+    __setAlloyForTest(fakeAlloy({ failShutdown: true }));
+    db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at)
+                VALUES ('run_h2', 'T', 'manual', 'running', 'qa', ?, 0)`).run(U);
+    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/power`, payload: { action: 'shutdown' } });
+    expect(r.statusCode).toBeGreaterThanOrEqual(400);
+    expect(releaseCalls).toBe(0);
+  });
+});

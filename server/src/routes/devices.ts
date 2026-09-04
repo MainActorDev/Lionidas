@@ -77,7 +77,19 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
     // class — dispatchWithHeal inspects the IN-BAND error envelope (dispatch
     // never throws engine errors), resets alloy's engine clients (fresh
     // engine-B client respawns tool-server), retries once before surfacing.
-    const r = await dispatchWithHeal('alloy_stream', { udid }, alloyDispatchDepsSync());
+    let r = await dispatchWithHeal('alloy_stream', { udid }, alloyDispatchDepsSync());
+    // claim-class heal (the power route's 74e0bf4 pattern): an own-session
+    // DEVICE_IN_USE with no Crucible-side run/session is ours to release —
+    // release + retry once; genuine third-party ownership still errors.
+    if (!r.ok && /is owned by session|DEVICE_IN_USE/i.test(r.error?.message ?? '')) {
+      const busy =
+        db.prepare(`SELECT 1 FROM runs WHERE device_udid = ? AND status IN ('queued','running') LIMIT 1`).get(udid) ??
+        db.prepare('SELECT 1 FROM manual_sessions WHERE udid = ? AND finished_at IS NULL LIMIT 1').get(udid);
+      if (!busy) {
+        await crucibleAlloy().dispatch('alloy_release', { udid }, alloyDispatchDepsSync()).catch(() => undefined);
+        r = await dispatchWithHeal('alloy_stream', { udid }, alloyDispatchDepsSync());
+      }
+    }
     if (!r.ok) {
       // TRANSPORT_STALE: stale engine handle class (dead tool-server / broken
       // spawn chain) — retrying the whole stream resolve usually recovers,

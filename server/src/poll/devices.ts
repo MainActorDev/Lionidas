@@ -83,6 +83,23 @@ function simMeta(): Map<string, SimMeta> {
  */
 export function invalidateSimMeta(): void { simMetaCache = null; }
 
+/** Ground-truth boot probe: udid → isBooted, straight from simctl. NOT cached
+ *  (unlike simMeta — its fingerprint is the device SET, blind to boot
+ *  transitions) and only invoked for Booted→Shutdown candidates, so cost is
+ *  negligible. Failure = empty map = fail open (engine wins). */
+export type SimctlBootProbe = () => Map<string, boolean>;
+const realBootProbe: SimctlBootProbe = () => {
+  const m = new Map<string, boolean>();
+  try {
+    const parsed = JSON.parse(execFileSync('xcrun', ['simctl', 'list', 'devices', '-j'], { encoding: 'utf8' })) as
+      { devices?: Record<string, Array<{ udid: string; state?: string }>> };
+    for (const arr of Object.values(parsed.devices ?? {})) {
+      for (const d of arr) m.set(d.udid, d.state === 'Booted');
+    }
+  } catch { /* fail open */ }
+  return m;
+};
+
 
 export interface DeviceMirrorRow {
   udid: string;
@@ -94,7 +111,7 @@ export interface DeviceMirrorRow {
   lease_engine: string | null;
 }
 
-export async function pollDevices(db: Database.Database, bus: TypedEventBus<AppEvents>): Promise<number> {
+export async function pollDevices(db: Database.Database, bus: TypedEventBus<AppEvents>, bootProbe: SimctlBootProbe = realBootProbe): Promise<number> {
   const alloy = crucibleAlloy();
   const deps = (await initAlloyRuntime()).deps;
 
@@ -122,6 +139,7 @@ export async function pollDevices(db: Database.Database, bus: TypedEventBus<AppE
   const before = new Map((select.all() as DeviceMirrorRow[]).map((r) => [r.udid, r]));
 
   let changed = 0;
+  let probeLazy: Map<string, boolean> | null = null; // one simctl probe per poll cycle, only if needed
   const meta = simMeta();
   if (devices.ok) {
     const seen = new Set<string>();
@@ -136,8 +154,18 @@ export async function pollDevices(db: Database.Database, bus: TypedEventBus<AppE
       if (/^iPad\b/i.test(model)) continue;
       seen.add(d.id);
       const lease = leases.get(d.id) ?? { holder: null as string | null, engine: null as string | null };
-      // engine A reports a `booted` boolean, not a state string — map it
-      const state = d.booted === true ? 'Booted' : d.booted === false ? 'Shutdown' : null;
+      // engine A reports a `booted` boolean, not a state string — map it.
+      // GROUND-TRUTH GUARD: a successful poll can still MISREPORT boot state
+      // under daemon contention (live class: mirror flipped to Shutdown while
+      // the sim was booted → stream gate 409 for a full run budget). Before
+      // committing Booted→Shutdown, ask simctl; disagreement keeps Booted.
+      let state = d.booted === true ? 'Booted' : d.booted === false ? 'Shutdown' : null;
+      if (state === 'Shutdown' && before.get(d.id)?.state === 'Booted') {
+        if (probeLazy === null) {
+          try { probeLazy = bootProbe(); } catch { probeLazy = new Map(); } // probe failure = fail open (engine wins)
+        }
+        if (probeLazy.get(d.id) === true) state = 'Booted';
+      }
       const os = meta.get(d.id)?.os ?? null;
       upsert.run(d.id, d.name ?? null, state, d.platform ?? null, d.kind ?? null, os, meta.get(d.id)?.screen ?? null, lease.holder, lease.engine, Date.now());
       const prev = before.get(d.id);
