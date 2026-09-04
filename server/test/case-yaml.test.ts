@@ -130,3 +130,74 @@ describe('caseToYaml ⟷ parseCaseYaml round-trip (the contract)', () => {
     expect(back.case!.steps[0]).toMatchObject({ text: "pass: 'word' #2", selector: { label: 'Email: field' } });
   });
 });
+
+describe('contains: + ignoreCase: keys', () => {
+  it('parses contains: X → labelContains', () => {
+    const r = parseCaseYaml("name: t\nsteps:\n  - expect: { contains: 'DATA COLLECTION' }");
+    expect(r.ok).toBe(true);
+    expect(r.case!.steps[0]).toMatchObject({ action: 'expect', selector: { labelContains: 'DATA COLLECTION' } });
+  });
+
+  it('parses ignoreCase: true on on-label and contains forms', () => {
+    // 'Beranda' (capitalized) routes as a LABEL; lowercase single words are identifier-shaped
+    const r = parseCaseYaml("name: t\nsteps:\n  - expect: { on: Beranda, ignoreCase: true }\n  - expect: { contains: 'data collection', ignoreCase: true }");
+    expect(r.ok).toBe(true);
+    expect(r.case!.steps[0]).toMatchObject({ selector: { label: 'Beranda', ignoreCase: true } });
+    expect(r.case!.steps[1]).toMatchObject({ selector: { labelContains: 'data collection', ignoreCase: true } });
+  });
+
+  it('ignoreCase: false normalizes away', () => {
+    const r = parseCaseYaml("name: t\nsteps:\n  - expect: { on: Beranda, ignoreCase: false }");
+    expect(r.ok).toBe(true);
+    expect(r.case!.steps[0]!.selector).toEqual({ label: 'Beranda' });
+  });
+
+  it('on + contains on one step → parse error (mutually exclusive)', () => {
+    const r = parseCaseYaml("name: t\nsteps:\n  - expect: { on: Beranda, contains: 'DATA' }");
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('mutually exclusive'))).toBe(true);
+  });
+
+  it("contains: '' → error", () => {
+    const r = parseCaseYaml("name: t\nsteps:\n  - expect: { contains: '' }");
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('non-empty fragment'))).toBe(true);
+  });
+
+  it('ignoreCase + identifier on: → parse error', () => {
+    const r = parseCaseYaml("name: t\nsteps:\n  - tap: { point: [1, 2], on: ic_barcode, ignoreCase: true }");
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('ignoreCase never applies to identifiers'))).toBe(true);
+  });
+
+  it('ignoreCase non-bool → parse error', () => {
+    const r = parseCaseYaml("name: t\nsteps:\n  - expect: { on: Beranda, ignoreCase: 'yes' }");
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('ignoreCase must be true or false'))).toBe(true);
+  });
+
+  it('scalar expect X unchanged (sugar carries no flags)', () => {
+    const r = parseCaseYaml("name: t\nsteps:\n  - expect: Beranda");
+    expect(r.ok).toBe(true);
+    expect(r.case!.steps[0]).toMatchObject({ selector: { label: 'Beranda' } });
+  });
+
+  it('serializes contains + ignoreCase back as keys; round-trips', () => {
+    const y = caseToYaml({ name: 't', tags: [], steps: [
+      { idx: 0, action: 'expect', selector: { labelContains: 'DATA COLLECTION' } },
+      { idx: 1, action: 'expect', selector: { labelContains: 'data collection', ignoreCase: true } },
+      { idx: 2, action: 'expect', selector: { label: 'Beranda', ignoreCase: true } },
+      { idx: 3, action: 'tap', x: 1, y: 2, selector: { labelContains: 'Log in' } },
+    ] });
+    expect(y).toContain('expect: { contains: DATA COLLECTION }');
+    expect(y).toContain('expect: { contains: data collection, ignoreCase: true }');
+    expect(y).toContain('expect: { on: Beranda, ignoreCase: true }');
+    expect(y).toContain('tap: { point: [1, 2], contains: Log in }'); // spaces are plain-safe — no quotes needed
+    const back = parseCaseYaml(y);
+    expect(back.ok).toBe(true);
+    expect(back.case!.steps[0]).toMatchObject({ selector: { labelContains: 'DATA COLLECTION' } });
+    expect(back.case!.steps[1]).toMatchObject({ selector: { labelContains: 'data collection', ignoreCase: true } });
+    expect(back.case!.steps[2]).toMatchObject({ selector: { label: 'Beranda', ignoreCase: true } });
+    expect(back.case!.steps[3]).toMatchObject({ selector: { labelContains: 'Log in' } });
+  });
+});

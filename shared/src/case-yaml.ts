@@ -12,7 +12,7 @@
  */
 import { parse, stringify } from 'yaml';
 
-export interface YamlSelector { identifier?: string; label?: string; type?: string }
+export interface YamlSelector { identifier?: string; label?: string; labelContains?: string; ignoreCase?: boolean; type?: string }
 export interface YamlStep {
   idx: number;
   action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect';
@@ -117,10 +117,32 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
       const opt = (b: Record<string, unknown>): boolean => b['optional'] === true;
       const sel = (b: Record<string, unknown>): YamlSelector | undefined => {
         const on = b['on'];
+        const contains = b['contains'];
+        const rawIc = b['ignoreCase'];
+        if (rawIc !== undefined && rawIc !== true && rawIc !== false) {
+          errors.push({ line: 1, message: `step ${i + 1}: ignoreCase must be true or false (got ${JSON.stringify(rawIc)})` });
+          return undefined;
+        }
+        const ignoreCase = rawIc === true; // false normalizes away
+        if (on !== undefined && contains !== undefined) {
+          errors.push({ line: 1, message: `step ${i + 1}: 'on' and 'contains' are mutually exclusive — one target per step` });
+          return undefined;
+        }
+        if (contains !== undefined) {
+          if (typeof contains !== 'string' || !contains.trim()) {
+            errors.push({ line: 1, message: `step ${i + 1}: 'contains' needs a non-empty fragment` });
+            return undefined;
+          }
+          return { labelContains: contains.trim(), ...(ignoreCase ? { ignoreCase: true } : {}) };
+        }
         if (typeof on === 'string' && on.trim()) {
           // identifier iff it looks like an asset id: lowercase snake_case
           // (ic_barcode, ic_tabbar_home) — anything human-readable is a label
-          return /^[a-z][a-z0-9_]*$/.test(on) ? { identifier: on } : { label: on };
+          if (/^[a-z][a-z0-9_]*$/.test(on)) {
+            if (ignoreCase) errors.push({ line: 1, message: `step ${i + 1}: ignoreCase never applies to identifiers (asset ids are exact); use 'contains' or a label` });
+            return { identifier: on };
+          }
+          return { label: on, ...(ignoreCase ? { ignoreCase: true } : {}) };
         }
         return undefined;
       };
@@ -161,7 +183,7 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
       }
       const b = body as Record<string, unknown>;
       for (const bk of Object.keys(b)) {
-        if (!['point', 'on', 'text', 'optional', 'id', 'name'].includes(bk)) {
+        if (!['point', 'on', 'text', 'optional', 'id', 'name', 'contains', 'ignoreCase'].includes(bk)) {
           errors.push({ line: 1, message: `step ${i + 1}: unknown key "${bk}" in ${action} — did you mean optional/on/point/text?` });
         }
       }
@@ -206,25 +228,40 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
   for (const raw of t.steps) {
     const s = raw as Record<string, unknown>;
     const action = s['action'] as string;
-    const on = (sel: unknown): string | undefined => {
+    const selKey = (sel: unknown): { key: string; value: string } | undefined => {
       const sl = sel as YamlSelector | undefined;
       if (!sl) return undefined;
-      return sl.label ?? sl.identifier;
+      if (sl.labelContains !== undefined) return { key: 'contains', value: sl.labelContains };
+      if (sl.label !== undefined) return { key: 'on', value: sl.label };
+      if (sl.identifier !== undefined) return { key: 'on', value: sl.identifier };
+      return undefined;
     };
+    const on = (sel: unknown): string | undefined => {
+      const k = selKey(sel);
+      return k ? `${k.key}: ${yamlScalar(k.value)}` : undefined;
+    };
+    const icSuffix = (sel: unknown): string => ((sel as YamlSelector | undefined)?.ignoreCase === true ? ', ignoreCase: true' : '');
     const optSuffix = (o: unknown): string => (o === true ? ', optional: true' : '');
     if (action === 'tap') {
-      lines.push(`  - tap: { point: [${s['x']}, ${s['y']}]${on(s['selector']) ? `, on: ${yamlScalar(on(s['selector'])!)}` : ''}${optSuffix(s['optional'])} }`);
+      lines.push(`  - tap: { point: [${s['x']}, ${s['y']}]${on(s['selector']) ? `, ${on(s['selector'])!}` : ''}${icSuffix(s['selector'])}${optSuffix(s['optional'])} }`);
     } else if (action === 'scroll') {
       lines.push(`  - scroll: ${s['direction']}`);
     } else if (action === 'type') {
       const pt = s['x'] !== undefined && s['y'] !== undefined ? `point: [${s['x']}, ${s['y']}], ` : '';
-      lines.push(`  - type: { ${pt}text: ${yamlScalar(String(s['text'] ?? ''))}${on(s['selector']) ? `, on: ${yamlScalar(on(s['selector'])!)}` : ''}${optSuffix(s['optional'])} }`);
+      lines.push(`  - type: { ${pt}text: ${yamlScalar(String(s['text'] ?? ''))}${on(s['selector']) ? `, ${on(s['selector'])!}` : ''}${icSuffix(s['selector'])}${optSuffix(s['optional'])} }`);
     } else if (action === 'runFlow') {
       lines.push(`  - runFlow: { name: ${yamlScalar(String(s['templateId'] ?? ''))}${optSuffix(s['optional'])} }`);
     } else if (action === 'expect') {
-      const label = on(s['selector']) ?? '?';
-      if (s['optional'] === true) lines.push(`  - expect: { on: ${yamlScalar(label)}, optional: true }`);
-      else lines.push(`  - expect: ${yamlScalar(label)}`);
+      const sl = s['selector'] as YamlSelector | undefined;
+      if (sl && (sl.labelContains !== undefined || sl.ignoreCase === true)) {
+        // mode/flag selectors always render as a mapping (the scalar sugar is exact-cs only)
+        const body = `${on(s['selector']) ?? 'on: ?'}${icSuffix(s['selector'])}${optSuffix(s['optional'])}`;
+        lines.push(`  - expect: { ${body.replace(/^, /, '')} }`);
+      } else {
+        const label = sl?.label ?? sl?.identifier ?? '?';
+        if (s['optional'] === true) lines.push(`  - expect: { on: ${yamlScalar(label)}, optional: true }`);
+        else lines.push(`  - expect: ${yamlScalar(label)}`);
+      }
     } else {
       // unknown action in storage (future kinds) — serialize losslessly-ish as a comment guard
       lines.push(`  # unrendered step kind: ${action}`);
