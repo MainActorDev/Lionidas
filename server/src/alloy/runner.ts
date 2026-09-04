@@ -12,6 +12,8 @@ import { initAlloyRuntime } from './runtime.ts';
 import { scanFlowSet, type FlowMeta } from '../domain/acs.ts';
 import { applyAutoQuarantine } from '../domain/flake.ts';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
+import { recordArtifact } from '../manual/app-catalog-store.ts';
+import { importArtifact, appsStoreDir } from '../manual/artifacts.ts';
 
 export interface RunSpec {
   ticketKey: string;
@@ -130,6 +132,12 @@ export async function executeRun(spec: RunSpec, deps: RunnerDeps): Promise<strin
       try {
         await call('alloy_apps', { action: 'install', path: spec.artifactPath, srcPath: spec.srcPath, app: spec.app, udid: spec.udid });
         freshness = 'fresh';
+        // provenance — record the STORE path, not the caller's repo/DerivedData
+        // path (repo cleans must never rot the catalog). Best-effort only.
+        try {
+          const storePath = spec.artifactPath.startsWith(appsStoreDir()) ? spec.artifactPath : importArtifact(spec.artifactPath);
+          recordArtifact(deps.db, { bundleId: spec.app, artifactPath: storePath });
+        } catch { /* provenance best-effort */ }
       } catch (err) {
         if ((err as { code?: string }).code === 'STALE_ARTIFACT') {
           freshness = 'stale_ignored';

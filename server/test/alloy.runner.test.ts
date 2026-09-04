@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { migrateM1 } from '../src/db/schema.ts';
@@ -142,6 +142,30 @@ describe('executeRun (contract)', () => {
     const run = db.prepare('SELECT status, freshness FROM runs WHERE id = ?').get(runId) as { status: string; freshness: string };
     expect(run.status).toBe('failed');
     expect(run.freshness).toBe('stale_ignored');
+  });
+
+  it('successful install records the STORE artifact into app_catalog', async () => {
+    const store = mkdtempSync(join(tmpdir(), 'runner-store-'));
+    process.env['CRUCIBLE_APPS_DIR'] = store;
+    try {
+      // a real .app on disk with identity — importArtifact reads its plist
+      const appDir = join(store, 'com.example.app-1.0.0-1.app');
+      mkdirSync(appDir, { recursive: true });
+      writeFileSync(join(appDir, 'Info.plist'),
+        `<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.example.app</string><key>CFBundleShortVersionString</key><string>1.0.0</string></dict></plist>`);
+      await runtimeFor();
+      const runId = await executeRun(
+        { ticketKey: 'CUST-1', flowsDir, udid: 'SIM-1', app: 'com.example.app', artifactPath: appDir, srcPath: '/tmp/src', triggeredBy: 'test' },
+        deps,
+      );
+      expect(runId).toMatch(/^run_/);
+      const { lastArtifactFor } = await import('../src/manual/app-catalog-store.ts');
+      const last = lastArtifactFor(db, 'com.example.app');
+      expect(last?.artifactPath.startsWith(store)).toBe(true);
+    } finally {
+      delete process.env['CRUCIBLE_APPS_DIR'];
+      rmSync(store, { recursive: true, force: true });
+    }
   });
 
   it('flow failure → step fail + ac fail + run failed; release STILL called (finally)', async () => {
