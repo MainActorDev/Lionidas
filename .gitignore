@@ -8,3 +8,5 @@ artifacts/
 *.log
 __pycache__/
 preset-bodies/
+# crucible artifact store (APFS-cloned .app bundles)
+server/apps/

@@ -34,6 +34,18 @@ const filter = ref('');
 const filterEl = ref<HTMLInputElement | null>(null);
 const playing = ref<string | null>(null);
 const playMsg = ref('');
+// ── APP_NOT_INSTALLED remediation: one-click install from the last-known
+// artifact (or the picker), then auto-replay the SAME case once. ──
+interface InstallHint {
+  templateId: string; udid: string; appBundleId: string;
+  lastArtifact: { path: string; version: string | null; recordedAt: number } | null;
+}
+const installHint = ref<InstallHint | null>(null);
+const installing = ref(false);
+const installErr = ref('');
+const artifactModal = ref(false);
+const artifactList = ref<Array<{ path: string; bundleId: string; version: string | null; mtimeMs: number; source: string }>>([]);
+const artifactLoading = ref(false);
 const playingAll = ref(false);
 // network choice (phase 4): scenarios group presets; the selector applies to
 // every run started while set — presets active for the run's duration only
@@ -71,17 +83,73 @@ async function play(t: Template): Promise<void> {
         ...(Object.keys(env).length ? { env } : {}),
       }),
     });
-    const b = (await r.json()) as { runId?: string; udid?: string; error?: string };
+    const b = (await r.json()) as { runId?: string; udid?: string; error?: string; code?: string; appBundleId?: string; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null };
     if (b.runId) {
       playMsg.value = `running · ${b.runId}${runScenario.value ? ' · scenario active' : ''}`;
       // server-resolved device (falls back to the template's recorded udid)
       runPanel.value = { runId: b.runId, templateId: t.id, caseName: t.name, udid: b.udid ?? t.udid };
+      installHint.value = null;
+    } else if (b.code === 'APP_NOT_INSTALLED') {
+      installHint.value = { templateId: t.id, udid: b.udid ?? t.udid, appBundleId: b.appBundleId ?? t.appBundleId ?? '', lastArtifact: b.lastArtifact ?? null };
+      playMsg.value = 'app not installed on this device';
     } else {
       playMsg.value = b.error ?? 'failed';
     }
   } catch {
     playMsg.value = 'failed';
   } finally { playing.value = null; }
+}
+
+async function installFrom(path: string, version: string | null): Promise<void> {
+  const h = installHint.value;
+  if (!h || installing.value) return;
+  installing.value = true;
+  installErr.value = '';
+  try {
+    const r = await fetch(`/api/devices/${h.udid}/install`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ appPath: path }),
+    });
+    const b = (await r.json()) as { ok?: boolean; version?: string | null; error?: string };
+    if (!b.ok) { installErr.value = b.error ?? 'install failed'; return; }
+    // installed — auto-replay the SAME case once (pre-check now passes)
+    const t = templates.value.find((x) => x.id === h.templateId);
+    installHint.value = null;
+    artifactModal.value = false;
+    if (t) await play(t);
+  } catch {
+    installErr.value = 'install failed';
+  } finally { installing.value = false; }
+}
+
+async function openArtifactModal(): Promise<void> {
+  const h = installHint.value;
+  if (!h) return;
+  artifactModal.value = true;
+  artifactLoading.value = true;
+  try {
+    const r = await fetch(`/api/devices/${h.udid}/artifacts`);
+    const b = (await r.json()) as { artifacts?: Array<{ path: string; bundleId: string; version: string | null; mtimeMs: number; source: string }> };
+    // matching bundle first, everything else after (no filtering lies)
+    artifactList.value = [
+      ...(b.artifacts ?? []).filter((a) => a.bundleId === h.appBundleId),
+      ...(b.artifacts ?? []).filter((a) => a.bundleId !== h.appBundleId),
+    ];
+  } catch { artifactList.value = []; } finally { artifactLoading.value = false; }
+}
+
+function relAge(ms: number): string {
+  const m = Math.round((Date.now() - ms) / 60000);
+  if (m < 60) return `${m}m ago`;
+  if (m < 1440) return `${Math.round(m / 60)}h ago`;
+  return `${Math.round(m / 1440)}d ago`;
+}
+
+function artifactLabel(a: { path: string; version: string | null; source: string }): string {
+  const v = a.version ? ` v${a.version}` : '';
+  const parts = a.path.split('/').filter(Boolean);
+  const job = parts.length >= 3 ? parts[parts.length - 3] : parts[0] ?? a.path;
+  return `${v ? v + ' · ' : ''}${job} · ${a.source}`;
 }
 
 // ── run companion panel (R1 observer dock) ──
@@ -458,6 +526,41 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
     </div>
 
     <div v-if="playMsg" class="a2-note">{{ playMsg }}</div>
+
+    <!-- one-click install remediation when the target app is missing -->
+    <div v-if="installHint" class="hint-bar" style="margin-top: var(--s-2); align-items: center; gap: var(--s-2);">
+      <span>! app <strong>{{ installHint.appBundleId }}</strong> is not installed on this device</span>
+      <button v-if="installHint.lastArtifact" class="btn btn-sm" :disabled="installing"
+        @click="installFrom(installHint.lastArtifact!.path, installHint.lastArtifact!.version)">
+        {{ installing ? 'installing… (≈12s)' : `install${installHint.lastArtifact!.version ? ' v' + installHint.lastArtifact!.version : ''} · ${installHint.lastArtifact!.path.split('/').filter(Boolean).slice(-2)[0] ?? 'artifact'}` }}
+      </button>
+      <button class="btn btn-sm" :disabled="installing" @click="openArtifactModal">choose artifact…</button>
+      <button class="btn btn-sm" style="margin-left: auto;" :disabled="installing" @click="installHint = null">dismiss</button>
+      <span v-if="installErr" style="color: var(--color-ember);">{{ installErr }}</span>
+    </div>
+
+    <!-- artifact picker -->
+    <div v-if="artifactModal" class="a2-modal-backdrop" @click.self="artifactModal = false">
+      <div class="a2-modal card" style="width: 560px;">
+        <div class="card-header">
+          <span class="card-title">choose artifact</span>
+          <span v-if="installHint" class="meta-row" style="font-size: var(--text-caption);">for {{ installHint.appBundleId }}</span>
+          <button class="btn btn-sm" style="margin-left: auto;" @click="artifactModal = false">✕</button>
+        </div>
+        <div v-if="artifactLoading" class="a2-note">scanning…</div>
+        <div v-else-if="artifactList.length === 0" class="empty">no artifacts found on disk — build the app first</div>
+        <div v-else style="max-height: 340px; overflow-y: auto;">
+          <div v-for="a in artifactList" :key="a.path" class="meta-row" style="padding: var(--s-2) 0; border-bottom: 1px solid var(--border); align-items: center;">
+            <div style="min-width: 0;">
+              <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ artifactLabel(a) }}</div>
+              <div style="font-size: var(--text-caption); color: var(--color-steel); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" :title="a.path">{{ a.path }}</div>
+            </div>
+            <span style="color: var(--color-steel); flex: none; margin: 0 var(--s-2);">{{ relAge(a.mtimeMs) }}</span>
+            <button class="btn btn-sm" style="flex: none;" :disabled="installing" @click="installFrom(a.path, a.version)">{{ installing ? '…' : 'install' }}</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
 
     <!-- unsaved-changes guard: save / abort (✕ = keep editing) -->
