@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import type { ForgeState } from './proxy.ts';
-import { matchPreset, type Preset } from './matcher.ts';
+import { matchPreset } from './matcher.ts';
 import { forgeStateService } from './state.ts';
 import { startMitm, stopMitmIfRunning, mitmRunning } from './mitm/manager.ts';
 import { simRoutingState, enableSimRouting, healStaleProxies, installRootCertToSims } from './sim-routing.ts';
