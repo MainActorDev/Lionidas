@@ -66,6 +66,22 @@ export function useYamlEditor(): YamlEditorHandle {
       '.cm-selectionBackground': { backgroundColor: '#3a2213' },
       '&.cm-focused': { outline: 'none' },
       '.cm-error-line': { backgroundColor: 'rgba(229,72,77,0.10)' },
+      // completion dropdown: default CM styling is near-white and the editor
+      // theme's white text renders the options INVISIBLE — theme it to Axiom
+      // ⚠ CM6 theme rule: a scoped block accepts NESTED '& …' selectors only —
+      // bare nested class selectors throw "should be a primitive value" and
+      // kill mount() (learned live: the editor host stayed empty).
+      '.cm-tooltip.cm-tooltip-autocomplete': {
+        backgroundColor: '#141414',
+        border: '1px solid #3a3a3a',
+        borderRadius: '2px',
+        color: '#f0f0f0',
+        '& > ul': { fontFamily: "'JetBrains Mono', 'SF Mono', Menlo, monospace", fontSize: '12.5px', maxHeight: '220px' },
+        '& > ul li': { color: '#f0f0f0', padding: '3px 8px' },
+        '& > ul li[aria-selected]': { backgroundColor: '#3a2213', color: '#ff5c1a' },
+        '& .cm-completionDetail': { color: '#787878', fontStyle: 'normal', marginLeft: '6px' },
+        '& .cm-completionIcon': { display: 'none' },
+      },
     });
 
     // error-line decoration: an effect drives a StateField → decorations.
