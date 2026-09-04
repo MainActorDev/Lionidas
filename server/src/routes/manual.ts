@@ -196,6 +196,9 @@ export function registerManualRoutes(
       if (err instanceof PlaybackError && err.code === 'APP_NOT_INSTALLED') {
         return reply.code(409).send({ error: err.message, code: err.code, appBundleId: err.payload?.appBundleId, udid: err.payload?.udid, lastArtifact: err.payload?.lastArtifact ?? null });
       }
+      if (err instanceof PlaybackError && err.code === 'DEVICE_AMBIGUOUS') {
+        return reply.code(409).send({ error: err.message, code: err.code, booted: err.payload?.booted ?? [] });
+      }
       return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
     }
   });
@@ -286,7 +289,7 @@ export function registerManualRoutes(
   // sequentially — one device at a time. Shared by play-all AND plans (one
   // engine, no parallel mechanism). ──
   async function runBatch(b: { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string> }):
-    Promise<{ ok: true; runIds: string[]; count: number } | { ok: false; code: 400 | 409; error: string; runIds: string[]; appBundleId?: string; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null }> {
+    Promise<{ ok: true; runIds: string[]; count: number } | { ok: false; code: 400 | 409; error: string; runIds: string[]; appBundleId?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null }> {
     const { selectTemplates } = await import('./templates.ts');
     const rows = db.prepare('SELECT * FROM templates ORDER BY updated_at DESC').all() as Array<{ id: string; app_bundle_id: string | null; tags_json: string | null }>;
     const sel = selectTemplates(rows as never, { tags: b.tags, app: b.app });
@@ -311,6 +314,9 @@ export function registerManualRoutes(
           if (err.payload?.appBundleId !== undefined) out.appBundleId = err.payload.appBundleId;
           if (err.payload?.lastArtifact !== undefined) out.lastArtifact = err.payload.lastArtifact;
           return out;
+        }
+        if (err instanceof PlaybackError && err.code === 'DEVICE_AMBIGUOUS') {
+          return { ok: false, code: 409, error: `batch aborted at template ${t.id}: ${err.message}`, runIds, booted: err.payload?.booted ?? [] };
         }
         throw err;
       }

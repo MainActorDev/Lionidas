@@ -112,9 +112,9 @@ function ingestEvidence(deps: PlaybackDeps, runId: string, bundleId: string, typ
  *  per-run, template stays network-agnostic (its defaultPresetId is a hint). */
 export class PlaybackError extends Error {
   constructor(
-    public code: 'DEVICE_BUSY' | 'APP_NOT_INSTALLED',
+    public code: 'DEVICE_BUSY' | 'APP_NOT_INSTALLED' | 'DEVICE_AMBIGUOUS',
     message: string,
-    public payload?: { appBundleId?: string; udid?: string; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null },
+    public payload?: { appBundleId?: string; udid?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null },
   ) { super(message); }
 }
 
@@ -209,10 +209,19 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
   // recorded (now shutdown) device — stream gate 409, run aborts.
   function resolveUdid(): string {
     if (opts.udid) return opts.udid;
-    const states = deps.db.prepare('SELECT udid, state FROM devices').all() as Array<{ udid: string; state: string | null }>;
+    const states = deps.db.prepare('SELECT udid, name, state FROM devices').all() as Array<{ udid: string; name: string | null; state: string | null }>;
     const booted = states.filter((d) => d.state === 'Booted');
     if (booted.some((d) => d.udid === tpl.udid)) return tpl.udid;
     if (booted.length === 1) return booted[0]!.udid;
+    if (booted.length > 1) {
+      // several sims booted, none chosen: guessing would silently run on the
+      // wrong device (or a shutdown recorded one) — demand an explicit pick
+      throw new PlaybackError(
+        'DEVICE_AMBIGUOUS',
+        `${booted.length} devices are booted — pick one (found: ${booted.map((d) => d.name ?? d.udid.slice(0, 8)).join(', ')})`,
+        { booted: booted.map((d) => ({ udid: d.udid, name: d.name })) },
+      );
+    }
     return tpl.udid ?? '';
   }
   const udid = resolveUdid();

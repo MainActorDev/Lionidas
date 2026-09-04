@@ -28,6 +28,14 @@ interface Template {
 interface Plan { id: string; name: string; tags: string[]; udid: string | null; appBundleId: string | null; scenarioId: string | null; env: Record<string, string> }
 
 const templates = ref<Template[]>([]);
+async function loadBootedDevices(): Promise<void> {
+  try {
+    const r = await fetch('/api/devices');
+    const b = (await r.json()) as { devices?: Array<{ udid: string; name: string; state: string; resolution: string | null }> };
+    bootedDevices.value = (b.devices ?? []).filter((d) => d.state === 'Booted');
+    if (runDevice.value && !bootedDevices.value.some((d) => d.udid === runDevice.value)) runDevice.value = '';
+  } catch { /* picker stays empty; auto resolution applies */ }
+}
 const loading = ref(true);
 const error = ref('');
 const filter = ref('');
@@ -51,6 +59,10 @@ const playingAll = ref(false);
 // every run started while set — presets active for the run's duration only
 const scenarios = ref<Array<{ id: string; name: string }>>([]);
 const runScenario = ref<string>('');
+// explicit device choice for plays (empty = auto: recorded-if-booted, else
+// the single booted sim; 2+ booted without a choice → DEVICE_AMBIGUOUS 409)
+const bootedDevices = ref<Array<{ udid: string; name: string; resolution: string | null }>>([]);
+const runDevice = ref('');
 
 /** env map for plays: KEY=value lines. Prompted once, reused for every play
  *  until cleared — the Maestro envFile equivalent. */
@@ -79,12 +91,17 @@ async function play(t: Template): Promise<void> {
     const r = await fetch(`/api/templates/${t.id}/play`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
+        ...(runDevice.value ? { udid: runDevice.value } : {}),
         ...(runScenario.value ? { scenarioId: runScenario.value } : {}),
         ...(Object.keys(env).length ? { env } : {}),
       }),
     });
-    const b = (await r.json()) as { runId?: string; udid?: string; error?: string; code?: string; appBundleId?: string; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null };
-    if (b.runId) {
+    const b = (await r.json()) as { runId?: string; udid?: string; error?: string; code?: string; appBundleId?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null };
+    if (b.code === 'DEVICE_AMBIGUOUS') {
+      playMsg.value = 'several devices booted — pick one (device selector in advanced controls)';
+      advancedOpen.value = true;
+      await loadBootedDevices();
+    } else if (b.runId) {
       playMsg.value = `running · ${b.runId}${runScenario.value ? ' · scenario active' : ''}`;
       // server-resolved device (falls back to the template's recorded udid)
       runPanel.value = { runId: b.runId, templateId: t.id, caseName: t.name, udid: b.udid ?? t.udid };
@@ -305,7 +322,7 @@ function onCmdF(ev: KeyboardEvent): void {
 onMounted(() => window.addEventListener('keydown', onCmdF));
 onBeforeUnmount(() => { window.removeEventListener('keydown', onCmdF); });
 
-onMounted(() => { void load().then(() => void adoptRunningRun()); void loadPlans(); });
+onMounted(() => { void load().then(() => void adoptRunningRun()); void loadPlans(); void loadBootedDevices(); });
 
 // ── B4: verdict + trend rendering ──
 type VerdictKind = 'never' | 'green' | 'red' | 'blocked' | 'aborted';
@@ -435,6 +452,10 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
         advanced {{ advancedOpen ? '▾' : '▸' }}
       </button>
       <template v-if="advancedOpen">
+        <select v-model="runDevice" class="a2-select" title="which booted simulator runs the case — empty = auto (recorded device if booted, else the only booted sim)">
+          <option value="">device: auto</option>
+          <option v-for="d in bootedDevices" :key="d.udid" :value="d.udid">{{ d.name }}{{ d.resolution ? ` · ${d.resolution}` : '' }}</option>
+        </select>
         <select v-model="runScenario" class="a2-select" title="network scenario active during runs — its presets fake endpoints for the run's duration, then restore">
           <option value="">network: live</option>
           <option v-for="s in scenarios" :key="s.id" :value="s.id">{{ s.name }}</option>

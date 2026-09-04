@@ -43,8 +43,20 @@ export function listStoreArtifacts(): ArtifactInfo[] {
   return scanDir(appsStoreDir(), 'store');
 }
 
+/** Discovery roots are app-AGNOSTIC (Crucible tests any iOS app, not just
+ *  Lion Parcel): CRUCIBLE_BUILD_ROOTS = colon-separated list of build-output
+ *  roots, each scanned at <root>/<job>/Build/Products/<cfg>-iphonesimulator.
+ *  CRUCIBLE_LP_BUILD_ROOT (single LP repo) remains as a deprecated fallback.
+ *  Everything found is filtered by BUNDLE ID at pick time, never by repo. */
+export function defaultBuildRoots(): string[] {
+  const multi = process.env['CRUCIBLE_BUILD_ROOTS'];
+  if (multi) return multi.split(':').map((r) => r.trim()).filter(Boolean);
+  const legacy = process.env['CRUCIBLE_LP_BUILD_ROOT'];
+  return [legacy ?? '/Volumes/berkakyo/Users/berkamain/Developer/w0rk/lionparcel/ios-consumer/build'];
+}
+
 export function findArtifacts(
-  buildRoots: string[] = [process.env['CRUCIBLE_LP_BUILD_ROOT'] ?? '/Volumes/berkakyo/Users/berkamain/Developer/w0rk/lionparcel/ios-consumer/build'],
+  buildRoots: string[] = defaultBuildRoots(),
   derivedRoots: string[] = [process.env['CRUCIBLE_DERIVED_ROOT'] ?? `${process.env.HOME ?? ''}/Library/Developer/Xcode/DerivedData`],
 ): ArtifactInfo[] {
   const out: ArtifactInfo[] = [

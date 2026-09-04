@@ -91,6 +91,30 @@ describe('playback app presence pre-check', () => {
     await r.done;
   });
 
+  it('TWO booted sims, recorded one shutdown, no choice → DEVICE_AMBIGUOUS with the booted list, no run row', async () => {
+    seedTemplate('tpl_x', null);
+    // the template's recorded device ('sim') is SHUTDOWN here — neither booted
+    // candidate is the recorded one, and there are two of them
+    db.prepare(`UPDATE devices SET state = 'Shutdown' WHERE udid = 'sim'`).run();
+    db.prepare(`INSERT INTO devices(udid, name, state, platform, kind, last_seen) VALUES ('b1', 'Beta One', 'Booted', 'ios', 'simulator', 0)`).run();
+    db.prepare(`INSERT INTO devices(udid, name, state, platform, kind, last_seen) VALUES ('b2', 'Beta Two', 'Booted', 'ios', 'simulator', 0)`).run();
+    let err: unknown;
+    await runTemplatePlayback(harness(async () => { throw new Error('should not be called'); }), 'tpl_x', {}).catch((e) => { err = e; });
+    const pe = err as PlaybackError;
+    expect(pe.code).toBe('DEVICE_AMBIGUOUS');
+    expect(pe.message).toContain('2 devices are booted');
+    expect(pe.payload?.booted?.map((b) => b.udid)).toEqual(['b1', 'b2']);
+    expect(db.prepare('SELECT COUNT(*) c FROM runs').get()).toEqual({ c: 0 });
+  });
+
+  it('two booted sims, EXPLICIT udid wins → run proceeds on the chosen one', async () => {
+    seedTemplate('tpl_x', 'com.test.app');
+    db.prepare(`INSERT INTO devices(udid, name, state, platform, kind, last_seen) VALUES ('sim2', 'Sim Two', 'Booted', 'ios', 'simulator', 0)`).run();
+    const r = await runTemplatePlayback(harness(async () => [{ bundleId: 'com.test.app' }]), 'tpl_x', { udid: 'sim2' });
+    expect(r.udid).toBe('sim2');
+    await r.done;
+  });
+
   it('no app binding (Preferences) → no pre-check', async () => {
     seedTemplate('tpl_x', null);
     const r = await runTemplatePlayback(harness(async () => { throw new Error('should not be called'); }), 'tpl_x', {});
