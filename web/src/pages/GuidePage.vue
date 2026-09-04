@@ -376,6 +376,7 @@ const groups = computed(() => {
           <div class="meta-row"><span class="k">on:</span><b>the element a step targets — its label, or an asset id like ic_barcode. It rides along with coordinates: replay resolves the element live first, coordinates are the fallback</b></div>
           <div class="meta-row"><span class="k">same data</span><b>yaml and the step rows are one storage — edit either, the other follows. Saving validates: unknown keys and bad shapes error with line numbers, nothing is silently dropped</b></div>
           <div class="meta-row"><span class="k">live outline</span><b>the left panel re-parses as you type — it freezes (marked stale) when the yaml has errors, and error lines highlight in the editor</b></div>
+          <div class="meta-row"><span class="k">autocomplete</span><b>the editor knows the format AND your app — labels, icon ids, case names, bundle ids, and tags come from your own recorded cases as you type; values insert pre-quoted</b></div>
           <div class="meta-row"><span class="k">‹ › hop</span><b>move between the filtered cases without leaving the editor — edit, ⌘↵ save, hop, repeat</b></div>
         </div>
 
