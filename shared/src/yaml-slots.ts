@@ -10,6 +10,7 @@ export type YamlSlot =
   | 'body-key'       // typing a key inside an action's { … }
   | 'direction'      // after "scroll: "
   | 'on-value'       // after "on: " or "- expect: " — label/identifier vocab
+  | 'contains-value' // after "contains: " — label-fragment vocab (labels ONLY)
   | 'runflow-name'   // after "runFlow: { name: " or "- runFlow: "
   | 'app-value'      // after "app: "
   | 'tag-value'      // inside tags: [ … ]
@@ -44,9 +45,11 @@ export function slotAt(doc: string, cursor: number): YamlSlot {
     const close = afterDash.lastIndexOf('}');
     if (open === -1 || (close !== -1 && close > open)) return 'none';
     const inside = afterDash.slice(open + 1);
-    // typing a VALUE for on:? (name: inside tap/type is not a valid key → ignore)
+    // typing a VALUE for on:/contains? (name: inside tap/type is not a valid key → ignore)
     const onVal = /\bon:\s*'?[^,}'"]*$/.test(inside);
     if (onVal) return 'on-value';
+    const containsVal = /\bcontains:\s*'?[^,}'"]*$/.test(inside);
+    if (containsVal) return 'contains-value';
     // typing a KEY (fragment after ", " or "{ " must look like a key fragment)
     const frag = inside.split(/,/).pop() ?? '';
     if (/^\s*[a-z]*$/i.test(frag)) return 'body-key';

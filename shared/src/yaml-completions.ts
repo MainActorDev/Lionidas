@@ -27,9 +27,9 @@ export interface VocabCompletion {
 
 /** Body keys legal per action (mirrors the parser whitelist). */
 const BODY_KEYS: Record<string, string[]> = {
-  tap: ['point', 'on', 'optional'],
-  type: ['point', 'text', 'on', 'optional'],
-  expect: ['on', 'optional'],
+  tap: ['point', 'on', 'contains', 'ignoreCase', 'optional'],
+  type: ['point', 'text', 'on', 'contains', 'ignoreCase', 'optional'],
+  expect: ['on', 'contains', 'ignoreCase', 'optional'],
   runFlow: ['name', 'optional'],
 };
 
@@ -57,9 +57,21 @@ export function buildCompletions(slot: YamlSlot, vocab: EditorVocabulary, _typed
       const hints: Record<string, string> = {
         point: '[x, y] logical coordinates', on: 'element label or asset id', optional: 'true — a miss skips instead of failing',
         text: 'text to type', name: 'case name to run',
+        contains: 'label CONTAINS this text (contains-mode matching)', ignoreCase: 'true — capitalization stops mattering for label matches',
       };
       return keys.map((k): VocabCompletion => ({ label: k, detail: hints[k]!, apply: `${k}: `, type: 'keyword' }));
     }
+    case 'contains-value':
+      // label fragments ONLY — contains never applies to identifiers
+      return vocab.selectors
+        .filter((s) => s.kind === 'label')
+        .map((s) => ({
+          label: s.value,
+          detail: `contains fragment · ${s.uses}× · ${s.cases.join(', ')}`,
+          apply: yamlQuote(s.value),
+          type: 'text' as const,
+          boost: -s.uses,
+        }));
     case 'on-value':
       return vocab.selectors.map((s) => ({
         label: s.value,

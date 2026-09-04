@@ -61,6 +61,15 @@ describe('slotAt', () => {
     expect(slotAt(y, y.length)).toBe('on-value');
   });
 
+  it('contains-value slot after "contains: "', () => {
+    const y = "steps:\n  - expect: { contains: DATA";
+    expect(slotAt(y, y.length)).toBe('contains-value');
+  });
+  it('contains-value inside quotes', () => {
+    const y = "steps:\n  - expect: { contains: 'DATA";
+    expect(slotAt(y, y.length)).toBe('contains-value');
+  });
+
   it('free text after "name: " top-level → none (arbitrary case names)', () => {
     const y = 'name: tn';
     expect(slotAt(y, y.length)).toBe('none');

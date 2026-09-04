@@ -31,20 +31,20 @@ describe('buildCompletions', () => {
     expect(buildCompletions('direction', vocab, '').map((c) => c.label)).toEqual(['up', 'down', 'left', 'right']);
   });
 
-  it('body-key for tap offers point/on/optional (no text)', () => {
-    expect(buildCompletions('body-key', vocab, '', 'tap').map((c) => c.label)).toEqual(['point', 'on', 'optional']);
+  it('body-key for tap offers point/on/contains/ignoreCase/optional (no text)', () => {
+    expect(buildCompletions('body-key', vocab, '', 'tap').map((c) => c.label)).toEqual(['point', 'on', 'contains', 'ignoreCase', 'optional']);
   });
   it('body-key for type adds text', () => {
-    expect(buildCompletions('body-key', vocab, '', 'type').map((c) => c.label)).toEqual(['point', 'text', 'on', 'optional']);
+    expect(buildCompletions('body-key', vocab, '', 'type').map((c) => c.label)).toEqual(['point', 'text', 'on', 'contains', 'ignoreCase', 'optional']);
   });
-  it('body-key for expect offers on/optional only', () => {
-    expect(buildCompletions('body-key', vocab, '', 'expect').map((c) => c.label)).toEqual(['on', 'optional']);
+  it('body-key for expect offers on/contains/ignoreCase/optional', () => {
+    expect(buildCompletions('body-key', vocab, '', 'expect').map((c) => c.label)).toEqual(['on', 'contains', 'ignoreCase', 'optional']);
   });
   it('body-key for runFlow offers name/optional only', () => {
     expect(buildCompletions('body-key', vocab, '', 'runFlow').map((c) => c.label)).toEqual(['name', 'optional']);
   });
   it('body-key without action defaults to the tap set (safest common case)', () => {
-    expect(buildCompletions('body-key', vocab, '').map((c) => c.label)).toEqual(['point', 'on', 'optional']);
+    expect(buildCompletions('body-key', vocab, '').map((c) => c.label)).toEqual(['point', 'on', 'contains', 'ignoreCase', 'optional']);
   });
 
   it('on-value: label = raw value, apply = yamlQuote(value), detail carries kind + uses + cases', () => {
@@ -73,6 +73,22 @@ describe('buildCompletions', () => {
     expect(buildCompletions('on-value', empty, '')).toEqual([]);
     expect(buildCompletions('direction', empty, '').length).toBe(4);
     expect(buildCompletions('step-action', empty, '').length).toBe(5);
+  });
+
+  it('body-key for runFlow unchanged (no selector keys)', () => {
+    expect(buildCompletions('body-key', vocab, '', 'runFlow').map((c) => c.label)).toEqual(['name', 'optional']);
+  });
+
+  it('contains-value offers recorded LABELS only (no identifiers), quoted applies', () => {
+    const cs = buildCompletions('contains-value', vocab, 'Be');
+    expect(cs.map((c) => c.label)).toEqual(['Beranda']);   // ic_barcode (identifier) excluded
+    expect(cs[0]!.apply).toBe(yamlQuote('Beranda'));
+    expect(cs[0]!.detail).toContain('contains fragment');
+  });
+
+  it('empty vocabulary → contains-value []', () => {
+    const empty: EditorVocabulary = { selectors: [], caseNames: [], apps: [], tags: [] };
+    expect(buildCompletions('contains-value', empty, '')).toEqual([]);
   });
 
   it('none slot → [] always', () => {

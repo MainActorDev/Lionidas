@@ -128,7 +128,8 @@ export function useYamlEditor(): YamlEditorHandle {
         const line = doc.slice(lineStart, ctx.pos);
         action = /^\s*-\s+(\w+)\s*:/.exec(line)?.[1];
       }
-      const options = complMod.buildCompletions(slot, theVocab, '', action).map((c) => {
+      const typed = doc.slice(fragStart, ctx.pos);
+      const options = complMod.buildCompletions(slot, theVocab, typed, action).map((c) => {
         const o: Completion = { label: c.label, apply: insideQuote && (slot === 'on-value' || slot === 'runflow-name') ? c.label : c.apply };
         if (c.detail !== undefined) o.detail = c.detail;
         if (c.type !== undefined) o.type = c.type;
