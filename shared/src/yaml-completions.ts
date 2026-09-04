@@ -42,6 +42,7 @@ export function buildCompletions(slot: YamlSlot, vocab: EditorVocabulary, _typed
         { label: 'app', detail: 'bundle id this case runs against', apply: 'app: ', type: 'keyword' },
         { label: 'steps', detail: 'the recorded steps', apply: 'steps:\n  - ', type: 'keyword' },
         { label: 'setup', detail: 'declared preconditions — guarded steps that no-op when already satisfied', apply: 'setup:\n  - tap: { point: [0, 0], on: \'\', when: \'\' }\nsteps:\n  - ', type: 'keyword' },
+        { label: 'alerts', detail: 'how system dialogs are answered run-wide: accept, dismiss, or fail (default)', apply: 'alerts: dismiss', type: 'keyword' },
       ];
     case 'step-action':
       return [
@@ -50,9 +51,12 @@ export function buildCompletions(slot: YamlSlot, vocab: EditorVocabulary, _typed
         { label: 'type', detail: 'type text into a field', apply: 'type: { text: \'\', on: \'\' }', type: 'keyword' },
         { label: 'runFlow', detail: 'run another case by name', apply: 'runFlow: { name: \'\' }', type: 'keyword' },
         { label: 'expect', detail: 'assert an element is on screen', apply: 'expect: \'\'', type: 'keyword' },
+        { label: 'alert', detail: 'accept or dismiss a system alert (no-op when none is up)', apply: 'alert: dismiss', type: 'keyword' },
       ];
     case 'direction':
       return (['up', 'down', 'left', 'right'] as const).map((d) => ({ label: d, apply: d, type: 'keyword' as const }));
+    case 'alert-value':
+      return (['accept', 'dismiss'] as const).map((v) => ({ label: v, detail: v === 'accept' ? 'tap the accept/default button' : 'tap the cancel/dismiss button', apply: v, type: 'keyword' as const }));
     case 'body-key': {
       const keys = BODY_KEYS[action ?? 'tap'] ?? BODY_KEYS['tap']!;
       const hints: Record<string, string> = {

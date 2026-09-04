@@ -219,6 +219,7 @@ export function migrateM1(db: Database.Database): void {
     // templates bind to the app they were recorded in — playback launches it first
     'ALTER TABLE templates ADD COLUMN app_bundle_id TEXT',
     'ALTER TABLE templates ADD COLUMN setup_json TEXT',
+    'ALTER TABLE templates ADD COLUMN alerts_policy TEXT',
     'ALTER TABLE templates ADD COLUMN app_name TEXT',
     'ALTER TABLE templates ADD COLUMN app_version TEXT',
     // Maestro batch 1: template tags (filtered regression selection) + evaluated

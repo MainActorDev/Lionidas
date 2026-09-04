@@ -9,6 +9,7 @@ export type YamlSlot =
   | 'step-action'    // right after "- " — offer action skeletons
   | 'body-key'       // typing a key inside an action's { … }
   | 'direction'      // after "scroll: "
+  | 'alert-value'    // after "alert: "
   | 'on-value'       // after "on: " or "- expect: " — label/identifier vocab
   | 'contains-value' // after "contains: " — label-fragment vocab (labels ONLY)
   | 'runflow-name'   // after "runFlow: { name: " or "- runFlow: "

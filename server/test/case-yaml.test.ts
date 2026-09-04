@@ -280,3 +280,102 @@ steps:
     expect(r.errors.some((e) => e.message.includes('unknown key "whne"'))).toBe(true);
   });
 });
+
+describe('alert step (accept/dismiss)', () => {
+  it('parses scalar alert: dismiss in setup and steps', () => {
+    const r = parseCaseYaml(`name: x
+setup:
+  - alert: dismiss
+steps:
+  - tap: { point: [147, 649], on: Sign Up }
+  - alert: accept
+`);
+    expect(r.ok).toBe(true);
+    expect(r.case!.setup).toHaveLength(1);
+    expect(r.case!.setup![0]).toMatchObject({ action: 'alert', alertAction: 'dismiss' });
+    expect(r.case!.steps![1]).toMatchObject({ action: 'alert', alertAction: 'accept' });
+  });
+
+  it('alert with wrong value errors', () => {
+    const r = parseCaseYaml(`name: x
+steps:
+  - alert: maybe
+`);
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('alert needs accept or dismiss'))).toBe(true);
+  });
+
+  it('alert with map body errors with pointer to scalar form', () => {
+    const r = parseCaseYaml(`name: x
+steps:
+  - alert: { action: dismiss }
+`);
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('alert: dismiss'))).toBe(true);
+  });
+
+  it('optional on alert errors', () => {
+    const r = parseCaseYaml(`name: x
+steps:
+  - alert: dismiss
+    optional: true
+`);
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('alert takes no modifiers'))).toBe(true);
+  });
+
+  it('round-trips alert through caseToYaml', () => {
+    const r = parseCaseYaml(`name: x
+setup:
+  - alert: dismiss
+steps:
+  - alert: accept
+`);
+    const y = caseToYaml(r.case! as never);
+    const back = parseCaseYaml(y);
+    expect(back.ok).toBe(true);
+    expect(back.case!.setup![0]).toMatchObject({ action: 'alert', alertAction: 'dismiss' });
+    expect(back.case!.steps![0]).toMatchObject({ action: 'alert', alertAction: 'accept' });
+    expect(y).toContain('- alert: dismiss');
+    expect(y).toContain('- alert: accept');
+  });
+});
+
+describe('alerts policy (run-level)', () => {
+  it('parses scalar alerts into default-only entries', () => {
+    const r = parseCaseYaml('name: x\nalerts: dismiss\nsteps:\n  - scroll: down\n');
+    expect(r.ok).toBe(true);
+    expect(r.case!.alerts).toEqual({ entries: [['default', 'dismiss']] });
+  });
+
+  it('parses map alerts preserving order + validates', () => {
+    const r = parseCaseYaml('name: x\nalerts:\n  location: accept\n  default: dismiss\nsteps:\n  - scroll: down\n');
+    expect(r.ok).toBe(true);
+    expect(r.case!.alerts).toEqual({ entries: [['location', 'accept'], ['default', 'dismiss']] });
+  });
+
+  it('map missing default errors', () => {
+    const r = parseCaseYaml('name: x\nalerts:\n  location: accept\nsteps:\n  - scroll: down\n');
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('exactly one default'))).toBe(true);
+  });
+
+  it('bad scalar value errors', () => {
+    const r = parseCaseYaml('name: x\nalerts: maybe\nsteps:\n  - scroll: down\n');
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('accept, dismiss or fail'))).toBe(true);
+  });
+
+  it('round-trips scalar (emits scalar when default-only) and map', () => {
+    const scalar = parseCaseYaml('name: x\nalerts: dismiss\nsteps:\n  - scroll: down\n');
+    const y1 = caseToYaml(scalar.case! as never);
+    expect(y1).toContain('alerts: dismiss');
+    expect(parseCaseYaml(y1).case!.alerts).toEqual({ entries: [['default', 'dismiss']] });
+
+    const map = parseCaseYaml('name: x\nalerts:\n  location: accept\n  default: dismiss\nsteps:\n  - scroll: down\n');
+    const y2 = caseToYaml(map.case! as never);
+    expect(y2).toContain('alerts:');
+    expect(y2).toContain('  location: accept');
+    expect(parseCaseYaml(y2).case!.alerts).toEqual({ entries: [['location', 'accept'], ['default', 'dismiss']] });
+  });
+});

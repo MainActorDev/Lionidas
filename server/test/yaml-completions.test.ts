@@ -15,7 +15,7 @@ const vocab: EditorVocabulary = {
 describe('buildCompletions', () => {
   it('top-key offers the four top-level keys with detail text', () => {
     const cs = buildCompletions('top-key', vocab, '');
-    expect(cs.map((c) => c.label)).toEqual(['name', 'tags', 'app', 'steps', 'setup']);
+    expect(cs.map((c) => c.label)).toEqual(['name', 'tags', 'app', 'steps', 'setup', 'alerts']);
     expect(cs.every((c) => c.detail)).toBe(true);
   });
 
@@ -24,7 +24,7 @@ describe('buildCompletions', () => {
     const tap = cs.find((c) => c.label === 'tap')!;
     expect(String(tap.apply)).toContain('point: [');
     expect(String(tap.apply)).toContain('on: ');
-    expect(cs.map((c) => c.label)).toEqual(['tap', 'scroll', 'type', 'runFlow', 'expect']);
+    expect(cs.map((c) => c.label)).toEqual(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert']);
   });
 
   it('direction offers exactly the four directions', () => {
@@ -72,7 +72,7 @@ describe('buildCompletions', () => {
     const empty: EditorVocabulary = { selectors: [], caseNames: [], apps: [], tags: [] };
     expect(buildCompletions('on-value', empty, '')).toEqual([]);
     expect(buildCompletions('direction', empty, '').length).toBe(4);
-    expect(buildCompletions('step-action', empty, '').length).toBe(5);
+    expect(buildCompletions('step-action', empty, '').length).toBe(6);
   });
 
   it('body-key for runFlow unchanged (no selector keys)', () => {

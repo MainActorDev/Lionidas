@@ -1,7 +1,8 @@
 /**
  * Case YAML — the ONE definition of the YAML test-case format, shared by the
  * web (live outline in the A2 split panel) and the server (validate/save
- * routes import this file by relative path). Pure module: no node APIs, only
+ * routes
+import this file by relative path). Pure module: no node APIs, only
  * the `yaml` npm package. Storage stays steps_json — YAML is a view+editor,
  * never a second source of truth.
  *
@@ -11,11 +12,12 @@
  * must never silently drop a step.
  */
 import { parse, stringify } from 'yaml';
+import { parseAlertPolicy as parseAlertPolicyRaw, type AlertPolicy } from './alert-policy.ts';
 
 export interface YamlSelector { identifier?: string; label?: string; labelContains?: string; ignoreCase?: boolean; type?: string }
 export interface YamlStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert';
   x?: number; y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
   text?: string;
@@ -26,6 +28,8 @@ export interface YamlStep {
   /** setup-only guard: run this step only if a label containing this fragment
    *  is visible (existence, not uniqueness). Absent element → no-op skip. */
   when?: string;
+  /** alert action target — accept or dismiss the frontmost system dialog */
+  alertAction?: 'accept' | 'dismiss';
 }
 export interface YamlCase {
   name: string;
@@ -33,6 +37,8 @@ export interface YamlCase {
   app?: string;
   /** Declared preconditions — guarded steps that no-op when already satisfied */
   setup?: YamlStep[];
+  /** Run-level system-dialog policy (absent = every dialog fails named) */
+  alerts?: AlertPolicy;
   steps: YamlStep[];
 }
 
@@ -41,7 +47,7 @@ export interface YamlError { line: number; message: string }
 const DROPPED_KEYS = new Set(['ts', 'thumb']); // capture artifacts — not semantics
 const STEP_KEYS = new Set(['action', 'x', 'y', 'direction', 'text', 'optional', 'selector', 'templateId', 'flow']);
 const DIRECTIONS = new Set(['up', 'down', 'left', 'right']);
-const ACTIONS = new Set(['tap', 'scroll', 'type', 'runFlow', 'expect']);
+const ACTIONS = new Set(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert']);
 /** runFlow references: name → id resolution is the CALLER's job (needs the DB);
  * the validator accepts both shapes and reports unresolved names. */
 export interface RunFlowRefs { names: string[] }
@@ -94,6 +100,14 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
   // app
   const app = typeof c['app'] === 'string' ? (c['app'] as string).trim() : undefined;
 
+  // alerts policy (scalar or map) — see alert-policy.ts for semantics
+  let alerts: AlertPolicy | undefined;
+  if (c['alerts'] !== undefined) {
+    const r = parseAlertPolicyRaw(c['alerts']);
+    if (r.error) errors.push({ line: 1, message: `alerts: ${r.error}` });
+    else alerts = r.policy ?? undefined;
+  }
+
   // setup (declared preconditions) — parsed by the same step machinery
   let setupOut: YamlStep[] | undefined;
   if (c['setup'] !== undefined) {
@@ -116,7 +130,7 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
     runFlowNames.push(...r.names);
   }
   if (errors.length > 0) return { ok: false, case: null, errors, runFlowNames };
-  return { ok: true, case: { name, tags, ...(app ? { app } : {}), ...(setupOut ? { setup: setupOut } : {}), steps: stepsOut }, errors: [], runFlowNames };
+  return { ok: true, case: { name, tags, ...(app ? { app } : {}), ...(setupOut ? { setup: setupOut } : {}), ...(alerts ? { alerts } : {}), steps: stepsOut }, errors: [], runFlowNames };
 }
 
 /** One step list (steps: or setup:) → validated steps + runFlow name refs.
@@ -134,8 +148,13 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
       const s = raw as Record<string, unknown>;
       const keys = Object.keys(s);
       if (keys.length !== 1) {
-        if (keys.length === 2 && keys.includes('when')) {
-          errors.push({ line: 1, message: `${prefix(i)}: when only guards tap/type/expect — it cannot ride on a scalar action` });
+        if (keys.length === 2 && (keys.includes('when') || keys.includes('optional'))) {
+          const mod = keys.includes('when') ? 'when' : 'optional';
+          const act = keys[0] === 'when' || keys[0] === 'optional' ? keys[1]! : keys[0]!;
+          const msg = act === 'alert'
+            ? `${prefix(i)}: alert takes no modifiers — it is inherently conditional (no-op when nothing is up)`
+            : `${prefix(i)}: ${mod} only guards tap/type/expect — it cannot ride on a scalar action`;
+          errors.push({ line: 1, message: msg });
           continue;
         }
         errors.push({ line: 1, message: `${prefix(i)}: exactly one action key expected, got [${keys.join(', ')}]` });
@@ -180,6 +199,14 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
         return undefined;
       };
 
+      if (action === 'alert') {
+        if (typeof body !== 'string' || !['accept', 'dismiss'].includes(body)) {
+          errors.push({ line: 1, message: `${prefix(i)}: alert needs accept or dismiss — write it as a scalar (alert: dismiss)` });
+          continue;
+        }
+        stepsOut.push({ idx: stepsOut.length, action: 'alert', alertAction: body as 'accept' | 'dismiss' });
+        continue;
+      }
       if (action === 'scroll') {
         if (typeof body !== 'string' || !DIRECTIONS.has(body)) {
           errors.push({ line: 1, message: `${prefix(i)}: scroll needs a direction (up|down|left|right)` });
@@ -272,7 +299,7 @@ function attachWhen(step: YamlStep, b: Record<string, unknown>, section: 'setup'
     errors.push({ line: 1, message: `${prefix(i)}: when needs a non-empty label fragment` });
     return;
   }
-  if (step.action === 'scroll' || step.action === 'runFlow') {
+  if (step.action === 'scroll' || step.action === 'runFlow' || step.action === 'alert') {
     errors.push({ line: 1, message: `${prefix(i)}: when only guards tap/type/expect (got ${step.action})` });
     return;
   }
@@ -280,12 +307,23 @@ function attachWhen(step: YamlStep, b: Record<string, unknown>, section: 'setup'
 }
 
 /** steps_json rows → YAML text. Stable field order, guidance comments. */
-export function caseToYaml(t: { name: string; tags: string[]; app?: string | null; setup?: unknown[]; steps: unknown[] }): string {
+export function caseToYaml(t: { name: string; tags: string[]; app?: string | null; setup?: unknown[]; alerts?: unknown; steps: unknown[] }): string {
   const lines: string[] = [];
   lines.push(`# ${t.name} — edit as yaml; save validates against the step schema`);
   lines.push(`name: ${yamlScalar(t.name)}`);
   if (t.tags.length > 0) lines.push(`tags: [${t.tags.map((x) => yamlScalar(x)).join(', ')}]`);
   if (t.app) lines.push(`app: ${yamlScalar(t.app)}`);
+  {
+    const a = t.alerts as { entries?: Array<[string, string]> } | undefined;
+    if (a && Array.isArray(a.entries) && a.entries.length > 0) {
+      if (a.entries.length === 1 && a.entries[0]![0] === 'default') {
+        lines.push(`alerts: ${a.entries[0]![1]}`);
+      } else {
+        lines.push('alerts:');
+        for (const [k, v] of a.entries) lines.push(`  ${k}: ${v}`);
+      }
+    }
+  }
   if (Array.isArray(t.setup) && t.setup.length > 0) {
     lines.push('setup:');
     for (const raw of t.setup) {
@@ -324,6 +362,8 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       lines.push(`  - tap: { point: [${s['x']}, ${s['y']}]${on(s['selector']) ? `, ${on(s['selector'])!}` : ''}${icSuffix(s['selector'])}${optSuffix(s['optional'])}${whenSuffix(s['when'])} }`);
     } else if (action === 'scroll') {
       lines.push(`  - scroll: ${s['direction']}`);
+    } else if (action === 'alert') {
+      lines.push(`  - alert: ${s['alertAction'] ?? 'dismiss'}`);
     } else if (action === 'type') {
       const pt = s['x'] !== undefined && s['y'] !== undefined ? `point: [${s['x']}, ${s['y']}], ` : '';
       lines.push(`  - type: { ${pt}text: ${yamlScalar(String(s['text'] ?? ''))}${on(s['selector']) ? `, ${on(s['selector'])!}` : ''}${icSuffix(s['selector'])}${optSuffix(s['optional'])}${whenSuffix(s['when'])} }`);

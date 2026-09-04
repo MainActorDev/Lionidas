@@ -4,6 +4,7 @@
  *  - final screenshot ingested as evidence
  *  - forge activeRunId set for the duration → traffic rows attach to the run
  *  No image assertions — failure is an engine dispatch error or missing field. */
+import { resolveAlertPolicy, type AlertPolicy } from '@crucible/shared/alert-policy';
 import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
@@ -45,7 +46,7 @@ export interface PlaybackDeps {
 
 export interface PlaybackStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert';
   x?: number;
   y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
@@ -62,6 +63,8 @@ export interface PlaybackStep {
   /** setup-only guard: snapshot existence check (labelContains, ignoreCase)
    *  BEFORE dispatch — absent element = no-op skip (dismiss-if-shown). */
   when?: string;
+  /** alert action target — accept or dismiss the frontmost system dialog */
+  alertAction?: 'accept' | 'dismiss';
 }
 
 interface TemplateRow {
@@ -71,6 +74,7 @@ interface TemplateRow {
   udid: string;
   steps_json: string;
   setup_json: string | null;
+  alerts_policy: string | null;
   app_bundle_id: string | null;
   logical_w: number | null;
   logical_h: number | null;
@@ -81,6 +85,7 @@ function stepName(s: PlaybackStep): string {
   if (s.action === 'runFlow') return `run flow ${s.templateId ?? '?'}`;
   if (s.action === 'tap') return `tap ${s.x},${s.y}`;
   if (s.action === 'scroll') return `scroll ${s.direction}`;
+  if (s.action === 'alert') return `alert ${s.alertAction ?? 'dismiss'}`;
   return `type "${(s.text ?? '').slice(0, 20)}"`;
 }
 
@@ -90,6 +95,7 @@ function stepLabel(s: PlaybackStep): string {
   if (s.action === 'runFlow') return `run flow ${s.templateId ?? '?'}`;
   if (s.action === 'tap') return s.selector ? `tap ${s.selector.label ?? s.selector.identifier ?? ''}`.trim() : `tap ${s.x},${s.y}`;
   if (s.action === 'scroll') return `scroll ${s.direction}`;
+  if (s.action === 'alert') return `alert ${s.alertAction ?? 'dismiss'}`;
   return `type "${(s.text ?? '').slice(0, 20)}"`;
 }
 
@@ -114,6 +120,11 @@ function ingestEvidence(deps: PlaybackDeps, runId: string, bundleId: string, typ
  *  Phase 4: opts.scenarioId activates that scenario's presets (hybrid) for the
  *  run duration, restoring the previous forge state after — network choice is
  *  per-run, template stays network-agnostic (its defaultPresetId is a hint). */
+/** internal: dialog present under fail-policy, or cap exceeded */
+class AlertStormError extends Error {
+  constructor(public dialogText: string) { super(`alert storm: ${dialogText}`); }
+}
+
 export class PlaybackError extends Error {
   constructor(
     public code: 'DEVICE_BUSY' | 'APP_NOT_INSTALLED' | 'DEVICE_AMBIGUOUS',
@@ -199,7 +210,7 @@ async function withWatchdog<T>(runId: string, dispatch: Promise<T>, stepNameForE
 
 
 export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string; bundleId?: string; env?: Record<string, string> }): Promise<{ runId: string; udid: string; done: Promise<void> }> {
-  const t = deps.db.prepare('SELECT id, name, ticket_key, udid, steps_json, setup_json, app_bundle_id, logical_w, logical_h FROM templates WHERE id = ?').get(templateId) as TemplateRow | undefined;
+  const t = deps.db.prepare('SELECT id, name, ticket_key, udid, steps_json, setup_json, alerts_policy, app_bundle_id, logical_w, logical_h FROM templates WHERE id = ?').get(templateId) as TemplateRow | undefined;
   if (!t) throw new Error(`template ${templateId} not found`);
   const tpl: TemplateRow = t;
   let steps: PlaybackStep[] = [];
@@ -268,7 +279,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     .prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, note, template_id, app_version)
               VALUES (?, ?, 'manual', 'running', ?, ?, ?, ?, ?, ?)`)
     .run(runId, t.ticket_key ?? 'TEMPLATE', opts.triggeredBy ?? 'qa', udid, Date.now(), `template:${templateId} ${t.name}`, templateId, appVersion);
-  deps.bus.emit('run.started', { runId, ticketKey: t.ticket_key ?? 'TEMPLATE' });
+  deps.bus.emit('run.started', { runId, ticketKey: t.ticket_key ?? 'TEMPLATE', udid });
 
   // background execution — route returns immediately; done settles at finish
   const done = (async () => {
@@ -292,6 +303,36 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     }
     let runStatus: 'passed' | 'failed' | 'aborted' = 'passed';
     let skipAllSteps = false; // dialog interceptor: steps already skip-written
+    // alert policy (run-level): null = every dialog fails named (default).
+    let alertPolicy: AlertPolicy | null = null;
+    try {
+      const raw = tpl.alerts_policy ? JSON.parse(tpl.alerts_policy) as { entries?: unknown } : null;
+      if (raw && Array.isArray(raw.entries)) alertPolicy = raw as AlertPolicy;
+    } catch { /* garbage column → null → fail (honest default) */ }
+    const ALERT_CAP = 3; // auto-handlings per run — storms fail named, never loop
+    let alertHandlings = 0;
+    const noteLines: string[] = []; // policy audit lines — flushed in finally
+    const note = (line: string): void => { noteLines.push(line); };
+    /** Drain dialogs per policy at a site. Returns handled count this call;
+     *  throws on storm (cap exceeded) — caller converts to named fail. */
+    const drainDialogs = async (site: string): Promise<number> => {
+      let handled = 0;
+      for (;;) {
+        const insp = (await alloy.dispatch('alloy_alert', { udid, action: 'inspect' }, deps.dispatchDeps)) as
+          | { ok: true; result: { message?: string } } | { ok: false };
+        if (!insp.ok || !insp.result?.message) return handled;
+        const text = insp.result.message;
+        const act = resolveAlertPolicy(alertPolicy, text);
+        if (act === 'fail') throw new AlertStormError(text);
+        if (alertHandlings >= ALERT_CAP) throw new AlertStormError(text);
+        const clr = (await alloy.dispatch('alloy_alert', { udid, action: act }, deps.dispatchDeps)) as
+          | { ok: true; result?: { message?: string } } | { ok: false; error?: { message?: string } };
+        if (!clr.ok) throw new Error(`alert ${act} failed: ${clr.error?.message ?? 'engine error'}`);
+        alertHandlings++;
+        handled++;
+        note(`alert-handled (${act}): "${text}" @ ${site}`);
+      }
+    };
     let runBlocked = 0;
     /** readiness gate (user contract): every run waits for (1) the device
      *  stream to be provably live, (2) the target app freshly reopened —
@@ -446,7 +487,8 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
         // message; none → ok:false "alert not found". ok:true IS presence.
         const insp = (await alloy.dispatch('alloy_alert', { udid, action: 'inspect' }, deps.dispatchDeps)) as
           | { ok: true; result: { message?: string } } | { ok: false };
-        if (insp.ok && insp.result?.message) {
+        const firstIsAlert = execSteps[0]?.action === 'alert';
+        if (insp.ok && insp.result?.message && !firstIsAlert && alertPolicy === null) {
           // case-level failure (not infra): a dialog blocking before step 1
           // means declared preconditions are unmet — fail the run with the
           // dialog NAMED; steps never execute (skip rows, finally still owns
@@ -458,6 +500,21 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             insStep.run(runId, st.idx, st.flow ?? t.name, stepName(st), 'skip', 'blocked by system dialog (not reached)', Date.now(), 0, '[]', null);
           }
           skipAllSteps = true;
+        } else if (insp.ok && insp.result?.message && !firstIsAlert && alertPolicy !== null) {
+          // policy path: drain per policy before step 1 — guards then read the
+          // true screen. Storm/cap/accept-failures land as named case-failures.
+          try {
+            await drainDialogs('start');
+          } catch (err) {
+            const what = err instanceof AlertStormError ? err.dialogText : err instanceof Error ? err.message : String(err);
+            const kind = err instanceof AlertStormError ? (alertHandlings >= ALERT_CAP ? `alert storm: >${ALERT_CAP} dialogs auto-handled — last "${what}"` : `blocked by system dialog: ${what}`) : `alert drain failed: ${what}`;
+            runStatus = 'failed';
+            deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run(kind, runId);
+            for (const st of execSteps) {
+              insStep.run(runId, st.idx, st.flow ?? t.name, stepName(st), 'skip', `${kind} (not reached)`, Date.now(), 0, '[]', null);
+            }
+            skipAllSteps = true;
+          }
         }
       }
       deps.bus.emit('run.phase', { runId, phase: 'steps' });
@@ -575,12 +632,23 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // out an 8s budget inside one step (B2's promise: abort ≤ one
             // step + watchdog). 250ms poll keeps the abort latent ≤250ms.
             lastSettleNodes = null; // reset per step
+            // stability gate: hit alone is NOT dispatch-readiness — the label
+            // can exist mid-animation, and acting into a churning hierarchy
+            // wedges the runner's accessibility capture (live: Sign-Up screen,
+            // run_f306cd7c step 2). Require TWO consecutive identical reads.
+            let prevSig: string | null = null;
             while (Date.now() - settleStart < settleBudgetMs && !isAborted(runId)) {
               const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
                 | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
               lastSettleNodes = snap.ok ? (snap.result.nodes ?? []) : null;
               hit = snap.ok ? resolveSelector(snap.result.nodes ?? [], s.selector) : null;
-              if (hit) break;
+              if (hit) {
+                const sig = hierarchySig(lastSettleNodes ?? []);
+                if (sig === prevSig) break; // quiet AND resolvable — dispatch
+                prevSig = sig;
+              } else {
+                prevSig = null; // target absent: keep polling, no stability memory
+              }
               await new Promise((r) => setTimeout(r, settlePollMs));
             }
             if (hit) {
@@ -646,6 +714,26 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             }
             throw new Error(why);
           }
+          // alert step: clear (or accept) the frontmost system dialog.
+          // ok:true = a dialog was up and handled → pass. ok:false
+          // "alert not found" = nothing up → no-op skip (inherently
+          // conditional). Any other ok:false = real engine error → fail.
+          if (s.action === 'alert') {
+            const act = s.alertAction ?? 'dismiss';
+            const alr = (await alloy.dispatch('alloy_alert', { udid, action: act }, deps.dispatchDeps)) as
+              | { ok: true; result: { message?: string } }
+              | { ok: false; error?: { message?: string } };
+            if (alr.ok) {
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify({ action: 'alert', alertAction: act, result: alr.result?.message ?? 'cleared' }));
+              continue;
+            }
+            const msg = alr.error?.message ?? 'engine error';
+            if (msg.includes('alert not found')) {
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'skip', 'no alert up', t0, Date.now() - t0, '[]', JSON.stringify({ action: 'alert', alertAction: act }));
+              continue;
+            }
+            throw new Error(msg);
+          }
           // Task 2 — sig-before: reuse the settle poll's last read (selector
           // steps pay ZERO extra snapshots); coordinate steps take one read.
           let sigBefore: string | null = null;
@@ -707,12 +795,13 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           let warnReason = screenChanged === false ? 'tap produced no screen change (wrong target or non-navigational tap?)' : null;
           // Interceptor trigger #2 (async dialogs): a no-change tap while a
           // system dialog is up means the tap went into the void behind it.
-          // Correlate before warn-passing — dialog present = named fail.
+          // No policy → named fail (original interceptor). With a policy →
+          // drain per policy, retry the tap, re-verify — bounded by the cap.
           if (screenChanged === false) {
             try {
               const dlg = (await alloy.dispatch('alloy_alert', { udid, action: 'inspect' }, deps.dispatchDeps)) as
                 | { ok: true; result: { message?: string } } | { ok: false };
-              if (dlg.ok && dlg.result?.message) {
+              if (dlg.ok && dlg.result?.message && alertPolicy === null) {
                 const what = dlg.result?.message ?? 'unknown system dialog';
                 runStatus = 'failed';
                 deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run(`blocked by system dialog: ${what}`, runId);
@@ -722,7 +811,30 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 }
                 break;
               }
-            } catch { /* inspect failure never blocks the run */ }
+              if (dlg.ok && dlg.result?.message && alertPolicy !== null) {
+                // policy path: drain + retry the ORIGINAL tap (its touch never
+                // reached the app), then re-verify screen change.
+                await drainDialogs(`step ${s.idx + 1}`);
+                const r2 = (await withWatchdog(runId, alloy.dispatch('alloy_act', input, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, stepName(s))) as { ok: boolean; error?: { message: string } };
+                if (!r2.ok) throw new Error(r2.error?.message ?? 'engine error');
+                const post2 = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
+                  | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
+                if (post2.ok) screenChanged = hierarchySig(post2.result.nodes ?? []) !== sigBefore;
+                warnReason = screenChanged === false ? 'tap produced no screen change (wrong target or non-navigational tap?)' : null;
+              }
+            } catch (err) {
+              if (err instanceof AlertStormError) {
+                const kind = alertHandlings >= ALERT_CAP ? `alert storm: >${ALERT_CAP} dialogs auto-handled — last "${err.dialogText}"` : `blocked by system dialog: ${err.dialogText}`;
+                runStatus = 'failed';
+                deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run(kind, runId);
+                insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', kind, t0, Date.now() - t0, '[]', JSON.stringify(resolved));
+                for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
+                  insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null);
+                }
+                break;
+              }
+              throw err;
+            }
           }
           // 'selector-point-scaled' folds into 'selector' for the audit trail —
           // the scale factors already live in evaluated_json's scale context
@@ -773,11 +885,18 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       // to no run. (If a scenario restored above, that write already reset
       // activeRunId implicitly via the null default — this one is explicit.)
       try { forgeStateService(deps).setActiveRun(null); } catch { /* clear best-effort */ }
+      // policy audit lines — appended to whatever note exists
+      if (noteLines.length > 0) {
+        try {
+          const cur = (deps.db.prepare('SELECT note FROM runs WHERE id = ?').get(runId) as { note: string | null } | undefined)?.note ?? '';
+          deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run((cur ? `${cur}\n` : '') + noteLines.join('\n'), runId);
+        } catch { /* audit lines best-effort */ }
+      }
       // B2: operator abort wins over the loop's natural verdict
       if (isAborted(runId)) runStatus = 'aborted';
       abortedRuns.delete(runId); // registry entry no longer needed once terminal
       deps.db.prepare(`UPDATE runs SET status = ?, finished_at = ?, blocked = ? WHERE id = ?`).run(runStatus, Date.now(), runBlocked, runId);
-      deps.bus.emit('run.finished', { runId, status: runStatus });
+      deps.bus.emit('run.finished', { runId, status: runStatus, udid });
     }
   })();
 

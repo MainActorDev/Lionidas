@@ -2,7 +2,7 @@
  *  Missing key = null (caller fails the step BEFORE dispatch — never type a
  *  half-resolved string). Pure module: no db, no alloy. */
 export interface SubstitutedStep {
-  idx: number; action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect';
+  idx: number; action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert';
   x?: number; y?: number; direction?: 'up' | 'down' | 'left' | 'right';
   text?: string;
   /** A6 element selector (label/type/identifier) — passes through untouched;
@@ -26,7 +26,7 @@ export function expandEnvText(text: string, env: Record<string, string>): string
   return missing ? null : out;
 }
 
-export function substituteStep(s: { idx: number; action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect'; x?: number; y?: number; direction?: 'up' | 'down' | 'left' | 'right'; text?: string; optional?: boolean; selector?: { identifier?: string; label?: string; type?: string }; templateId?: string }, env: Record<string, string>): SubstitutedStep {
+export function substituteStep(s: { idx: number; action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert'; x?: number; y?: number; direction?: 'up' | 'down' | 'left' | 'right'; text?: string; optional?: boolean; selector?: { identifier?: string; label?: string; type?: string }; templateId?: string }, env: Record<string, string>): SubstitutedStep {
   const base: SubstitutedStep = { idx: s.idx, action: s.action, ...(s.x !== undefined ? { x: s.x } : {}), ...(s.y !== undefined ? { y: s.y } : {}), ...(s.direction ? { direction: s.direction } : {}), ...(s.selector ? { selector: s.selector } : {}), ...(s.templateId !== undefined ? { templateId: s.templateId } : {}) };
   if (s.text === undefined) return base;
   const expanded = expandEnvText(s.text, env);

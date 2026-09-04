@@ -18,6 +18,7 @@ interface TemplateRow {
   logical_h: number | null;
   steps_json: string;
   setup_json: string | null;
+  alerts_policy: string | null;
   default_preset_id: string | null;
   app_bundle_id: string | null;
   app_name: string | null;
@@ -57,6 +58,7 @@ function rowToTemplate(r: TemplateRow): Record<string, unknown> {
     logicalH: r.logical_h,
     steps: JSON.parse(r.steps_json) as unknown[],
     ...(r.setup_json ? { setup: JSON.parse(r.setup_json) as unknown[] } : {}),
+    ...(r.alerts_policy ? { alerts: JSON.parse(r.alerts_policy) as unknown } : {}),
     defaultPresetId: r.default_preset_id,
     appBundleId: r.app_bundle_id,
     appName: r.app_name,
@@ -177,13 +179,13 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
 
   app.patch('/api/templates/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const b = req.body as { name?: string; description?: string | null; ticketKey?: string | null; defaultPresetId?: string | null; steps?: unknown[]; setup?: unknown[] | null; tags?: string[]; appBundleId?: string | null };
+    const b = req.body as { name?: string; description?: string | null; ticketKey?: string | null; defaultPresetId?: string | null; steps?: unknown[]; setup?: unknown[] | null; alerts?: unknown | null; tags?: string[]; appBundleId?: string | null };
     const row = db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
     if (b.name !== undefined && !b.name.trim()) return reply.code(400).send({ error: 'name cannot be empty' });
     db.prepare(
       `UPDATE templates SET
-         name = ?, description = ?, ticket_key = ?, default_preset_id = ?, steps_json = ?, setup_json = ?, tags_json = ?, app_bundle_id = ?, updated_at = ?
+         name = ?, description = ?, ticket_key = ?, default_preset_id = ?, steps_json = ?, setup_json = ?, alerts_policy = ?, tags_json = ?, app_bundle_id = ?, updated_at = ?
        WHERE id = ?`,
     ).run(
       b.name !== undefined ? b.name.trim() : row.name,
@@ -192,6 +194,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       b.defaultPresetId !== undefined ? b.defaultPresetId : row.default_preset_id,
       b.steps !== undefined ? JSON.stringify(b.steps) : row.steps_json,
       b.setup !== undefined ? (b.setup === null ? null : JSON.stringify(b.setup)) : row.setup_json,
+      b.alerts !== undefined ? (b.alerts === null ? null : JSON.stringify(b.alerts)) : row.alerts_policy,
       b.tags !== undefined ? tagsToJson(b.tags) : row.tags_json,
       b.appBundleId !== undefined ? b.appBundleId : row.app_bundle_id,
       Date.now(),
@@ -283,10 +286,12 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     const withNames = (arr: Array<Record<string, unknown>>) => arr.map((s) => (s['action'] === 'runFlow' && id2name.has(s['templateId'] as string)
       ? { ...s, templateId: id2name.get(s['templateId'] as string) }
       : s));
+    const alerts = row.alerts_policy ? JSON.parse(row.alerts_policy) as unknown : undefined;
     const yaml = caseToYaml({
       name: row.name,
       tags: (JSON.parse(row.tags_json ?? '[]') as string[]),
       steps: withNames(steps),
+      ...(alerts ? { alerts } : {}),
       ...(setup && setup.length > 0 ? { setup: withNames(setup) } : {}),
       ...(row.app_bundle_id ? { app: row.app_bundle_id } : {}),
     });
@@ -321,8 +326,8 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       if (clash) return reply.code(409).send({ errors: [{ line: 1, message: `a case named "${r.case.name}" already exists` }] });
     }
     db.prepare(
-      `UPDATE templates SET name = ?, steps_json = ?, setup_json = ?, tags_json = ?, app_bundle_id = COALESCE(?, app_bundle_id), updated_at = ? WHERE id = ?`,
-    ).run(r.case.name, JSON.stringify(r.case.steps), r.case.setup ? JSON.stringify(r.case.setup) : null, tagsToJson(r.case.tags), r.case.app ?? null, Date.now(), id);
+      `UPDATE templates SET name = ?, steps_json = ?, setup_json = ?, alerts_policy = ?, tags_json = ?, app_bundle_id = COALESCE(?, app_bundle_id), updated_at = ? WHERE id = ?`,
+    ).run(r.case.name, JSON.stringify(r.case.steps), r.case.setup ? JSON.stringify(r.case.setup) : null, r.case.alerts ? JSON.stringify(r.case.alerts) : null, tagsToJson(r.case.tags), r.case.app ?? null, Date.now(), id);
     return rowToTemplate(db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow);
   });
 }

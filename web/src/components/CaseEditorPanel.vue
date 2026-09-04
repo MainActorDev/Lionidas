@@ -44,7 +44,7 @@ const errors = ref<Array<{ line: number; message: string }>>([]);
 const outline = ref<OutlineStep[]>([]);
 const outlineStale = ref(false);
 
-const STEP_LABEL: Record<string, string> = { tap: 'tap', scroll: 'scroll', type: 'type', runFlow: 'flow', expect: 'expect' };
+const STEP_LABEL: Record<string, string> = { tap: 'tap', scroll: 'scroll', type: 'type', runFlow: 'flow', expect: 'expect', alert: 'alert' };
 
 function outlineFromSteps(steps: Array<Record<string, unknown>>, group: '' | 'setup' = ''): OutlineStep[] {
   return steps.map((s, i) => {
@@ -53,6 +53,7 @@ function outlineFromSteps(steps: Array<Record<string, unknown>>, group: '' | 'se
     let detail = '';
     if (kind === 'tap' || kind === 'type') detail = sel?.label ?? sel?.identifier ?? `${s['x']}, ${s['y']}`;
     else if (kind === 'scroll') detail = String(s['direction'] ?? '');
+    else if (kind === 'alert') detail = String(s['alertAction'] ?? '');
     else if (kind === 'type') detail = String(s['text'] ?? '');
     else if (kind === 'runFlow') detail = String(s['templateId'] ?? '?');
     else if (kind === 'expect') detail = sel?.labelContains !== undefined ? `contains: ${sel.labelContains}` : sel?.label ?? sel?.identifier ?? '?';

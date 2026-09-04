@@ -9,7 +9,8 @@
     "./case-yaml": "./src/case-yaml.ts",
     "./yaml-slots": "./src/yaml-slots.ts",
     "./yaml-quote": "./src/yaml-quote.ts",
-    "./yaml-completions": "./src/yaml-completions.ts"
+    "./yaml-completions": "./src/yaml-completions.ts",
+    "./alert-policy": "./src/alert-policy.ts"
   },
   "dependencies": {
     "yaml": "^2.9.0"
