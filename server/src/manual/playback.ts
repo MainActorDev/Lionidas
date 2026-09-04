@@ -59,6 +59,9 @@ export interface PlaybackStep {
   templateId?: string;
   /** set by expandFlows: child flow name for run_steps provenance */
   flow?: string;
+  /** setup-only guard: snapshot existence check (labelContains, ignoreCase)
+   *  BEFORE dispatch — absent element = no-op skip (dismiss-if-shown). */
+  when?: string;
 }
 
 interface TemplateRow {
@@ -67,6 +70,7 @@ interface TemplateRow {
   ticket_key: string | null;
   udid: string;
   steps_json: string;
+  setup_json: string | null;
   app_bundle_id: string | null;
   logical_w: number | null;
   logical_h: number | null;
@@ -195,7 +199,7 @@ async function withWatchdog<T>(runId: string, dispatch: Promise<T>, stepNameForE
 
 
 export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string; bundleId?: string; env?: Record<string, string> }): Promise<{ runId: string; udid: string; done: Promise<void> }> {
-  const t = deps.db.prepare('SELECT id, name, ticket_key, udid, steps_json, app_bundle_id, logical_w, logical_h FROM templates WHERE id = ?').get(templateId) as TemplateRow | undefined;
+  const t = deps.db.prepare('SELECT id, name, ticket_key, udid, steps_json, setup_json, app_bundle_id, logical_w, logical_h FROM templates WHERE id = ?').get(templateId) as TemplateRow | undefined;
   if (!t) throw new Error(`template ${templateId} not found`);
   const tpl: TemplateRow = t;
   let steps: PlaybackStep[] = [];
@@ -287,6 +291,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       } catch { /* network best-effort — run proceeds without scenario */ }
     }
     let runStatus: 'passed' | 'failed' | 'aborted' = 'passed';
+    let skipAllSteps = false; // dialog interceptor: steps already skip-written
     let runBlocked = 0;
     /** readiness gate (user contract): every run waits for (1) the device
      *  stream to be provably live, (2) the target app freshly reopened —
@@ -401,6 +406,14 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
         }
       }
 
+      // Declared preconditions (setup): parsed steps run through the same
+      // engine, flow-tagged 'setup'. when-guards evaluate BEFORE dispatch —
+      // absent guard element = no-op skip (dismiss-if-shown semantics).
+      let setupSteps: PlaybackStep[] = [];
+      if (tpl.setup_json) {
+        try { setupSteps = JSON.parse(tpl.setup_json) as PlaybackStep[]; } catch { setupSteps = []; }
+      }
+
       // A5: expand subflows flat — child steps carry flow + inherited optional
       let execSteps: PlaybackStep[];
       try {
@@ -411,12 +424,42 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       } catch (err) {
         throw new Error(`subflow expansion failed: ${err instanceof Error ? err.message : String(err)}`);
       }
+      if (setupSteps.length > 0) {
+        execSteps = [
+          ...setupSteps.map((ss) => ({ ...ss, flow: 'setup' })),
+          ...execSteps,
+        ].map((es, i) => ({ ...es, idx: i }));
+      }
       // run panel: announce the expanded plan — the panel cannot key step
       // events to template steps (expandFlows reindexes), so the truth ships.
       deps.bus.emit('run.plan', {
         runId, templateId, udid,
         steps: execSteps.map((s) => ({ idx: s.idx, action: s.action, name: stepLabel(s), flow: s.flow ?? null, optional: s.optional === true })),
       });
+      // Task 3 — system-dialog interceptor (run-start site): permission dialogs
+      // render in SpringBoard, so the app AX tree stays populated behind them
+      // (drill run_852f6fbc). One alert-inspect after the settle gate; a dialog
+      // present BEFORE step 1 means the case's preconditions are unmet — name
+      // it and fail. Fail-open: inspect errors never block the run.
+      {
+        // engine contract (probed live): dialog present → ok:true with a
+        // message; none → ok:false "alert not found". ok:true IS presence.
+        const insp = (await alloy.dispatch('alloy_alert', { udid, action: 'inspect' }, deps.dispatchDeps)) as
+          | { ok: true; result: { message?: string } } | { ok: false };
+        if (insp.ok && insp.result?.message) {
+          // case-level failure (not infra): a dialog blocking before step 1
+          // means declared preconditions are unmet — fail the run with the
+          // dialog NAMED; steps never execute (skip rows, finally still owns
+          // terminal bookkeeping — no early return past the claims).
+          const what = insp.result?.message ?? 'unknown system dialog';
+          runStatus = 'failed';
+          deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run(`blocked by system dialog: ${what}`, runId);
+          for (const st of execSteps) {
+            insStep.run(runId, st.idx, st.flow ?? t.name, stepName(st), 'skip', 'blocked by system dialog (not reached)', Date.now(), 0, '[]', null);
+          }
+          skipAllSteps = true;
+        }
+      }
       deps.bus.emit('run.phase', { runId, phase: 'steps' });
       // cross-device scaling (flaw #6): scale recorded coords by target/recorded
       // logical dims — applied only to steps WITHOUT a usable selector.
@@ -429,7 +472,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       const scaleX = targetW && t.logical_w && t.logical_w > 0 ? targetW / t.logical_w : 1;
       const scaleY = targetH && t.logical_h && t.logical_h > 0 ? targetH / t.logical_h : 1;
 
-      for (let si = 0; si < execSteps.length; si++) {
+      for (let si = 0; !skipAllSteps && si < execSteps.length; si++) {
         const s = execSteps[si]!;
         const t0 = Date.now();
         // B2: operator abort — checked between steps; remaining steps skipped,
@@ -441,6 +484,18 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
         // the panel's running highlight: this step is executing NOW (the
         // matching step.finished fires at the write, after dispatch settles)
         deps.bus.emit('step.started', { runId, idx: s.idx, flow: s.flow ?? t.name, name: stepName(s) });
+        // setup when-guard: one snapshot, existence check (not uniqueness).
+        // Absent element = no-op skip. Guard runs BEFORE any dispatch — fast.
+        if (s.when !== undefined) {
+          const guard = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
+            | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
+          const guardNodes = guard.ok ? (guard.result.nodes ?? []) : [];
+          const shown = countMatches(guardNodes, { labelContains: s.when, ignoreCase: true }) > 0;
+          if (!shown) {
+            insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'skip', `when not shown: ${s.when}`, t0, Date.now() - t0, '[]', null);
+            continue;
+          }
+        }
         // env substitution (A1): resolve ${env.KEY} BEFORE dispatch — a missing
         // key fails the step deterministically; never type a half-resolved
         // string. Even optional steps hard-fail on missing env: a missing
@@ -649,7 +704,26 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               if (post.ok) screenChanged = hierarchySig(post.result.nodes ?? []) !== sigBefore;
             } catch { /* best-effort */ }
           }
-          const warnReason = screenChanged === false ? 'tap produced no screen change (wrong target or non-navigational tap?)' : null;
+          let warnReason = screenChanged === false ? 'tap produced no screen change (wrong target or non-navigational tap?)' : null;
+          // Interceptor trigger #2 (async dialogs): a no-change tap while a
+          // system dialog is up means the tap went into the void behind it.
+          // Correlate before warn-passing — dialog present = named fail.
+          if (screenChanged === false) {
+            try {
+              const dlg = (await alloy.dispatch('alloy_alert', { udid, action: 'inspect' }, deps.dispatchDeps)) as
+                | { ok: true; result: { message?: string } } | { ok: false };
+              if (dlg.ok && dlg.result?.message) {
+                const what = dlg.result?.message ?? 'unknown system dialog';
+                runStatus = 'failed';
+                deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run(`blocked by system dialog: ${what}`, runId);
+                insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', `blocked by system dialog: ${what}`, t0, Date.now() - t0, '[]', JSON.stringify(resolved));
+                for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
+                  insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null);
+                }
+                break;
+              }
+            } catch { /* inspect failure never blocks the run */ }
+          }
           // 'selector-point-scaled' folds into 'selector' for the audit trail —
           // the scale factors already live in evaluated_json's scale context
           const resolvedByOut = resolvedBy === 'selector-point-scaled' ? 'selector' : resolvedBy;

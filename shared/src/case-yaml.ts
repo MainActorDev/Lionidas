@@ -23,11 +23,16 @@ export interface YamlStep {
   selector?: YamlSelector;
   templateId?: string;
   flow?: string;
+  /** setup-only guard: run this step only if a label containing this fragment
+   *  is visible (existence, not uniqueness). Absent element → no-op skip. */
+  when?: string;
 }
 export interface YamlCase {
   name: string;
   tags: string[];
   app?: string;
+  /** Declared preconditions — guarded steps that no-op when already satisfied */
+  setup?: YamlStep[];
   steps: YamlStep[];
 }
 
@@ -89,28 +94,56 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
   // app
   const app = typeof c['app'] === 'string' ? (c['app'] as string).trim() : undefined;
 
+  // setup (declared preconditions) — parsed by the same step machinery
+  let setupOut: YamlStep[] | undefined;
+  if (c['setup'] !== undefined) {
+    if (!Array.isArray(c['setup']) || (c['setup'] as unknown[]).length === 0) {
+      errors.push({ line: 1, message: 'setup, when present, needs at least one step — remove the key if the case has no preconditions' });
+    } else {
+      const r = parseStepList(c['setup'] as unknown[], 'setup', i => `setup step ${i + 1}`, errors);
+      setupOut = r.steps;
+    }
+  }
+
   // steps
   const stepsOut: YamlStep[] = [];
   const runFlowNames: string[] = [];
   if (!Array.isArray(c['steps']) || (c['steps'] as unknown[]).length === 0) {
     errors.push({ line: 1, message: 'steps is required and must be a non-empty list — a case must do something' });
   } else {
-    const steps = c['steps'] as unknown[];
+    const r = parseStepList(c['steps'] as unknown[], 'steps', i => `step ${i + 1}`, errors);
+    stepsOut.push(...r.steps);
+    runFlowNames.push(...r.names);
+  }
+  if (errors.length > 0) return { ok: false, case: null, errors, runFlowNames };
+  return { ok: true, case: { name, tags, ...(app ? { app } : {}), ...(setupOut ? { setup: setupOut } : {}), steps: stepsOut }, errors: [], runFlowNames };
+}
+
+/** One step list (steps: or setup:) → validated steps + runFlow name refs.
+ *  section names the list for error prefixing and gates setup-only rules. */
+function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i: number) => string, errors: YamlError[]): { steps: YamlStep[]; names: string[] } {
+  const stepsOut: YamlStep[] = [];
+  const runFlowNames: string[] = [];
+  {
     for (let i = 0; i < steps.length; i++) {
       const raw = steps[i];
       if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-        errors.push({ line: 1, message: `step ${i + 1} must be a mapping (- tap: …)` });
+        errors.push({ line: 1, message: `${prefix(i)} must be a mapping (- tap: …)` });
         continue;
       }
       const s = raw as Record<string, unknown>;
       const keys = Object.keys(s);
       if (keys.length !== 1) {
-        errors.push({ line: 1, message: `step ${i + 1}: exactly one action key expected, got [${keys.join(', ')}]` });
+        if (keys.length === 2 && keys.includes('when')) {
+          errors.push({ line: 1, message: `${prefix(i)}: when only guards tap/type/expect — it cannot ride on a scalar action` });
+          continue;
+        }
+        errors.push({ line: 1, message: `${prefix(i)}: exactly one action key expected, got [${keys.join(', ')}]` });
         continue;
       }
       const action = keys[0]!;
       if (!ACTIONS.has(action)) {
-        errors.push({ line: 1, message: `step ${i + 1}: unknown action "${action}" (expected tap|scroll|type|runFlow|expect)` });
+        errors.push({ line: 1, message: `${prefix(i)}: unknown action "${action}" (expected tap|scroll|type|runFlow|expect)` });
         continue;
       }
       const body = s[action];
@@ -120,17 +153,17 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
         const contains = b['contains'];
         const rawIc = b['ignoreCase'];
         if (rawIc !== undefined && rawIc !== true && rawIc !== false) {
-          errors.push({ line: 1, message: `step ${i + 1}: ignoreCase must be true or false (got ${JSON.stringify(rawIc)})` });
+          errors.push({ line: 1, message: `${prefix(i)}: ignoreCase must be true or false (got ${JSON.stringify(rawIc)})` });
           return undefined;
         }
         const ignoreCase = rawIc === true; // false normalizes away
         if (on !== undefined && contains !== undefined) {
-          errors.push({ line: 1, message: `step ${i + 1}: 'on' and 'contains' are mutually exclusive — one target per step` });
+          errors.push({ line: 1, message: `${prefix(i)}: 'on' and 'contains' are mutually exclusive — one target per step` });
           return undefined;
         }
         if (contains !== undefined) {
           if (typeof contains !== 'string' || !contains.trim()) {
-            errors.push({ line: 1, message: `step ${i + 1}: 'contains' needs a non-empty fragment` });
+            errors.push({ line: 1, message: `${prefix(i)}: 'contains' needs a non-empty fragment` });
             return undefined;
           }
           return { labelContains: contains.trim(), ...(ignoreCase ? { ignoreCase: true } : {}) };
@@ -139,7 +172,7 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
           // identifier iff it looks like an asset id: lowercase snake_case
           // (ic_barcode, ic_tabbar_home) — anything human-readable is a label
           if (/^[a-z][a-z0-9_]*$/.test(on)) {
-            if (ignoreCase) errors.push({ line: 1, message: `step ${i + 1}: ignoreCase never applies to identifiers (asset ids are exact); use 'contains' or a label` });
+            if (ignoreCase) errors.push({ line: 1, message: `${prefix(i)}: ignoreCase never applies to identifiers (asset ids are exact); use 'contains' or a label` });
             return { identifier: on };
           }
           return { label: on, ...(ignoreCase ? { ignoreCase: true } : {}) };
@@ -149,13 +182,21 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
 
       if (action === 'scroll') {
         if (typeof body !== 'string' || !DIRECTIONS.has(body)) {
-          errors.push({ line: 1, message: `step ${i + 1}: scroll needs a direction (up|down|left|right)` });
+          errors.push({ line: 1, message: `${prefix(i)}: scroll needs a direction (up|down|left|right)` });
+          continue;
+        }
+        // scroll bodies are scalars; a when: key at the step level is a sibling
+        // of the action key — reject it explicitly (when only guards mapped steps)
+        const whenSibling = Object.entries(s).find(([k]) => k !== action && k === 'when');
+        if (whenSibling) {
+          errors.push({ line: 1, message: `${prefix(i)}: when only guards tap/type/expect (got scroll)` });
           continue;
         }
         stepsOut.push({ idx: stepsOut.length, action: 'scroll', direction: body as 'up' | 'down' | 'left' | 'right' });
         continue;
       }
       if (action === 'runFlow') {
+        if (section === 'setup') { errors.push({ line: 1, message: `${prefix(i)}: runFlow is not allowed in setup — compose setup INTO cases instead` }); continue; }
         // scalar = template NAME (resolved by the server route); {id:}/ {name:}
         let ref: string | undefined;
         let refKind: 'name' | 'id' = 'name';
@@ -166,7 +207,7 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
           else if (typeof b['id'] === 'string') { ref = (b['id'] as string).trim(); refKind = 'id'; }
         if (b['optional'] === true) stepsOut.push({ idx: stepsOut.length, action: 'runFlow', templateId: ref as string, optional: true });
         }
-        if (!ref) { errors.push({ line: 1, message: `step ${i + 1}: runFlow needs a template name or id` }); continue; }
+        if (!ref) { errors.push({ line: 1, message: `${prefix(i)}: runFlow needs a template name or id` }); continue; }
         if (stepsOut[stepsOut.length - 1]?.action === 'runFlow') { /* already pushed with optional */ }
         else stepsOut.push({ idx: stepsOut.length, action: 'runFlow', templateId: ref });
         if (refKind === 'name') runFlowNames.push(ref);
@@ -178,13 +219,13 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
           stepsOut.push({ idx: stepsOut.length, action: 'expect', selector: { label: body.trim() } });
           continue;
         }
-        errors.push({ line: 1, message: `step ${i + 1}: ${action} needs a mapping (or a plain label for expect)` });
+        errors.push({ line: 1, message: `${prefix(i)}: ${action} needs a mapping (or a plain label for expect)` });
         continue;
       }
       const b = body as Record<string, unknown>;
       for (const bk of Object.keys(b)) {
-        if (!['point', 'on', 'text', 'optional', 'id', 'name', 'contains', 'ignoreCase'].includes(bk)) {
-          errors.push({ line: 1, message: `step ${i + 1}: unknown key "${bk}" in ${action} — did you mean optional/on/point/text?` });
+        if (!['point', 'on', 'text', 'optional', 'id', 'name', 'contains', 'ignoreCase', 'when'].includes(bk)) {
+          errors.push({ line: 1, message: `${prefix(i)}: unknown key "${bk}" in ${action} — did you mean optional/on/point/text?` });
         }
       }
       if (action === 'tap' || action === 'type') {
@@ -194,36 +235,72 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
           step.x = point[0]; step.y = point[1];
         } else if (action === 'tap' || !sel(b)) {
           // tap always needs coordinates; type may be selector-only (on:)
-          errors.push({ line: 1, message: `step ${i + 1}: ${action} needs point: [x, y]` });
+          errors.push({ line: 1, message: `${prefix(i)}: ${action} needs point: [x, y]` });
           continue;
         }
         if (action === 'type') {
-          if (typeof b['text'] !== 'string' || !b['text']) { errors.push({ line: 1, message: `step ${i + 1}: type needs text: <string>` }); continue; }
+          if (typeof b['text'] !== 'string' || !b['text']) { errors.push({ line: 1, message: `${prefix(i)}: type needs text: <string>` }); continue; }
           step.text = b['text'];
         }
         const sl = sel(b);
         if (sl) step.selector = sl;
         if (opt(b)) step.optional = true;
+        attachWhen(step, b, section, prefix, i, errors);
         stepsOut.push(step);
         continue;
       }
       // expect
       const sl = sel(b);
-      if (!sl) { errors.push({ line: 1, message: `step ${i + 1}: expect needs on: <label or id>` }); continue; }
-      stepsOut.push({ idx: stepsOut.length, action: 'expect', selector: sl, ...(opt(b) ? { optional: true } : {}) });
+      if (!sl) { errors.push({ line: 1, message: `${prefix(i)}: expect needs on: <label or id>` }); continue; }
+      const es: YamlStep = { idx: stepsOut.length, action: 'expect', selector: sl, ...(opt(b) ? { optional: true } : {}) };
+      attachWhen(es, b, section, prefix, i, errors);
+      stepsOut.push(es);
     }
   }
-  if (errors.length > 0) return { ok: false, case: null, errors, runFlowNames };
-  return { ok: true, case: { name, tags, ...(app ? { app } : {}), steps: stepsOut }, errors: [], runFlowNames };
+  return { steps: stepsOut, names: runFlowNames };
+}
+
+/** when-guard: setup-only, tap/type/expect only, non-empty string. */
+function attachWhen(step: YamlStep, b: Record<string, unknown>, section: 'setup' | 'steps', prefix: (i: number) => string, i: number, errors: YamlError[]): void {
+  const w = b['when'];
+  if (w === undefined) return;
+  if (section === 'steps') {
+    errors.push({ line: 1, message: `${prefix(i)}: when is a setup-only guard — steps always run` });
+    return;
+  }
+  if (typeof w !== 'string' || !w.trim()) {
+    errors.push({ line: 1, message: `${prefix(i)}: when needs a non-empty label fragment` });
+    return;
+  }
+  if (step.action === 'scroll' || step.action === 'runFlow') {
+    errors.push({ line: 1, message: `${prefix(i)}: when only guards tap/type/expect (got ${step.action})` });
+    return;
+  }
+  step.when = w.trim();
 }
 
 /** steps_json rows → YAML text. Stable field order, guidance comments. */
-export function caseToYaml(t: { name: string; tags: string[]; app?: string | null; steps: unknown[] }): string {
+export function caseToYaml(t: { name: string; tags: string[]; app?: string | null; setup?: unknown[]; steps: unknown[] }): string {
   const lines: string[] = [];
   lines.push(`# ${t.name} — edit as yaml; save validates against the step schema`);
   lines.push(`name: ${yamlScalar(t.name)}`);
   if (t.tags.length > 0) lines.push(`tags: [${t.tags.map((x) => yamlScalar(x)).join(', ')}]`);
   if (t.app) lines.push(`app: ${yamlScalar(t.app)}`);
+  if (Array.isArray(t.setup) && t.setup.length > 0) {
+    lines.push('setup:');
+    for (const raw of t.setup) {
+      const s = raw as Record<string, unknown>;
+      const action = s['action'] as string;
+      // reuse the same emitters below via a sub-call: simplest is to serialize
+      // setup steps with the identical code path — build a temp case and strip
+      const sub = caseToYaml({ name: t.name, tags: [], steps: [raw] });
+      for (const l of sub.split('\n')) {
+        if (l.startsWith('steps:')) continue;
+        if (l.startsWith('#') || l.startsWith('name:') || l.startsWith('tags:') || l.startsWith('app:')) continue;
+        if (l.trim()) lines.push(l);
+      }
+    }
+  }
   lines.push('steps:');
   for (const raw of t.steps) {
     const s = raw as Record<string, unknown>;
@@ -242,13 +319,14 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
     };
     const icSuffix = (sel: unknown): string => ((sel as YamlSelector | undefined)?.ignoreCase === true ? ', ignoreCase: true' : '');
     const optSuffix = (o: unknown): string => (o === true ? ', optional: true' : '');
+    const whenSuffix = (w: unknown): string => (typeof w === 'string' && w ? `, when: ${yamlScalar(w)}` : '');
     if (action === 'tap') {
-      lines.push(`  - tap: { point: [${s['x']}, ${s['y']}]${on(s['selector']) ? `, ${on(s['selector'])!}` : ''}${icSuffix(s['selector'])}${optSuffix(s['optional'])} }`);
+      lines.push(`  - tap: { point: [${s['x']}, ${s['y']}]${on(s['selector']) ? `, ${on(s['selector'])!}` : ''}${icSuffix(s['selector'])}${optSuffix(s['optional'])}${whenSuffix(s['when'])} }`);
     } else if (action === 'scroll') {
       lines.push(`  - scroll: ${s['direction']}`);
     } else if (action === 'type') {
       const pt = s['x'] !== undefined && s['y'] !== undefined ? `point: [${s['x']}, ${s['y']}], ` : '';
-      lines.push(`  - type: { ${pt}text: ${yamlScalar(String(s['text'] ?? ''))}${on(s['selector']) ? `, ${on(s['selector'])!}` : ''}${icSuffix(s['selector'])}${optSuffix(s['optional'])} }`);
+      lines.push(`  - type: { ${pt}text: ${yamlScalar(String(s['text'] ?? ''))}${on(s['selector']) ? `, ${on(s['selector'])!}` : ''}${icSuffix(s['selector'])}${optSuffix(s['optional'])}${whenSuffix(s['when'])} }`);
     } else if (action === 'runFlow') {
       lines.push(`  - runFlow: { name: ${yamlScalar(String(s['templateId'] ?? ''))}${optSuffix(s['optional'])} }`);
     } else if (action === 'expect') {

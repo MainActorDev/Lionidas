@@ -201,3 +201,82 @@ describe('contains: + ignoreCase: keys', () => {
     expect(back.case!.steps[3]).toMatchObject({ selector: { labelContains: 'Log in' } });
   });
 });
+
+describe('setup section + when guard (declared preconditions)', () => {
+  const SETUP_CASE = `name: privacy drill
+setup:
+  - tap: { point: [196, 780], on: Continue, when: Continue }
+steps:
+  - expect: Beranda
+`;
+
+  it('parses setup: with when-guard into case.setup', () => {
+    const r = parseCaseYaml(SETUP_CASE);
+    expect(r.ok).toBe(true);
+    expect(r.case!.setup).toHaveLength(1);
+    expect(r.case!.setup![0]).toMatchObject({ action: 'tap', x: 196, y: 780, selector: { label: 'Continue' }, when: 'Continue' });
+    expect(r.case!.steps).toHaveLength(1);
+  });
+
+  it('when: inside steps: is an error (setup-only guard)', () => {
+    const r = parseCaseYaml(`name: x
+steps:
+  - tap: { point: [1, 2], when: Continue }
+`);
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('when is a setup-only guard'))).toBe(true);
+  });
+
+  it('empty setup: is an error', () => {
+    const r = parseCaseYaml(`name: x
+setup: []
+steps:
+  - expect: Beranda
+`);
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('setup, when present, needs at least one step'))).toBe(true);
+  });
+
+  it('when: on scroll/runFlow setup steps is an error', () => {
+    const r = parseCaseYaml(`name: x
+setup:
+  - scroll: down
+    when: Continue
+steps:
+  - expect: Beranda
+`);
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('when only guards tap/type/expect'))).toBe(true);
+  });
+
+  it('runFlow inside setup is an error', () => {
+    const r = parseCaseYaml(`name: x
+setup:
+  - runFlow: onboarding
+steps:
+  - expect: Beranda
+`);
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('runFlow is not allowed in setup'))).toBe(true);
+  });
+
+  it('round-trips setup + when through caseToYaml', () => {
+    const r = parseCaseYaml(SETUP_CASE);
+    const y = caseToYaml(r.case! as never);
+    const back = parseCaseYaml(y);
+    expect(back.ok).toBe(true);
+    expect(back.case!.setup).toHaveLength(1);
+    expect(back.case!.setup![0]).toMatchObject({ when: 'Continue' });
+  });
+
+  it('unknown key inside a setup step errors', () => {
+    const r = parseCaseYaml(`name: x
+setup:
+  - tap: { point: [1, 2], whne: oops }
+steps:
+  - expect: Beranda
+`);
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('unknown key "whne"'))).toBe(true);
+  });
+});

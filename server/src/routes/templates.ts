@@ -17,6 +17,7 @@ interface TemplateRow {
   logical_w: number | null;
   logical_h: number | null;
   steps_json: string;
+  setup_json: string | null;
   default_preset_id: string | null;
   app_bundle_id: string | null;
   app_name: string | null;
@@ -55,6 +56,7 @@ function rowToTemplate(r: TemplateRow): Record<string, unknown> {
     logicalW: r.logical_w,
     logicalH: r.logical_h,
     steps: JSON.parse(r.steps_json) as unknown[],
+    ...(r.setup_json ? { setup: JSON.parse(r.setup_json) as unknown[] } : {}),
     defaultPresetId: r.default_preset_id,
     appBundleId: r.app_bundle_id,
     appName: r.app_name,
@@ -175,13 +177,13 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
 
   app.patch('/api/templates/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const b = req.body as { name?: string; description?: string | null; ticketKey?: string | null; defaultPresetId?: string | null; steps?: unknown[]; tags?: string[]; appBundleId?: string | null };
+    const b = req.body as { name?: string; description?: string | null; ticketKey?: string | null; defaultPresetId?: string | null; steps?: unknown[]; setup?: unknown[] | null; tags?: string[]; appBundleId?: string | null };
     const row = db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
     if (b.name !== undefined && !b.name.trim()) return reply.code(400).send({ error: 'name cannot be empty' });
     db.prepare(
       `UPDATE templates SET
-         name = ?, description = ?, ticket_key = ?, default_preset_id = ?, steps_json = ?, tags_json = ?, app_bundle_id = ?, updated_at = ?
+         name = ?, description = ?, ticket_key = ?, default_preset_id = ?, steps_json = ?, setup_json = ?, tags_json = ?, app_bundle_id = ?, updated_at = ?
        WHERE id = ?`,
     ).run(
       b.name !== undefined ? b.name.trim() : row.name,
@@ -189,6 +191,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       b.ticketKey !== undefined ? b.ticketKey : row.ticket_key,
       b.defaultPresetId !== undefined ? b.defaultPresetId : row.default_preset_id,
       b.steps !== undefined ? JSON.stringify(b.steps) : row.steps_json,
+      b.setup !== undefined ? (b.setup === null ? null : JSON.stringify(b.setup)) : row.setup_json,
       b.tags !== undefined ? tagsToJson(b.tags) : row.tags_json,
       b.appBundleId !== undefined ? b.appBundleId : row.app_bundle_id,
       Date.now(),
@@ -276,12 +279,15 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
         if (child) id2name.set(s['templateId'] as string, child.name);
       }
     }
+    const setup = row.setup_json ? JSON.parse(row.setup_json) as Array<Record<string, unknown>> : undefined;
+    const withNames = (arr: Array<Record<string, unknown>>) => arr.map((s) => (s['action'] === 'runFlow' && id2name.has(s['templateId'] as string)
+      ? { ...s, templateId: id2name.get(s['templateId'] as string) }
+      : s));
     const yaml = caseToYaml({
       name: row.name,
       tags: (JSON.parse(row.tags_json ?? '[]') as string[]),
-      steps: steps.map((s) => (s['action'] === 'runFlow' && id2name.has(s['templateId'] as string)
-        ? { ...s, templateId: id2name.get(s['templateId'] as string) }
-        : s)),
+      steps: withNames(steps),
+      ...(setup && setup.length > 0 ? { setup: withNames(setup) } : {}),
       ...(row.app_bundle_id ? { app: row.app_bundle_id } : {}),
     });
     return { yaml, logicalW: row.logical_w, logicalH: row.logical_h };
@@ -300,7 +306,8 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     if (!r.ok || !r.case) return reply.code(422).send({ errors: r.errors });
     // resolve runFlow names → ids. templates.name is UNIQUE (schema), so a
     // name resolves to exactly one case or none — ambiguity is impossible.
-    for (const s of r.case.steps) {
+    const allSteps = [...(r.case.setup ?? []), ...r.case.steps];
+    for (const s of allSteps) {
       if (s.action !== 'runFlow') continue;
       const ref = s.templateId ?? '';
       if (/^tpl_[0-9a-f]+$/.test(ref)) continue; // already an id
@@ -314,8 +321,8 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       if (clash) return reply.code(409).send({ errors: [{ line: 1, message: `a case named "${r.case.name}" already exists` }] });
     }
     db.prepare(
-      `UPDATE templates SET name = ?, steps_json = ?, tags_json = ?, app_bundle_id = COALESCE(?, app_bundle_id), updated_at = ? WHERE id = ?`,
-    ).run(r.case.name, JSON.stringify(r.case.steps), tagsToJson(r.case.tags), r.case.app ?? null, Date.now(), id);
+      `UPDATE templates SET name = ?, steps_json = ?, setup_json = ?, tags_json = ?, app_bundle_id = COALESCE(?, app_bundle_id), updated_at = ? WHERE id = ?`,
+    ).run(r.case.name, JSON.stringify(r.case.steps), r.case.setup ? JSON.stringify(r.case.setup) : null, tagsToJson(r.case.tags), r.case.app ?? null, Date.now(), id);
     return rowToTemplate(db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow);
   });
 }

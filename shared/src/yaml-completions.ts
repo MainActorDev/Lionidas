@@ -27,9 +27,9 @@ export interface VocabCompletion {
 
 /** Body keys legal per action (mirrors the parser whitelist). */
 const BODY_KEYS: Record<string, string[]> = {
-  tap: ['point', 'on', 'contains', 'ignoreCase', 'optional'],
-  type: ['point', 'text', 'on', 'contains', 'ignoreCase', 'optional'],
-  expect: ['on', 'contains', 'ignoreCase', 'optional'],
+  tap: ['point', 'on', 'contains', 'ignoreCase', 'optional', 'when'],
+  type: ['point', 'text', 'on', 'contains', 'ignoreCase', 'optional', 'when'],
+  expect: ['on', 'contains', 'ignoreCase', 'optional', 'when'],
   runFlow: ['name', 'optional'],
 };
 
@@ -41,6 +41,7 @@ export function buildCompletions(slot: YamlSlot, vocab: EditorVocabulary, _typed
         { label: 'tags', detail: 'list of tags for filtering', apply: 'tags: []', type: 'keyword' },
         { label: 'app', detail: 'bundle id this case runs against', apply: 'app: ', type: 'keyword' },
         { label: 'steps', detail: 'the recorded steps', apply: 'steps:\n  - ', type: 'keyword' },
+        { label: 'setup', detail: 'declared preconditions — guarded steps that no-op when already satisfied', apply: 'setup:\n  - tap: { point: [0, 0], on: \'\', when: \'\' }\nsteps:\n  - ', type: 'keyword' },
       ];
     case 'step-action':
       return [
@@ -58,6 +59,7 @@ export function buildCompletions(slot: YamlSlot, vocab: EditorVocabulary, _typed
         point: '[x, y] logical coordinates', on: 'element label or asset id', optional: 'true — a miss skips instead of failing',
         text: 'text to type', name: 'case name to run',
         contains: 'label CONTAINS this text (contains-mode matching)', ignoreCase: 'true — capitalization stops mattering for label matches',
+        when: 'setup-only guard — skip this step unless this label fragment is visible',
       };
       return keys.map((k): VocabCompletion => ({ label: k, detail: hints[k]!, apply: `${k}: `, type: 'keyword' }));
     }

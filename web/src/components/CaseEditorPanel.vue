@@ -46,7 +46,7 @@ const outlineStale = ref(false);
 
 const STEP_LABEL: Record<string, string> = { tap: 'tap', scroll: 'scroll', type: 'type', runFlow: 'flow', expect: 'expect' };
 
-function outlineFromSteps(steps: Array<Record<string, unknown>>): OutlineStep[] {
+function outlineFromSteps(steps: Array<Record<string, unknown>>, group: '' | 'setup' = ''): OutlineStep[] {
   return steps.map((s, i) => {
     const kind = String(s['action'] ?? '?');
     const sel = s['selector'] as { label?: string; identifier?: string; labelContains?: string } | undefined;
@@ -56,7 +56,8 @@ function outlineFromSteps(steps: Array<Record<string, unknown>>): OutlineStep[] 
     else if (kind === 'type') detail = String(s['text'] ?? '');
     else if (kind === 'runFlow') detail = String(s['templateId'] ?? '?');
     else if (kind === 'expect') detail = sel?.labelContains !== undefined ? `contains: ${sel.labelContains}` : sel?.label ?? sel?.identifier ?? '?';
-    return { idx: i + 1, kind: STEP_LABEL[kind] ?? kind, detail, soft: s['optional'] === true };
+    const when = typeof s['when'] === 'string' ? ` (when: ${s['when']})` : '';
+    return { idx: group === 'setup' ? i + 1 : i + 1, kind: group ? `${group}.${STEP_LABEL[kind] ?? kind}` : STEP_LABEL[kind] ?? kind, detail: detail + when, soft: s['optional'] === true };
   });
 }
 
@@ -67,7 +68,8 @@ function reparse(): void {
     const text = ed.getValue();
     const r = parseCaseYaml(text);
     if (r.ok && r.case) {
-      outline.value = outlineFromSteps(r.case.steps as unknown as Array<Record<string, unknown>>);
+      const setupRows = r.case.setup ? outlineFromSteps(r.case.setup as unknown as Array<Record<string, unknown>>, 'setup') : [];
+      outline.value = [...setupRows, ...outlineFromSteps(r.case.steps as unknown as Array<Record<string, unknown>>)];
       outlineStale.value = false;
       errors.value = [];
     } else {

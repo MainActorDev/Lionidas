@@ -15,7 +15,7 @@ const vocab: EditorVocabulary = {
 describe('buildCompletions', () => {
   it('top-key offers the four top-level keys with detail text', () => {
     const cs = buildCompletions('top-key', vocab, '');
-    expect(cs.map((c) => c.label)).toEqual(['name', 'tags', 'app', 'steps']);
+    expect(cs.map((c) => c.label)).toEqual(['name', 'tags', 'app', 'steps', 'setup']);
     expect(cs.every((c) => c.detail)).toBe(true);
   });
 
@@ -32,19 +32,19 @@ describe('buildCompletions', () => {
   });
 
   it('body-key for tap offers point/on/contains/ignoreCase/optional (no text)', () => {
-    expect(buildCompletions('body-key', vocab, '', 'tap').map((c) => c.label)).toEqual(['point', 'on', 'contains', 'ignoreCase', 'optional']);
+    expect(buildCompletions('body-key', vocab, '', 'tap').map((c) => c.label)).toEqual(['point', 'on', 'contains', 'ignoreCase', 'optional', 'when']);
   });
   it('body-key for type adds text', () => {
-    expect(buildCompletions('body-key', vocab, '', 'type').map((c) => c.label)).toEqual(['point', 'text', 'on', 'contains', 'ignoreCase', 'optional']);
+    expect(buildCompletions('body-key', vocab, '', 'type').map((c) => c.label)).toEqual(['point', 'text', 'on', 'contains', 'ignoreCase', 'optional', 'when']);
   });
   it('body-key for expect offers on/contains/ignoreCase/optional', () => {
-    expect(buildCompletions('body-key', vocab, '', 'expect').map((c) => c.label)).toEqual(['on', 'contains', 'ignoreCase', 'optional']);
+    expect(buildCompletions('body-key', vocab, '', 'expect').map((c) => c.label)).toEqual(['on', 'contains', 'ignoreCase', 'optional', 'when']);
   });
   it('body-key for runFlow offers name/optional only', () => {
     expect(buildCompletions('body-key', vocab, '', 'runFlow').map((c) => c.label)).toEqual(['name', 'optional']);
   });
   it('body-key without action defaults to the tap set (safest common case)', () => {
-    expect(buildCompletions('body-key', vocab, '').map((c) => c.label)).toEqual(['point', 'on', 'contains', 'ignoreCase', 'optional']);
+    expect(buildCompletions('body-key', vocab, '').map((c) => c.label)).toEqual(['point', 'on', 'contains', 'ignoreCase', 'optional', 'when']);
   });
 
   it('on-value: label = raw value, apply = yamlQuote(value), detail carries kind + uses + cases', () => {
