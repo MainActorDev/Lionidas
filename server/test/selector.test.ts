@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { captureSelectorAt, resolveSelector, countMatches } from '../src/manual/selector.ts';
+import { captureSelectorAt, resolveSelector, countMatches, matchesSelector, selectorLabel, type StepSelector, type SnapNode } from '../src/manual/selector.ts';
 
 const NODES = [
   { index: 0, type: 'Application', label: 'Lion Parcel', rect: { x: 0, y: 0, width: 428, height: 926 } },
@@ -82,5 +82,78 @@ describe('countMatches (expect assertions)', () => {
   it('single node counts 1; zero counts 0', () => {
     expect(countMatches([{ type: 'StaticText', label: 'A', rect: { x: 1, y: 1, width: 5, height: 5 } }], { label: 'A' })).toBe(1);
     expect(countMatches([], { label: 'A' })).toBe(0);
+  });
+});
+
+describe('matchesSelector — labelContains (contains: mode)', () => {
+  // distinct origins per label — countMatches dedups by rect origin, so a
+  // shared (1,1) fixture would wrongly collapse distinct headings
+  let seq = 0;
+  const node = (label: string): SnapNode => ({ type: 'StaticText', label, rect: { x: 1, y: 1 + seq++ * 100, width: 5, height: 5 } });
+
+  it('contains matches substring, case-sensitive', () => {
+    expect(matchesSelector(node('II. DATA COLLECTION'), { labelContains: 'DATA COLLECTION' })).toBe(true);
+    expect(matchesSelector(node('II. DATA COLLECTION'), { labelContains: 'II. DATA' })).toBe(true);
+    expect(matchesSelector(node('II. Data Collection'), { labelContains: 'DATA COLLECTION' })).toBe(false);
+    expect(matchesSelector(node('DATA COLLECTION'), { labelContains: 'data collection' })).toBe(false);
+  });
+  it('contains composes with countMatches dedup: two same-rect exposures of one heading count 1', () => {
+    const nodes = [
+      { type: 'StaticText', label: 'II. DATA COLLECTION', rect: { x: 1, y: 1, width: 5, height: 5 } },
+      { type: 'Other', label: 'II. DATA COLLECTION', rect: { x: 1, y: 1, width: 9, height: 9 } },  // same origin → dedup
+      { type: 'StaticText', label: 'III. DATA MANAGEMENT', rect: { x: 1, y: 300, width: 5, height: 5 } },
+    ];
+    expect(countMatches(nodes, { labelContains: 'DATA' })).toBe(2);
+  });
+  it('contains still requires uniqueness — honest counts', () => {
+    const nodes = [
+      { type: 'StaticText', label: 'DATA COLLECTION', rect: { x: 1, y: 1, width: 5, height: 5 } },
+      { type: 'StaticText', label: 'DATA MANAGEMENT, USE & DISCLOSURE', rect: { x: 1, y: 200, width: 5, height: 5 } },
+    ];
+    expect(countMatches(nodes, { labelContains: 'DATA' })).toBe(2);
+    expect(countMatches(nodes, { labelContains: 'COLLECTION' })).toBe(1);
+  });
+  it('labelContains takes precedence when both set (parser never emits both — defensive)', () => {
+    expect(matchesSelector(node('II. DATA COLLECTION'), { labelContains: 'DATA', label: 'nope' } as StepSelector)).toBe(true);
+  });
+  it('exact selectors unchanged (regression)', () => {
+    expect(matchesSelector(node('Beranda'), { label: 'Beranda' })).toBe(true);
+    expect(matchesSelector(node('Beranda'), { label: 'Beranda ' })).toBe(false);
+  });
+});
+
+describe('matchesSelector — ignoreCase', () => {
+  const node = (label: string): SnapNode => ({ type: 'StaticText', label, rect: { x: 1, y: 1, width: 5, height: 5 } });
+
+  it('ignoreCase composes with EXACT label matching', () => {
+    expect(matchesSelector(node('Beranda'), { label: 'BERANDA', ignoreCase: true })).toBe(true);
+    expect(matchesSelector(node('BERANDA'), { label: 'beranda', ignoreCase: true })).toBe(true);
+    expect(matchesSelector(node('Beranda'), { label: 'BERANDA' })).toBe(false);
+  });
+  it('ignoreCase composes with CONTAINS matching', () => {
+    expect(matchesSelector(node('II. Data Collection'), { labelContains: 'DATA COLLECTION', ignoreCase: true })).toBe(true);
+    expect(matchesSelector(node('II. Data Collection'), { labelContains: 'data collection', ignoreCase: true })).toBe(true);
+    expect(matchesSelector(node('II. Data Collection'), { labelContains: 'data collection' })).toBe(false);
+  });
+  it('ignoreCase NEVER applies to identifiers', () => {
+    const ic: SnapNode = { type: 'Image', identifier: 'ic_Barcode', rect: { x: 1, y: 1, width: 5, height: 5 } };
+    expect(matchesSelector(ic, { identifier: 'ic_barcode', ignoreCase: true })).toBe(false);
+    expect(matchesSelector(ic, { identifier: 'ic_Barcode', ignoreCase: true })).toBe(true);
+  });
+  it('type matching unaffected by ignoreCase', () => {
+    expect(matchesSelector({ type: 'StaticText', label: 'X', rect: { x: 1, y: 1, width: 5, height: 5 } }, { label: 'X', type: 'statictext', ignoreCase: true })).toBe(false);
+  });
+});
+
+describe('selectorLabel (human rendering)', () => {
+  it('contains marker; plain for exact; ? for empty', () => {
+    expect(selectorLabel({ labelContains: 'DATA' })).toBe('contains: DATA');
+    expect(selectorLabel({ label: 'Beranda' })).toBe('Beranda');
+    expect(selectorLabel({ identifier: 'ic_barcode' })).toBe('ic_barcode');
+    expect(selectorLabel({})).toBe('?');
+  });
+  it('ignoreCase renders as suffix', () => {
+    expect(selectorLabel({ labelContains: 'DATA', ignoreCase: true })).toBe('contains: DATA (ignore case)');
+    expect(selectorLabel({ label: 'Beranda', ignoreCase: true })).toBe('Beranda (ignore case)');
   });
 });

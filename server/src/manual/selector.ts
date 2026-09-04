@@ -1,7 +1,7 @@
 /** A6 element selectors: captured at record time from the live hierarchy,
  *  resolved at playback. Chain: identifier (icons) → label+type (SwiftUI
  *  text) → coordinates (last-resort fallback, scaled cross-device). */
-export interface StepSelector { identifier?: string; label?: string; type?: string }
+export interface StepSelector { identifier?: string; label?: string; labelContains?: string; ignoreCase?: boolean; type?: string }
 
 export interface SnapNode {
   index?: number; parentIndex?: number; type?: string; label?: string;
@@ -54,9 +54,20 @@ function isContainerNode(n: SnapNode): boolean {
  *  nodes (it taps); countMatches counts ALL matches (asserting non-hittable
  *  StaticText content is legitimate). One predicate, two policies. */
 export function matchesSelector(n: SnapNode, sel: StepSelector): boolean {
-  return (sel.identifier === undefined || n.identifier === sel.identifier) &&
-    (sel.label === undefined || n.label === sel.label) &&
-    (sel.type === undefined || n.type === sel.type);
+  if (sel.identifier !== undefined && n.identifier !== sel.identifier) return false;
+  const fold = (s: string): string => (sel.ignoreCase === true ? s.toLowerCase() : s);
+  if (sel.labelContains !== undefined) {
+    if (typeof n.label !== 'string' || !fold(n.label).includes(fold(sel.labelContains))) return false;
+  } else if (sel.label !== undefined && fold(n.label ?? '') !== fold(sel.label)) return false;
+  return sel.type === undefined || n.type === sel.type;
+}
+
+/** Human form of a selector for run steps/reasons: `contains: frag` for
+ *  contains-mode, ` (ignore case)` suffix when the flag is set. ONE rule —
+ *  playback stepName, fail reasons, and RunDetail all render through it. */
+export function selectorLabel(sel: StepSelector): string {
+  const base = sel.labelContains !== undefined ? `contains: ${sel.labelContains}` : sel.label ?? sel.identifier ?? '?';
+  return sel.ignoreCase === true ? `${base} (ignore case)` : base;
 }
 
 /** Existence-assertion counter: how many DISTINCT elements satisfy the
