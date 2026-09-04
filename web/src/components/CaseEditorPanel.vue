@@ -49,13 +49,13 @@ const STEP_LABEL: Record<string, string> = { tap: 'tap', scroll: 'scroll', type:
 function outlineFromSteps(steps: Array<Record<string, unknown>>): OutlineStep[] {
   return steps.map((s, i) => {
     const kind = String(s['action'] ?? '?');
-    const sel = s['selector'] as { label?: string; identifier?: string } | undefined;
+    const sel = s['selector'] as { label?: string; identifier?: string; labelContains?: string } | undefined;
     let detail = '';
     if (kind === 'tap' || kind === 'type') detail = sel?.label ?? sel?.identifier ?? `${s['x']}, ${s['y']}`;
     else if (kind === 'scroll') detail = String(s['direction'] ?? '');
     else if (kind === 'type') detail = String(s['text'] ?? '');
     else if (kind === 'runFlow') detail = String(s['templateId'] ?? '?');
-    else if (kind === 'expect') detail = sel?.label ?? sel?.identifier ?? '?';
+    else if (kind === 'expect') detail = sel?.labelContains !== undefined ? `contains: ${sel.labelContains}` : sel?.label ?? sel?.identifier ?? '?';
     return { idx: i + 1, kind: STEP_LABEL[kind] ?? kind, detail, soft: s['optional'] === true };
   });
 }
