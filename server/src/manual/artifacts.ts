@@ -4,7 +4,7 @@
  *  into the store; the catalog and simctl only ever see store paths.
  *  Store root: dirname(CRUCIBLE_DB_PATH)/apps (CRUCIBLE_APPS_DIR override). */
 import { cpSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { readBundleIdentity } from './apps.ts';
 
 export interface ArtifactInfo {
@@ -15,8 +15,12 @@ export interface ArtifactInfo {
   source: 'build' | 'deriveddata' | 'store';
 }
 
+/** Absolute path — CRUCIBLE_DB_PATH defaults relative ('./crucible.db'), and a
+ *  relative store path leaks into the catalog, the route's prefix check, and
+ *  client POSTs (cwd-dependent breakage; caught live in the UI drill). */
 export function appsStoreDir(): string {
-  return process.env['CRUCIBLE_APPS_DIR'] ?? join(dirname(process.env['CRUCIBLE_DB_PATH'] ?? './crucible.db'), 'apps');
+  const p = process.env['CRUCIBLE_APPS_DIR'] ?? join(dirname(process.env['CRUCIBLE_DB_PATH'] ?? './crucible.db'), 'apps');
+  return resolve(p);
 }
 
 /** Clone a discovered artifact into the store. `cpSync` with
