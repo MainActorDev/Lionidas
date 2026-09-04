@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { captureSelectorAt, resolveSelector } from '../src/manual/selector.ts';
+import { captureSelectorAt, resolveSelector, countMatches } from '../src/manual/selector.ts';
 
 const NODES = [
   { index: 0, type: 'Application', label: 'Lion Parcel', rect: { x: 0, y: 0, width: 428, height: 926 } },
@@ -57,5 +57,30 @@ describe('resolveSelector', () => {
     // tnc-style legacy template: {label:'Lion Parcel', type:'Application'} —
     // resolving it would tap the app-root CENTER, far from the recorded point
     expect(resolveSelector(NODES, { label: 'Lion Parcel', type: 'Application' })).toBeNull();
+  });
+});
+
+describe('countMatches (expect assertions)', () => {
+  it('SwiftUI same-rect duplicate exposure (container + StaticText, identical label+rect) collapses to ONE', () => {
+    const nodes = [
+      { type: 'Other', label: 'II. DATA COLLECTION', rect: { x: 36, y: 378.7, width: 358, height: 47.7 } },
+      { type: 'StaticText', label: 'II. DATA COLLECTION', rect: { x: 36, y: 378.7, width: 358, height: 17 } },
+    ];
+    // live-measured shape from the LP privacy-policy screen: same x/y, the
+    // child height differs — dedup must key on x,y (top-left), not full rect
+    expect(countMatches(nodes, { label: 'II. DATA COLLECTION' })).toBe(1);
+  });
+
+  it('genuinely distinct occurrences at different positions stay ambiguous', () => {
+    const nodes = [
+      { type: 'StaticText', label: 'Lion Parcel Consumer App Privacy Policy', rect: { x: 0, y: 60, width: 300, height: 20 } },
+      { type: 'StaticText', label: 'Lion Parcel Consumer App Privacy Policy', rect: { x: 36, y: 200, width: 300, height: 20 } },
+    ];
+    expect(countMatches(nodes, { label: 'Lion Parcel Consumer App Privacy Policy' })).toBe(2);
+  });
+
+  it('single node counts 1; zero counts 0', () => {
+    expect(countMatches([{ type: 'StaticText', label: 'A', rect: { x: 1, y: 1, width: 5, height: 5 } }], { label: 'A' })).toBe(1);
+    expect(countMatches([], { label: 'A' })).toBe(0);
   });
 });

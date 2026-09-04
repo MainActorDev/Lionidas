@@ -59,9 +59,21 @@ export function matchesSelector(n: SnapNode, sel: StepSelector): boolean {
     (sel.type === undefined || n.type === sel.type);
 }
 
-/** Existence-assertion counter: how many nodes satisfy the selector. */
+/** Existence-assertion counter: how many DISTINCT elements satisfy the
+ *  selector. SwiftUI double-exposes heading-like elements (a container
+ *  `Other` node and its `StaticText` child share label AND top-left corner;
+ *  only heights differ — measured live on the LP privacy-policy screen).
+ *  That is one visual element, not ambiguity: matches starting at the same
+ *  (x, y) collapse. Occurrences at different positions remain distinct —
+ *  the honest ambiguity signal. */
 export function countMatches(nodes: SnapNode[], sel: StepSelector): number {
-  return nodes.filter((n) => matchesSelector(n, sel)).length;
+  const matches = nodes.filter((n) => matchesSelector(n, sel));
+  const origins = new Set<string>();
+  for (const n of matches) {
+    const r = n.rect;
+    origins.add(r ? `${Math.round(r.x)},${Math.round(r.y)}` : `no-rect@${nodes.indexOf(n)}`);
+  }
+  return origins.size;
 }
 
 /** Unique hittable match → its rect (center AND bounds, so callers can run a
