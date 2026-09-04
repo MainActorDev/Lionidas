@@ -60,3 +60,34 @@ describe('alloy routing (S1 contract)', () => {
     expect(row).toBeDefined();
   });
 });
+
+describe('watch-frame run guard (runner-wedge prevention)', () => {
+  it('409 RUN_ACTIVE while a run holds the device; ok after it finishes', async () => {
+    app.db.raw.prepare(`INSERT INTO devices(udid,name,state,platform,kind,last_seen) VALUES ('S4','sim','Booted','ios','simulator',?)`).run(Date.now());
+    // no run yet → past the guard (engine may still fail after; only the
+    // GUARD is under test — 409 means the guard tripped, anything else means
+    // the request reached the engine)
+    const before = await app.app.inject({ method: 'POST', url: '/api/devices/S4/watch-frame' });
+    expect(before.statusCode).not.toBe(409);
+    // run holds S4 → 409 RUN_ACTIVE
+    app.db.raw.prepare(`INSERT INTO runs(id,kind,status,triggered_by,device_udid,artifact_path,artifact_hash,artifact_mtime,src_path,launch_args,parent_run_id,started_at) VALUES ('r-guard','automated','running','t','S4',NULL,NULL,NULL,NULL,'[]',NULL,?)`).run(Date.now());
+    const during = await app.app.inject({ method: 'POST', url: '/api/devices/S4/watch-frame' });
+    expect(during.statusCode).toBe(409);
+    expect((during.json() as { code?: string }).code).toBe('RUN_ACTIVE');
+    // finished → guard opens again (request reaches the engine again)
+    app.db.raw.prepare(`UPDATE runs SET status='passed', finished_at=? WHERE id='r-guard'`).run(Date.now());
+    const after = await app.app.inject({ method: 'POST', url: '/api/devices/S4/watch-frame' });
+    expect(after.statusCode).not.toBe(409);
+  });
+
+  it('guard SQL: a queued/running run on the udid trips RUN_ACTIVE (direct db check)', async () => {
+    const Database = (await import('better-sqlite3')).default;
+    const db = new Database(':memory:');
+    db.exec('CREATE TABLE runs (id TEXT, status TEXT, device_udid TEXT)');
+    db.prepare("INSERT INTO runs VALUES ('r1','running','S9')").run();
+    const hit = db.prepare(`SELECT 1 FROM runs WHERE device_udid = ? AND status IN ('queued','running') LIMIT 1`).get('S9');
+    expect(hit).toBeDefined();
+    db.prepare("UPDATE runs SET status='passed' WHERE id='r1'").run();
+    expect(db.prepare(`SELECT 1 FROM runs WHERE device_udid = ? AND status IN ('queued','running') LIMIT 1`).get('S9')).toBeUndefined();
+  });
+});

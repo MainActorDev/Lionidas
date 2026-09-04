@@ -13,6 +13,15 @@
  */
 import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
+import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
+
+/** Devices whose upstream pump is PAUSED because a run holds them. The
+ *  engine's MJPEG capture and playback acts share one runner session; on
+ *  heavy screens a concurrent frame capture wedges the runner's watchdog
+ *  and every subsequent act fails (live: Sign-Up screen, run_775d90cf).
+ *  While a run is active the pump stops READING the upstream — transport
+ *  stays connected (no reconnect storm), frames simply drain. */
+const runActiveDevices = new Set<string>();
 
 interface StreamClient {
   socket: WebSocket;
@@ -44,11 +53,18 @@ const FIRST_FRAME_TIMEOUT_MS = 10_000;
  * to ride out a same-port respawn; short enough that recovery feels instant. */
 const OUTAGE_CLOSE_MS = 5_000;
 
-async function pumpUpstream(url: string, sub: UpstreamSubscription): Promise<void> {
+async function pumpUpstream(url: string, sub: UpstreamSubscription, udid: string): Promise<void> {
   const boundary = Buffer.from('--NextFrame');
   let buf = Buffer.alloc(0);
 
   while (sub.refCount > 0) {
+    // run holds this device → stop pulling frames; poll cheaply until the
+    // run finishes. Client canvases freeze on the last frame — intentional:
+    // the run panel shows step outcomes instead of a wedging live view.
+    while (sub.refCount > 0 && runActiveDevices.has(udid)) {
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    if (sub.refCount === 0) return;
     try {
       const resp = await fetch(url, { signal: sub.abortController.signal });
       if (!resp.ok || !resp.body) throw new Error(`upstream ${resp.status}`);
@@ -143,7 +159,10 @@ async function drain(c: StreamClient): Promise<void> {
   if (c.latestFrame) void drain(c);
 }
 
-export async function registerStreamRelay(app: FastifyInstance): Promise<void> {
+export async function registerStreamRelay(app: FastifyInstance, bus: TypedEventBus<AppEvents>): Promise<void> {
+  // pause pumps while a run holds the device (see runActiveDevices above)
+  bus.on('run.started', (p) => { if (p.udid) runActiveDevices.add(p.udid); });
+  bus.on('run.finished', (p) => { if (p.udid) runActiveDevices.delete(p.udid); });
   // events-ws.ts registers the websocket plugin first; re-registering throws
   // "decorator 'ws' has already been added". We only add our route here.
 
@@ -179,7 +198,7 @@ export async function registerStreamRelay(app: FastifyInstance): Promise<void> {
         const client: StreamClient = { socket, latestFrame: null, sending: false, firstFrameSent: () => onFirstFrame?.() };
         sub.clients.add(client);
         sub.refCount++;
-        void pumpUpstream(url, sub);
+        void pumpUpstream(url, sub, udid);
 
         const firstTimer = setTimeout(() => {
           try { socket.send(JSON.stringify({ error: 'no frames from stream source (timeout)', retryable: true })); socket.close(); } catch { /* gone */ }

@@ -53,6 +53,11 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
     const { udid } = req.params as { udid: string };
     const booted = db.prepare(`SELECT state FROM devices WHERE udid = ?`).get(udid) as { state: string | null } | undefined;
     if (!booted || booted.state !== 'Booted') return reply.code(409).send({ error: 'device not booted' });
+    // a run holds the device: a screenshot capture here races the run's acts
+    // on one runner session and wedges its watchdog on heavy screens —
+    // refuse; the UI keeps the last frame and the run finishes clean.
+    const runHolds = db.prepare(`SELECT 1 FROM runs WHERE device_udid = ? AND status IN ('queued','running') LIMIT 1`).get(udid);
+    if (runHolds) return reply.code(409).send({ error: 'a run holds this device — frame paused', code: 'RUN_ACTIVE' });
     const alloy = crucibleAlloy();
     const r = (await alloy.dispatch('alloy_screenshot', { udid }, alloyDispatchDepsSync())) as
       | { ok: true; result: { path: string } }

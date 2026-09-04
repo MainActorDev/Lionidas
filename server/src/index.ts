@@ -83,7 +83,7 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   // not under vitest (its native binding hangs the test runner)
   if (process.env['VITEST'] !== 'true') {
     const { registerStreamRelay } = await import('./routes/stream-relay.ts');
-    await registerStreamRelay(app);
+    await registerStreamRelay(app, bus);
   }
 
   let stopPoller: (() => void) | null = null;

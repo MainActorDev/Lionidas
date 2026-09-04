@@ -105,7 +105,7 @@ export async function executeRun(spec: RunSpec, deps: RunnerDeps): Promise<strin
   if (spec.note !== undefined) {
     deps.db.prepare('UPDATE runs SET note = ? WHERE id = ?').run(spec.note, runId);
   }
-  deps.bus.emit('run.started', { runId, ticketKey: spec.ticketKey });
+  deps.bus.emit('run.started', { runId, ticketKey: spec.ticketKey, udid: spec.udid });
 
   const steps: StepRecord[] = [];
   let runStatus: 'passed' | 'failed' = 'passed';
@@ -146,7 +146,7 @@ export async function executeRun(spec: RunSpec, deps: RunnerDeps): Promise<strin
             .prepare(`UPDATE runs SET freshness = ?, status = 'failed', finished_at = ? WHERE id = ?`)
             .run(freshness, Date.now(), runId);
           deps.bus.emit('run.freshness.checked', { runId, freshness });
-          deps.bus.emit('run.finished', { runId, status: 'failed' });
+          deps.bus.emit('run.finished', { runId, status: 'failed', udid: spec.udid });
           return runId;
         }
         throw err;
@@ -322,7 +322,7 @@ export async function executeRun(spec: RunSpec, deps: RunnerDeps): Promise<strin
         deps.bus.emit('flow.quarantined', { flowKey, reason: 'auto' });
       }
     } catch { /* analytics never fails the run */ }
-    deps.bus.emit('run.finished', { runId, status: runStatus });
+    deps.bus.emit('run.finished', { runId, status: runStatus, udid: spec.udid });
   }
   return runId;
 }
