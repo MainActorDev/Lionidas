@@ -22,6 +22,11 @@ import { resolveSelector, countMatches } from './selector.ts';
 import type { SnapNode } from './selector.ts';
 import { expandFlows } from './flows.ts';
 import type { FlowStep } from './flows.ts';
+import { listSimulatorApps } from './apps.ts';
+import { lastArtifactFor } from './app-catalog-store.ts';
+
+const defaultListApps = (udid: string): Promise<Array<{ bundleId: string }>> =>
+  listSimulatorApps(udid).then((apps) => apps.map((a) => ({ bundleId: a.bundleId })));
 
 export interface PlaybackDeps {
   db: Database.Database;
@@ -33,6 +38,9 @@ export interface PlaybackDeps {
    *  relaunch + steps. Default = the HTTP probe against the resolve route.
    *  Tests inject a stub; null skips the gate (legacy direct mode). */
   awaitStreamLive?: ((udid: string) => Promise<void>) | null;
+  /** installed-apps seam for the APP_NOT_INSTALLED pre-check (tests stub;
+   *  default = real listSimulatorApps). */
+  listApps?: (udid: string) => Promise<Array<{ bundleId: string }>>;
 }
 
 export interface PlaybackStep {
@@ -103,7 +111,11 @@ function ingestEvidence(deps: PlaybackDeps, runId: string, bundleId: string, typ
  *  run duration, restoring the previous forge state after — network choice is
  *  per-run, template stays network-agnostic (its defaultPresetId is a hint). */
 export class PlaybackError extends Error {
-  constructor(public code: 'DEVICE_BUSY', message: string) { super(message); }
+  constructor(
+    public code: 'DEVICE_BUSY' | 'APP_NOT_INSTALLED',
+    message: string,
+    public payload?: { appBundleId?: string; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null },
+  ) { super(message); }
 }
 
 // ── B2: abort registry + step watchdog ─────────────────────────────────────
@@ -213,7 +225,24 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
   if (busy) throw new PlaybackError('DEVICE_BUSY', 'a run or manual session is active on this device — wait or abort it');
   // app binding: playback launches the app the template was recorded in —
   // steps land on a known screen, not whatever happened to be foreground
-  const appToLaunch = opts.bundleId ?? t.app_bundle_id ?? 'com.apple.Preferences';
+  const appToLaunch = opts.bundleId ?? tpl.app_bundle_id ?? 'com.apple.Preferences';
+  // app presence pre-check (user contract 2026-09-04): a run against a sim
+  // missing the target app must fail FAST with an actionable error — not a
+  // ~17s engine-note abort. Checked BEFORE the run row exists (no phantom run).
+  // Skipped when: no app binding (Settings always present), or listapps fails
+  // (shutdown sim → 405 — the engine stream gate reports that honestly).
+  if (appToLaunch !== 'com.apple.Preferences') {
+    let installed: Array<{ bundleId: string }> = [];
+    try { installed = await (deps.listApps ?? defaultListApps)(udid); } catch { /* engine gate handles */ }
+    if (installed.length > 0 && !installed.some((a) => a.bundleId === appToLaunch)) {
+      const last = lastArtifactFor(deps.db, appToLaunch);
+      throw new PlaybackError(
+        'APP_NOT_INSTALLED',
+        `app not installed on this device: ${appToLaunch}`,
+        { appBundleId: appToLaunch, lastArtifact: last ? { path: last.artifactPath, version: last.appVersion, recordedAt: last.recordedAt } : null },
+      );
+    }
+  }
   const runId = `run_${createHash('sha256').update(`playback${templateId}${Date.now()}`).digest('hex').slice(0, 8)}`;
   // build anchoring: stamp the installed app's version at run creation
   // (best-effort — non-bundle fallbacks render 'unknown')
