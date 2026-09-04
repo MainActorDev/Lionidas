@@ -210,6 +210,49 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
   /** validate: pure — parse + schema + env-shape checks. The SAME validator
    *  backs the split panel's live outline and PUT /yaml, so preview and save
    *  can never disagree. */
+  /** Vocabulary for the YAML editor's autocomplete: every distinct selector
+   *  (label + identifier) ever recorded with usage counts and source cases,
+   *  plus case names (runFlow targets), bundle ids, tags. One fetch per
+   *  editor open; pure aggregation, no device contact. */
+  app.get('/api/templates/vocabulary', async () => {
+    const rows = db.prepare('SELECT name, steps_json, app_bundle_id, tags_json FROM templates').all() as
+      Array<{ name: string; steps_json: string; app_bundle_id: string | null; tags_json: string | null }>;
+    const selMap = new Map<string, { value: string; kind: 'label' | 'identifier'; uses: number; cases: Set<string> }>();
+    const caseNames: string[] = [];
+    const apps = new Set<string>();
+    const tags = new Set<string>();
+    for (const r of rows) {
+      caseNames.push(r.name);
+      if (r.app_bundle_id) apps.add(r.app_bundle_id);
+      for (const t of JSON.parse(r.tags_json ?? '[]') as unknown[]) {
+        if (typeof t === 'string' && t.trim()) tags.add(t.trim());
+      }
+      try {
+        for (const s of JSON.parse(r.steps_json) as Array<Record<string, unknown>>) {
+          const sel = s['selector'] as { label?: unknown; identifier?: unknown } | undefined;
+          for (const kind of ['label', 'identifier'] as const) {
+            const v = sel?.[kind];
+            if (typeof v === 'string' && v.trim()) {
+              const key = `${kind}:${v}`;
+              const e = selMap.get(key) ?? { value: v, kind, uses: 0, cases: new Set<string>() };
+              e.uses += 1;
+              e.cases.add(r.name);
+              selMap.set(key, e);
+            }
+          }
+        }
+      } catch { /* malformed steps_json — skip the row's selectors, keep its name */ }
+    }
+    return {
+      selectors: [...selMap.values()]
+        .sort((a, b) => b.uses - a.uses || a.value.localeCompare(b.value))
+        .map((e) => ({ value: e.value, kind: e.kind, uses: e.uses, cases: [...e.cases] })),
+      caseNames,
+      apps: [...apps],
+      tags: [...tags],
+    };
+  });
+
   app.post('/api/templates/yaml/validate', async (req) => {
     const b = req.body as { yaml?: string };
     const r = parseCaseYaml(b.yaml ?? '');
