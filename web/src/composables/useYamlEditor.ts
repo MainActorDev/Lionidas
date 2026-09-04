@@ -6,11 +6,14 @@
  */
 import { ref, type Ref, onBeforeUnmount } from 'vue';
 import type { EditorView } from '@codemirror/view';
+import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete';
 import type { DecorationSet } from '@codemirror/view';
+
+export type EditorVocabulary = import('@crucible/shared/yaml-completions').EditorVocabulary;
 
 export interface YamlEditorHandle {
   ready: Ref<boolean>;
-  mount(el: HTMLElement, initial: string, onSave: () => void): Promise<void>;
+  mount(el: HTMLElement, initial: string, onSave: () => void, vocab?: EditorVocabulary): Promise<void>;
   getValue(): string;
   setValue(v: string): void;
   setErrors(lines: number[]): void;
@@ -24,15 +27,20 @@ export function useYamlEditor(): YamlEditorHandle {
   let setDeco: ((lines: number[]) => void) | null = null;
   let saveCb: (() => void) | null = null;
 
-  async function mount(el: HTMLElement, initial: string, onSave: () => void): Promise<void> {
+  async function mount(el: HTMLElement, initial: string, onSave: () => void, vocab?: EditorVocabulary): Promise<void> {
+    // no vocabulary (endpoint down / old caller) → grammar-only completions
+    const theVocab: EditorVocabulary = vocab ?? { selectors: [], caseNames: [], apps: [], tags: [] };
     saveCb = onSave;
-    const [viewMod, { yaml }, stateMod, languageMod, highlightMod, commandsMod] = await Promise.all([
+    const [viewMod, { yaml }, stateMod, languageMod, highlightMod, commandsMod, autocompMod, slotsMod, complMod] = await Promise.all([
       import('@codemirror/view'),
       import('@codemirror/lang-yaml'),
       import('@codemirror/state'),
       import('@codemirror/language'),
       import('@lezer/highlight'),
       import('@codemirror/commands'),
+      import('@codemirror/autocomplete'),
+      import('@crucible/shared/yaml-slots'),
+      import('@crucible/shared/yaml-completions'),
     ]);
     const { StateField, StateEffect } = stateMod;
     const { Decoration } = viewMod;
@@ -84,6 +92,37 @@ export function useYamlEditor(): YamlEditorHandle {
     });
     setDeco = (lines: number[]) => { view?.dispatch({ effects: [setErrLines.of(lines)] }); };
 
+    // slot-aware autocompletion: classify the cursor's slot, offer that
+    // slot's options. `from` = start of the typed fragment; when the char
+    // before it is an open quote, values apply RAW (already inside quotes —
+    // applying the quoted form would double-quote).
+    const completionSource = (ctx: CompletionContext): CompletionResult | null => {
+      const doc = ctx.state.doc.toString();
+      const slot = slotsMod.slotAt(doc, ctx.pos);
+      if (slot === 'none') return null;
+      const lineStart = doc.lastIndexOf('\n', ctx.pos - 1) + 1;
+      const before = doc.slice(lineStart, ctx.pos);
+      const fragMatch = /[A-Za-z0-9_'-]+$/.exec(before);
+      const fragStart = fragMatch ? ctx.pos - fragMatch[0].length : ctx.pos;
+      const charBefore = fragStart > lineStart ? doc[fragStart - 1] : '';
+      const insideQuote = charBefore === `'`;
+      // body-key needs the CURRENT action to scope legal keys
+      let action: string | undefined;
+      if (slot === 'body-key' || slot === 'on-value') {
+        const line = doc.slice(lineStart, ctx.pos);
+        action = /^\s*-\s+(\w+)\s*:/.exec(line)?.[1];
+      }
+      const options = complMod.buildCompletions(slot, theVocab, '', action).map((c) => {
+        const o: Completion = { label: c.label, apply: insideQuote && (slot === 'on-value' || slot === 'runflow-name') ? c.label : c.apply };
+        if (c.detail !== undefined) o.detail = c.detail;
+        if (c.type !== undefined) o.type = c.type;
+        if (c.boost !== undefined) o.boost = c.boost;
+        return o;
+      });
+      if (options.length === 0) return null;
+      return { from: fragStart, options, validFor: /^[A-Za-z0-9_'-]*$/ };
+    };
+
     view = new viewMod.EditorView({
       doc: initial,
       parent: el,
@@ -95,8 +134,10 @@ export function useYamlEditor(): YamlEditorHandle {
         languageMod.syntaxHighlighting(hl),
         theme,
         errorField,
+        autocompMod.autocompletion({ override: [completionSource], activateOnTyping: true }),
         viewMod.keymap.of([
           { key: 'Mod-Enter', run: () => { saveCb?.(); return true; } },
+          ...autocompMod.completionKeymap,
           ...commandsMod.defaultKeymap,
           ...commandsMod.historyKeymap,
         ]),

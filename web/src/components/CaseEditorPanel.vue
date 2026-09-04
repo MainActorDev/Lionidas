@@ -94,7 +94,12 @@ async function load(): Promise<void> {
     await nextTick();
     if (!editorHost.value) return;
     if (!ed.ready.value) {
-      await ed.mount(editorHost.value, yaml, save);
+      let vocab: import('../composables/useYamlEditor').EditorVocabulary | undefined;
+      try {
+        const r = await fetch('/api/templates/vocabulary');
+        if (r.ok) vocab = (await r.json()) as import('../composables/useYamlEditor').EditorVocabulary;
+      } catch { /* grammar-only completions */ }
+      await ed.mount(editorHost.value, yaml, save, vocab);
       editorHost.value.addEventListener('input', () => { dirty.value = true; reparse(); });
     } else {
       ed.setValue(yaml);
