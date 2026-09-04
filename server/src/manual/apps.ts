@@ -60,6 +60,17 @@ function shortVersionFromBundle(appPath: string): string | null {
   } catch { return null; }
 }
 
+/** Bundle id + version from an on-disk .app's Info.plist (null on any
+ *  failure — callers treat unreadable as "skip this artifact"). */
+export function readBundleIdentity(appPath: string): { bundleId: string; version: string | null } | null {
+  try {
+    const json = execFileSync('plutil', ['-convert', 'json', '-o', '-', join(appPath, 'Info.plist')], { maxBuffer: 1024 * 1024 }).toString();
+    const p = JSON.parse(json) as { CFBundleIdentifier?: string; CFBundleShortVersionString?: string };
+    if (!p.CFBundleIdentifier) return null;
+    return { bundleId: p.CFBundleIdentifier, version: p.CFBundleShortVersionString ?? null };
+  } catch { return null; }
+}
+
 /** plist text → JSON via plutil (synchronous subprocess on stdin). */
 function plistToJson(plistText: string): string {
   return execFileSync('plutil', ['-convert', 'json', '-o', '-', '-'], { input: plistText, maxBuffer: 16 * 1024 * 1024 }).toString();
