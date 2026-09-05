@@ -503,6 +503,10 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
       <article v-for="t in shown()" :key="t.id" class="a2-row-card" :class="{ editing: yamlOpenId === t.id }">
         <div class="a2-row" @click="openYaml(t)" title="click to edit this case">
           <span class="col-case">
+            <img v-if="t.evidence?.screenshot" class="a2-evidence-thumb" alt="latest run evidence"
+              :src="`/api/templates/${t.id}/evidence/screenshot`" loading="lazy"
+              @click.stop="openEvidence(t)" @error="(e: Event) => (e.target as HTMLImageElement).style.display = 'none'"
+              title="latest run — click for screenshot / video" />
             <span class="a2-name">{{ t.name }}</span>
             <span v-if="t.ticketKey" class="a2-ticket">{{ t.ticketKey }}</span>
             <span v-for="tg in t.tags ?? []" :key="tg" class="chip" title="click to filter by this tag" @click.stop="filter = tg">{{ tg }}</span>
