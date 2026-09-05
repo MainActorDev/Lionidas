@@ -15,6 +15,9 @@ export type AppEvents = {
    *  Emitted once, right after run.started. */
   'run.plan': { runId: string; templateId: string; udid: string; steps: Array<{ idx: number; action: string; name: string; flow: string | null; optional: boolean }> };
   'run.finished': { runId: string; status: string; udid?: string };
+  /** sweep fallback fired (Tier 1): probes fired / hits / latency per
+   *  qualifying step — drill reports + future UI surfacing. */
+  'sweep.stats': { runId: string; probes: number; hits: number; latencyMs: number; step: number; swept?: boolean; container?: { x: number; y: number; width: number; height: number } };
   'run.aborted': { queueId: string };
   'queue.changed': { queueId: string; state: string };
   'forge.traffic.hit': { id: string; runId: string | null; method: string; path: string; status: number; latencyMs: number; mode: string; matchedPresetId: string | null };

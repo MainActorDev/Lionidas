@@ -639,6 +639,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           let ty = s.y;
           let resolvedBy: 'selector' | 'selector-recentred' | 'coordinate-fallback' | 'coordinate-fallback-scaled' | 'coordinate' | 'coordinate-scaled' | 'selector-point-scaled' | 'selector-sweep' = 'coordinate';
           let recentredAudit: { recentred: true; distance: number } | null = null;
+          let sweepAudit: { swept: true; probes: number; hits: number; latencyMs: number; container?: { x: number; y: number; width: number; height: number }; found?: SnapNodeLike } | null = null;
           let lastSettleNodes: SnapNode[] | null = null; // settle poll's last read — sig-before reuse (Task 2)
           if ((s.action === 'tap' || s.action === 'type') && s.selector && (s.selector.identifier || s.selector.label)) {
             // launch-settle poll (same class as expect A7): a fresh relaunch
@@ -725,14 +726,16 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               if (probeFn && px !== undefined && py !== undefined && sweepTriggered(lastSettleNodes ?? [], px, py)) {
                 const container = blindContainerAt(lastSettleNodes ?? [], px, py);
                 if (container?.rect) {
+                  const probes = probePoints(container.rect).length;
                   const hit = await sweepFind(probeFn, s.selector, probePoints(container.rect));
                   if (hit?.rect) {
                     const cx = hit.rect.x + hit.rect.width / 2;
                     const cy = hit.rect.y + hit.rect.height / 2;
                     tx = cx; ty = cy; resolvedBy = 'selector-sweep'; swept = true;
-                    deps.bus.emit('sweep.stats', { runId, probes: 5, hits: 1, latencyMs: Date.now() - sweepT0, step: s.idx });
+                    sweepAudit = { swept: true, probes, hits: 1, latencyMs: Date.now() - sweepT0, container: container.rect, found: hit as SnapNodeLike };
+                    deps.bus.emit('sweep.stats', { runId, ...sweepAudit, step: s.idx });
                   } else {
-                    deps.bus.emit('sweep.stats', { runId, probes: 5, hits: 0, latencyMs: Date.now() - sweepT0, step: s.idx });
+                    deps.bus.emit('sweep.stats', { runId, probes, hits: 0, latencyMs: Date.now() - sweepT0, step: s.idx });
                   }
                 }
               }
@@ -887,7 +890,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           // 'selector-point-scaled' folds into 'selector' for the audit trail —
           // the scale factors already live in evaluated_json's scale context
           const resolvedByOut = resolvedBy === 'selector-point-scaled' ? 'selector' : resolvedBy;
-          insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', warnReason, t0, Date.now() - t0, '[]', JSON.stringify({ ...resolved, resolvedBy: resolvedByOut, ...(recentredAudit && { ...recentredAudit }), ...(screenChanged !== undefined ? { screenChanged } : {}), ...(s.flow && { flow: s.flow }) }));
+          insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', warnReason, t0, Date.now() - t0, '[]', JSON.stringify({ ...resolved, resolvedBy: resolvedByOut, ...(recentredAudit && { ...recentredAudit }), ...(sweepAudit && { sweep: sweepAudit }), ...(screenChanged !== undefined ? { screenChanged } : {}), ...(s.flow && { flow: s.flow }) }));
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           if (s.optional) {
