@@ -508,6 +508,7 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
         <span class="col-steps">steps</span>
         <span class="col-updated">updated</span>
         <span class="col-trend" title="last 5 runs, oldest → newest (✓ pass · ✕ fail · ◆ blocked · ◌ aborted)">trend</span>
+        <span class="col-evidence" title="latest run evidence — screenshot of the expect that proved (or broke) the case">evidence</span>
         <span class="col-verdict">verdict</span>
         <span class="col-actions"></span>
       </div>
@@ -515,10 +516,6 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
       <article v-for="t in shown()" :key="t.id" class="a2-row-card" :class="{ editing: yamlOpenId === t.id }">
         <div class="a2-row" @click="openYaml(t)" title="click to edit this case">
           <span class="col-case">
-            <img v-if="t.evidence?.screenshot" class="a2-evidence-thumb" alt="latest run evidence"
-              :src="`/api/templates/${t.id}/evidence/screenshot`" loading="lazy"
-              @click.stop="openEvidence(t)" @error="(e: Event) => (e.target as HTMLImageElement).style.display = 'none'"
-              title="latest run — click for screenshot / video" />
             <span class="a2-name">{{ t.name }}</span>
             <span v-if="t.ticketKey" class="a2-ticket">{{ t.ticketKey }}</span>
             <span v-for="tg in t.tags ?? []" :key="tg" class="chip" title="click to filter by this tag" @click.stop="filter = tg">{{ tg }}</span>
@@ -540,6 +537,13 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
               <span v-for="(g, i) in trendGlyphs(t)" :key="i" :class="g.cls">{{ g.g }}</span>
             </span>
             <span v-else class="a2-trend-none">—</span>
+          </span>
+          <span class="col-evidence">
+            <img v-if="t.evidence?.screenshot" class="a2-evidence-thumb" alt="latest run evidence"
+              :src="`/api/templates/${t.id}/evidence/screenshot`" loading="lazy"
+              @click.stop="openEvidence(t)" @error="(e: Event) => (e.target as HTMLImageElement).style.display = 'none'"
+              :title="t.evidence?.video ? 'latest run — click for screenshots + video' : 'latest run — click for screenshots'" />
+            <span v-else class="a2-evidence-none" title="no evidence yet — run the case">—</span>
           </span>
           <span class="col-verdict">
             <span v-if="t.verdict" :class="`status ${verdictStatusClass(t)}`" :title="verdictLabel(t)">{{ verdictLabel(t) }}</span>
@@ -722,7 +726,7 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 }
 .a2-thead {
   position: sticky; top: 0; z-index: 2; background: var(--color-graphite);
-  display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 235px) minmax(0, 200px);
+  display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 64px) minmax(0, 235px) minmax(0, 200px);
   gap: var(--s-2); padding: 8px 12px;
   font-size: 10px; color: var(--color-steel); text-transform: uppercase; letter-spacing: 0.08em;
 }
@@ -730,7 +734,7 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 .a2-row-card.editing { border-color: var(--color-ember); }
 .a2-row-card.editing .a2-row { background: color-mix(in srgb, var(--color-ember) 6%, transparent); }
 .a2-row {
-  position: relative; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 235px) minmax(0, 200px);
+  position: relative; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 64px) minmax(0, 235px) minmax(0, 200px);
   gap: var(--s-2); align-items: center; padding: 8px 12px; min-height: 44px; cursor: pointer;
 }
 .a2-row:hover { background: var(--color-graphite); }
@@ -739,6 +743,10 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 .col-app { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* verdict pill ellipsizes inside its track at extreme narrow widths (the
    pill is the unbreakable floor: mono text can't wrap) */
+.col-evidence { display: flex; align-items: center; overflow: visible; }
+.a2-evidence-thumb { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; cursor: zoom-in; flex: none; border: 1px solid var(--color-line, #333); display: block; }
+.a2-evidence-thumb:hover { border-color: var(--color-accent, #e5484d); }
+.a2-evidence-none { color: var(--color-steel); }
 .col-verdict { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .col-verdict .status { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .a2-ticket { color: var(--color-steel); font-size: 10px; margin-left: 6px; }
@@ -770,7 +778,6 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
-.a2-evidence-thumb { width: 28px; height: 28px; border-radius: 6px; object-fit: cover; margin-right: 8px; cursor: zoom-in; flex: none; border: 1px solid var(--border, #333); }
 .evidence-lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: flex; align-items: center; justify-content: center; z-index: 200; }
 .evidence-card { background: var(--color-graphite, #1b1b1f); border-radius: 12px; padding: 12px; max-width: min(92vw, 560px); max-height: 92vh; display: flex; flex-direction: column; gap: 8px; }
 .evidence-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
