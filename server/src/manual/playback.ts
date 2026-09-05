@@ -5,8 +5,17 @@
  *  - forge activeRunId set for the duration → traffic rows attach to the run
  *  No image assertions — failure is an engine dispatch error or missing field. */
 import { prunePreviousRunArtifacts } from '../evidence/retention.ts';
-import { ingestEvidence } from '../evidence/ingest.ts';
 import { RunDialogPolicy, AlertStormError, parseAlertPolicyColumn, ALERT_CAP } from './dialog-policy.ts';
+import { EvidenceRecorder } from './evidence-recorder.ts';
+function crucibleAlloySafe(): { resetEngineBCache?: () => void } | null {
+  // synchronous respawn via the cached engine exports (safe in prod path;
+  // tests inject fakes and simply skip respawn)
+  try {
+    return crucibleAlloy() as unknown as { resetEngineBCache?: () => void };
+  } catch {
+    return null;
+  }
+}
 import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
@@ -290,34 +299,14 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     }
     let runStatus: 'passed' | 'failed' | 'aborted' = 'passed';
     let skipAllSteps = false; // dialog interceptor: steps already skip-written
-    let videoStarted: { ok: boolean } | null = null; // engine-B recorder handle (finally stops it)
-    // whole-run video (engine-B recorder): started FIRST — before the app
-    // opens, so open + settle + steps are all recorded. A start failure never
-    // blocks the run — but it is NAMED in the note so absence is explainable.
-    {
-      // stale-recording guard: a previously aborted run may have left the
-      // engine recording ("a video recording is already active"), and a
-      // WEDGED recorder can refuse stop forever ("did not exit within 15000ms")
-      // — that flag lives in engine-B's tool-server process state. Recovery:
-      // stop → start; if start still says active, respawn the tool-server
-      // (resetEngineBCache — supported heal) and try once more.
-      await alloy.dispatch('alloy_video', { udid, action: 'stop' }, deps.dispatchDeps).catch(() => undefined);
-      let vs = (await alloy.dispatch('alloy_video', { udid, action: 'start' }, deps.dispatchDeps).catch((err: unknown) => ({ ok: false as const, error: { message: err instanceof Error ? err.message : String(err) } }))) as
-        | { ok: true } | { ok: false; error?: { message?: string } };
-      if (!vs.ok && (vs.error?.message ?? '').includes('already active')) {
-        try {
-          const { crucibleAlloy } = await import('../alloy/client.ts');
-          crucibleAlloy().resetEngineBCache?.();
-          vs = (await alloy.dispatch('alloy_video', { udid, action: 'start' }, deps.dispatchDeps).catch((err: unknown) => ({ ok: false as const, error: { message: err instanceof Error ? err.message : String(err) } }))) as
-            | { ok: true } | { ok: false; error?: { message?: string } };
-        } catch { /* respawn best-effort */ }
-      }
-      if (vs.ok) videoStarted = vs;
-      else {
-        const msg = vs.error?.message ?? 'engine error';
-        deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run(`video unavailable: ${msg}`, runId);
-      }
-    }
+    const recorder = new EvidenceRecorder(
+      { db: deps.db, artifactsDir: deps.artifactsDir, dispatchDeps: deps.dispatchDeps,
+        dispatch: (tool, input, dd) => alloy.dispatch(tool, input, dd) as never,
+        respawnToolServer: () => { crucibleAlloySafe()?.resetEngineBCache?.(); } },
+      runId, udid,
+    );
+    // whole-run video: started FIRST (before open) — see EvidenceRecorder.
+    await recorder.startVideo();
     // alert policy (run-level): null = every dialog fails named (default).
     const dialogs = new RunDialogPolicy(parseAlertPolicyColumn(tpl.alerts_policy), {
       dispatch: (tool, input) => alloy.dispatch(tool, input, deps.dispatchDeps) as never,
@@ -586,14 +575,8 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             const ev = { ...resolved, expect: s.selector, matched };
             // per-expect evidence: the screen that PROVED (or broke) the
             // assertion — captured after resolution, before the row is born.
-            let expectEvidence = '[]';
-            try {
-              const shot = (await alloy.dispatch('alloy_screenshot', { udid }, deps.dispatchDeps)) as { ok: boolean; result?: { path: string } };
-              if (shot.ok && shot.result) {
-                const sev = ingestEvidence(deps, runId, runId, 'screenshot', shot.result.path);
-                if (sev) expectEvidence = JSON.stringify([sev.id]);
-              }
-            } catch { /* evidence is best-effort — verdict unchanged */ }
+            const sevId = await recorder.captureExpectEvidence();
+            const expectEvidence = sevId ? JSON.stringify([sevId]) : '[]';
             if (matched === 1) {
               insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, expectEvidence, JSON.stringify(ev));
             } else {
@@ -868,31 +851,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       runBlocked = 1;
       deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run(`${err instanceof Error ? err.message : String(err)}`, runId);
     } finally {
-      // fallback final screenshot ONLY when no expect captured evidence —
-      // per-expect shots are the primary evidence; this covers runs whose
-      // expects never ran (blocked/aborted) so the thumb still has a frame.
-      try {
-        const expectEvidenceCount = (deps.db.prepare(`SELECT COUNT(*) c FROM run_steps WHERE run_id = ? AND evidence_ids_json != '[]'`).get(runId) as { c: number }).c;
-        if (expectEvidenceCount === 0) {
-          const shot = (await alloy.dispatch('alloy_screenshot', { udid }, deps.dispatchDeps)) as { ok: boolean; result?: { path: string } };
-          if (shot.ok && shot.result) {
-            const ev = ingestEvidence(deps, runId, runId, 'screenshot', shot.result.path);
-            if (ev) deps.db.prepare(`UPDATE runs SET artifact_path = ? WHERE id = ?`).run(ev.path, runId);
-          }
-        }
-      } catch { /* best-effort */ }
-      // run video stop → ingest (only if start succeeded)
-      if (videoStarted?.ok) {
-        try {
-          const stop = (await alloy.dispatch('alloy_video', { udid, action: 'stop', label: runId }, deps.dispatchDeps).catch(() => null)) as
-            | { ok: boolean; result?: { video?: { hostPath?: string } } } | null;
-          const hostPath = stop?.result?.video?.hostPath;
-          if (stop?.ok && hostPath) {
-            const ev = ingestEvidence(deps, runId, runId, 'video', hostPath);
-            if (ev) deps.db.prepare(`UPDATE runs SET video_path = ? WHERE id = ?`).run(ev.path, runId);
-          }
-        } catch { /* best-effort */ }
-      }
+            await recorder.finish();
       // restore prior forge state — scenario was run-scoped by contract
       if (restorePresets) {
         try {
