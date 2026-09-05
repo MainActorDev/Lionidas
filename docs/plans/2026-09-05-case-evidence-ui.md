@@ -21,7 +21,7 @@
   (defense in depth — engine temp paths are copied into artifacts by ingestEvidence, so
   DB rows should always point inside artifacts/, but the assert makes it a rule).
   NOTE: live DB rows currently hold the ENGINE temp paths for screenshot/video
-  (`/var/folders/.../agent-device-screenshot-*/…`, `…/argent-recordings/…`) because
+  (`/var/folders/.../engine-screenshot-*/…`, `…/engine-recordings/…`) because
   `runs.artifact_path`/`video_path` are set from the SOURCE path, not the INGESTED copy.
   Fix as part of this task: set both columns from the ingested destination inside
   artifacts/ (ingestEvidence already returns the ev id; capture dest path — return it).
