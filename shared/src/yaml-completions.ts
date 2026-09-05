@@ -31,6 +31,7 @@ const BODY_KEYS: Record<string, string[]> = {
   type: ['point', 'text', 'on', 'contains', 'ignoreCase', 'optional', 'when'],
   expect: ['on', 'contains', 'ignoreCase', 'optional', 'when'],
   runFlow: ['name', 'optional'],
+  location: ['latitude', 'longitude'],
 };
 
 export function buildCompletions(slot: YamlSlot, vocab: EditorVocabulary, _typed: string, action?: string): VocabCompletion[] {
@@ -52,6 +53,7 @@ export function buildCompletions(slot: YamlSlot, vocab: EditorVocabulary, _typed
         { label: 'runFlow', detail: 'run another case by name', apply: 'runFlow: { name: \'\' }', type: 'keyword' },
         { label: 'expect', detail: 'assert an element is on screen', apply: 'expect: \'\'', type: 'keyword' },
         { label: 'alert', detail: 'accept or dismiss a system alert (no-op when none is up)', apply: 'alert: dismiss', type: 'keyword' },
+        { label: 'location', detail: 'set the simulated GPS position (lat/lon)', apply: 'location: { latitude: -6.1754, longitude: 106.8272 }', type: 'keyword' },
       ];
     case 'direction':
       return (['up', 'down', 'left', 'right'] as const).map((d) => ({ label: d, apply: d, type: 'keyword' as const }));
@@ -64,6 +66,7 @@ export function buildCompletions(slot: YamlSlot, vocab: EditorVocabulary, _typed
         text: 'text to type', name: 'case name to run',
         contains: 'label CONTAINS this text (contains-mode matching)', ignoreCase: 'true — capitalization stops mattering for label matches',
         when: 'setup-only guard — skip this step unless this label fragment is visible',
+        latitude: 'decimal degrees, -90..90 (Jakarta ≈ -6.17)', longitude: 'decimal degrees, -180..180 (Jakarta ≈ 106.83)',
       };
       return keys.map((k): VocabCompletion => ({ label: k, detail: hints[k]!, apply: `${k}: `, type: 'keyword' }));
     }

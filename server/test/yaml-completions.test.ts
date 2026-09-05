@@ -24,7 +24,7 @@ describe('buildCompletions', () => {
     const tap = cs.find((c) => c.label === 'tap')!;
     expect(String(tap.apply)).toContain('point: [');
     expect(String(tap.apply)).toContain('on: ');
-    expect(cs.map((c) => c.label)).toEqual(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert']);
+    expect(cs.map((c) => c.label)).toEqual(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert', 'location']);
   });
 
   it('direction offers exactly the four directions', () => {
@@ -72,7 +72,7 @@ describe('buildCompletions', () => {
     const empty: EditorVocabulary = { selectors: [], caseNames: [], apps: [], tags: [] };
     expect(buildCompletions('on-value', empty, '')).toEqual([]);
     expect(buildCompletions('direction', empty, '').length).toBe(4);
-    expect(buildCompletions('step-action', empty, '').length).toBe(6);
+    expect(buildCompletions('step-action', empty, '').length).toBe(7);
   });
 
   it('body-key for runFlow unchanged (no selector keys)', () => {
@@ -93,5 +93,21 @@ describe('buildCompletions', () => {
 
   it('none slot → [] always', () => {
     expect(buildCompletions('none', vocab, '')).toEqual([]);
+  });
+});
+
+describe('location completions — Tier 2.3', () => {
+  it('step-action offers location with a mapping skeleton', () => {
+    const cs = buildCompletions('step-action', vocab, '');
+    const loc = cs.find((c) => c.label === 'location');
+    expect(loc).toBeDefined();
+    expect(loc!.detail).toContain('GPS');
+    expect(loc!.apply).toContain('latitude');
+  });
+
+  it('body-key for location offers latitude/longitude with hints', () => {
+    const cs = buildCompletions('body-key', vocab, '', 'location');
+    expect(cs.map((c) => c.label)).toEqual(['latitude', 'longitude']);
+    expect(cs[0]!.detail).toContain('-90');
   });
 });
