@@ -312,11 +312,22 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     // blocks the run — but it is NAMED in the note so absence is explainable.
     {
       // stale-recording guard: a previously aborted run may have left the
-      // engine recording ("a video recording is already active") — stop any
-      // orphan first; its file belongs to a dead run and is worthless.
+      // engine recording ("a video recording is already active"), and a
+      // WEDGED recorder can refuse stop forever ("did not exit within 15000ms")
+      // — that flag lives in engine-B's tool-server process state. Recovery:
+      // stop → start; if start still says active, respawn the tool-server
+      // (resetEngineBCache — supported heal) and try once more.
       await alloy.dispatch('alloy_video', { udid, action: 'stop' }, deps.dispatchDeps).catch(() => undefined);
-      const vs = (await alloy.dispatch('alloy_video', { udid, action: 'start' }, deps.dispatchDeps).catch((err: unknown) => ({ ok: false as const, error: { message: err instanceof Error ? err.message : String(err) } }))) as
+      let vs = (await alloy.dispatch('alloy_video', { udid, action: 'start' }, deps.dispatchDeps).catch((err: unknown) => ({ ok: false as const, error: { message: err instanceof Error ? err.message : String(err) } }))) as
         | { ok: true } | { ok: false; error?: { message?: string } };
+      if (!vs.ok && (vs.error?.message ?? '').includes('already active')) {
+        try {
+          const { crucibleAlloy } = await import('../alloy/client.ts');
+          crucibleAlloy().resetEngineBCache?.();
+          vs = (await alloy.dispatch('alloy_video', { udid, action: 'start' }, deps.dispatchDeps).catch((err: unknown) => ({ ok: false as const, error: { message: err instanceof Error ? err.message : String(err) } }))) as
+            | { ok: true } | { ok: false; error?: { message?: string } };
+        } catch { /* respawn best-effort */ }
+      }
       if (vs.ok) videoStarted = vs;
       else {
         const msg = vs.error?.message ?? 'engine error';
