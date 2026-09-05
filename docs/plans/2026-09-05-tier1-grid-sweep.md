@@ -101,9 +101,11 @@ fakes; one live smoke against a booted sim (tap-target readback).
 ### Task 3 — Wire into tap/type resolve (playback.ts)
 
 In the settle loop's terminal-miss branch: if `sweepTriggered`, run the
-5-point stencil via `sweepFind`; hit ⇒ resolve by its rect + recentre
-audit exactly like a tree hit, `resolvedBy='selector-sweep'`; miss ⇒
-existing coordinate fallback. Reason strings note sweep recovery.
+5-point stencil via `sweepFind`; hit ⇒ resolve FROM THE PROBE NODE: tap its rect center, with the same
+container-rejection guard (`isContainerNode`) and the distance audit
+computed directly (probe nodes are NOT in the tree — `resolveSelector`
+cannot see them; self-review catch). `resolvedBy='selector-sweep'`;
+miss ⇒ existing coordinate fallback. Reason strings note sweep recovery.
 
 Integration test: childless-tabbar hierarchy fixture, selector for the
 tab button, fake probe returning the button at a quarter-point; assert
@@ -112,9 +114,18 @@ resolvedBy + reason + recentre audit path.
 ### Task 4 — Expect single-point probe
 
 Terminal miss on expect-with-selector: if the expect carries recorded
-x/y, ONE `probeAt`; node matches selector ⇒ matched=1, reason notes
-"recovered by sweep". Capture-time change adds x/y to expect steps
-(schema-additive, downlevel-safe). Old cases without coords: no probe.
+x/y, ONE `probeAt`; matched nodes (after the same-origin collapse rule
+from `countMatches` — a probe can return the double-exposed container +
+StaticText pair: one visual element, not ambiguity) ⇒ matched=1, reason
+notes "recovered by sweep".
+
+Capture-side (both required, self-review catch):
+- `recordExpectStep` (server/src/manual/session.ts:248) gains x/y — its
+  caller (the web probe) already holds the point.
+- YAML serializer: `YamlStep` has `x?/y?` but the expect emitter must
+  SERIALIZE them, else playback-from-YAML silently loses coords. Parser
+  side: x?/y? already tolerated on expects (STEP_KEYS).
+Old cases without coords: no probe, honest miss (downlevel-safe).
 
 ### Task 5 — Hierarchy enrichment + bus stats
 
