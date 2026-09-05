@@ -194,3 +194,30 @@ exercises the sweep path today. Sweep verified at engine level (Task 0:
 27ms/probe, full view chain) and unit level (14 tests). The
 sweep-positive live proof remains OPEN until a SwiftUI-blind screen
 enters the template corpus. Steal-list annotations: DONE (1.1/1.2).
+
+**CLOSED 2026-09-05 (evening), verdict = NEGATIVE RESULT, premise does
+not reproduce on modern iOS.** A purpose-built fixture app
+(`fixtures/SweepFixture/`, bundle `com.lionparcel.crucible.sweepfixture`)
+rendered the same-labeled "Fixture Card" button inside every candidate
+blindness construct — SwiftUI `toolbar`, `safeAreaInset(edge: .bottom)`,
+plain `overlay(alignment: .bottom)` bar, gesture-only tap area — and the
+AX walk (`alloy_snapshot`) saw the labeled button in ALL of them, on BOTH
+live runtimes (iPhone 16 / iOS 18.6, iPhone 14 Plus / iOS 26.4). No
+walk-blind surface could be constructed from SwiftUI bar constructs on
+iOS 18.6/26.4; the premise ("SwiftUI tab/nav bars render blind to the AX
+walk") does not reproduce on the runtimes Crucible actually tests. The
+sweep stays as engine-verified + unit-tested (14 tests) fallback
+defense-in-depth; its trigger will simply never fire on these runtimes
+unless Apple regresses AX exposure. The fourth construct — a GESTURE-ONLY
+tap area (`.onTapGesture` on a shape, no Button semantics, no label) —
+IS walk-blind (4 nodes, no node covers the card; probe returns unlabeled
+`UIShapeHitTestingView` at the exact rect): the blindness shape is real
+but exists ONLY for controls with no accessibility semantics at all, and
+those carry no selector for `sweepFind` to match — unrescuable by
+design. Residual finding worth keeping: the
+two sources DISAGREE in the inverse direction — walk says `Button
+"Fixture Card"` where the devtools hit-test returns an UNLABELED
+`SwiftUI.CGDrawingView` (same rect): the probe can return a LESS-labeled
+view than the walk, so `sweepFind`'s selector match against probe output
+may legitimately miss on views the walk CAN see. Fixture kept in-repo as
+the regression harness if a blind screen ever appears in the wild.
