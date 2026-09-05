@@ -10,7 +10,8 @@
     "./yaml-slots": "./src/yaml-slots.ts",
     "./yaml-quote": "./src/yaml-quote.ts",
     "./yaml-completions": "./src/yaml-completions.ts",
-    "./alert-policy": "./src/alert-policy.ts"
+    "./alert-policy": "./src/alert-policy.ts",
+    "./tap-overlay": "./src/tap-overlay.ts"
   },
   "dependencies": {
     "yaml": "^2.9.0"

@@ -10,6 +10,7 @@
 import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue';
 import CaseEditorPanel from '../components/CaseEditorPanel.vue';
 import RunPanel from '../components/RunPanel.vue';
+import TapOverlayVideo from '../components/TapOverlayVideo.vue';
 
 interface Step { idx: number; action: string; x?: number; y?: number; direction?: string; text?: string; optional?: boolean; selector?: { identifier?: string; label?: string; type?: string }; templateId?: string }
 interface Verdict {
@@ -666,8 +667,7 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
             </button>
           </div>
         </template>
-        <video v-else class="evidence-shot" controls preload="metadata"
-          :src="`/api/templates/${evidenceView.templateId}/evidence/video`"></video>
+        <TapOverlayVideo v-else :template-id="evidenceView.templateId" />
       </div>
     </div>
   </section>
