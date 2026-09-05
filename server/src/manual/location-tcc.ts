@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import type Database from 'better-sqlite3';
+import Database from 'better-sqlite3';
 
 const execFileAsync = promisify(execFile);
 
@@ -32,7 +32,7 @@ export type OpenDb = (path: string) => Database.Database;
 export async function ensureLocationGrant(
   udid: string,
   bundleId: string,
-  openDb: OpenDb = () => new (require('better-sqlite3') as typeof import('better-sqlite3'))(tccDbPath(udid)),
+  openDb: OpenDb = () => new Database(tccDbPath(udid)),
   spawn: SpawnFn = async (cmd, args) => {
     await execFileAsync(cmd, args, { timeout: 10_000 });
     return 0;
