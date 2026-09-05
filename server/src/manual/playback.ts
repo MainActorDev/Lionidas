@@ -639,7 +639,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           let ty = s.y;
           let resolvedBy: 'selector' | 'selector-recentred' | 'coordinate-fallback' | 'coordinate-fallback-scaled' | 'coordinate' | 'coordinate-scaled' | 'selector-point-scaled' | 'selector-sweep' = 'coordinate';
           let recentredAudit: { recentred: true; distance: number } | null = null;
-          let sweepAudit: { swept: true; probes: number; hits: number; latencyMs: number; container?: { x: number; y: number; width: number; height: number }; found?: SnapNodeLike } | null = null;
+          let sweepAudit: { swept: boolean; probes: number; hits: number; latencyMs: number; container?: { x: number; y: number; width: number; height: number }; found?: SnapNodeLike } | null = null;
           let lastSettleNodes: SnapNode[] | null = null; // settle poll's last read — sig-before reuse (Task 2)
           if ((s.action === 'tap' || s.action === 'type') && s.selector && (s.selector.identifier || s.selector.label)) {
             // launch-settle poll (same class as expect A7): a fresh relaunch
@@ -735,6 +735,10 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                     sweepAudit = { swept: true, probes, hits: 1, latencyMs: Date.now() - sweepT0, container: container.rect, found: hit as SnapNodeLike };
                     deps.bus.emit('sweep.stats', { runId, ...sweepAudit, step: s.idx });
                   } else {
+                    // probed-and-missed is still worth the audit row: it
+                    // proves the sweep RAN (vs never triggered) when reading
+                    // the run back.
+                    sweepAudit = { swept: false, probes, hits: 0, latencyMs: Date.now() - sweepT0, container: container.rect };
                     deps.bus.emit('sweep.stats', { runId, probes, hits: 0, latencyMs: Date.now() - sweepT0, step: s.idx });
                   }
                 }

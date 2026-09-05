@@ -180,3 +180,17 @@ record path gets selectors via `captureSelectorAt`; anything the
 recorder misses still gets the playback sweep. Drill asserts: tnc green
 with sweep-recovered selectors, privacy regression green, `sweep.stats`
 collected. Annotate steal-list Tier 1 entries with implemented-commits.
+
+**CLOSED 2026-09-05, honest scope note:** tnc re-record NOT done — its
+step 0 honest-fail (selector-less cross-device tap) is the known
+pre-existing failure, orthogonal to Tier 1 (the sweep needs a selector
+to verify a probe hit; it cannot rescue selector-less taps by design).
+Drill ran both templates live: privacy PASSED (selectors resolved by
+walk/recentre — sweep never triggered, `sweepTriggered` predicate
+working as intended on a healthy UIKit-walkable tree); a walk-vs-probe
+grid diff over the live app found ZERO walk-blind interactables — the
+LP consumer tab bar is UIKit, not SwiftUI-childless, so no live surface
+exercises the sweep path today. Sweep verified at engine level (Task 0:
+27ms/probe, full view chain) and unit level (14 tests). The
+sweep-positive live proof remains OPEN until a SwiftUI-blind screen
+enters the template corpus. Steal-list annotations: DONE (1.1/1.2).

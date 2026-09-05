@@ -43,6 +43,17 @@ equivalent) and merge. Pure Domain logic; our 400+ test suite is the net.
 ADR-0001 compliant: lives in the platform-blind core, dispatch through the
 existing engine seam.
 
+**IMPLEMENTED 2026-09-05** (`crucible` 02db2a6 + e03ab59, alloy 1793e38):
+`server/src/manual/sweep.ts` + `alloy/probe.ts`, wired in playback behind a
+walk-blindness trigger (childless ≥200pt container at the recorded point, no
+labeled cover — never fires on healthy trees). 5-point stencil, not
+baguette's whole-screen 32pt grid: our probes return the *interactable* view
+at a point (~27ms each), so a tight stencil around the blind container beats
+spray-and-dedupe. Probe verb = `alloy_native_tree interactable-at` (engine B
+injected devtools). Feature doc: `docs/features/sweep.md`. Live-drill caveat:
+the LP consumer app's tab bar is UIKit-walkable — no walk-blind surface
+exercised the sweep path live yet; verified at engine + unit level.
+
 ### 1.2 Two-source truth, merged — never trust one traversal
 
 The principle under 1.1. Our snapshots come from ONE XCTest query; every
@@ -51,6 +62,12 @@ pattern: primary traversal + positional verification, merged. Our minimal
 version: on selector miss, one hit-test probe at the recorded coordinate —
 if it returns a node with the expected label, the tree was wrong, not the
 screen. Cheaper than a full grid; catches the common case.
+
+**IMPLEMENTED 2026-09-05** (same commits): both halves — the expect
+single-point probe (miss → probe at recorded/scaled coordinate → pass with
+reason `expect via point-probe (walk-blind)`) and the tap/type stencil sweep
+above. Recording side captures `at: {x,y}` on expects; YAML round-trips it
+as `at: [x, y]`.
 
 ### 1.3 Docs-as-feature-file structure
 
