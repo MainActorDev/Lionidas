@@ -324,7 +324,7 @@ function requestClose(): void {
 @keyframes rp-tap-pop { from { transform: scale(0.4); } to { transform: scale(1); } }
 @keyframes rp-tap-ring { from { transform: scale(0.8); opacity: 0.9; } to { transform: scale(3.2); opacity: 0; } }
 .rp-fps { flex: none; color: var(--color-steel); font-size: 10px; background: rgba(0, 0, 0, 0.6); padding: 1px 5px; border-radius: 2px; }
-.rp-stream-fail { display: flex; flex-direction: column; gap: 6px; align-items: center; color: var(--color-steel); font-size: 12px; padding: 0 24px; text-align: center; }
+.rp-stream-fail { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 6px; align-items: center; justify-content: center; background: rgba(0,0,0,.55); color: var(--color-steel); font-size: 12px; text-align: center; z-index: 5; }
 .rp-fail-reason { font-size: 10px; color: var(--color-steel); word-break: break-word; }
 
 .rp-steps { overflow-y: auto; overscroll-behavior: contain; min-height: 0; padding: 8px 0; }
