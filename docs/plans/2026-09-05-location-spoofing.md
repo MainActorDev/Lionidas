@@ -49,43 +49,62 @@ OUT (rejected for v1 — Baguette's polish, not test automation):
    comma-decimal input (`-6,1754`) with a line error before a run ever
    starts — fail at save-time, never mid-run. Latitude ∈ [-90, 90],
    longitude ∈ [-180, 180].
-3. **`grant-location` is a device-prep step, not an action**: a checkbox
-   or explicit step is wrong; permission is a per-device-per-app fact.
-   v1 shape: when playback encounters `location` as the FIRST location
-   step of a run AND the app's TCC row is missing, it writes the row +
-   kickstarts locationd + relaunches the app once (idempotent; no-op if
-   the row exists). This makes `location:` self-sufficient in any
-   template without a separate grant step.
+3. **`grant-location` happens at RUN START, before `open`** — NOT at the
+   first location step. Reason (self-review fix 2026-09-05): the app
+   must RELAUNCH to pick up the TCC row (verified in research) —
+   granting mid-run would force a disruptive mid-run app restart, losing
+   state and evidence continuity. Playback scans the template's step
+   list upfront; if ANY step is `location` → `ensureLocationGrant(udid,
+   appToLaunch)` before the app opens. Idempotent; no-op when the TCC
+   row exists. This mirrors the warm-up-reorder lesson (61dcab6).
 4. **Dispatch shells simctl directly** (child_process execFile) — NOT
    through alloy. Rationale: alloy verbs map to engine capabilities;
    location is a host-level device fact (like install), and `install`
    already shells simctl directly in routes/devices. One spawn ~200ms,
    fire-and-forget.
-5. **Run-end hygiene in the existing finally**: `location clear` beside
-   the other cleanup. A wedged clear must NOT fail the run (best-effort,
-   logged).
+5. **Run-end hygiene is CONDITIONAL** in the existing finally: only when
+   the run actually set a location (a `locationSet` flag in run scope),
+   `location clear` runs beside the other cleanup — a pure-tap template
+   never spawns a pointless clear. A wedged clear must NOT fail the run
+   (best-effort, logged).
 6. **evaluated_json** for the step: `{action:'location', latitude,
    longitude}` — joins the existing per-step audit trail.
 
 ## Task breakdown (TDD each; commit each)
 
-### Task 0 — survey (no code)
+### Task 0 — survey (no code) — RESOLVED during self-review 2026-09-05
 1. `YamlStep` fields: `location?: {latitude:number, longitude:number}`
-   beside `alertAction` (case-yaml.ts:31).
-2. `STEP_KEYS` (case-yaml.ts:48) gains `location`.
+   beside `alertAction` (case-yaml.ts:31). ✅ verified.
+2. `STEP_KEYS` (case-yaml.ts:48) gains `location`. ✅ verified — but see
+   D3 below: STEP_KEYS is the round-trip EMIT allowlist; the PARSER keys
+   off `ACTIONS` (case-yaml.ts:50) + single-action-key rule
+   (case-yaml.ts:150) + per-action branches. New action touches BOTH.
 3. Completions: `yaml-completions.ts` step-key list gains `location`
-   with detail text; new `location-body` completion set.
-4. PlaybackStep (playback.ts:63) mirrors YamlStep.
-5. Confirm execFile helper convention (install path in devices routes).
+   with detail text; new `location-body` completion set. ✅ verified
+   (pattern at yaml-completions.ts:54).
+4. PlaybackStep (playback.ts:63) mirrors YamlStep. ✅ verified.
+5. execFile helper convention: `manual/app-install.ts`, `manual/apps.ts`,
+   `forge/mitm/manager.ts`. ✅ verified — reuse the same execFile style.
 6. TCC path template: `~/Library/Developer/CoreSimulator/Devices/<udid>/data/Library/TCC/TCC.db`
-   — INSERT OR REPLACE with auth_value=2 (allow), client_type=0.
+   — INSERT OR REPLACE with auth_value=2 (allow), client_type=0. ✅
+   verified against live schema (all NOT NULL columns: service, client,
+   client_type, auth_value, auth_reason, auth_version, last_modified —
+   defaults cover the rest).
+7. `appToLaunch` resolves at playback.ts:249 — the grant call site. ✅
+   verified in scope of runTemplate.
+8. Run-scope flags live before the step loop; the finally is at
+   playback.ts:931. ✅ verified.
 
 ### Task 1 — YAML schema + parser (shared)
 RED: `case-yaml.test.ts` — mapping form parses; token form parses to
-same; comma-decimal rejected with line error; out-of-range rejected;
-round-trip `stepsToYaml` emits the mapping form; unknown keys in the
-location body rejected.
-GREEN: type + ACTIONS set + parse branch + emit branch in case-yaml.ts.
+same; comma-decimal rejected with line error (BOTH the mapping form —
+latitude as comma-string — AND the token form `"-6,1754,106.827"`
+= 3 fields); out-of-range rejected; `when`/`optional` on location
+rejected (alert-style message); unknown keys in the location body
+rejected; round-trip `stepsToYaml` emits the mapping form.
+GREEN: type + **ACTIONS set (case-yaml.ts:50)** + parse branch beside
+alert's (:202) + **STEP_KEYS (case-yaml.ts:48) for emit** +
+emit branch in stepsToYaml.
 
 ### Task 2 — completions (shared)
 RED: `yaml-completions.test.ts` — `location` offered at step level;
@@ -119,18 +138,24 @@ through or rerun).
 In playback.ts step loop, before the alert branch (~line 776):
 ```ts
 if (s.action === 'location') {
-  if (firstLocationStepOfRun) await ensureLocationGrant(udid, appBundleId);
   const r = await setLocation(execute, udid, s.location.latitude, s.location.longitude);
+  locationSet = true;   // arms the conditional finally-clear
   insStep.run(..., 'pass', ..., JSON.stringify({action:'location', ...r}));
   continue;
 }
 ```
-- First-of-run tracking: a `let locationGranted = false` in run scope.
-- Run-end: `clearLocation` best-effort in the finally block beside
-  existing cleanup.
+- RUN-START grant (self-review fix): before the `open` dispatch
+  (~line 249, where `appToLaunch` resolves), scan execSteps for any
+  `location` action → `await ensureLocationGrant(udid, appToLaunch)`.
+  Grant failure ⇒ run fails fast with a named error (better than a
+  dialog-broken run mid-flight).
+- Run-end: in the finally (playback.ts:931), `if (locationSet)` →
+  `clearLocation` best-effort (try/catch, logged to note).
 RED: playback-location.test.ts with fake execute + fake grant fn —
-step passes + evaluated_json content; grant called once (first step
-only); clear called in finally; grant failure → step fails honestly.
+step passes + evaluated_json content; grant called ONCE at run start
+(not per step); NO grant when template has no location steps; clear
+called in finally only when a location was set; grant failure →
+run fails fast.
 GREEN: dispatch wiring.
 
 ### Task 6 — live drill + docs + closure
@@ -147,16 +172,31 @@ GREEN: dispatch wiring.
 5. Steal-list 2.3 annotated IMPLEMENTED (location) + DEFERRED D-note
    points here; plan CLOSED.
 
-## Self-review checklist (to run before requesting gate)
+## Self-review — EXECUTED 2026-09-05 (2 real defects + 3 gaps fixed)
 
-- [ ] YAML rejects comma-decimal at parse (save-time), not dispatch
-- [ ] TCC write path verified against real TCC.db schema (all NOT NULL
-      columns provided: service, client, client_type, auth_value,
-      auth_reason, auth_version, last_modified — defaults exist for the
-      rest; verify empirically in drill)
-- [ ] execFile (never shell string) — no injection surface
-- [ ] Grant idempotency: second run with row present performs no writes
-- [ ] Clear-at-finally cannot fail the run
-- [ ] Location steps don't interact with settle/sig logic (no snapshot
-      needed — document why in code comment)
-- [ ] Docs: no read-back, no compass, course-skew carried over
+1. **Grant timing forced a mid-run app restart** — research showed the
+   app must RELAUNCH to pick up the TCC row; granting at the first
+   location step (mid-run) would kill state + evidence. FIX: grant at
+   run start, before `open`, gated on template-scan (any location
+   step). Mirrors warm-up-reorder lesson (61dcab6).
+2. **Unconditional clear-in-finally** — every pure-tap run would spawn
+   a pointless simctl clear. FIX: conditional on `locationSet` flag.
+3. **Parser ≠ emit surfaces** — plan named STEP_KEYS only; the parser
+   actually keys off the `ACTIONS` set + single-action-key rule + a
+   per-action branch. Task 1 now says BOTH (ACTIONS at case-yaml.ts:50,
+   branch beside alert's at :202).
+4. **Grant failure semantics unspecified** — now: run fails FAST with a
+   named error at start (not a dialog-broken run mid-flight).
+5. **Modifier rule check** — `location` takes NO `when:`/`optional:`
+   modifiers (it always executes, like alert); parser must reject the
+   combo with the alert-style message. Added to Task 1 RED list.
+6. **Comma-decimal rejection**: BOTH forms must reject `-6,1754` — the
+   mapping form (latitude as string with comma) AND the token form
+   (`"-6,1754,106.827"` = three fields). Task 1 RED covers both.
+
+Verified against live code: playback.ts:63 (PlaybackStep), :249
+(appToLaunch), :776 (alert branch), :931 (finally); case-yaml.ts:31,
+:48, :50, :150, :202; yaml-completions.ts:54; execFile precedent in
+manual/app-install.ts; TCC schema columns.
+
+Defects remaining: none known.
