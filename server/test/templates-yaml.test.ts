@@ -112,3 +112,46 @@ describe('PUT /api/templates/:id/yaml', () => {
     expect((await app.inject({ method: 'PUT', url: '/api/templates/nope/yaml', payload: { yaml: 'name: x\nsteps:\n  - scroll: down\n' } })).statusCode).toBe(404);
   });
 });
+
+describe('GET /api/templates/:id/evidence/:kind (resolver)', () => {
+  it('404 for unknown kind and never-run template', async () => {
+    const badKind = await app.inject({ method: 'GET', url: '/api/templates/tp1/evidence/nonsense' });
+    expect(badKind.statusCode).toBe(404);
+    const noRun = await app.inject({ method: 'GET', url: '/api/templates/tp-none/evidence/screenshot' });
+    expect(noRun.statusCode).toBe(404);
+  });
+
+  it('redirects to the evidence file route for the newest finished run', async () => {
+    mkCase('tp-ev', 'ev case', [{ idx: 0, action: 'scroll', direction: 'down' }]);
+    db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, finished_at, note, template_id)
+                VALUES ('r-ev1', 'T', 'manual', 'passed', 'qa', 's', 1, 2, 'n', 'tp-ev')`).run();
+    db.prepare(`INSERT INTO evidence(id, bundle_id, type, path, sha256, bytes, moov_ok, created_at)
+                VALUES ('ev-shot1', 'r-ev1', 'screenshot', '/tmp/x.png', 'h', 1, NULL, 0)`).run();
+    const res = await app.inject({ method: 'GET', url: '/api/templates/tp-ev/evidence/screenshot' });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers['location']).toBe('/api/evidence/ev-shot1/file');
+    expect(res.headers['cache-control']).toBe('no-store');
+  });
+
+  it('404 when the newest run lacks that kind', async () => {
+    mkCase('tp-ev2', 'ev case 2', [{ idx: 0, action: 'scroll', direction: 'down' }]);
+    db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, finished_at, note, template_id)
+                VALUES ('r-ev2', 'T', 'manual', 'passed', 'qa', 's', 1, 2, 'n', 'tp-ev2')`).run();
+    const res = await app.inject({ method: 'GET', url: '/api/templates/tp-ev2/evidence/video' });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('list endpoint carries evidence flags', async () => {
+    mkCase('tp-flag', 'flag case', [{ idx: 0, action: 'scroll', direction: 'down' }]);
+    db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, finished_at, note, template_id)
+                VALUES ('r-flag', 'T', 'manual', 'passed', 'qa', 's', 1, 2, 'n', 'tp-flag')`).run();
+    db.prepare(`INSERT INTO evidence(id, bundle_id, type, path, sha256, bytes, moov_ok, created_at)
+                VALUES ('ev-f1', 'r-flag', 'screenshot', '/tmp/y.png', 'h', 1, NULL, 0)`).run();
+    const res = await app.inject({ method: 'GET', url: '/api/templates' });
+    const b = res.json() as { templates: Array<{ id: string; evidence?: { screenshot: boolean; video: boolean } }> };
+    const flagged = b.templates.find((t) => t.id === 'tp-flag');
+    expect(flagged?.evidence).toEqual({ screenshot: true, video: false });
+    const none = b.templates.find((t) => t.id === 'tp-ev2') ?? b.templates.find((t) => !t.evidence);
+    if (none && none.id === 'tp-ev2') expect(none.evidence).toEqual({ screenshot: false, video: false });
+  });
+});

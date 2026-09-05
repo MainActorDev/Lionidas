@@ -100,6 +100,16 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     // B4: attach last-verdict + trend per case (absent = never run)
     const { suiteVerdicts } = await import('../db/suite.ts');
     const verdicts = suiteVerdicts(db);
+    // evidence flags per case: does the newest finished run carry screenshot/video
+    const evFlags = new Map<string, { screenshot: boolean; video: boolean }>();
+    for (const r of db.prepare(
+      `SELECT r.template_id AS tid, r.id AS rid FROM runs r
+       JOIN (SELECT template_id, MAX(started_at) AS ms FROM runs WHERE template_id IS NOT NULL AND finished_at IS NOT NULL GROUP BY template_id) m
+         ON m.template_id = r.template_id AND m.ms = r.started_at`,
+    ).all() as Array<{ tid: string; rid: string }>) {
+      const types = new Set((db.prepare('SELECT type FROM evidence WHERE bundle_id = ?').all(r.rid) as Array<{ type: string }>).map((x) => x.type));
+      evFlags.set(r.tid, { screenshot: types.has('screenshot'), video: types.has('video') });
+    }
     for (const t of sel) {
       const v = verdicts.get(t.id);
       t.verdict = v ? {
@@ -107,6 +117,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
         lastFinishedAt: v.lastFinishedAt, lastAppVersion: v.lastAppVersion,
         trend: v.trend, totalRuns: v.totalRuns,
       } : null;
+      t.evidence = evFlags.get(t.id) ?? { screenshot: false, video: false };
     }
     return { templates: sel };
   });
@@ -201,6 +212,22 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       id,
     );
     return rowToTemplate(db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow);
+  });
+
+  /** Latest-evidence resolver: newest finished run of this template → its
+   *  evidence row → redirect to the existing streaming route (Range etc. ride
+   *  along). kind is an enum — the request never touches the filesystem. */
+  app.get('/api/templates/:id/evidence/:kind', async (req, reply) => {
+    const { id, kind } = req.params as { id: string; kind: string };
+    if (kind !== 'screenshot' && kind !== 'video') return reply.code(404).send({ error: 'kind must be screenshot or video' });
+    const run = db.prepare(
+      `SELECT id FROM runs WHERE template_id = ? AND finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 1`,
+    ).get(id) as { id: string } | undefined;
+    if (!run) return reply.code(404).send({ error: 'template has no finished run' });
+    const ev = db.prepare('SELECT id FROM evidence WHERE bundle_id = ? AND type = ? LIMIT 1').get(run.id, kind) as { id: string } | undefined;
+    if (!ev) return reply.code(404).send({ error: `no ${kind} evidence for latest run` });
+    reply.header('cache-control', 'no-store');
+    return reply.redirect(`/api/evidence/${ev.id}/file`);
   });
 
   app.delete('/api/templates/:id', async (req, reply) => {

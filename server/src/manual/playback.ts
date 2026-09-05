@@ -100,7 +100,7 @@ function stepLabel(s: PlaybackStep): string {
   return `type "${(s.text ?? '').slice(0, 20)}"`;
 }
 
-function ingestEvidence(deps: PlaybackDeps, runId: string, bundleId: string, type: string, srcPath: string | undefined): string | null {
+function ingestEvidence(deps: PlaybackDeps, runId: string, bundleId: string, type: string, srcPath: string | undefined): { id: string; path: string } | null {
   if (!srcPath || !existsSync(srcPath)) return null;
   mkdirSync(join(deps.artifactsDir, runId), { recursive: true });
   const dest = join(deps.artifactsDir, runId, `${type}-${createHash('sha256').update(srcPath).digest('hex').slice(0, 8)}-${srcPath.split('/').pop()}`);
@@ -110,7 +110,7 @@ function ingestEvidence(deps: PlaybackDeps, runId: string, bundleId: string, typ
   deps.db
     .prepare(`INSERT OR IGNORE INTO evidence(id, bundle_id, type, path, sha256, bytes, moov_ok, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(id, bundleId, type, dest, sha, statSync(dest).size, null, Date.now());
-  return id;
+  return { id, path: dest };
 }
 
 /** preset DB row → addon state spec (single mapping, reused by restore). */
@@ -878,8 +878,8 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       try {
         const shot = (await alloy.dispatch('alloy_screenshot', { udid }, deps.dispatchDeps)) as { ok: boolean; result?: { path: string } };
         if (shot.ok && shot.result) {
-          const evId = ingestEvidence(deps, runId, runId, 'screenshot', shot.result.path);
-          if (evId) deps.db.prepare(`UPDATE runs SET artifact_path = ? WHERE id = ?`).run(shot.result.path, runId);
+          const ev = ingestEvidence(deps, runId, runId, 'screenshot', shot.result.path);
+          if (ev) deps.db.prepare(`UPDATE runs SET artifact_path = ? WHERE id = ?`).run(ev.path, runId);
         }
       } catch { /* best-effort */ }
       // run video stop → ingest (only if start succeeded)
@@ -889,8 +889,8 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             | { ok: boolean; result?: { video?: { hostPath?: string } } } | null;
           const hostPath = stop?.result?.video?.hostPath;
           if (stop?.ok && hostPath) {
-            const evId = ingestEvidence(deps, runId, runId, 'video', hostPath);
-            if (evId) deps.db.prepare(`UPDATE runs SET video_path = ? WHERE id = ?`).run(hostPath, runId);
+            const ev = ingestEvidence(deps, runId, runId, 'video', hostPath);
+            if (ev) deps.db.prepare(`UPDATE runs SET video_path = ? WHERE id = ?`).run(ev.path, runId);
           }
         } catch { /* best-effort */ }
       }

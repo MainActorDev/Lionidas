@@ -60,7 +60,7 @@ function ingestEvidence(
   bundleId: string,
   type: string,
   srcPath: string | undefined,
-): string | null {
+): { id: string; path: string } | null {
   if (!srcPath || !existsSync(srcPath)) return null;
   mkdirSync(join(deps.artifactsDir, runId), { recursive: true });
   const dest = join(deps.artifactsDir, runId, `${type}-${createHash('sha256').update(srcPath).digest('hex').slice(0, 8)}-${srcPath.split('/').pop()}`);
@@ -74,7 +74,7 @@ function ingestEvidence(
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(id, bundleId, type, dest, sha, bytes, null, Date.now());
-  return id;
+  return { id, path: dest };
 }
 
 export async function executeRun(spec: RunSpec, deps: RunnerDeps): Promise<string> {
@@ -215,13 +215,13 @@ export async function executeRun(spec: RunSpec, deps: RunnerDeps): Promise<strin
         try {
           const shot = (await call('alloy_screenshot', { udid: spec.udid })) as { path?: string };
           const shotEv = ingestEvidence(deps, runId, runId, 'screenshot', shot?.path);
-          if (shotEv) rec.evidence_ids.push(shotEv);
+          if (shotEv) rec.evidence_ids.push(shotEv.id);
           // baseline diff: compare against latest approved baseline for this flow scope
           const scopeKey = flow.name;
           const baseline = deps.db
             .prepare('SELECT id, image_sha256, evidence_id FROM baselines WHERE scope_key = ? ORDER BY approved_at DESC LIMIT 1')
             .get(scopeKey) as { id: string; image_sha256: string; evidence_id: string | null } | undefined;
-          let diffEv: string | null = null;
+          let diffEv: { id: string; path: string } | null = null;
           if (baseline?.evidence_id) {
             const baseRow = deps.db.prepare('SELECT path FROM evidence WHERE id = ?').get(baseline.evidence_id) as { path: string } | undefined;
             if (baseRow && shot?.path) {
@@ -233,7 +233,7 @@ export async function executeRun(spec: RunSpec, deps: RunnerDeps): Promise<strin
                 })) as { diff?: { hostPath?: string } | string };
                 const diffPath = typeof d?.diff === 'string' ? d.diff : (d?.diff as { hostPath?: string } | undefined)?.hostPath;
                 diffEv = ingestEvidence(deps, runId, runId, 'diff', diffPath);
-                if (diffEv) rec.evidence_ids.push(diffEv);
+                if (diffEv) rec.evidence_ids.push(diffEv.id);
               } catch { /* diff is best-effort evidence */ }
             }
           }
@@ -269,14 +269,14 @@ export async function executeRun(spec: RunSpec, deps: RunnerDeps): Promise<strin
       const stop = await call('alloy_video', { udid: spec.udid, action: 'stop', label: runId }).catch(() => null);
       const hostPath = (stop as { video?: { hostPath?: string } } | null)?.video?.hostPath;
       const videoEv = ingestEvidence(deps, runId, runId, 'video', hostPath);
-      if (videoEv) steps.forEach((s) => s.evidence_ids.push(videoEv));
+      if (videoEv) steps.forEach((st) => st.evidence_ids.push(videoEv.id));
     }
 
     // 7. A: logs capture + network (no holder; session alive)
     const logs = await call('alloy_logs', { udid: spec.udid, action: 'capture' }).catch(() => null);
     const logPath = (logs as { path?: string } | null)?.path;
     const logEv = ingestEvidence(deps, runId, runId, 'logs', logPath);
-    if (logEv && steps.some((s) => s.status !== 'pass')) steps.find((s) => s.status !== 'pass')?.evidence_ids.push(logEv);
+    if (logEv && steps.some((s) => s.status !== 'pass')) steps.find((s) => s.status !== 'pass')?.evidence_ids.push(logEv.id);
     await call('alloy_logs', { udid: spec.udid, action: 'stop' }).catch(() => undefined);
 
     // persist steps + ac_results

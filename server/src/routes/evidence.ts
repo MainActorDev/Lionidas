@@ -1,6 +1,16 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { createReadStream, statSync } from 'node:fs';
+
+const EV_CONTENT_TYPES: Record<string, string> = {
+  video: 'video/mp4',
+  screenshot: 'image/png',
+  diff: 'image/png',
+  logs: 'text/plain; charset=utf-8',
+};
+function evContentType(type: string): string {
+  return EV_CONTENT_TYPES[type] ?? 'application/octet-stream';
+}
 import type { ReadableOptions } from 'node:stream';
 
 export function registerEvidenceRoute(app: FastifyInstance, db: Database.Database): void {
@@ -19,6 +29,7 @@ export function registerEvidenceRoute(app: FastifyInstance, db: Database.Databas
       | { path: string; type: string; bytes: number }
       | undefined;
     if (!ev) return reply.code(404).send({ error: 'evidence not found' });
+    reply.header('cache-control', 'no-store');
 
     const range = req.headers.range;
     try {
@@ -31,7 +42,7 @@ export function registerEvidenceRoute(app: FastifyInstance, db: Database.Databas
           reply.header('content-range', `bytes ${start}-${end}/${ev.bytes}`);
           reply.header('accept-ranges', 'bytes');
           reply.header('content-length', String(end - start + 1));
-          reply.header('content-type', ev.type === 'video' ? 'video/mp4' : 'application/octet-stream');
+          reply.header('content-type', evContentType(ev.type));
           const stream = createReadStream(ev.path, { start, end } as ReadableOptions);
           return reply.send(stream);
         }
@@ -39,7 +50,7 @@ export function registerEvidenceRoute(app: FastifyInstance, db: Database.Databas
       const st = statSync(ev.path);
       reply.header('content-length', String(st.size));
       reply.header('accept-ranges', 'bytes');
-      reply.header('content-type', ev.type === 'video' ? 'video/mp4' : 'application/octet-stream');
+      reply.header('content-type', evContentType(ev.type));
       return reply.send(createReadStream(ev.path));
     } catch {
       return reply.code(410).send({ error: 'evidence file missing on disk' });

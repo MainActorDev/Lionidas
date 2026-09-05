@@ -23,6 +23,7 @@ interface Template {
   steps: Step[]; defaultPresetId: string | null;
   appBundleId: string | null; appName: string | null; appVersion: string | null;
   tags: string[]; verdict: Verdict | null;
+  evidence?: { screenshot: boolean; video: boolean };
   createdBy: string; createdAt: number; updatedAt: number;
 }
 interface Plan { id: string; name: string; tags: string[]; udid: string | null; appBundleId: string | null; scenarioId: string | null; env: Record<string, string> }
@@ -171,6 +172,16 @@ function artifactLabel(a: { path: string; version: string | null; source: string
 
 // ── run companion panel (R1 observer dock) ──
 const runPanel = ref<{ runId: string; templateId: string; caseName: string; udid: string } | null>(null);
+
+// evidence lightbox: which case's screenshot/video is open (null = closed)
+const evidenceView = ref<{ templateId: string; caseName: string; hasVideo: boolean; mode: 'shot' | 'video' } | null>(null);
+function openEvidence(t: Template): void {
+  evidenceView.value = { templateId: t.id, caseName: t.name, hasVideo: t.evidence?.video === true, mode: 'shot' };
+}
+function closeEvidence(): void { evidenceView.value = null; }
+function onKey(e: KeyboardEvent): void { if (e.key === 'Escape') closeEvidence(); }
+onMounted(() => window.addEventListener('keydown', onKey));
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
 /** adopt a run already live on this page's device set — reload mid-run,
  *  play from another tab, run started via plan/prompt. The panel hydrates
  *  itself from GET /api/runs/:id/steps, so no template steps needed. */
@@ -612,6 +623,23 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
       @close="runPanel = null"
       @open-run="(id) => $router.push(`/runs/${id}`)"
     />
+    <!-- evidence lightbox: full screenshot + video toggle -->
+    <div v-if="evidenceView" class="evidence-lightbox" @click.self="closeEvidence">
+      <div class="evidence-card">
+        <div class="evidence-head">
+          <b>{{ evidenceView.caseName }}</b>
+          <span class="evidence-actions">
+            <button v-if="evidenceView.hasVideo" class="btn btn-sm" :class="{ 'btn-ghost': evidenceView.mode === 'shot' }" @click="evidenceView!.mode = 'video'">&#9654; video</button>
+            <button class="btn btn-sm" :class="{ 'btn-ghost': evidenceView.mode === 'video' }" @click="evidenceView!.mode = 'shot'">screenshot</button>
+            <button class="btn btn-sm btn-ghost" @click="closeEvidence">close</button>
+          </span>
+        </div>
+        <img v-if="evidenceView.mode === 'shot'" class="evidence-shot" alt="run screenshot"
+          :src="`/api/templates/${evidenceView.templateId}/evidence/screenshot?t=${Date.now()}`" />
+        <video v-else class="evidence-shot" controls preload="metadata"
+          :src="`/api/templates/${evidenceView.templateId}/evidence/video`"></video>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -715,4 +743,11 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
   background: var(--color-graphite);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
+
+.a2-evidence-thumb { width: 28px; height: 28px; border-radius: 6px; object-fit: cover; margin-right: 8px; cursor: zoom-in; flex: none; border: 1px solid var(--border, #333); }
+.evidence-lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: flex; align-items: center; justify-content: center; z-index: 200; }
+.evidence-card { background: var(--color-graphite, #1b1b1f); border-radius: 12px; padding: 12px; max-width: min(92vw, 560px); max-height: 92vh; display: flex; flex-direction: column; gap: 8px; }
+.evidence-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.evidence-actions { display: flex; gap: 6px; }
+.evidence-shot { max-width: 100%; max-height: calc(92vh - 64px); border-radius: 8px; object-fit: contain; }
 </style>
