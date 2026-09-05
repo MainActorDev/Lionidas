@@ -224,10 +224,53 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       `SELECT id FROM runs WHERE template_id = ? AND finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 1`,
     ).get(id) as { id: string } | undefined;
     if (!run) return reply.code(404).send({ error: 'template has no finished run' });
-    const ev = db.prepare('SELECT id FROM evidence WHERE bundle_id = ? AND type = ? LIMIT 1').get(run.id, kind) as { id: string } | undefined;
-    if (!ev) return reply.code(404).send({ error: `no ${kind} evidence for latest run` });
+    let evId: string | undefined;
+    if (kind === 'screenshot') {
+      // prefer the FIRST FAILED expect's shot (the break point), else the LAST
+      // expect's, else any screenshot evidence (no-expect fallback shot)
+      const steps = db.prepare(
+        `SELECT idx, status, evidence_ids_json FROM run_steps WHERE run_id = ? AND evidence_ids_json != '[]' ORDER BY idx`,
+      ).all(run.id) as Array<{ idx: number; status: string; evidence_ids_json: string }>;
+      const withEv = steps
+        .map((r) => ({ ...r, ids: JSON.parse(r.evidence_ids_json) as string[] }))
+        .filter((r) => r.ids.length > 0);
+      const failed = withEv.find((r) => r.status === 'fail');
+      const chosen = failed ?? withEv[withEv.length - 1];
+      evId = chosen?.ids[0];
+      if (!evId) {
+        const any = db.prepare(`SELECT id FROM evidence WHERE bundle_id = ? AND type = 'screenshot' LIMIT 1`).get(run.id) as { id: string } | undefined;
+        evId = any?.id;
+      }
+    } else {
+      const v = db.prepare(`SELECT id FROM evidence WHERE bundle_id = ? AND type = 'video' LIMIT 1`).get(run.id) as { id: string } | undefined;
+      evId = v?.id;
+    }
+    if (!evId) return reply.code(404).send({ error: `no ${kind} evidence for latest run` });
     reply.header('cache-control', 'no-store');
-    return reply.redirect(`/api/evidence/${ev.id}/file`);
+    return reply.redirect(`/api/evidence/${evId}/file`);
+  });
+
+  /** Evidence gallery for the lightbox: the newest finished run's step-labeled
+   *  screenshots (idx asc) + the whole-run video appended last. */
+  app.get('/api/templates/:id/evidence', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const run = db.prepare(
+      `SELECT id FROM runs WHERE template_id = ? AND finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 1`,
+    ).get(id) as { id: string } | undefined;
+    if (!run) return reply.code(404).send({ error: 'template has no finished run' });
+    const steps = db.prepare(
+      `SELECT idx, name, status, evidence_ids_json FROM run_steps WHERE run_id = ? AND evidence_ids_json != '[]' ORDER BY idx`,
+    ).all(run.id) as Array<{ idx: number; name: string; status: string; evidence_ids_json: string }>;
+    const items: Array<{ stepIdx: number; stepName: string; status: string; kind: string; evId: string }> = [];
+    for (const st of steps) {
+      for (const evId of JSON.parse(st.evidence_ids_json) as string[]) {
+        const ev = db.prepare('SELECT type FROM evidence WHERE id = ?').get(evId) as { type: string } | undefined;
+        if (ev) items.push({ stepIdx: st.idx, stepName: st.name, status: st.status, kind: ev.type, evId });
+      }
+    }
+    const vid = db.prepare(`SELECT id FROM evidence WHERE bundle_id = ? AND type = 'video' LIMIT 1`).get(run.id) as { id: string } | undefined;
+    if (vid) items.push({ stepIdx: -1, stepName: 'whole run', status: 'info', kind: 'video', evId: vid.id });
+    return { runId: run.id, items };
   });
 
   app.delete('/api/templates/:id', async (req, reply) => {

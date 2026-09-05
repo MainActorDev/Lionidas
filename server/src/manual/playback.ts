@@ -307,6 +307,22 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     let runStatus: 'passed' | 'failed' | 'aborted' = 'passed';
     let skipAllSteps = false; // dialog interceptor: steps already skip-written
     let videoStarted: { ok: boolean } | null = null; // engine-B recorder handle (finally stops it)
+    // whole-run video (engine-B recorder): started FIRST — before the app
+    // opens, so open + settle + steps are all recorded. A start failure never
+    // blocks the run — but it is NAMED in the note so absence is explainable.
+    {
+      // stale-recording guard: a previously aborted run may have left the
+      // engine recording ("a video recording is already active") — stop any
+      // orphan first; its file belongs to a dead run and is worthless.
+      await alloy.dispatch('alloy_video', { udid, action: 'stop' }, deps.dispatchDeps).catch(() => undefined);
+      const vs = (await alloy.dispatch('alloy_video', { udid, action: 'start' }, deps.dispatchDeps).catch((err: unknown) => ({ ok: false as const, error: { message: err instanceof Error ? err.message : String(err) } }))) as
+        | { ok: true } | { ok: false; error?: { message?: string } };
+      if (vs.ok) videoStarted = vs;
+      else {
+        const msg = vs.error?.message ?? 'engine error';
+        deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run(`video unavailable: ${msg}`, runId);
+      }
+    }
     // alert policy (run-level): null = every dialog fails named (default).
     let alertPolicy: AlertPolicy | null = null;
     try {
@@ -521,10 +537,6 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           }
         }
       }
-      // run video (best-effort): engine-B recorder, per-call lease. A video
-      // failure never blocks the run; the stop in finally ingests the MP4.
-      videoStarted = (await alloy.dispatch('alloy_video', { udid, action: 'start' }, deps.dispatchDeps).catch(() => null)) as
-        | { ok: boolean } | null;
       deps.bus.emit('run.phase', { runId, phase: 'steps' });
       // cross-device scaling (flaw #6): scale recorded coords by target/recorded
       // logical dims — applied only to steps WITHOUT a usable selector.
@@ -600,8 +612,18 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             }
             const matched = read?.n ?? 0;
             const ev = { ...resolved, expect: s.selector, matched };
+            // per-expect evidence: the screen that PROVED (or broke) the
+            // assertion — captured after resolution, before the row is born.
+            let expectEvidence = '[]';
+            try {
+              const shot = (await alloy.dispatch('alloy_screenshot', { udid }, deps.dispatchDeps)) as { ok: boolean; result?: { path: string } };
+              if (shot.ok && shot.result) {
+                const sev = ingestEvidence(deps, runId, runId, 'screenshot', shot.result.path);
+                if (sev) expectEvidence = JSON.stringify([sev.id]);
+              }
+            } catch { /* evidence is best-effort — verdict unchanged */ }
             if (matched === 1) {
-              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify(ev));
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, expectEvidence, JSON.stringify(ev));
             } else {
               const selJson = JSON.stringify(s.selector);
               const human = selectorLabel(s.selector!);
@@ -611,7 +633,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 continue;
               }
               runStatus = 'failed';
-              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', reason, t0, Date.now() - t0, '[]', JSON.stringify(ev));
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', reason, t0, Date.now() - t0, expectEvidence, JSON.stringify(ev));
               for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
                 insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null);
               }
@@ -874,12 +896,17 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       runBlocked = 1;
       deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run(`${err instanceof Error ? err.message : String(err)}`, runId);
     } finally {
-      // final screenshot = run evidence (best-effort)
+      // fallback final screenshot ONLY when no expect captured evidence —
+      // per-expect shots are the primary evidence; this covers runs whose
+      // expects never ran (blocked/aborted) so the thumb still has a frame.
       try {
-        const shot = (await alloy.dispatch('alloy_screenshot', { udid }, deps.dispatchDeps)) as { ok: boolean; result?: { path: string } };
-        if (shot.ok && shot.result) {
-          const ev = ingestEvidence(deps, runId, runId, 'screenshot', shot.result.path);
-          if (ev) deps.db.prepare(`UPDATE runs SET artifact_path = ? WHERE id = ?`).run(ev.path, runId);
+        const expectEvidenceCount = (deps.db.prepare(`SELECT COUNT(*) c FROM run_steps WHERE run_id = ? AND evidence_ids_json != '[]'`).get(runId) as { c: number }).c;
+        if (expectEvidenceCount === 0) {
+          const shot = (await alloy.dispatch('alloy_screenshot', { udid }, deps.dispatchDeps)) as { ok: boolean; result?: { path: string } };
+          if (shot.ok && shot.result) {
+            const ev = ingestEvidence(deps, runId, runId, 'screenshot', shot.result.path);
+            if (ev) deps.db.prepare(`UPDATE runs SET artifact_path = ? WHERE id = ?`).run(ev.path, runId);
+          }
         }
       } catch { /* best-effort */ }
       // run video stop → ingest (only if start succeeded)

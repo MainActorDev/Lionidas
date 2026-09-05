@@ -174,10 +174,22 @@ function artifactLabel(a: { path: string; version: string | null; source: string
 const runPanel = ref<{ runId: string; templateId: string; caseName: string; udid: string } | null>(null);
 
 // evidence lightbox: which case's screenshot/video is open (null = closed)
-const evidenceView = ref<{ templateId: string; caseName: string; hasVideo: boolean; mode: 'shot' | 'video' } | null>(null);
-function openEvidence(t: Template): void {
-  evidenceView.value = { templateId: t.id, caseName: t.name, hasVideo: t.evidence?.video === true, mode: 'shot' };
+interface EvidenceItem { stepIdx: number; stepName: string; status: string; kind: string; evId: string }
+const evidenceView = ref<{ templateId: string; caseName: string; items: EvidenceItem[]; sel: number; mode: 'shot' | 'video' } | null>(null);
+async function openEvidence(t: Template): Promise<void> {
+  let items: EvidenceItem[] = [];
+  try {
+    const r = await fetch(`/api/templates/${t.id}/evidence`);
+    if (r.ok) items = ((await r.json()) as { items: EvidenceItem[] }).items;
+  } catch { /* gallery fetch best-effort — 404 for never-run */ }
+  const shots = items.filter((i) => i.kind === 'screenshot');
+  // failed expect's shot first, else the last shot
+  const failedIdx = shots.findIndex((i) => i.status === 'fail');
+  const preferred = failedIdx >= 0 ? failedIdx : shots.length - 1;
+  const hasVideo = items.some((i) => i.kind === 'video');
+  evidenceView.value = { templateId: t.id, caseName: t.name, items, sel: preferred >= 0 ? preferred : 0, mode: hasVideo && shots.length === 0 ? 'video' : 'shot' };
 }
+const evidenceShots = computed(() => (evidenceView.value?.items ?? []).filter((i) => i.kind === 'screenshot'));
 function closeEvidence(): void { evidenceView.value = null; }
 function onKey(e: KeyboardEvent): void { if (e.key === 'Escape') closeEvidence(); }
 onMounted(() => window.addEventListener('keydown', onKey));
@@ -633,13 +645,23 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
         <div class="evidence-head">
           <b>{{ evidenceView.caseName }}</b>
           <span class="evidence-actions">
-            <button v-if="evidenceView.hasVideo" class="btn btn-sm" :class="{ 'btn-ghost': evidenceView.mode === 'shot' }" @click="evidenceView!.mode = 'video'">&#9654; video</button>
-            <button class="btn btn-sm" :class="{ 'btn-ghost': evidenceView.mode === 'video' }" @click="evidenceView!.mode = 'shot'">screenshot</button>
+            <button v-if="evidenceView.items.some((i) => i.kind === 'video')" class="btn btn-sm" :class="{ 'btn-ghost': evidenceView.mode === 'shot' }" @click="evidenceView!.mode = 'video'">&#9654; video</button>
+            <button class="btn btn-sm" :class="{ 'btn-ghost': evidenceView.mode === 'video' }" @click="evidenceView!.mode = 'shot'">screenshots</button>
             <button class="btn btn-sm btn-ghost" @click="closeEvidence">close</button>
           </span>
         </div>
-        <img v-if="evidenceView.mode === 'shot'" class="evidence-shot" alt="run screenshot"
-          :src="`/api/templates/${evidenceView.templateId}/evidence/screenshot?t=${Date.now()}`" />
+        <template v-if="evidenceView.mode === 'shot'">
+          <div v-if="evidenceShots.length === 0" class="evidence-empty">no step screenshots for this run</div>
+          <img v-else class="evidence-shot" alt="run screenshot"
+            :src="`/api/evidence/${evidenceShots[evidenceView.sel]?.evId}/file`" />
+          <div v-if="evidenceShots.length > 0" class="evidence-strip">
+            <button v-for="(it, i) in evidenceShots" :key="it.evId" class="evidence-chip" :class="{ sel: i === evidenceView.sel, fail: it.status === 'fail' }"
+              @click="evidenceView!.sel = i" :title="`${it.stepName} — ${it.status}`">
+              <img :src="`/api/evidence/${it.evId}/file`" alt="" loading="lazy" />
+              <span class="evidence-chip-label">{{ it.stepName }}</span>
+            </button>
+          </div>
+        </template>
         <video v-else class="evidence-shot" controls preload="metadata"
           :src="`/api/templates/${evidenceView.templateId}/evidence/video`"></video>
       </div>
@@ -754,4 +776,12 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 .evidence-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .evidence-actions { display: flex; gap: 6px; }
 .evidence-shot { max-width: 100%; max-height: calc(92vh - 64px); border-radius: 8px; object-fit: contain; }
+
+.evidence-empty { color: var(--color-steel, #888); font-size: 12px; padding: 24px 0; }
+.evidence-strip { display: flex; gap: 6px; overflow-x: auto; padding-top: 4px; }
+.evidence-chip { position: relative; flex: none; width: 64px; height: 64px; border-radius: 8px; overflow: hidden; border: 2px solid transparent; background: none; padding: 0; cursor: pointer; }
+.evidence-chip img { width: 100%; height: 100%; object-fit: cover; }
+.evidence-chip.sel { border-color: var(--color-accent, #e5484d); }
+.evidence-chip.fail { outline: 2px solid #e5484d; outline-offset: -4px; }
+.evidence-chip-label { position: absolute; bottom: 0; left: 0; right: 0; font-size: 8px; background: rgba(0,0,0,.65); color: #fff; padding: 1px 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
 </style>

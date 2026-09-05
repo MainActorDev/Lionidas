@@ -155,3 +155,48 @@ describe('GET /api/templates/:id/evidence/:kind (resolver)', () => {
     if (none && none.id === 'tp-ev2') expect(none.evidence).toEqual({ screenshot: false, video: false });
   });
 });
+
+describe('evidence resolver — per-expect preference', () => {
+  function seedRunWithSteps(tid: string, steps: Array<{ idx: number; name: string; status: string; ev?: string }>): void {
+    mkCase(tid, 'c', [{ idx: 0, action: 'scroll', direction: 'down' }]);
+    db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, finished_at, note, template_id)
+                VALUES ('r-' || ?, 'T', 'manual', 'passed', 'qa', 's', 1, 2, 'n', ?)`).run(tid, tid);
+    for (const st of steps) {
+      db.prepare(`INSERT INTO run_steps(run_id, idx, flow_name, kind, name, status, started_at, duration_ms, evidence_ids_json)
+                  VALUES ('r-' || ?, ?, 't', 'expect', ?, ?, 0, 0, ?)`).run(tid, st.idx, st.name, st.status, JSON.stringify(st.ev ? [st.ev] : []));
+    }
+    for (const st of steps) {
+      if (st.ev) db.prepare(`INSERT INTO evidence(id, bundle_id, type, path, sha256, bytes, moov_ok, created_at)
+                             VALUES (?, 'r-' || ?, 'screenshot', '/tmp/' || ? || '.png', ?, 1, NULL, 0)`).run(st.ev, tid, st.ev, st.ev);
+    }
+  }
+
+  it('prefers the FAILED expect screenshot over later passing ones', async () => {
+    seedRunWithSteps('tp-f', [
+      { idx: 0, name: 'expect A', status: 'pass', ev: 'ev-a' },
+      { idx: 1, name: 'expect B', status: 'fail', ev: 'ev-b' },
+      { idx: 2, name: 'expect C', status: 'pass', ev: 'ev-c' },
+    ]);
+    const res = await app.inject({ method: 'GET', url: '/api/templates/tp-f/evidence/screenshot' });
+    expect(res.headers['location']).toBe('/api/evidence/ev-b/file');
+  });
+
+  it('all-pass → LAST expect screenshot', async () => {
+    seedRunWithSteps('tp-p', [
+      { idx: 0, name: 'expect A', status: 'pass', ev: 'ev-p1' },
+      { idx: 1, name: 'expect B', status: 'pass', ev: 'ev-p2' },
+    ]);
+    const res = await app.inject({ method: 'GET', url: '/api/templates/tp-p/evidence/screenshot' });
+    expect(res.headers['location']).toBe('/api/evidence/ev-p2/file');
+  });
+
+  it('gallery endpoint lists step shots in order + video last', async () => {
+    seedRunWithSteps('tp-g', [{ idx: 0, name: 'expect A', status: 'pass', ev: 'ev-g1' }]);
+    db.prepare(`INSERT INTO evidence(id, bundle_id, type, path, sha256, bytes, moov_ok, created_at)
+                VALUES ('ev-gvid', 'r-' || 'tp-g', 'video', '/tmp/v.mp4', 'h', 1, NULL, 0)`).run();
+    const res = await app.inject({ method: 'GET', url: '/api/templates/tp-g/evidence' });
+    const b = res.json() as { items: Array<{ stepIdx: number; kind: string; evId: string }> };
+    expect(b.items.map((i) => i.evId)).toEqual(['ev-g1', 'ev-gvid']);
+    expect(b.items[1]!.stepIdx).toBe(-1);
+  });
+});
