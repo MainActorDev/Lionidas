@@ -375,6 +375,7 @@ async function endSession(): Promise<void> {
           <canvas :ref="stream.setCanvas" style="width: 100%; display: block; background: var(--color-void); min-height: 160px;"></canvas>
           <div v-if="stream.state.value !== 'live'" class="stream-overlay">
             <span v-if="stream.state.value === 'connecting'">connecting to device stream…</span>
+            <span v-else-if="stream.state.value === 'paused'">run in progress — stream paused</span>
             <span v-else-if="stream.state.value === 'reconnecting'">stream reconnecting…</span>
             <template v-else-if="stream.state.value === 'failed'">
               <span>{{ stream.failure.value || 'stream unavailable' }}</span>
@@ -439,7 +440,8 @@ async function endSession(): Promise<void> {
             <div v-if="ripple" class="tap-ripple" :style="{ left: `${ripple.x}px`, top: `${ripple.y}px` }" />
             <div v-if="stream.state.value !== 'live'" class="stream-overlay">
               <span v-if="stream.state.value === 'connecting'">connecting to device stream…</span>
-              <span v-else-if="stream.state.value === 'reconnecting'">stream reconnecting…</span>
+              <span v-else-if="stream.state.value === 'paused'">run in progress — stream paused</span>
+            <span v-else-if="stream.state.value === 'reconnecting'">stream reconnecting…</span>
               <template v-else-if="stream.state.value === 'failed'">
                 <span>{{ stream.failure.value || 'stream unavailable' }}</span>
                 <button v-if="stream.retryable.value" class="btn btn-sm stream-retry" @click="stream.retry()">retry stream</button>

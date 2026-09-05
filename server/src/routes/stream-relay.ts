@@ -59,12 +59,45 @@ async function pumpUpstream(url: string, sub: UpstreamSubscription, udid: string
 
   while (sub.refCount > 0) {
     // run holds this device → stop pulling frames; poll cheaply until the
-    // run finishes. Client canvases freeze on the last frame — intentional:
-    // the run panel shows step outcomes instead of a wedging live view.
+    // run finishes. Clients are TOLD (paused, not dead) so the canvas shows
+    // "run in progress" instead of timing out into reconnect loops.
+    let pauseNotified = false;
     while (sub.refCount > 0 && runActiveDevices.has(udid)) {
+      if (!pauseNotified) {
+        pauseNotified = true;
+        for (const c of sub.clients) {
+          try { c.socket.send(JSON.stringify({ status: 'run-active', paused: true })); } catch { /* gone */ }
+        }
+      }
       await new Promise((r) => setTimeout(r, 500));
     }
     if (sub.refCount === 0) return;
+    // resume after a run: the engine's MJPEG server likely respawned during
+    // the pause (new port) — the old url is dead weight. Close this pump's
+    // fetch and re-resolve a FRESH url through our own route; clients ride
+    // along on the same socket (new upstream subscription, same fan-out).
+    if (pauseNotified) {
+      sub.abortController.abort();
+      try {
+        const port = Number(process.env['CRUCIBLE_PORT'] ?? 9230);
+        const resp = await fetch(`http://127.0.0.1:${port}/api/devices/${udid}/stream`, { method: 'POST' });
+        if (resp.ok) {
+          const body = await resp.json() as { streamUrl: string };
+          const fresh = upstreams.get(body.streamUrl);
+          if (fresh && fresh !== sub) {
+            // migrate clients to the fresh upstream's pump
+            for (const c of sub.clients) {
+              fresh.clients.add(c);
+              fresh.refCount++;
+            }
+            sub.clients.clear();
+            sub.refCount = 0;
+            void pumpUpstream(body.streamUrl, fresh, udid);
+            return;
+          }
+        }
+      } catch { /* fall through: old url retry path handles it */ }
+    }
     try {
       const resp = await fetch(url, { signal: sub.abortController.signal });
       if (!resp.ok || !resp.body) throw new Error(`upstream ${resp.status}`);

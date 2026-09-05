@@ -6,7 +6,7 @@
  */
 import { ref, type Ref } from 'vue';
 
-export type StreamState = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'failed';
+export type StreamState = 'idle' | 'connecting' | 'live' | 'paused' | 'reconnecting' | 'failed';
 
 export interface DeviceStream {
   canvasRef: Ref<HTMLCanvasElement | null>;
@@ -182,9 +182,10 @@ export function useDeviceStream(): DeviceStream {
         // typed messages from the relay — error (terminal, stop retrying) or
         // status (mid-stream source loss, server keeps retrying underneath)
         try {
-          const body = JSON.parse(ev.data) as { error?: string; retryable?: boolean; status?: string };
+          const body = JSON.parse(ev.data) as { error?: string; retryable?: boolean; status?: string; paused?: boolean };
           if (body.error) fail(body.error, body.retryable ?? false);
           else if (body.status === 'source-lost') state.value = 'reconnecting';
+          else if (body.status === 'run-active' && body.paused) state.value = 'paused';
         } catch { /* not JSON — ignore */ }
         return;
       }
