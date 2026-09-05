@@ -395,13 +395,25 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       try {
         await execFileAsync('xcrun', ['simctl', 'terminate', udid, appToLaunch]);
       } catch { /* app not running — exactly what we want */ }
-      // Sweep warm-up (Task 2b): devtools injection needs restart → env-apply
-        // probe → restart. Eligible only when a step can use the sweep; env
-        // kill-switch CRUCIBLE_SWEEP=off. Failure degrades to sweep-off,
-        // never blocks the run. Runs BEFORE open so the launch settle
-        // follows the final (injected) relaunch.
+      // Sweep warm-up (Task 2b, REVISED 2026-09-05): the app is now DEAD —
+        // a throwaway probe hits requiresAppRestart → reverifyEnv(), which
+        // applies the DYLD env the single open then relaunches under. Zero
+        // extra launches (the old restart→probe→restart carousel ran TWO
+        // relaunches after the settle gate and wasted it). On a warm sim the
+        // env is already set and the probe is a cheap no-op. Eligible only
+        // when a step can use the sweep; CRUCIBLE_SWEEP=off kills it.
         const sweepEnabled = process.env['CRUCIBLE_SWEEP'] !== 'off';
         let probeFn: ((x: number, y: number) => Promise<SnapNodeLike[]>) | null = null;
+        const sweepEligible = sweepEnabled && steps.some((st) =>
+          ((st.action === 'tap' || st.action === 'type') && st.selector && (st.selector.identifier || st.selector.label)) ||
+          (st.action === 'expect' && st.selector));
+        if (sweepEligible) {
+          try {
+            const rawProbe = makeProbe((tool, input, d) => alloy.dispatch(tool, input, d) as never, deps.dispatchDeps, udid, appToLaunch);
+            await rawProbe(1, 1); // app dead → requiresAppRestart → env applied
+            probeFn = rawProbe;
+          } catch { /* warm-up failure never blocks the run — sweep degrades to off */ }
+        }
         const open = (await withWatchdog(runId, dispatchWithHeal('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, `open ${appToLaunch}`)) as { ok: boolean; error?: { message: string } };
       if (!open.ok) throw new Error(`open failed: ${open.error?.message ?? 'engine error'}`);
 
@@ -507,21 +519,8 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           }
         }
       }
-      // Sweep warm-up (Task 2b): devtools injection needs restart →
-      // env-apply probe → restart (live-verified sequence). Eligible only
-      // when a step can use the sweep; CRUCIBLE_SWEEP=off kills it. Runs
-      // after open — app state resets equal what a fresh run start means.
-      if (sweepEnabled && execSteps.some((st) =>
-          ((st.action === 'tap' || st.action === 'type') && st.selector && (st.selector.identifier || st.selector.label)) ||
-          (st.action === 'expect' && st.selector))) {
-        try {
-          const rawProbe = makeProbe((t, i, d) => alloy.dispatch(t, i, d) as never, deps.dispatchDeps, udid, appToLaunch);
-          await alloy.dispatch('alloy_restart_app', { udid, bundleId: appToLaunch }, deps.dispatchDeps).catch(() => undefined);
-          await rawProbe(1, 1); // throwaway: applies the DYLD env latch
-          await alloy.dispatch('alloy_restart_app', { udid, bundleId: appToLaunch }, deps.dispatchDeps).catch(() => undefined);
-          probeFn = rawProbe;
-        } catch { /* warm-up failure never blocks the run — sweep degrades to off */ }
-      }
+      // (Sweep warm-up moved 2026-09-05: it now runs pre-open — see the
+      // "Task 2b, REVISED" block above the open dispatch. probeFn is set.)
 
       deps.bus.emit('run.phase', { runId, phase: 'steps' });
       // cross-device scaling (flaw #6): scale recorded coords by target/recorded
