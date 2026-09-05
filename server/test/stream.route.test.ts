@@ -70,7 +70,7 @@ describe('watch-frame run guard (runner-wedge prevention)', () => {
     const before = await app.app.inject({ method: 'POST', url: '/api/devices/S4/watch-frame' });
     expect(before.statusCode).not.toBe(409);
     // run holds S4 → 409 RUN_ACTIVE
-    app.db.raw.prepare(`INSERT INTO runs(id,kind,status,triggered_by,device_udid,artifact_path,artifact_hash,artifact_mtime,src_path,launch_args,parent_run_id,started_at) VALUES ('r-guard','automated','running','t','S4',NULL,NULL,NULL,NULL,'[]',NULL,?)`).run(Date.now());
+    app.db.raw.prepare(`INSERT INTO runs(id,ticket_key,kind,status,triggered_by,device_udid,started_at) VALUES ('r-guard','T','automated','running','t','S4',?)`).run(Date.now());
     const during = await app.app.inject({ method: 'POST', url: '/api/devices/S4/watch-frame' });
     expect(during.statusCode).toBe(409);
     expect((during.json() as { code?: string }).code).toBe('RUN_ACTIVE');

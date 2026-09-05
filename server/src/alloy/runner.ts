@@ -3,6 +3,7 @@
  * sequence per plans/M1 §2.1 (A4-based): A-session without lease, B drives,
  * A captures, release always. Steps emit WS events as they land.
  */
+import { prunePreviousRunArtifacts } from '../evidence/retention.ts';
 import { createHash } from 'node:crypto';
 import { statSync, existsSync, mkdirSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -106,6 +107,8 @@ export async function executeRun(spec: RunSpec, deps: RunnerDeps): Promise<strin
     deps.db.prepare('UPDATE runs SET note = ? WHERE id = ?').run(spec.note, runId);
   }
   deps.bus.emit('run.started', { runId, ticketKey: spec.ticketKey, udid: spec.udid });
+  // latest-only evidence: this run replaces the previous automated run's artifacts
+  prunePreviousRunArtifacts({ db: deps.db, artifactsDir: deps.artifactsDir }, { ticketKey: spec.ticketKey }, runId);
 
   const steps: StepRecord[] = [];
   let runStatus: 'passed' | 'failed' = 'passed';

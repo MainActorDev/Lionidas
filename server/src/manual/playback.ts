@@ -4,6 +4,7 @@
  *  - final screenshot ingested as evidence
  *  - forge activeRunId set for the duration → traffic rows attach to the run
  *  No image assertions — failure is an engine dispatch error or missing field. */
+import { prunePreviousRunArtifacts } from '../evidence/retention.ts';
 import { resolveAlertPolicy, type AlertPolicy } from '@crucible/shared/alert-policy';
 import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
@@ -280,6 +281,8 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               VALUES (?, ?, 'manual', 'running', ?, ?, ?, ?, ?, ?)`)
     .run(runId, t.ticket_key ?? 'TEMPLATE', opts.triggeredBy ?? 'qa', udid, Date.now(), `template:${templateId} ${t.name}`, templateId, appVersion);
   deps.bus.emit('run.started', { runId, ticketKey: t.ticket_key ?? 'TEMPLATE', udid });
+  // latest-only evidence: this run replaces the previous run's artifacts
+  prunePreviousRunArtifacts({ db: deps.db, artifactsDir: deps.artifactsDir }, { templateId }, runId);
 
   // background execution — route returns immediately; done settles at finish
   const done = (async () => {
@@ -303,6 +306,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     }
     let runStatus: 'passed' | 'failed' | 'aborted' = 'passed';
     let skipAllSteps = false; // dialog interceptor: steps already skip-written
+    let videoStarted: { ok: boolean } | null = null; // engine-B recorder handle (finally stops it)
     // alert policy (run-level): null = every dialog fails named (default).
     let alertPolicy: AlertPolicy | null = null;
     try {
@@ -517,6 +521,10 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           }
         }
       }
+      // run video (best-effort): engine-B recorder, per-call lease. A video
+      // failure never blocks the run; the stop in finally ingests the MP4.
+      videoStarted = (await alloy.dispatch('alloy_video', { udid, action: 'start' }, deps.dispatchDeps).catch(() => null)) as
+        | { ok: boolean } | null;
       deps.bus.emit('run.phase', { runId, phase: 'steps' });
       // cross-device scaling (flaw #6): scale recorded coords by target/recorded
       // logical dims — applied only to steps WITHOUT a usable selector.
@@ -870,10 +878,22 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       try {
         const shot = (await alloy.dispatch('alloy_screenshot', { udid }, deps.dispatchDeps)) as { ok: boolean; result?: { path: string } };
         if (shot.ok && shot.result) {
-          const evId = ingestEvidence(deps, runId, 'manual', 'screenshot', shot.result.path);
+          const evId = ingestEvidence(deps, runId, runId, 'screenshot', shot.result.path);
           if (evId) deps.db.prepare(`UPDATE runs SET artifact_path = ? WHERE id = ?`).run(shot.result.path, runId);
         }
-      } catch { /* evidence best-effort */ }
+      } catch { /* best-effort */ }
+      // run video stop → ingest (only if start succeeded)
+      if (videoStarted?.ok) {
+        try {
+          const stop = (await alloy.dispatch('alloy_video', { udid, action: 'stop', label: runId }, deps.dispatchDeps).catch(() => null)) as
+            | { ok: boolean; result?: { video?: { hostPath?: string } } } | null;
+          const hostPath = stop?.result?.video?.hostPath;
+          if (stop?.ok && hostPath) {
+            const evId = ingestEvidence(deps, runId, runId, 'video', hostPath);
+            if (evId) deps.db.prepare(`UPDATE runs SET video_path = ? WHERE id = ?`).run(hostPath, runId);
+          }
+        } catch { /* best-effort */ }
+      }
       // restore prior forge state — scenario was run-scoped by contract
       if (restorePresets) {
         try {

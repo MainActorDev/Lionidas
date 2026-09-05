@@ -231,6 +231,7 @@ export function migrateM1(db: Database.Database): void {
     // dimension (infra failure ≠ app failure; boolean, NOT a status value —
     // the status CHECK constraint would need a table rebuild).
     'ALTER TABLE runs ADD COLUMN template_id TEXT REFERENCES templates(id) ON DELETE SET NULL',
+    'ALTER TABLE runs ADD COLUMN video_path TEXT',
     'ALTER TABLE runs ADD COLUMN app_version TEXT',
     'ALTER TABLE runs ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0',
   ]) {
