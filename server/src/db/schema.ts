@@ -234,9 +234,26 @@ export function migrateM1(db: Database.Database): void {
     'ALTER TABLE runs ADD COLUMN video_path TEXT',
     'ALTER TABLE runs ADD COLUMN app_version TEXT',
     'ALTER TABLE runs ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0',
+    // Tier 2.2 — tap-overlay evidence: per-dispatch tap/fill points
+    // (manual runs) + the video alignment anchor. Guards live in
+    // taps-store.recordTap; retention deletes ride ON DELETE CASCADE.
+    'ALTER TABLE runs ADD COLUMN video_started_at INTEGER',
   ]) {
     try { db.exec(col); } catch { /* column exists */ }
   }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS run_taps(
+      run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+      seq INTEGER NOT NULL,
+      ts INTEGER NOT NULL,
+      idx INTEGER,
+      x REAL NOT NULL,
+      y REAL NOT NULL,
+      logical_w REAL NOT NULL,
+      logical_h REAL NOT NULL,
+      PRIMARY KEY(run_id, seq)
+    );
+  `);
   // build anchoring: filter/index runs by app version
   db.exec('CREATE INDEX IF NOT EXISTS idx_runs_app_version ON runs(app_version, started_at DESC)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_runs_template ON runs(template_id, started_at DESC)');

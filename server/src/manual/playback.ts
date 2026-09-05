@@ -31,6 +31,7 @@ import { substituteStep } from './template-env.ts';
 import { forgeStateService } from '../forge/state.ts';
 import { classifyBlocked } from '../db/blocked.ts';
 import { resolveSelector, countMatches, selectorLabel, matchesSelector } from './selector.ts';
+import { recordTap } from '../evidence/taps-store.ts';
 import type { SnapNode } from './selector.ts';
 import { sweepTriggered, blindContainerAt, probePoints, sweepFind } from './sweep.ts';
 import { makeProbe, type SnapNodeLike } from '../alloy/probe.ts';
@@ -809,10 +810,18 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // (targetW/H — same dims the scaling math uses, null pre-snapshot)
             if (tx !== undefined && ty !== undefined) {
               deps.bus.emit('step.tap', { runId, idx: s.idx, x: tx, y: ty, logicalW: targetW ?? 0, logicalH: targetH ?? 0 });
+              // Tier 2.2 — persist for the evidence-player overlay (guards
+              // inside recordTap reject zero-dims pre-snapshot rows)
+              recordTap(deps.db, { runId, idx: s.idx, x: tx, y: ty, logicalW: targetW ?? 0, logicalH: targetH ?? 0 }, Date.now());
             }
           }
           else if (s.action === 'scroll') input = { udid, action: 'scroll', direction: s.direction, settle: false };
           else input = { udid, action: 'fill', target: { x: tx, y: ty }, text: resolved.text ?? '', settle: false };
+          // Tier 2.2 — fills are tap-positioned acts: record them too
+          // (typing lands at a spot; the overlay shows where)
+          if (s.action === 'type' && tx !== undefined && ty !== undefined) {
+            recordTap(deps.db, { runId, idx: s.idx, x: tx, y: ty, logicalW: targetW ?? 0, logicalH: targetH ?? 0 }, Date.now());
+          }
           const r = (await withWatchdog(runId, alloy.dispatch('alloy_act', input, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, stepName(s))) as { ok: boolean; error?: { message: string } };
           if (!r.ok) throw new Error(r.error?.message ?? 'engine error');
           // ── adaptive settle (replaces settle:true's fixed ~2.4s) ──
