@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { crucibleAlloy } from '../alloy/client.ts';
 import { initAlloyRuntime } from '../alloy/runtime.ts';
 import { parseCaseYaml, caseToYaml } from '@crucible/shared/case-yaml';
+import { tapsForRun } from '../evidence/taps-store.ts';
 
 interface TemplateRow {
   id: string;
@@ -88,6 +89,15 @@ function normalizeTags(input: unknown): string[] | null {
 function tagsToJson(input: unknown): string | null {
   const tags = normalizeTags(input);
   return tags === null ? null : JSON.stringify(tags);
+}
+
+/** Tier 2.2 — ONE selector for "which run's evidence are we serving":
+ *  the newest FINISHED run of the template. Video route, taps route, and
+ *  gallery all call this — they can never disagree. */
+function latestFinishedRun(db: Database.Database, templateId: string): { id: string } | undefined {
+  return db.prepare(
+    `SELECT id FROM runs WHERE template_id = ? AND finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 1`,
+  ).get(templateId) as { id: string } | undefined;
 }
 
 export function registerTemplateRoutes(app: FastifyInstance, db: Database.Database, dispatchDeps?: unknown): void {
@@ -214,15 +224,28 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     return rowToTemplate(db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow);
   });
 
+  /** Tier 2.2 — tap overlay data for the evidence player: the SAME run the
+   *  video route serves (latestFinishedRun), its taps, and the video
+   *  alignment anchor. No anchor ⇒ no overlay is possible ⇒ 404 so the
+   *  player falls back to plain video. */
+  app.get('/api/templates/:id/run-taps', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const run = latestFinishedRun(db, id);
+    if (!run) return reply.code(404).send({ error: 'template has no finished run' });
+    const anchor = (db.prepare('SELECT video_started_at AS v FROM runs WHERE id = ?').get(run.id) as { v: number | null }).v;
+    if (anchor == null) return reply.code(404).send({ error: 'no video for latest run — overlay unavailable' });
+    const taps = tapsForRun(db, run.id);
+    reply.header('cache-control', 'no-store');
+    return { runId: run.id, videoStartedAt: anchor, taps };
+  });
+
   /** Latest-evidence resolver: newest finished run of this template → its
    *  evidence row → redirect to the existing streaming route (Range etc. ride
    *  along). kind is an enum — the request never touches the filesystem. */
   app.get('/api/templates/:id/evidence/:kind', async (req, reply) => {
     const { id, kind } = req.params as { id: string; kind: string };
     if (kind !== 'screenshot' && kind !== 'video') return reply.code(404).send({ error: 'kind must be screenshot or video' });
-    const run = db.prepare(
-      `SELECT id FROM runs WHERE template_id = ? AND finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 1`,
-    ).get(id) as { id: string } | undefined;
+    const run = latestFinishedRun(db, id);
     if (!run) return reply.code(404).send({ error: 'template has no finished run' });
     let evId: string | undefined;
     if (kind === 'screenshot') {
