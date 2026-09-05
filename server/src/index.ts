@@ -5,6 +5,8 @@ import pino from 'pino';
 import { loadConfig, type Config } from './config.ts';
 import { openDb, type Db } from './db/client.ts';
 import { migrateM1 } from './db/schema.ts';
+import { startBackupLoop } from './db/backup.ts';
+import { join } from 'node:path';
 import { createEventBus, type TypedEventBus, type AppEvents } from './ws/bus.ts';
 import { registerHealthRoute } from './routes/health.ts';
 import { registerDeviceRoutes } from './routes/devices.ts';
@@ -90,11 +92,13 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   let stopDispatcher: (() => void) | null = null;
   let stopWatchdog: (() => void) | null = null;
   let stopGc: (() => void) | null = null;
+  let stopBackup: (() => void) | null = null;
   if (process.env['VITEST'] !== 'true') {
     // Poller + dispatcher need a live Alloy; lazy-start so health fails soft.
     import('./alloy/runtime.ts')
       .then(async ({ initAlloyRuntime }) => {
         stopGc = startGcLoop(db.raw, cfg.artifactsDir);
+        stopBackup = startBackupLoop(db.raw, join(cfg.artifactsDir, '..', 'db-backups'));
         const rt = await initAlloyRuntime(); // may throw — logged, routes still serve
         // crash recovery BEFORE serving traffic: clear orphaned claims/sessions/queue
         try {
@@ -123,6 +127,7 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
       stopDispatcher?.();
       stopWatchdog?.();
       stopGc?.();
+      stopBackup?.();
       // Graceful shutdown must restore the host's internet: stop MITM first
       // (kills the proxy listener), then clear the OS proxy setting — otherwise
       // macOS keeps funneling traffic into a dead port across restarts.

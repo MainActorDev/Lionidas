@@ -10,6 +10,7 @@ export function openDb(path: string): Db {
   const raw = new Database(path);
   raw.pragma('journal_mode = WAL');
   raw.pragma('busy_timeout = 5000');
+  raw.pragma('synchronous = NORMAL'); // crash-safe under WAL, faster than FULL
   raw.pragma('foreign_keys = ON');
   // M0: schema_meta only (idempotent; M1 supersedes with drizzle-kit migrations).
   raw.exec(`

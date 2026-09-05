@@ -5,7 +5,8 @@
  *  - forge activeRunId set for the duration → traffic rows attach to the run
  *  No image assertions — failure is an engine dispatch error or missing field. */
 import { prunePreviousRunArtifacts } from '../evidence/retention.ts';
-import { resolveAlertPolicy, type AlertPolicy } from '@crucible/shared/alert-policy';
+import { ingestEvidence } from '../evidence/ingest.ts';
+import { RunDialogPolicy, AlertStormError, parseAlertPolicyColumn, ALERT_CAP } from './dialog-policy.ts';
 import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
@@ -100,18 +101,6 @@ function stepLabel(s: PlaybackStep): string {
   return `type "${(s.text ?? '').slice(0, 20)}"`;
 }
 
-function ingestEvidence(deps: PlaybackDeps, runId: string, bundleId: string, type: string, srcPath: string | undefined): { id: string; path: string } | null {
-  if (!srcPath || !existsSync(srcPath)) return null;
-  mkdirSync(join(deps.artifactsDir, runId), { recursive: true });
-  const dest = join(deps.artifactsDir, runId, `${type}-${createHash('sha256').update(srcPath).digest('hex').slice(0, 8)}-${srcPath.split('/').pop()}`);
-  if (!existsSync(dest)) copyFileSync(srcPath, dest);
-  const sha = createHash('sha256').update(dest).digest('hex');
-  const id = `ev_${sha.slice(0, 12)}`;
-  deps.db
-    .prepare(`INSERT OR IGNORE INTO evidence(id, bundle_id, type, path, sha256, bytes, moov_ok, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, bundleId, type, dest, sha, statSync(dest).size, null, Date.now());
-  return { id, path: dest };
-}
 
 /** preset DB row → addon state spec (single mapping, reused by restore). */
 /** Fire-and-forget playback: resolves to { runId, done } once the run row
@@ -121,11 +110,6 @@ function ingestEvidence(deps: PlaybackDeps, runId: string, bundleId: string, typ
  *  Phase 4: opts.scenarioId activates that scenario's presets (hybrid) for the
  *  run duration, restoring the previous forge state after — network choice is
  *  per-run, template stays network-agnostic (its defaultPresetId is a hint). */
-/** internal: dialog present under fail-policy, or cap exceeded */
-class AlertStormError extends Error {
-  constructor(public dialogText: string) { super(`alert storm: ${dialogText}`); }
-}
-
 export class PlaybackError extends Error {
   constructor(
     public code: 'DEVICE_BUSY' | 'APP_NOT_INSTALLED' | 'DEVICE_AMBIGUOUS',
@@ -335,35 +319,12 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       }
     }
     // alert policy (run-level): null = every dialog fails named (default).
-    let alertPolicy: AlertPolicy | null = null;
-    try {
-      const raw = tpl.alerts_policy ? JSON.parse(tpl.alerts_policy) as { entries?: unknown } : null;
-      if (raw && Array.isArray(raw.entries)) alertPolicy = raw as AlertPolicy;
-    } catch { /* garbage column → null → fail (honest default) */ }
-    const ALERT_CAP = 3; // auto-handlings per run — storms fail named, never loop
-    let alertHandlings = 0;
-    const noteLines: string[] = []; // policy audit lines — flushed in finally
-    const note = (line: string): void => { noteLines.push(line); };
-    /** Drain dialogs per policy at a site. Returns handled count this call;
-     *  throws on storm (cap exceeded) — caller converts to named fail. */
-    const drainDialogs = async (site: string): Promise<number> => {
-      let handled = 0;
-      for (;;) {
-        const insp = (await alloy.dispatch('alloy_alert', { udid, action: 'inspect' }, deps.dispatchDeps)) as
-          | { ok: true; result: { message?: string } } | { ok: false };
-        if (!insp.ok || !insp.result?.message) return handled;
-        const text = insp.result.message;
-        const act = resolveAlertPolicy(alertPolicy, text);
-        if (act === 'fail') throw new AlertStormError(text);
-        if (alertHandlings >= ALERT_CAP) throw new AlertStormError(text);
-        const clr = (await alloy.dispatch('alloy_alert', { udid, action: act }, deps.dispatchDeps)) as
-          | { ok: true; result?: { message?: string } } | { ok: false; error?: { message?: string } };
-        if (!clr.ok) throw new Error(`alert ${act} failed: ${clr.error?.message ?? 'engine error'}`);
-        alertHandlings++;
-        handled++;
-        note(`alert-handled (${act}): "${text}" @ ${site}`);
-      }
-    };
+    const dialogs = new RunDialogPolicy(parseAlertPolicyColumn(tpl.alerts_policy), {
+      dispatch: (tool, input) => alloy.dispatch(tool, input, deps.dispatchDeps) as never,
+    });
+    const alertPolicy = dialogs.isNull ? null : 'policy';
+    const noteLines = dialogs.noteLines;
+    const drainDialogs = (site: string): Promise<number> => dialogs.drain(udid, site);
     let runBlocked = 0;
     /** readiness gate (user contract): every run waits for (1) the device
      *  stream to be provably live, (2) the target app freshly reopened —
@@ -538,7 +499,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             await drainDialogs('start');
           } catch (err) {
             const what = err instanceof AlertStormError ? err.dialogText : err instanceof Error ? err.message : String(err);
-            const kind = err instanceof AlertStormError ? (alertHandlings >= ALERT_CAP ? `alert storm: >${ALERT_CAP} dialogs auto-handled — last "${what}"` : `blocked by system dialog: ${what}`) : `alert drain failed: ${what}`;
+            const kind = err instanceof AlertStormError ? (dialogs.handlings >= dialogs.cap ? `alert storm: >${ALERT_CAP} dialogs auto-handled — last "${what}"` : `blocked by system dialog: ${what}`) : `alert drain failed: ${what}`;
             runStatus = 'failed';
             deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run(kind, runId);
             for (const st of execSteps) {
@@ -865,7 +826,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               }
             } catch (err) {
               if (err instanceof AlertStormError) {
-                const kind = alertHandlings >= ALERT_CAP ? `alert storm: >${ALERT_CAP} dialogs auto-handled — last "${err.dialogText}"` : `blocked by system dialog: ${err.dialogText}`;
+                const kind = dialogs.handlings >= dialogs.cap ? `alert storm: >${ALERT_CAP} dialogs auto-handled — last "${err.dialogText}"` : `blocked by system dialog: ${err.dialogText}`;
                 runStatus = 'failed';
                 deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run(kind, runId);
                 insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', kind, t0, Date.now() - t0, '[]', JSON.stringify(resolved));

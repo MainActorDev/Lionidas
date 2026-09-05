@@ -4,6 +4,7 @@
  * A captures, release always. Steps emit WS events as they land.
  */
 import { prunePreviousRunArtifacts } from '../evidence/retention.ts';
+import { ingestEvidence } from '../evidence/ingest.ts';
 import { createHash } from 'node:crypto';
 import { statSync, existsSync, mkdirSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -54,28 +55,6 @@ interface StepRecord {
 }
 
 /** Copy engine-owned evidence into crucible artifacts (copy-at-ingest, decision 8). */
-function ingestEvidence(
-  deps: RunnerDeps,
-  runId: string,
-  bundleId: string,
-  type: string,
-  srcPath: string | undefined,
-): { id: string; path: string } | null {
-  if (!srcPath || !existsSync(srcPath)) return null;
-  mkdirSync(join(deps.artifactsDir, runId), { recursive: true });
-  const dest = join(deps.artifactsDir, runId, `${type}-${createHash('sha256').update(srcPath).digest('hex').slice(0, 8)}-${srcPath.split('/').pop()}`);
-  if (!existsSync(dest)) copyFileSync(srcPath, dest);
-  const sha = createHash('sha256').update(dest).digest('hex');
-  const bytes = statSync(dest).size;
-  const id = `ev_${sha.slice(0, 12)}`;
-  deps.db
-    .prepare(
-      `INSERT OR IGNORE INTO evidence(id, bundle_id, type, path, sha256, bytes, moov_ok, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(id, bundleId, type, dest, sha, bytes, null, Date.now());
-  return { id, path: dest };
-}
 
 export async function executeRun(spec: RunSpec, deps: RunnerDeps): Promise<string> {
   const alloy = crucibleAlloy();

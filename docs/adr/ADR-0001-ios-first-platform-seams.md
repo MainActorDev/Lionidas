@@ -58,7 +58,7 @@ Crucible core (runs, cases, evidence, verdicts, queue)   ← platform-blind
         │
    iOS adapter      Android adapter     Web adapter     (added, not rewritten)
         │
-   agent-device (single engine, our fork — see ADR-0002 when written)
+   the single device engine (our fork — see ADR-0002 when written)
 ```
 
 Recent work verified as landing entirely in the platform-blind core:

@@ -13,9 +13,10 @@
 **Files:** `server/src/db/schema.ts` (or db init site); test in
 `server/test/db-wal.test.ts`.
 
-1. Enable WAL + a sane synchronous mode at db open:
-   `PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;`
-   (better-sqlite3: `db.pragma('journal_mode = WAL')`.)
+1. ~~Enable WAL~~ — ALREADY DONE (self-review catch: `db/client.ts` sets
+   WAL + busy_timeout + foreign_keys; the review's "no WAL" claim was
+   wrong — verified before building). Only `synchronous = NORMAL` added
+   (safe under WAL, faster than FULL).
 2. Daily backup: on server start + every 24h, `db.backup(path)` to
    `server/artifacts-backups/crucible-YYYYMMDD.db` (better-sqlite3's async
    backup API — safe under writes). Keep last 7.
