@@ -111,6 +111,17 @@ circles into run videos. No codec change required to start; their H.264
 stream (order of magnitude lighter than our MJPEG) is the follow-on if
 bandwidth ever matters.
 
+**IMPLEMENTED 2026-09-05** (`fb84e2d..e9b5eb6` + drill commit):
+client-side canvas overlay chosen over server burn-in — no ffmpeg
+dependency, zero re-encode, evidence file untouched. Deltas vs Baguette:
+we persist taps + a video-start anchor server-side (`run_taps`,
+`runs.video_started_at`) and composite in the player (rAF +
+`video.currentTime`), not in the recorded file. Live-verified on
+`run_ac3062d4`: each circle's fraction lands on the real element the
+step targeted. Feature doc: `docs/features/tap-overlay.md`. Known limit:
+automated-path runs emit no coordinates (engine-B flow events needed —
+future work). H.264 follow-on unchanged.
+
 ### 2.3 Capability pipes they have that we lack
 
 - **Webcam → sim camera** (`docs/features/camera.md`): one vendored dylib +
