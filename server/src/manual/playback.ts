@@ -39,9 +39,19 @@ import { expandFlows } from './flows.ts';
 import type { FlowStep } from './flows.ts';
 import { listSimulatorApps } from './apps.ts';
 import { lastArtifactFor } from './app-catalog-store.ts';
+import { setLocation, clearLocation, prodExecute } from './location.ts';
+import { ensureLocationGrant } from './location-tcc.ts';
 
 const defaultListApps = (udid: string): Promise<Array<{ bundleId: string }>> =>
   listSimulatorApps(udid).then((apps) => apps.map((a) => ({ bundleId: a.bundleId })));
+
+/** Tier 2.3 — location ops. Default: TCC row write + locationd kickstart
+ *  (grant), simctl shells (set/clear). Injected as a seam for tests. */
+const defaultLocationControl = {
+  grant: (udid: string, bundleId: string) => ensureLocationGrant(udid, bundleId),
+  set: (udid: string, lat: number, lon: number) => setLocation(prodExecute, udid, lat, lon),
+  clear: (udid: string) => clearLocation(prodExecute, udid),
+};
 
 export interface PlaybackDeps {
   db: Database.Database;
@@ -56,11 +66,18 @@ export interface PlaybackDeps {
   /** installed-apps seam for the APP_NOT_INSTALLED pre-check (tests stub;
    *  default = real listSimulatorApps). */
   listApps?: (udid: string) => Promise<Array<{ bundleId: string }>>;
+  /** location ops seam (Tier 2.3): grant/set/clear. Default = TCC write +
+   *  simctl shells. Tests inject fakes. */
+  locationControl?: {
+    grant: (udid: string, bundleId: string) => Promise<{ granted: true; inserted: boolean }>;
+    set: (udid: string, lat: number, lon: number) => Promise<{ set: true; coordinate: string }>;
+    clear: (udid: string) => Promise<{ cleared: true }>;
+  };
 }
 
 export interface PlaybackStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location';
   x?: number;
   y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
@@ -79,6 +96,8 @@ export interface PlaybackStep {
   when?: string;
   /** alert action target — accept or dismiss the frontmost system dialog */
   alertAction?: 'accept' | 'dismiss';
+  /** location action target — simulated GPS point (simctl location set) */
+  location?: { latitude: number; longitude: number };
 }
 
 interface TemplateRow {
@@ -100,6 +119,7 @@ function stepName(s: PlaybackStep): string {
   if (s.action === 'tap') return `tap ${s.x},${s.y}`;
   if (s.action === 'scroll') return `scroll ${s.direction}`;
   if (s.action === 'alert') return `alert ${s.alertAction ?? 'dismiss'}`;
+  if (s.action === 'location') return `location ${s.location?.latitude ?? '?'}${s.location?.longitude !== undefined ? ',' : ''}${s.location?.longitude ?? ''}`;
   return `type "${(s.text ?? '').slice(0, 20)}"`;
 }
 
@@ -110,6 +130,7 @@ function stepLabel(s: PlaybackStep): string {
   if (s.action === 'tap') return s.selector ? `tap ${s.selector.label ?? s.selector.identifier ?? ''}`.trim() : `tap ${s.x},${s.y}`;
   if (s.action === 'scroll') return `scroll ${s.direction}`;
   if (s.action === 'alert') return `alert ${s.alertAction ?? 'dismiss'}`;
+  if (s.action === 'location') return `location ${s.location?.latitude ?? '?'}${s.location?.longitude !== undefined ? ',' : ''}${s.location?.longitude ?? ''}`;
   return `type "${(s.text ?? '').slice(0, 20)}"`;
 }
 
@@ -124,7 +145,7 @@ function stepLabel(s: PlaybackStep): string {
  *  per-run, template stays network-agnostic (its defaultPresetId is a hint). */
 export class PlaybackError extends Error {
   constructor(
-    public code: 'DEVICE_BUSY' | 'APP_NOT_INSTALLED' | 'DEVICE_AMBIGUOUS',
+    public code: 'DEVICE_BUSY' | 'APP_NOT_INSTALLED' | 'DEVICE_AMBIGUOUS' | 'LOCATION_GRANT_FAILED',
     message: string,
     public payload?: { appBundleId?: string; udid?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null },
   ) { super(message); }
@@ -264,6 +285,20 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       );
     }
   }
+  // ── Tier 2.3: CoreLocation grant, route-level fail-fast ──
+  // The TCC row only takes effect on app relaunch — granting BEFORE the
+  // run row + open means the fresh launch picks it up in ONE relaunch and
+  // a grant failure surfaces as a named route error with NO phantom run
+  // (same contract as APP_NOT_INSTALLED). Granting at the first location
+  // STEP would force a disruptive mid-run restart.
+  const locationOps = deps.locationControl ?? defaultLocationControl;
+  if (steps.some((st) => st.action === 'location')) {
+    try {
+      await locationOps.grant(udid, appToLaunch);
+    } catch (err) {
+      throw new PlaybackError('LOCATION_GRANT_FAILED', `CoreLocation grant failed: ${err instanceof Error ? err.message : String(err)}`, { appBundleId: appToLaunch, udid });
+    }
+  }
   const runId = `run_${createHash('sha256').update(`playback${templateId}${Date.now()}`).digest('hex').slice(0, 8)}`;
   // build anchoring: stamp the installed app's version at run creation
   // (best-effort — non-bundle fallbacks render 'unknown')
@@ -302,6 +337,9 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     }
     let runStatus: 'passed' | 'failed' | 'aborted' = 'passed';
     let skipAllSteps = false; // dialog interceptor: steps already skip-written
+    // Tier 2.3 — location plumbing (run-scoped): locationOps is the ops
+    // seam declared at route level; the flag below arms the finally-clear.
+    let locationSet = false;
     const recorder = new EvidenceRecorder(
       { db: deps.db, artifactsDir: deps.artifactsDir, dispatchDeps: deps.dispatchDeps,
         dispatch: (tool, input, dd) => alloy.dispatch(tool, input, dd) as never,
@@ -415,7 +453,10 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             probeFn = rawProbe;
           } catch { /* warm-up failure never blocks the run — sweep degrades to off */ }
         }
-        const open = (await withWatchdog(runId, dispatchWithHeal('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, `open ${appToLaunch}`)) as { ok: boolean; error?: { message: string } };
+        // ── Tier 2.3: CoreLocation grant already happened route-level
+        // (before the run row) — nothing to do here; the open below is the
+        // single relaunch that picks the TCC row up. ──
+      const open = (await withWatchdog(runId, dispatchWithHeal('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, `open ${appToLaunch}`)) as { ok: boolean; error?: { message: string } };
       if (!open.ok) throw new Error(`open failed: ${open.error?.message ?? 'engine error'}`);
 
       // ── readiness gate, phase 2b: UI settle ──
@@ -769,6 +810,26 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             }
             throw new Error(why);
           }
+          // location step (Tier 2.3): host-level device fact — no snapshot,
+          // no settle/sig logic (the app UI does not change). Write-only
+          // verb: the step row's evaluated_json IS the audit trail.
+          if (s.action === 'location') {
+            const loc = s.location ?? { latitude: 0, longitude: 0 };
+            try {
+              const r = await locationOps.set(udid, loc.latitude, loc.longitude);
+              locationSet = true;
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify({ action: 'location', ...r, ...(s.flow && { flow: s.flow }) }));
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              runStatus = 'failed';
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', msg, t0, Date.now() - t0, '[]', JSON.stringify({ action: 'location', latitude: loc.latitude, longitude: loc.longitude }));
+              for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
+                insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null);
+              }
+              break;
+            }
+            continue;
+          }
           // alert step: clear (or accept) the frontmost system dialog.
           // ok:true = a dialog was up and handled → pass. ok:false
           // "alert not found" = nothing up → no-op skip (inherently
@@ -930,6 +991,12 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run(`${err instanceof Error ? err.message : String(err)}`, runId);
     } finally {
             await recorder.finish();
+      // Tier 2.3 — location hygiene: clear ONLY when this run set a
+      // location (a pure-tap template never spawns a pointless clear);
+      // best-effort by contract — a wedged clear never fails the run.
+      if (locationSet) {
+        try { await locationOps.clear(udid); } catch { /* hygiene best-effort */ }
+      }
       // restore prior forge state — scenario was run-scoped by contract
       if (restorePresets) {
         try {
