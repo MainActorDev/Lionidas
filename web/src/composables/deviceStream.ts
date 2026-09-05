@@ -210,12 +210,14 @@ export function useDeviceStream(): DeviceStream {
 
   function fail(reason: string, canRetry: boolean): void {
     // retryable stream loss (source respawn, run pause windows) self-heals —
-    // one auto-retry before showing the fail overlay
+    // one auto-retry before showing the fail overlay. The timer re-checks
+    // BOTH the udid and that no newer connection took over (generation).
     if (canRetry && !autoRetried) {
       autoRetried = true;
+      const failGen = generation;
       state.value = 'reconnecting';
       retryTimer = setTimeout(() => {
-        if (currentUdid) connect(currentUdid, true);
+        if (currentUdid && failGen === generation) connect(currentUdid, true);
       }, 1500);
       return;
     }
