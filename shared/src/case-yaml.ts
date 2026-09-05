@@ -251,7 +251,7 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
       }
       const b = body as Record<string, unknown>;
       for (const bk of Object.keys(b)) {
-        if (!['point', 'on', 'text', 'optional', 'id', 'name', 'contains', 'ignoreCase', 'when'].includes(bk)) {
+        if (!['point', 'on', 'text', 'optional', 'id', 'name', 'contains', 'ignoreCase', 'when', 'at'].includes(bk)) {
           errors.push({ line: 1, message: `${prefix(i)}: unknown key "${bk}" in ${action} — did you mean optional/on/point/text?` });
         }
       }
@@ -280,6 +280,15 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
       const sl = sel(b);
       if (!sl) { errors.push({ line: 1, message: `${prefix(i)}: expect needs on: <label or id>` }); continue; }
       const es: YamlStep = { idx: stepsOut.length, action: 'expect', selector: sl, ...(opt(b) ? { optional: true } : {}) };
+      // optional probe point (sweep recovery): at: [x, y]
+      const at = b['at'];
+      if (at !== undefined) {
+        if (Array.isArray(at) && at.length === 2 && typeof at[0] === 'number' && typeof at[1] === 'number') {
+          es.x = at[0]; es.y = at[1];
+        } else {
+          errors.push({ line: 1, message: `${prefix(i)}: expect at: must be [x, y] numbers` });
+        }
+      }
       attachWhen(es, b, section, prefix, i, errors);
       stepsOut.push(es);
     }
@@ -371,13 +380,16 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       lines.push(`  - runFlow: { name: ${yamlScalar(String(s['templateId'] ?? ''))}${optSuffix(s['optional'])} }`);
     } else if (action === 'expect') {
       const sl = s['selector'] as YamlSelector | undefined;
+      // probe point rides along when recorded (sweep recovery, baguette 1.1):
+      // serialized so playback-from-YAML keeps the coordinate for probing.
+      const at = s['x'] !== undefined && s['y'] !== undefined ? `, at: [${s['x']}, ${s['y']}]` : '';
       if (sl && (sl.labelContains !== undefined || sl.ignoreCase === true)) {
         // mode/flag selectors always render as a mapping (the scalar sugar is exact-cs only)
-        const body = `${on(s['selector']) ?? 'on: ?'}${icSuffix(s['selector'])}${optSuffix(s['optional'])}`;
+        const body = `${on(s['selector']) ?? 'on: ?'}${icSuffix(s['selector'])}${optSuffix(s['optional'])}${at}`;
         lines.push(`  - expect: { ${body.replace(/^, /, '')} }`);
       } else {
         const label = sl?.label ?? sl?.identifier ?? '?';
-        if (s['optional'] === true) lines.push(`  - expect: { on: ${yamlScalar(label)}, optional: true }`);
+        if (s['optional'] === true || at) lines.push(`  - expect: { on: ${yamlScalar(label)}${s['optional'] === true ? ', optional: true' : ''}${at} }`);
         else lines.push(`  - expect: ${yamlScalar(label)}`);
       }
     } else {

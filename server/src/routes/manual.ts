@@ -120,10 +120,11 @@ export function registerManualRoutes(
 
   app.post('/api/manual/:id/record/expect', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const b = req.body as { selector?: { identifier?: string; label?: string; type?: string } } | null;
+    const b = req.body as { selector?: { identifier?: string; label?: string; type?: string }; at?: { x?: unknown; y?: unknown } } | null;
     if (!b?.selector || (!b.selector.label && !b.selector.identifier)) return reply.code(400).send({ error: 'selector with label or identifier required' });
+    const at = b.at && typeof b.at.x === 'number' && typeof b.at.y === 'number' ? { x: b.at.x, y: b.at.y } : undefined;
     try {
-      return recordExpectStep({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id, b.selector);
+      return recordExpectStep({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id, b.selector, at);
     } catch (err) {
       if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
       throw err;

@@ -249,7 +249,7 @@ export async function manualProbeSelector(deps: ManualDeps, sessionId: string, s
  *  assertions are added deliberately (typed/probed), not incidentally, and
  *  QA typically adds them mid-session with recording off. Thumbnail shows
  *  the screen being asserted. Returns the updated steps. */
-export function recordExpectStep(deps: ManualDeps, sessionId: string, selector: StepSelector): { on: boolean; steps: RecordedStep[] } {
+export function recordExpectStep(deps: ManualDeps, sessionId: string, selector: StepSelector, point?: { x: number; y: number }): { on: boolean; steps: RecordedStep[] } {
   const state = readRecording(deps, sessionId);
   let thumb: string | null = null;
   try {
@@ -263,7 +263,7 @@ export function recordExpectStep(deps: ManualDeps, sessionId: string, selector: 
       }
     }).catch(() => undefined);
   } catch { /* thumb best-effort */ }
-  const full: RecordedStep = { idx: state.steps.length, action: 'expect', ts: Date.now(), thumb, selector } as unknown as RecordedStep;
+  const full: RecordedStep = { idx: state.steps.length, action: 'expect', ts: Date.now(), thumb, selector, ...(point ? { x: point.x, y: point.y } : {}) } as unknown as RecordedStep;
   state.steps.push(full);
   writeRecording(deps, sessionId, state);
   deps.bus.emit('manual.session.step', { sessionId, step: full });

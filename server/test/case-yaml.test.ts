@@ -84,6 +84,33 @@ describe('parseCaseYaml', () => {
   });
 });
 
+describe('expect probe point (at: [x, y]) — Tier 1 Task 4', () => {
+  it('serializes + round-trips expect with at:', () => {
+    const t = { name: 'probe', tags: [], steps: [{ idx: 0, action: 'expect', selector: { label: 'Pesanan' }, x: 190, y: 760 }] };
+    const y = caseToYaml(t);
+    expect(y).toContain('at: [190, 760]');
+    const back = parseCaseYaml(y);
+    expect(back.ok).toBe(true);
+    const step = back.case?.steps[0] as { action: string; x?: number; y?: number };
+    expect(step.x).toBe(190);
+    expect(step.y).toBe(760);
+  });
+
+  it('scalar expect without coords stays scalar (no churn on existing YAML)', () => {
+    const t = { name: 'plain', tags: [], steps: [{ idx: 0, action: 'expect', selector: { label: 'OK' } }] };
+    const y = caseToYaml(t);
+    expect(y).toContain('- expect: OK');
+    expect(y).not.toContain('at:');
+  });
+
+  it('rejects malformed at: (not [x, y] numbers)', () => {
+    const y = 'name: bad\ntags: []\nsteps:\n  - expect: { on: OK, at: banana }\n';
+    const r = parseCaseYaml(y);
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('at: must be'))).toBe(true);
+  });
+});
+
 describe('caseToYaml ⟷ parseCaseYaml round-trip (the contract)', () => {
   it('storage rows → yaml → back: semantics preserved, ts/thumb dropped', () => {
     const row = {

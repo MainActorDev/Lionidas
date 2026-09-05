@@ -30,8 +30,10 @@ import type { ForgeState } from '../forge/proxy.ts';
 import { substituteStep } from './template-env.ts';
 import { forgeStateService } from '../forge/state.ts';
 import { classifyBlocked } from '../db/blocked.ts';
-import { resolveSelector, countMatches, selectorLabel } from './selector.ts';
+import { resolveSelector, countMatches, selectorLabel, matchesSelector } from './selector.ts';
 import type { SnapNode } from './selector.ts';
+import { sweepTriggered, blindContainerAt, probePoints, sweepFind } from './sweep.ts';
+import { makeProbe, type SnapNodeLike } from '../alloy/probe.ts';
 import { expandFlows } from './flows.ts';
 import type { FlowStep } from './flows.ts';
 import { listSimulatorApps } from './apps.ts';
@@ -393,7 +395,14 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       try {
         await execFileAsync('xcrun', ['simctl', 'terminate', udid, appToLaunch]);
       } catch { /* app not running — exactly what we want */ }
-      const open = (await withWatchdog(runId, dispatchWithHeal('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, `open ${appToLaunch}`)) as { ok: boolean; error?: { message: string } };
+      // Sweep warm-up (Task 2b): devtools injection needs restart → env-apply
+        // probe → restart. Eligible only when a step can use the sweep; env
+        // kill-switch CRUCIBLE_SWEEP=off. Failure degrades to sweep-off,
+        // never blocks the run. Runs BEFORE open so the launch settle
+        // follows the final (injected) relaunch.
+        const sweepEnabled = process.env['CRUCIBLE_SWEEP'] !== 'off';
+        let probeFn: ((x: number, y: number) => Promise<SnapNodeLike[]>) | null = null;
+        const open = (await withWatchdog(runId, dispatchWithHeal('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, `open ${appToLaunch}`)) as { ok: boolean; error?: { message: string } };
       if (!open.ok) throw new Error(`open failed: ${open.error?.message ?? 'engine error'}`);
 
       // ── readiness gate, phase 2b: UI settle ──
@@ -498,6 +507,22 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           }
         }
       }
+      // Sweep warm-up (Task 2b): devtools injection needs restart →
+      // env-apply probe → restart (live-verified sequence). Eligible only
+      // when a step can use the sweep; CRUCIBLE_SWEEP=off kills it. Runs
+      // after open — app state resets equal what a fresh run start means.
+      if (sweepEnabled && execSteps.some((st) =>
+          ((st.action === 'tap' || st.action === 'type') && st.selector && (st.selector.identifier || st.selector.label)) ||
+          (st.action === 'expect' && st.selector))) {
+        try {
+          const rawProbe = makeProbe((t, i, d) => alloy.dispatch(t, i, d) as never, deps.dispatchDeps, udid, appToLaunch);
+          await alloy.dispatch('alloy_restart_app', { udid, bundleId: appToLaunch }, deps.dispatchDeps).catch(() => undefined);
+          await rawProbe(1, 1); // throwaway: applies the DYLD env latch
+          await alloy.dispatch('alloy_restart_app', { udid, bundleId: appToLaunch }, deps.dispatchDeps).catch(() => undefined);
+          probeFn = rawProbe;
+        } catch { /* warm-up failure never blocks the run — sweep degrades to off */ }
+      }
+
       deps.bus.emit('run.phase', { runId, phase: 'steps' });
       // cross-device scaling (flaw #6): scale recorded coords by target/recorded
       // logical dims — applied only to steps WITHOUT a usable selector.
@@ -579,6 +604,18 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             const expectEvidence = sevId ? JSON.stringify([sevId]) : '[]';
             if (matched === 1) {
               insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, expectEvidence, JSON.stringify(ev));
+            } else if (matched === 0 && probeFn && s.x !== undefined && s.y !== undefined && read?.nodesL) {
+              // Tier 1 Task 4: walk missed — single-point probe at the recorded
+              // coordinate (devtools sees what the walk cannot). A hit upgrades
+              // the expect to pass with reason; a miss falls through to the
+              // honest failure path. Probe in LIVE device coords (scale first).
+              const probeViews = await probeFn(s.x * scaleX, s.y * scaleY);
+              const probeHit = probeViews.some((v) => matchesSelector(v as never, s.selector!));
+              if (probeHit) {
+                deps.bus.emit('sweep.stats', { runId, probes: 1, hits: 1, latencyMs: 0, step: s.idx });
+                insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', 'expect via point-probe (walk-blind)', t0, Date.now() - t0, expectEvidence, JSON.stringify(ev));
+                continue;
+              }
             } else {
               const selJson = JSON.stringify(s.selector);
               const human = selectorLabel(s.selector!);
@@ -600,7 +637,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           // coordinates are the fallback, not the plan.
           let tx = s.x;
           let ty = s.y;
-          let resolvedBy: 'selector' | 'selector-recentred' | 'coordinate-fallback' | 'coordinate-fallback-scaled' | 'coordinate' | 'coordinate-scaled' | 'selector-point-scaled' = 'coordinate';
+          let resolvedBy: 'selector' | 'selector-recentred' | 'coordinate-fallback' | 'coordinate-fallback-scaled' | 'coordinate' | 'coordinate-scaled' | 'selector-point-scaled' | 'selector-sweep' = 'coordinate';
           let recentredAudit: { recentred: true; distance: number } | null = null;
           let lastSettleNodes: SnapNode[] | null = null; // settle poll's last read — sig-before reuse (Task 2)
           if ((s.action === 'tap' || s.action === 'type') && s.selector && (s.selector.identifier || s.selector.label)) {
@@ -675,15 +712,41 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 }
               }
             } else {
-              resolvedBy = 'coordinate-fallback';
-              // fold-in fix (approved with YAML work): the selector missed —
-              // on a DIFFERENT-SIZED device the raw recorded coordinates
-              // would land off-target (the scaling branch above is skipped
-              // when a selector exists). Scale the fallback coordinates too.
-              if ((scaleX !== 1 || scaleY !== 1) && s.x !== undefined && s.y !== undefined) {
-                tx = Math.round(s.x * scaleX);
-                ty = Math.round(s.y * scaleY);
-                resolvedBy = 'coordinate-fallback-scaled';
+              // two-source truth (baguette 1.1/1.2): the walk missed — was it
+              // walk-blindness (childless container at the recorded point)?
+              // Probe the 5-point stencil; a selector hit is a verified,
+              // recentre-safe resolution the coordinate fallback never is.
+              let swept = false;
+              const sweepT0 = Date.now();
+              // containment checks run in LIVE device coords — scale the
+              // recorded point first (tree rects are live, s.x/s.y are recorded)
+              const px = scaleX !== 1 && s.x !== undefined ? s.x * scaleX : s.x;
+              const py = scaleY !== 1 && s.y !== undefined ? s.y * scaleY : s.y;
+              if (probeFn && px !== undefined && py !== undefined && sweepTriggered(lastSettleNodes ?? [], px, py)) {
+                const container = blindContainerAt(lastSettleNodes ?? [], px, py);
+                if (container?.rect) {
+                  const hit = await sweepFind(probeFn, s.selector, probePoints(container.rect));
+                  if (hit?.rect) {
+                    const cx = hit.rect.x + hit.rect.width / 2;
+                    const cy = hit.rect.y + hit.rect.height / 2;
+                    tx = cx; ty = cy; resolvedBy = 'selector-sweep'; swept = true;
+                    deps.bus.emit('sweep.stats', { runId, probes: 5, hits: 1, latencyMs: Date.now() - sweepT0, step: s.idx });
+                  } else {
+                    deps.bus.emit('sweep.stats', { runId, probes: 5, hits: 0, latencyMs: Date.now() - sweepT0, step: s.idx });
+                  }
+                }
+              }
+              if (!swept) {
+                resolvedBy = 'coordinate-fallback';
+                // fold-in fix (approved with YAML work): the selector missed —
+                // on a DIFFERENT-SIZED device the raw recorded coordinates
+                // would land off-target (the scaling branch above is skipped
+                // when a selector exists). Scale the fallback coordinates too.
+                if ((scaleX !== 1 || scaleY !== 1) && s.x !== undefined && s.y !== undefined) {
+                  tx = Math.round(s.x * scaleX);
+                  ty = Math.round(s.y * scaleY);
+                  resolvedBy = 'coordinate-fallback-scaled';
+                }
               }
             }
           } else if ((scaleX !== 1 || scaleY !== 1) && s.x !== undefined && s.y !== undefined) {
