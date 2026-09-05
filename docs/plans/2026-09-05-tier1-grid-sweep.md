@@ -63,6 +63,28 @@ recentred, verified tap.
 8. **Plan doc is historical.** Verdicts live in commits + tests; the
    steal-list gets "implemented: <commit>" pointer lines at the end.
 
+## Task 0 verdict (answered live, 2026-09-05 — alloy 1793e38)
+
+**The point-query exists and works: `alloy_native_tree { query:
+'interactable-at', x, y, bundleId }`** → engine B
+`native-user-interactable-view-at-point`. Live on the LP consumer sim:
+27ms/probe, full view + ancestor chain, `includeChildren`/`fields`
+options. Engine-B transport bugs found and fixed in alloy (bundleId
+dropped by registration; schema rejected it): commit 1793e38, which also
+adds the `alloy_restart_app` verb (devtools-injecting relaunch).
+
+**Precondition discovered: native-devtools injection.** The hit-test
+runs on a DYLD-injected dylib inside the app; injection requires an app
+relaunch via restart-app. Warm-up sequence (live-verified): restart →
+probe (lands WITHOUT env first time — ensureEnvReady latches before env
+was set; the probe's reverifyEnv re-applies it) → restart → probe works.
+So Task 2's `probeAt` warm-up = restart, throwaway probe, restart. Cost:
+~2 relaunches at run START ONLY (see Task 2b).
+
+Implication for design decision 1: the sweep trigger keeps its tree-only
+predicate, but the RUN now has a one-time devtools warm-up at launch.
+Non-devtools runs (sweep disabled) skip it entirely.
+
 ## Tasks
 
 ### Task 0 — Engine surface survey (read-only, ~15min, before Task 2)
@@ -93,10 +115,21 @@ TDD gate: observe red before green.
 
 ### Task 2 — Point-query dispatch (`server/src/alloy/probe.ts`)
 
-`probeAt(udid, x, y): Promise<SnapNode[]>` built on whatever Task 0
-found (dedicated verb if it exists; else the narrowest composite that
-queries elements AT a point). Injectable into playback deps; tests use
-fakes; one live smoke against a booted sim (tap-target readback).
+`probeAt(udid, bundleId, x, y): Promise<SnapNode[]>` on
+`alloy_native_tree interactable-at` (Task 0 verdict). Translates the
+engine's view JSON (className/frame/label/identifier) to SnapNode.
+Injectable into playback deps; tests use fakes; one live smoke against a
+booted sim (tap-target readback).
+
+### Task 2b — Run-start devtools warm-up (one-time)
+
+In playback's launch path (where `open` resolves today), when the
+template has ANY sweep-eligible step (tap/type with selector, or expect
+with selector+coords): `alloy_restart_app` → throwaway probe →
+`alloy_restart_app` (live-verified warm-up; ~2 relaunches, once per
+run). Env-toggle `CRUCIBLE_SWEEP=off` disables sweep + warm-up entirely.
+App-state caveat: warm-up relaunches RESET app state — acceptable at run
+start (the open step already relaunches; order: open → warm-up → steps).
 
 ### Task 3 — Wire into tap/type resolve (playback.ts)
 
