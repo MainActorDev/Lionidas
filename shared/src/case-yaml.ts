@@ -17,7 +17,7 @@ import { parseAlertPolicy as parseAlertPolicyRaw, type AlertPolicy } from './ale
 export interface YamlSelector { identifier?: string; label?: string; labelContains?: string; ignoreCase?: boolean; type?: string }
 export interface YamlStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location';
   x?: number; y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
   text?: string;
@@ -30,6 +30,8 @@ export interface YamlStep {
   when?: string;
   /** alert action target — accept or dismiss the frontmost system dialog */
   alertAction?: 'accept' | 'dismiss';
+  /** location action target — simulated GPS point (simctl location set) */
+  location?: { latitude: number; longitude: number };
 }
 export interface YamlCase {
   name: string;
@@ -47,7 +49,7 @@ export interface YamlError { line: number; message: string }
 const DROPPED_KEYS = new Set(['ts', 'thumb']); // capture artifacts — not semantics
 const STEP_KEYS = new Set(['action', 'x', 'y', 'direction', 'text', 'optional', 'selector', 'templateId', 'flow']);
 const DIRECTIONS = new Set(['up', 'down', 'left', 'right']);
-const ACTIONS = new Set(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert']);
+const ACTIONS = new Set(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert', 'location']);
 /** runFlow references: name → id resolution is the CALLER's job (needs the DB);
  * the validator accepts both shapes and reports unresolved names. */
 export interface RunFlowRefs { names: string[] }
@@ -205,6 +207,35 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
           continue;
         }
         stepsOut.push({ idx: stepsOut.length, action: 'alert', alertAction: body as 'accept' | 'dismiss' });
+        continue;
+      }
+      if (action === 'location') {
+        // scalar = simctl wire token ("lat,lon"); mapping = {latitude, longitude}
+        let lat: number | undefined;
+        let lon: number | undefined;
+        if (typeof body === 'string') {
+          const m = body.trim().match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
+          if (!m) { errors.push({ line: 1, message: `${prefix(i)}: location needs "lat,lon" with dot decimals (got ${JSON.stringify(body)})` }); continue; }
+          lat = Number(m[1]); lon = Number(m[2]);
+        } else if (body !== null && typeof body === 'object' && !Array.isArray(body)) {
+          const b = body as Record<string, unknown>;
+          for (const bk of Object.keys(b)) {
+            if (!['latitude', 'longitude'].includes(bk)) {
+              errors.push({ line: 1, message: `${prefix(i)}: unknown key "${bk}" in location — did you mean latitude/longitude?` });
+            }
+          }
+          if (typeof b['latitude'] === 'number' && typeof b['longitude'] === 'number') { lat = b['latitude']; lon = b['longitude']; }
+          else if (typeof b['latitude'] === 'string' || typeof b['longitude'] === 'string') {
+            errors.push({ line: 1, message: `${prefix(i)}: location needs dot decimals, not comma decimals — write the value as a number` });
+            continue;
+          } else { errors.push({ line: 1, message: `${prefix(i)}: location needs both latitude and longitude` }); continue; }
+        } else {
+          errors.push({ line: 1, message: `${prefix(i)}: location needs { latitude, longitude } or "lat,lon"` });
+          continue;
+        }
+        if (lat! < -90 || lat! > 90) { errors.push({ line: 1, message: `${prefix(i)}: latitude must be -90..90 (got ${lat})` }); continue; }
+        if (lon! < -180 || lon! > 180) { errors.push({ line: 1, message: `${prefix(i)}: longitude must be -180..180 (got ${lon})` }); continue; }
+        stepsOut.push({ idx: stepsOut.length, action: 'location', location: { latitude: lat!, longitude: lon! } });
         continue;
       }
       if (action === 'scroll') {
@@ -373,6 +404,9 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       lines.push(`  - scroll: ${s['direction']}`);
     } else if (action === 'alert') {
       lines.push(`  - alert: ${s['alertAction'] ?? 'dismiss'}`);
+    } else if (action === 'location') {
+      const loc = s['location'] as { latitude: number; longitude: number };
+      lines.push(`  - location: { latitude: ${loc.latitude}, longitude: ${loc.longitude} }`);
     } else if (action === 'type') {
       const pt = s['x'] !== undefined && s['y'] !== undefined ? `point: [${s['x']}, ${s['y']}], ` : '';
       lines.push(`  - type: { ${pt}text: ${yamlScalar(String(s['text'] ?? ''))}${on(s['selector']) ? `, ${on(s['selector'])!}` : ''}${icSuffix(s['selector'])}${optSuffix(s['optional'])}${whenSuffix(s['when'])} }`);

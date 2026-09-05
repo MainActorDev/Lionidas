@@ -406,3 +406,69 @@ describe('alerts policy (run-level)', () => {
     expect(parseCaseYaml(y2).case!.alerts).toEqual({ entries: [['location', 'accept'], ['default', 'dismiss']] });
   });
 });
+
+describe('location step (lat/lon point) — Tier 2.3', () => {
+  it('mapping form parses with numbers', () => {
+    const r = parseCaseYaml('name: x\nsteps:\n  - location: { latitude: -6.1754, longitude: 106.8272 }\n');
+    expect(r.ok).toBe(true);
+    expect(r.errors).toEqual([]);
+    expect(r.case!.steps[0]).toMatchObject({ action: 'location', location: { latitude: -6.1754, longitude: 106.8272 } });
+  });
+
+  it('token form (simctl wire format) parses to the same step', () => {
+    const r = parseCaseYaml('name: x\nsteps:\n  - location: -6.1754,106.8272\n');
+    expect(r.ok).toBe(true);
+    expect(r.case!.steps[0]).toMatchObject({ action: 'location', location: { latitude: -6.1754, longitude: 106.8272 } });
+  });
+
+  it('comma-decimal latitude in mapping form errors', () => {
+    const r = parseCaseYaml('name: x\nsteps:\n  - location: { latitude: "-6,1754", longitude: 106.8272 }\n');
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('dot decimal'))).toBe(true);
+  });
+
+  it('comma-decimal in token form (3 fields) errors', () => {
+    const r = parseCaseYaml('name: x\nsteps:\n  - location: -6,1754,106.8272\n');
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('lat,lon'))).toBe(true);
+  });
+
+  it('out-of-range latitude errors', () => {
+    const r = parseCaseYaml('name: x\nsteps:\n  - location: { latitude: 91, longitude: 0 }\n');
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('-90'))).toBe(true);
+  });
+
+  it('out-of-range longitude errors', () => {
+    const r = parseCaseYaml('name: x\nsteps:\n  - location: { latitude: 0, longitude: 181 }\n');
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('-180'))).toBe(true);
+  });
+
+  it('when/optional modifiers rejected (inherently unconditional)', () => {
+    const r = parseCaseYaml('name: x\nsteps:\n  - location: { latitude: 0, longitude: 0 }\n    when: Logged in\n');
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('cannot ride on a scalar action'))).toBe(true);
+  });
+
+  it('unknown keys in the body rejected', () => {
+    const r = parseCaseYaml('name: x\nsteps:\n  - location: { latitude: 0, longitude: 0, alt: 5 }\n');
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('alt'))).toBe(true);
+  });
+
+  it('missing longitude errors', () => {
+    const r = parseCaseYaml('name: x\nsteps:\n  - location: { latitude: 0 }\n');
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('latitude and longitude'))).toBe(true);
+  });
+
+  it('round-trips through caseToYaml as the mapping form', () => {
+    const r = parseCaseYaml('name: x\nsteps:\n  - location: -6.1754,106.8272\n');
+    const y = caseToYaml(r.case! as never);
+    expect(y).toContain('location: { latitude: -6.1754, longitude: 106.8272 }');
+    const back = parseCaseYaml(y);
+    expect(back.ok).toBe(true);
+    expect(back.case!.steps[0]).toMatchObject({ action: 'location', location: { latitude: -6.1754, longitude: 106.8272 } });
+  });
+});
