@@ -1,7 +1,8 @@
 # Location spoofing (Tier 2.3 — the one worth building)
 
-Status: DRAFT — awaiting human gate
-Date: 2026-09-05
+Status: **IMPLEMENTED 2026-09-06** — all 6 tasks landed.
+Commits: de0e4a4, 1ab86ff, 927d020, 5f719c3, eea29e9 (+ this doc update).
+Feature doc: `docs/features/location.md` (authoritative).
 Research: `docs/research/2026-09-05-tier2.3-capability-pipes.md` (live-proven
 on iPhone 16 sim A2102153, iOS 18.6, this Xcode)
 

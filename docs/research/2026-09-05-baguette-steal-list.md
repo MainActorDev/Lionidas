@@ -127,10 +127,13 @@ future work). H.264 follow-on unchanged.
 - **Webcam → sim camera** (`docs/features/camera.md`): one vendored dylib +
   shared-memory ring buffer; apps see real frames through
   AVCapturePhotoOutput et al. Relevant when a test case needs camera input.
-- **Location spoofing** (`location.md`): our only tool is `simctl privacy
+- **Location spoofing** (`location.md`): ~~our only tool is `simctl privacy
   grant location` — broken on this Xcode (verified live, writes no TCC
   row). Their approach is the working alternative for location-dependent
-  flows.
+  flows.~~ **IMPLEMENTED 2026-09-06** — `location` step action + TCC row
+  write + locationd kickstart + run-scoped hygiene clear; see
+  `docs/features/location.md` (Tier 2.3, the only one built — rest
+  deferred in DEFERRED.md §D).
 - **Motion/gyro injection** (`motion.md`), **network condition** shaping,
   **status-bar customization** — future feature notes; no current Crucible
   need.
