@@ -233,10 +233,16 @@ export async function registerStreamRelay(app: FastifyInstance, bus: TypedEventB
         sub.refCount++;
         void pumpUpstream(url, sub, udid);
 
-        const firstTimer = setTimeout(() => {
+        const firstTimer = setInterval(() => {
+          // a run-pause legitimately withholds frames — wait it out instead
+          // of timing out into a fail overlay the user can't clear
+          if (runActiveDevices.has(udid)) return;
           try { socket.send(JSON.stringify({ error: 'no frames from stream source (timeout)', retryable: true })); socket.close(); } catch { /* gone */ }
         }, FIRST_FRAME_TIMEOUT_MS);
-        firstFramePromise.then(() => clearTimeout(firstTimer));
+        // fire once: after the first lapse, stop checking (clear on first frame)
+        const firstTimerOnce = firstTimer;
+        firstFramePromise.then(() => clearInterval(firstTimerOnce));
+        setTimeout(() => clearInterval(firstTimerOnce), FIRST_FRAME_TIMEOUT_MS * 2 + 500);
 
         socket.on('close', () => {
           sub!.clients.delete(client);

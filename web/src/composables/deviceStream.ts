@@ -209,6 +209,16 @@ export function useDeviceStream(): DeviceStream {
   }
 
   function fail(reason: string, canRetry: boolean): void {
+    // retryable stream loss (source respawn, run pause windows) self-heals —
+    // one auto-retry before showing the fail overlay
+    if (canRetry && !autoRetried) {
+      autoRetried = true;
+      state.value = 'reconnecting';
+      retryTimer = setTimeout(() => {
+        if (currentUdid) connect(currentUdid, true);
+      }, 1500);
+      return;
+    }
     state.value = 'failed';
     failure.value = reason;
     retryable.value = canRetry;
