@@ -117,6 +117,49 @@ batch, plan at `docs/plans/2026-09-01-suite-management.md`).*
 
 ---
 
+## D. Capability pipes — deferred 2026-09-05 (all live-verified first)
+
+*Source: Baguette steal-list Tier 2.3; research +
+verdict matrix at `docs/research/2026-09-05-tier2.3-capability-pipes.md`.
+Location was researched, PROVEN, and planned separately — it is NOT in
+this section (see `docs/plans/2026-09-05-location-spoofing.md`).*
+
+### D1. Camera injection (webcam → sim camera)
+- **What:** pipe host frames into the simulator camera so AVCapture*
+  sees real input (their approach: one vendored dylib + shared-memory
+  ring buffer).
+- **Why deferred:** no test case needs camera input today.
+- **Trigger:** first barcode-scan or parcel-photo flow in a template.
+- **Revive cost:** research their dylib; ours would be a new injection
+  mechanism class (everything else we run is simctl/AX-level).
+
+### D2. Motion / gyro injection
+- **What:** fake device-motion data (acceleration, orientation).
+- **Why deferred:** no need, AND the simulator has **no magnetometer**
+  — `CLLocationManager.headingAvailable()` is false, compass is
+  impossible on-platform (verified from Baguette's location.md —
+  they document it as unfixable).
+- **Trigger:** a template that branches on shake/tilt/accelerometer.
+
+### D3. Network-condition shaping
+- **What:** latency/loss/bandwidth simulation at the device level.
+- **Why deferred:** Forge already owns network conditioning — MITM
+  proxy with presets incl. `throttleKbps`, scenario activation, and
+  per-run attribution. Device-level shaping would duplicate it.
+- **Trigger:** a need Forge cannot express (e.g. offline-with-jitter
+  packet-level patterns that HTTP-level throttling can't produce).
+
+### D4. Status-bar customization
+- **What:** `simctl status_bar override` — pin clock, battery,
+  carrier, bars (live-demoed 2026-09-05: 9:41/100%/LionCell painted
+  and cleared; `list` reads back).
+- **Why deferred:** cosmetic. Nothing pixel-compares our screenshots
+  today, so clock/battery noise in evidence costs nothing.
+- **Trigger:** screenshot diffing, or marketing-grade artifact
+  consistency demand. ~20-line helper when that day comes.
+
+---
+
 ## C. Older deferred items (pre-Maestro)
 
 *Formerly C1 (iPad exclusion "model-based — revisit toggle"): REMOVED
