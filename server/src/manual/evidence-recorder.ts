@@ -36,7 +36,12 @@ export class EvidenceRecorder {
         vs = await this.startVideoOnce();
       } catch { /* respawn best-effort */ }
     }
-    if (vs.ok) this.videoStarted = true;
+    if (vs.ok) {
+      this.videoStarted = true;
+      // Tier 2.2 — alignment anchor: the video (best-effort) starts NOW;
+      // evidence-player overlay times tap circles against this epoch ms.
+      this.deps.db.prepare(`UPDATE runs SET video_started_at = ? WHERE id = ?`).run(Date.now(), this.runId);
+    }
     else {
       const msg = (vs as { error?: { message?: string } }).error?.message ?? 'engine error';
       this.deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run(`video unavailable: ${msg}`, this.runId);
