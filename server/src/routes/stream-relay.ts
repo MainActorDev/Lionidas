@@ -77,15 +77,22 @@ async function pumpUpstream(url: string, sub: UpstreamSubscription, udid: string
     // fetch and re-resolve a FRESH url through our own route; clients ride
     // along on the same socket (new upstream subscription, same fan-out).
     if (pauseNotified) {
+      // old url is likely dead (engine respawn during the run): re-resolve a
+      // FRESH url and move the clients to a NEW subscription for it. The old
+      // sub is retired first (its abort controller is dead weight).
       sub.abortController.abort();
+      upstreams.delete(sub.url);
       try {
         const port = Number(process.env['CRUCIBLE_PORT'] ?? 9230);
         const resp = await fetch(`http://127.0.0.1:${port}/api/devices/${udid}/stream`, { method: 'POST' });
         if (resp.ok) {
           const body = await resp.json() as { streamUrl: string };
-          const fresh = upstreams.get(body.streamUrl);
-          if (fresh && fresh !== sub) {
-            // migrate clients to the fresh upstream's pump
+          if (body.streamUrl && body.streamUrl !== sub.url) {
+            let fresh = upstreams.get(body.streamUrl);
+            if (!fresh) {
+              fresh = { url: body.streamUrl, clients: new Set(), abortController: new AbortController(), refCount: 0, everGotFrame: false, notifiedOutage: false, outageStartedAt: 0 };
+              upstreams.set(body.streamUrl, fresh);
+            }
             for (const c of sub.clients) {
               fresh.clients.add(c);
               fresh.refCount++;
@@ -97,6 +104,11 @@ async function pumpUpstream(url: string, sub: UpstreamSubscription, udid: string
           }
         }
       } catch { /* fall through: old url retry path handles it */ }
+      // fresh resolve failed AND old sub was retired — fall through re-fetches
+      // the ORIGINAL url with the aborted controller, which throws instantly;
+      // the catch below rides the retry loop, but the controller is dead.
+      // Reset it so the retry can actually work.
+      sub.abortController = new AbortController();
     }
     try {
       const resp = await fetch(url, { signal: sub.abortController.signal });
