@@ -160,6 +160,36 @@ this section (see `docs/plans/2026-09-05-location-spoofing.md`).*
 
 ---
 
+## E. Parallel-batch follow-ups — deferred 2026-09-06
+
+*Source: device-lane parallel batches SHIPPED 2026-09-06
+(`docs/plans/2026-09-06-parallel-batches.md`, commits 9f554b5/d7378d3).
+Both items are honest v1 limits of the shipped pool, not unbuilt core.*
+
+### E1. Per-device traffic attribution for parallel batches
+- **What:** parallel (multi-lane) batches run with forge attribution OFF —
+  proxy traffic rows land with `runId: null` because the host-level mitm
+  proxy cannot tell which simulator sent a request. Fixing it means
+  per-device proxy instances (own port per sim, app launch-arg routing)
+  or tagging at the app layer.
+- **Why deferred:** per-device proxies multiply the routing/watchdog
+  surface (S2 hard-won) for a benefit only scenarios+parallel users feel;
+  v1 keeps scenarios single-device (409) and documents attribution-off.
+- **Trigger:** a QA workflow that needs network-fake verification AND
+  multi-device throughput simultaneously.
+
+### E2. shard-all (compatibility matrix) batch mode
+- **What:** Maestro-style `--shard-all` — run the FULL filtered suite on
+  EVERY booted device (cross-device verdict matrix) instead of
+  distributing cases once (shard-split, shipped). The planner already
+  returns lanes; shard-all just gives each lane the full case list and
+  the verdict page learns a per-device roll-up.
+- **Why deferred:** no current suite runs cross-device comparisons; the
+  cross-device coordinate-tap rule (selectors required) makes most
+  recorded cases non-portable today anyway.
+- **Trigger:** first real multi-device parity suite (e.g. iPhone 16 vs
+  SE geometry checks) — pair it with a selector-coverage pass on cases.
+
 ## C. Older deferred items (pre-Maestro)
 
 *Formerly C1 (iPad exclusion "model-based — revisit toggle"): REMOVED
