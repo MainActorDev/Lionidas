@@ -45,20 +45,23 @@ const filter = ref('');
 const filterEl = ref<HTMLInputElement | null>(null);
 const playing = ref<string | null>(null);
 
-// ── run menu (sticky watch/background) + abort (shared tracker) ──
+// ── run menu (explicit watch/background actions) + abort (shared tracker) ──
+// run = always watch (dock opens). The ▾ menu items RUN immediately in the
+// chosen mode — no sticky preference: a silent mode flip on the main button
+// read as "nothing happened" then betrayed the next click (user, 2026-09-06).
 type RunMode = 'watch' | 'background';
-const runMode = ref<RunMode>(((): RunMode => {
-  const v = localStorage.getItem('crucible.runMode');
-  return v === 'background' ? 'background' : 'watch';
-})());
-function setRunMode(m: RunMode): void {
-  runMode.value = m;
-  localStorage.setItem('crucible.runMode', m);
+function runFromMenu(m: RunMode, t: Template): void {
   runMenuOpen.value = null;
   runMenuPos.value = null;
+  void play(t, m);
 }
 const runMenuOpen = ref<string | null>(null); // open menu's template id — one at a time
 const runMenuPos = ref<{ top: number; left: number } | null>(null);
+function templateById(id: string | null): Template {
+  const t = templates.value.find((x) => x.id === id);
+  if (!t) throw new Error('case not found');
+  return t;
+}
 function toggleRunMenu(id: string, ev: Event): void {
   if (runMenuOpen.value === id) { runMenuOpen.value = null; runMenuPos.value = null; return; }
   const r = (ev.target as HTMLElement).getBoundingClientRect();
@@ -120,7 +123,7 @@ function parseEnv(): Record<string, string> {
 }
 const envKeyCount = computed(() => Object.keys(parseEnv()).length);
 
-async function play(t: Template): Promise<void> {
+async function play(t: Template, mode: RunMode = 'watch'): Promise<void> {
   if (playing.value) return;
   playing.value = t.id;
   playMsg.value = '';
@@ -140,9 +143,9 @@ async function play(t: Template): Promise<void> {
       advancedOpen.value = true;
       await loadBootedDevices();
     } else if (b.runId) {
-      playMsg.value = `running · ${b.runId}${runScenario.value ? ' · scenario active' : ''}${runMode.value === 'background' ? ' · background' : ''}`;
+      playMsg.value = `running · ${b.runId}${runScenario.value ? ' · scenario active' : ''}${mode === 'background' ? ' · background' : ''}`;
       // server-resolved device (falls back to the template's recorded udid)
-      if (runMode.value === 'watch') {
+      if (mode === 'watch') {
         runPanel.value = { runId: b.runId, templateId: t.id, caseName: t.name, udid: b.udid ?? t.udid };
       }
       installHint.value = null;
@@ -254,8 +257,7 @@ onBeforeUnmount(() => { window.removeEventListener('click', onMenuScatter); });
  *  play from another tab, run started via plan/prompt. The panel hydrates
  *  itself from GET /api/runs/:id/steps, so no template steps needed. */
 async function adoptRunningRun(): Promise<void> {
-  if (runPanel.value) return;
-  if (runMode.value !== 'watch') return; // background users keep their no-dock choice
+  if (runPanel.value) return; // a run is already being watched — keep it
   try {
     const r = await fetch('/api/runs?limit=200');
     const b = (await r.json()) as { runs?: Array<{ id: string; status: string; template_id: string | null; device_udid: string; note: string | null }> };
@@ -646,10 +648,10 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
             <template v-else>
               <span class="run-menu">
                 <button class="btn btn-sm" :disabled="playing !== null" @click.stop="play(t)"
-                  :title="runMode === 'watch' ? 'run and open the live stream panel' : 'run in the background — no stream panel; the verdict lands in this row'">
+                  title="run and open the live stream panel">
                   {{ playing === t.id ? 'starting…' : 'run' }}</button>
                 <button class="btn btn-sm run-menu-toggle" :class="{ open: runMenuOpen === t.id }" @click.stop="toggleRunMenu(t.id, $event)"
-                  aria-haspopup="menu" :aria-expanded="runMenuOpen === t.id" title="choose how run works — watch or background">▾</button>
+                  aria-haspopup="menu" :aria-expanded="runMenuOpen === t.id" title="run without the stream panel">▾</button>
               </span>
             </template>
             <button class="btn btn-sm btn-ghost" @click.stop="openYaml(t)" title="edit this case — metadata + yaml">edit</button>
@@ -749,11 +751,11 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
          being cut by its scroll container. -->
     <Teleport to="body">
       <div v-if="runMenuOpen && runMenuPos" class="run-menu-pop" role="menu" :style="{ top: `${runMenuPos.top}px`, left: `${runMenuPos.left}px` }" @click.stop>
-        <button role="menuitem" :class="{ sel: runMode === 'watch' }" @click="setRunMode('watch')">
-          <b>run · watch</b><span>opens the live stream panel (default)</span>
+        <button role="menuitem" @click="runFromMenu('watch', templateById(runMenuOpen))">
+          <b>run · watch</b><span>opens the live stream panel — same as the run button</span>
         </button>
-        <button role="menuitem" :class="{ sel: runMode === 'background' }" @click="setRunMode('background')">
-          <b>run · background</b><span>no panel — the verdict appears in this row</span>
+        <button role="menuitem" @click="runFromMenu('background', templateById(runMenuOpen))">
+          <b>run · background</b><span>no panel — live progress in the row, verdict lands here</span>
         </button>
       </div>
     </Teleport>
