@@ -117,9 +117,16 @@ function onEvent(ev: { type: string; payload: Record<string, unknown> }): void {
       row.status = (p['status'] as Row['status']) ?? 'pass';
       row.durationMs = (p['durationMs'] as number) ?? null;
     }
+  } else if (ev.type === 'run.aborted') {
+    // click-time abort ack (Task 0): settle immediately — running steps
+    // ended with the run; the record flip follows in the run's finally.
+    for (const r of rows.value) if (r.status === 'running') r.status = 'skip';
+    status.value = 'aborted';
+    finishedAt.value = Date.now();
+    void hydrate();
   } else if (ev.type === 'run.finished') {
     // any step still 'running' ended with the run — settle it as skip
-    for (const r of rows.value) if (r.status === 'run' + '' || r.status === 'running') r.status = 'skip';
+    for (const r of rows.value) if (r.status === 'running') r.status = 'skip';
     status.value = (p['status'] as typeof status.value) ?? 'aborted';
     finishedAt.value = Date.now();
     void hydrate(); // blocked/note come from the run row
@@ -209,6 +216,17 @@ function requestClose(): void {
   if (status.value === 'running') return;
   emit('close');
 }
+
+// abort (Task 3): single click, idempotent endpoint; the run.aborted ack
+// (or run.finished, whichever lands first) settles the panel above.
+const aborting = ref(false);
+async function requestAbort(): Promise<void> {
+  if (status.value !== 'running' || aborting.value) return;
+  aborting.value = true;
+  try { await fetch(`/api/runs/${props.runId}/abort`, { method: 'POST' }); }
+  catch { /* hydrate/poll will surface terminal state anyway */ }
+  finally { aborting.value = false; }
+}
 </script>
 
 <template>
@@ -221,6 +239,8 @@ function requestClose(): void {
         {{ status === 'running' ? '🔒 until done' : 'unlocked' }}
       </span>
       <span class="rp-fps" v-if="stream.state.value !== 'failed'">{{ stream.state.value === 'live' ? `live · ${stream.fps.value}fps` : stream.state.value }}</span>
+      <button v-if="status === 'running'" class="rp-abort" :disabled="aborting" @click="requestAbort"
+        title="abort — lands after the current step finishes">{{ aborting ? 'aborting…' : '■ abort' }}</button>
     </header>
 
     <div class="rp-body">
@@ -324,6 +344,13 @@ function requestClose(): void {
 @keyframes rp-tap-pop { from { transform: scale(0.4); } to { transform: scale(1); } }
 @keyframes rp-tap-ring { from { transform: scale(0.8); opacity: 0.9; } to { transform: scale(3.2); opacity: 0; } }
 .rp-fps { flex: none; color: var(--color-steel); font-size: 10px; background: rgba(0, 0, 0, 0.6); padding: 1px 5px; border-radius: 2px; }
+.rp-abort {
+  flex: none; margin-left: auto; cursor: pointer; font: inherit; font-size: 10px;
+  color: var(--color-accent, #e5484d); background: none;
+  border: 1px solid var(--color-accent, #e5484d); border-radius: 3px; padding: 1px 6px;
+}
+.rp-abort:disabled { opacity: .55; cursor: default; }
+.rp-abort:not(:disabled):hover { background: rgba(229, 72, 77, .12); }
 .rp-stream-fail { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 6px; align-items: center; justify-content: center; background: rgba(0,0,0,.55); color: var(--color-steel); font-size: 12px; text-align: center; z-index: 5; }
 .rp-fail-reason { font-size: 10px; color: var(--color-steel); word-break: break-word; }
 

@@ -11,6 +11,7 @@ import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue';
 import CaseEditorPanel from '../components/CaseEditorPanel.vue';
 import RunPanel from '../components/RunPanel.vue';
 import TapOverlayVideo from '../components/TapOverlayVideo.vue';
+import { initActiveRuns, useActiveRuns } from '../composables/activeRuns.ts';
 
 interface Step { idx: number; action: string; x?: number; y?: number; direction?: string; text?: string; optional?: boolean; selector?: { identifier?: string; label?: string; type?: string }; templateId?: string }
 interface Verdict {
@@ -43,6 +44,32 @@ const error = ref('');
 const filter = ref('');
 const filterEl = ref<HTMLInputElement | null>(null);
 const playing = ref<string | null>(null);
+
+// ── run menu (sticky watch/background) + abort (shared tracker) ──
+type RunMode = 'watch' | 'background';
+const runMode = ref<RunMode>(((): RunMode => {
+  const v = localStorage.getItem('crucible.runMode');
+  return v === 'background' ? 'background' : 'watch';
+})());
+function setRunMode(m: RunMode): void {
+  runMode.value = m;
+  localStorage.setItem('crucible.runMode', m);
+  runMenuOpen.value = null;
+}
+const runMenuOpen = ref<string | null>(null); // open menu's template id — one at a time
+const tracker = useActiveRuns();
+const aborting = ref<string | null>(null);
+async function abortCase(t: { id: string }): Promise<void> {
+  const active = tracker.activeRun(t.id);
+  if (!active) return;
+  aborting.value = t.id;
+  try {
+    await fetch(`/api/runs/${active.runId}/abort`, { method: 'POST' });
+    // click-time ack (run.aborted event) clears the tracker; pending state
+    // ends here regardless — idempotent endpoint makes retry harmless
+  } catch { /* tracker will clear on next event or reseed */ }
+  finally { aborting.value = null; }
+}
 const playMsg = ref('');
 // ── APP_NOT_INSTALLED remediation: one-click install from the last-known
 // artifact (or the picker), then auto-replay the SAME case once. ──
@@ -104,9 +131,11 @@ async function play(t: Template): Promise<void> {
       advancedOpen.value = true;
       await loadBootedDevices();
     } else if (b.runId) {
-      playMsg.value = `running · ${b.runId}${runScenario.value ? ' · scenario active' : ''}`;
+      playMsg.value = `running · ${b.runId}${runScenario.value ? ' · scenario active' : ''}${runMode.value === 'background' ? ' · background' : ''}`;
       // server-resolved device (falls back to the template's recorded udid)
-      runPanel.value = { runId: b.runId, templateId: t.id, caseName: t.name, udid: b.udid ?? t.udid };
+      if (runMode.value === 'watch') {
+        runPanel.value = { runId: b.runId, templateId: t.id, caseName: t.name, udid: b.udid ?? t.udid };
+      }
       installHint.value = null;
     } else if (b.code === 'APP_NOT_INSTALLED') {
       installHint.value = { templateId: t.id, udid: b.udid ?? t.udid, appBundleId: b.appBundleId ?? t.appBundleId ?? '', lastArtifact: b.lastArtifact ?? null };
@@ -192,14 +221,28 @@ async function openEvidence(t: Template): Promise<void> {
 }
 const evidenceShots = computed(() => (evidenceView.value?.items ?? []).filter((i) => i.kind === 'screenshot'));
 function closeEvidence(): void { evidenceView.value = null; }
-function onKey(e: KeyboardEvent): void { if (e.key === 'Escape') closeEvidence(); }
+function onKey(e: KeyboardEvent): void {
+  if (e.key === 'Escape') {
+    if (runMenuOpen.value !== null) { runMenuOpen.value = null; return; }
+    closeEvidence();
+  }
+}
 onMounted(() => window.addEventListener('keydown', onKey));
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
+// run menu: click anywhere outside closes it (no per-row portals)
+function onMenuScatter(e: MouseEvent): void {
+  if (runMenuOpen.value === null) return;
+  const pop = (e.target as HTMLElement).closest?.('.run-menu');
+  if (!pop) runMenuOpen.value = null;
+}
+onMounted(() => window.addEventListener('click', onMenuScatter));
+onBeforeUnmount(() => { window.removeEventListener('click', onMenuScatter); });
 /** adopt a run already live on this page's device set — reload mid-run,
  *  play from another tab, run started via plan/prompt. The panel hydrates
  *  itself from GET /api/runs/:id/steps, so no template steps needed. */
 async function adoptRunningRun(): Promise<void> {
   if (runPanel.value) return;
+  if (runMode.value !== 'watch') return; // background users keep their no-dock choice
   try {
     const r = await fetch('/api/runs?limit=200');
     const b = (await r.json()) as { runs?: Array<{ id: string; status: string; template_id: string | null; device_udid: string; note: string | null }> };
@@ -235,6 +278,25 @@ async function playAll(): Promise<void> {
   } catch {
     playMsg.value = 'failed';
   } finally { playingAll.value = false; }
+}
+
+// ■ stop all (Task 4): abort every tracked run + every queued row, with
+// honest per-kind counts. Idempotent endpoints make partial failure safe
+// to ignore — the tracker clears via events as each abort lands.
+async function stopAll(): Promise<void> {
+  const runs = tracker.all();
+  let queued: string[] = [];
+  try {
+    const r = await fetch('/api/queue');
+    const b = (await r.json()) as { queue?: Array<{ id: string }> };
+    queued = (b.queue ?? []).map((q) => q.id);
+  } catch { /* queue listing best-effort */ }
+  const results = await Promise.allSettled([
+    ...runs.map((run) => fetch(`/api/runs/${run.runId}/abort`, { method: 'POST' })),
+    ...queued.map((id) => fetch(`/api/queue/${id}`, { method: 'DELETE' })),
+  ]);
+  const ok = results.filter((r) => r.status === 'fulfilled').length;
+  playMsg.value = `stopped ${runs.length} run(s) · ${queued.length} queued (${ok}/${results.length} accepted)`;
 }
 
 async function patchTemplate(id: string, body: Record<string, unknown>): Promise<void> {
@@ -346,7 +408,10 @@ function onCmdF(ev: KeyboardEvent): void {
 onMounted(() => window.addEventListener('keydown', onCmdF));
 onBeforeUnmount(() => { window.removeEventListener('keydown', onCmdF); });
 
-onMounted(() => { void load().then(() => void adoptRunningRun()); void loadPlans(); void loadBootedDevices(); });
+onMounted(() => { void load().then(() => void adoptRunningRun()); void loadPlans(); void loadBootedDevices(); initActiveRuns(); });
+
+// verdict refresh when any tracked run settles (background runs land here)
+watch(() => tracker.settledCount(), () => { void load(); });
 
 // ── B4: verdict + trend rendering ──
 type VerdictKind = 'never' | 'green' | 'red' | 'blocked' | 'aborted';
@@ -468,6 +533,8 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
       <button v-if="!editing" class="btn" :disabled="playingAll || shown().length === 0" @click="playAll()" title="sequentially run every case matching the filter">
         {{ playingAll ? 'running…' : '▶ run filtered' }}
       </button>
+      <button v-if="playingAll" class="btn btn-danger" @click="stopAll"
+        title="abort the running case and every queued one">■ stop all</button>
     </header>
 
     <!-- ── advanced controls disclosure (hidden while editing yaml) ── -->
@@ -551,7 +618,28 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
             <span v-else class="status status-none">never run</span>
           </span>
           <span class="col-actions" @click.stop>
-            <button class="btn btn-sm" :disabled="playing !== null" @click.stop="play(t)">{{ playing === t.id ? 'starting…' : '▶ run' }}</button>
+            <template v-if="tracker.isRunning(t.id)">
+              <button class="btn btn-sm btn-danger" :disabled="aborting === t.id" @click.stop="abortCase(t)"
+                :title="`abort ${tracker.activeRun(t.id)?.runId ?? ''} — lands after the current step finishes`">
+                {{ aborting === t.id ? 'aborting…' : '■ abort' }}</button>
+            </template>
+            <template v-else>
+              <span class="run-menu">
+                <button class="btn btn-sm" :disabled="playing !== null" @click.stop="play(t)"
+                  :title="runMode === 'watch' ? 'run and open the live stream panel' : 'run in the background — no stream panel; the verdict lands in this row'">
+                  {{ playing === t.id ? 'starting…' : (runMode === 'watch' ? '▶ run · watch' : '▶ run · background') }}</button>
+                <button class="btn btn-sm run-menu-toggle" :class="{ open: runMenuOpen === t.id }" @click.stop="runMenuOpen = runMenuOpen === t.id ? null : t.id"
+                  aria-haspopup="menu" :aria-expanded="runMenuOpen === t.id" title="choose how ▶ runs">▾</button>
+                <div v-if="runMenuOpen === t.id" class="run-menu-pop" role="menu" @click.stop>
+                  <button role="menuitem" :class="{ sel: runMode === 'watch' }" @click="setRunMode('watch')">
+                    <b>run · watch</b><span>opens the live stream panel (default)</span>
+                  </button>
+                  <button role="menuitem" :class="{ sel: runMode === 'background' }" @click="setRunMode('background')">
+                    <b>run · background</b><span>no panel — the verdict appears in this row</span>
+                  </button>
+                </div>
+              </span>
+            </template>
             <button class="btn btn-sm btn-ghost" @click.stop="openYaml(t)" title="edit this case — metadata + yaml">edit</button>
             <button class="btn btn-sm btn-ghost" @click.stop="remove(t.id)">delete</button>
           </span>
@@ -757,6 +845,25 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 .a2-trend-none { color: var(--color-steel); }
 /* actions: always-visible final column — no overlay, never covers the verdict */
 .col-actions { display: flex; gap: 4px; justify-content: flex-end; }
+
+/* ── run menu (sticky watch/background) — content-sized, no fixed widths ── */
+.run-menu { position: relative; display: inline-flex; }
+.run-menu-toggle { padding: 0 6px; }
+.run-menu-toggle.open { color: var(--color-accent, #e5484d); }
+.run-menu-pop {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 60;
+  display: flex; flex-direction: column; min-width: max-content;
+  background: var(--color-graphite, #1b1b1f); border: 1px solid var(--color-line, #2a2a30);
+  border-radius: 4px; padding: 4px; box-shadow: 0 6px 24px rgba(0,0,0,.45);
+}
+.run-menu-pop button {
+  display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
+  background: none; border: none; color: inherit; cursor: pointer;
+  padding: 6px 10px; border-radius: 3px; text-align: left; font: inherit;
+}
+.run-menu-pop button:hover { background: rgba(255,255,255,.06); }
+.run-menu-pop button.sel { color: var(--color-accent, #e5484d); }
+.run-menu-pop button span { font-size: 11px; opacity: .75; }
 
 /* row edit + expander body */
 
