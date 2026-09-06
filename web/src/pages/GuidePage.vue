@@ -363,7 +363,9 @@ const groups = computed(() => {
 
         <div class="section-label">run and plans</div>
         <div class="card">
-          <div class="meta-row"><span class="k">run filtered</span><b>runs every case matching the filter, sequentially — one device at a time</b></div>
+          <div class="meta-row"><span class="k">▶ run · watch / background</span><b>the button states its mode: watch opens the live stream panel, background runs without it and the verdict lands in the row. ▾ switches the sticky default (remembered per browser)</b></div>
+          <div class="meta-row"><span class="k">■ abort</span><b>replaces ▶ while a case runs (row) and sits in the stream panel header — single click; lands after the current step finishes</b></div>
+          <div class="meta-row"><span class="k">run filtered</span><b>runs every case matching the filter, sequentially — one device at a time. While it plays, ■ stop all aborts the running case and every queued one</b></div>
           <div class="meta-row"><span class="k">+ plan</span><b>saves the current filter + network choice + env as a named chip — "regression-rc1" replays that exact suite forever</b></div>
           <div class="meta-row"><span class="k">network</span><b>live = real network; a scenario fakes endpoints for each run's duration, then restores</b></div>
           <div class="meta-row"><span class="k">env</span><b>play-time secrets (KEY=value lines) sent with every run — never stored in the case. The badge counts keys in effect</b></div>
