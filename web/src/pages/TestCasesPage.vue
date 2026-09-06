@@ -143,7 +143,9 @@ async function play(t: Template, mode: RunMode = 'watch'): Promise<void> {
       advancedOpen.value = true;
       await loadBootedDevices();
     } else if (b.runId) {
-      playMsg.value = `running · ${b.runId}${runScenario.value ? ' · scenario active' : ''}${mode === 'background' ? ' · background' : ''}`;
+      // no "running · run_x" status line — the row's progress pill and the
+      // dock (watch mode) are the live surfaces; playMsg stays for ERRORS
+      // (device ambiguity, app-not-installed, failures) and batch results.
       // server-resolved device (falls back to the template's recorded udid)
       if (mode === 'watch') {
         runPanel.value = { runId: b.runId, templateId: t.id, caseName: t.name, udid: b.udid ?? t.udid };
