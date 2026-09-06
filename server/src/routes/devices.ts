@@ -31,9 +31,17 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
       return reply.code(409).send({ error: 'a manual session holds this device' });
     }
     const alloy = crucibleAlloy();
-    const dispatch = () => alloy.dispatch('alloy_devices', { action: b.action, udid }, alloyDispatchDepsSync()) as
-      | Promise<{ ok: true }>
-      | Promise<{ ok: false; error: { message: string } }>;
+    // Boot is headless: a dashboard power button must not splash the
+    // Simulator.app GUI over the user's desktop (agent-device ≥ headless
+    // support; the engine ignores the key on older builds — fail-open GUI).
+    const dispatch = () =>
+      alloy.dispatch(
+        'alloy_devices',
+        { action: b.action, udid, ...(b.action === 'boot' ? { headless: true } : {}) },
+        alloyDispatchDepsSync(),
+      ) as
+        | Promise<{ ok: true }>
+        | Promise<{ ok: false; error: { message: string } }>;
     let r = await dispatch();
     // DEVICE_IN_USE with no Crucible-side run/session = engine-A's shared
     // 'alloy' session (fixed name, re-opened by every dispatch) is still open.

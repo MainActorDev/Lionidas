@@ -90,6 +90,29 @@ describe('stream route claim-class heal (74e0bf4 pattern, stream side)', () => {
   });
 });
 
+describe('power route boot is headless (agent-device opt-in)', () => {
+  it('boot dispatch carries headless:true; shutdown does not', async () => {
+    const bootInputs: Array<Record<string, unknown>> = [];
+    __setAlloyForTest({
+      createRuntime: async () => ({ state: {}, deps: null }),
+      dispatch: async (tool: string, input: unknown) => {
+        if (tool === 'alloy_devices') {
+          const i = input as { action?: string };
+          if (i?.action === 'boot') bootInputs.push(input as Record<string, unknown>);
+        }
+        return { ok: true, result: {} };
+      },
+    } as unknown as AlloyExports);
+    const boot = await app.inject({ method: 'POST', url: `/api/devices/${U}/power`, payload: { action: 'boot' } });
+    expect(boot.statusCode).toBe(200);
+    expect(bootInputs).toEqual([{ action: 'boot', udid: U, headless: true }]);
+    const shutdown = await app.inject({ method: 'POST', url: `/api/devices/${U}/power`, payload: { action: 'shutdown' } });
+    expect(shutdown.statusCode).toBe(200);
+    // no NEW boot input recorded after the shutdown call
+    expect(bootInputs).toHaveLength(1);
+  });
+});
+
 describe('power route shutdown heal (74e0bf4 BACKFILL — shipped untested)', () => {
   it('DEVICE_IN_USE + no active run → release + retry → shutdown succeeds', async () => {
     __setAlloyForTest(fakeAlloy({ failShutdown: true }));
