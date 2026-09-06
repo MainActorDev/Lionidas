@@ -89,6 +89,14 @@ onBeforeUnmount(() => { cancelAnimationFrame(raf); window.removeEventListener('r
 </template>
 
 <style scoped>
-.tap-overlay-wrap { position: relative; display: inline-block; max-width: 100%; }
+/* The wrap must size FROM the video (its only in-flow child), never from the
+ * inline strut: an inline-block wrap around a <video> that has not loaded yet
+ * (or whose controls rewrap) computes a phantom ~2-line width and breaks the
+ * card's container. width:fit-content + display:block makes the wrap exactly
+ * the video's rendered box; the absolutely-positioned canvas (inset:0) then
+ * tracks the same box. Video keeps the shot sizing rules (max-* + contain). */
+.tap-overlay-wrap { position: relative; display: block; width: fit-content; max-width: 100%; margin: 0 auto; }
+.tap-overlay-wrap :deep(video.evidence-shot),
+video.evidence-shot { display: block; max-width: 100%; max-height: calc(92vh - 96px); object-fit: contain; }
 .tap-overlay-canvas { position: absolute; inset: 0; pointer-events: none; }
 </style>
