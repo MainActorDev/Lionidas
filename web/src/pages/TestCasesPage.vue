@@ -16,7 +16,7 @@ import { initActiveRuns, useActiveRuns } from '../composables/activeRuns.ts';
 interface Step { idx: number; action: string; x?: number; y?: number; direction?: string; text?: string; optional?: boolean; selector?: { identifier?: string; label?: string; type?: string }; templateId?: string }
 interface Verdict {
   lastRunId: string | null; lastStatus: string | null; lastBlocked: number;
-  lastFinishedAt: number | null; lastAppVersion: string | null;
+  lastFinishedAt: number | null;
   trend: string | null; totalRuns: number;
 }
 interface Template {
@@ -446,9 +446,8 @@ function verdictLabel(t: Template): string {
   if (k === 'never') return 'never run';
   const v = t.verdict!;
   const when = v.lastFinishedAt ? relTime(v.lastFinishedAt) : '';
-  const build = v.lastAppVersion ? ` · v${v.lastAppVersion}` : '';
   const lbl = k === 'green' ? 'pass' : k === 'red' ? 'fail' : k === 'blocked' ? 'blocked (infra)' : 'aborted';
-  return `${lbl}${build}${when ? ` · ${when}` : ''}`;
+  return `${lbl}${when ? ` · ${when}` : ''}`;
 }
 function relTime(ms: number): string {
   const d = Date.now() - ms;
