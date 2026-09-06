@@ -65,8 +65,11 @@ function templateById(id: string | null): Template {
 function toggleRunMenu(id: string, ev: Event): void {
   if (runMenuOpen.value === id) { runMenuOpen.value = null; runMenuPos.value = null; return; }
   const r = (ev.target as HTMLElement).getBoundingClientRect();
-  // fixed coords at body level; right-align the menu's right edge with ▾
-  runMenuPos.value = { top: Math.round(r.bottom + 4), left: Math.round(r.right - 190) };
+  // right-align under ▾ but NEVER past the viewport: menus have a fixed
+  // ~190px width, so clamp the left edge (vw - width - margin)
+  const MENU_W = 190;
+  const left = Math.min(Math.round(r.right - MENU_W), window.innerWidth - MENU_W - 8);
+  runMenuPos.value = { top: Math.round(r.bottom + 4), left: Math.max(8, left) };
   runMenuOpen.value = id;
 }
 const tracker = useActiveRuns();
@@ -754,10 +757,10 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
     <Teleport to="body">
       <div v-if="runMenuOpen && runMenuPos" class="run-menu-pop" role="menu" :style="{ top: `${runMenuPos.top}px`, left: `${runMenuPos.left}px` }" @click.stop>
         <button role="menuitem" @click="runFromMenu('watch', templateById(runMenuOpen))">
-          <b>run · watch</b><span>opens the live stream panel — same as the run button</span>
+          <b>run · watch</b><span>opens the live stream panel</span>
         </button>
         <button role="menuitem" @click="runFromMenu('background', templateById(runMenuOpen))">
-          <b>run · background</b><span>no panel — live progress in the row, verdict lands here</span>
+          <b>run · background</b><span>no panel — progress in the row</span>
         </button>
       </div>
     </Teleport>
@@ -887,7 +890,7 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 .run-menu-toggle.open { color: var(--color-accent, #e5484d); }
 .run-menu-pop {
   position: fixed; z-index: 300; /* above the table's scroll container + sticky head */
-  display: flex; flex-direction: column; width: max-content; min-width: 186px;
+  display: flex; flex-direction: column; width: 190px;
   background: var(--color-graphite, #1b1b1f); border: 1px solid var(--color-line, #2a2a30);
   border-radius: 4px; padding: 4px; box-shadow: 0 6px 24px rgba(0,0,0,.45);
 }
