@@ -218,13 +218,18 @@ function requestClose(): void {
 }
 
 // abort (Task 3): single click, idempotent endpoint; the run.aborted ack
-// (or run.finished, whichever lands first) settles the panel above.
+// settles the panel (steps skip, verdict ◌ ABORTED) and — per user
+// request 2026-09-06 — the panel CLOSES itself once the ack lands, instead
+// of lingering unlocked on an aborted run.
 const aborting = ref(false);
 async function requestAbort(): Promise<void> {
   if (status.value !== 'running' || aborting.value) return;
   aborting.value = true;
-  try { await fetch(`/api/runs/${props.runId}/abort`, { method: 'POST' }); }
-  catch { /* hydrate/poll will surface terminal state anyway */ }
+  try {
+    await fetch(`/api/runs/${props.runId}/abort`, { method: 'POST' });
+    status.value = 'aborted';
+    emit('close');
+  } catch { /* hydrate/poll will surface terminal state anyway */ }
   finally { aborting.value = false; }
 }
 </script>

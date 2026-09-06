@@ -55,8 +55,17 @@ function setRunMode(m: RunMode): void {
   runMode.value = m;
   localStorage.setItem('crucible.runMode', m);
   runMenuOpen.value = null;
+  runMenuPos.value = null;
 }
 const runMenuOpen = ref<string | null>(null); // open menu's template id — one at a time
+const runMenuPos = ref<{ top: number; left: number } | null>(null);
+function toggleRunMenu(id: string, ev: Event): void {
+  if (runMenuOpen.value === id) { runMenuOpen.value = null; runMenuPos.value = null; return; }
+  const r = (ev.target as HTMLElement).getBoundingClientRect();
+  // fixed coords at body level; right-align the menu's right edge with ▾
+  runMenuPos.value = { top: Math.round(r.bottom + 4), left: Math.round(r.right - 190) };
+  runMenuOpen.value = id;
+}
 const tracker = useActiveRuns();
 const aborting = ref<string | null>(null);
 async function abortCase(t: { id: string }): Promise<void> {
@@ -223,7 +232,7 @@ const evidenceShots = computed(() => (evidenceView.value?.items ?? []).filter((i
 function closeEvidence(): void { evidenceView.value = null; }
 function onKey(e: KeyboardEvent): void {
   if (e.key === 'Escape') {
-    if (runMenuOpen.value !== null) { runMenuOpen.value = null; return; }
+    if (runMenuOpen.value !== null) { runMenuOpen.value = null; runMenuPos.value = null; return; }
     closeEvidence();
   }
 }
@@ -232,8 +241,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
 // run menu: click anywhere outside closes it (no per-row portals)
 function onMenuScatter(e: MouseEvent): void {
   if (runMenuOpen.value === null) return;
-  const pop = (e.target as HTMLElement).closest?.('.run-menu');
-  if (!pop) runMenuOpen.value = null;
+  // the menu lives at body level now (Teleport) — check both anchors
+  const t = e.target as HTMLElement;
+  if (!t.closest?.('.run-menu') && !t.closest?.('.run-menu-pop')) {
+    runMenuOpen.value = null;
+    runMenuPos.value = null;
+  }
 }
 onMounted(() => window.addEventListener('click', onMenuScatter));
 onBeforeUnmount(() => { window.removeEventListener('click', onMenuScatter); });
@@ -627,17 +640,9 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
               <span class="run-menu">
                 <button class="btn btn-sm" :disabled="playing !== null" @click.stop="play(t)"
                   :title="runMode === 'watch' ? 'run and open the live stream panel' : 'run in the background — no stream panel; the verdict lands in this row'">
-                  {{ playing === t.id ? 'starting…' : (runMode === 'watch' ? '▶ run · watch' : '▶ run · background') }}</button>
-                <button class="btn btn-sm run-menu-toggle" :class="{ open: runMenuOpen === t.id }" @click.stop="runMenuOpen = runMenuOpen === t.id ? null : t.id"
-                  aria-haspopup="menu" :aria-expanded="runMenuOpen === t.id" title="choose how ▶ runs">▾</button>
-                <div v-if="runMenuOpen === t.id" class="run-menu-pop" role="menu" @click.stop>
-                  <button role="menuitem" :class="{ sel: runMode === 'watch' }" @click="setRunMode('watch')">
-                    <b>run · watch</b><span>opens the live stream panel (default)</span>
-                  </button>
-                  <button role="menuitem" :class="{ sel: runMode === 'background' }" @click="setRunMode('background')">
-                    <b>run · background</b><span>no panel — the verdict appears in this row</span>
-                  </button>
-                </div>
+                  {{ playing === t.id ? 'starting…' : 'run' }}</button>
+                <button class="btn btn-sm run-menu-toggle" :class="{ open: runMenuOpen === t.id }" @click.stop="toggleRunMenu(t.id, $event)"
+                  aria-haspopup="menu" :aria-expanded="runMenuOpen === t.id" title="choose how run works — watch or background">▾</button>
               </span>
             </template>
             <button class="btn btn-sm btn-ghost" @click.stop="openYaml(t)" title="edit this case — metadata + yaml">edit</button>
@@ -732,6 +737,19 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
       @close="runPanel = null"
       @open-run="(id) => $router.push(`/runs/${id}`)"
     />
+    <!-- run-mode menu: Teleported to body — the table scrolls (overflow clips
+         absolute children), so the dropdown overlays the table instead of
+         being cut by its scroll container. -->
+    <Teleport to="body">
+      <div v-if="runMenuOpen && runMenuPos" class="run-menu-pop" role="menu" :style="{ top: `${runMenuPos.top}px`, left: `${runMenuPos.left}px` }" @click.stop>
+        <button role="menuitem" :class="{ sel: runMode === 'watch' }" @click="setRunMode('watch')">
+          <b>run · watch</b><span>opens the live stream panel (default)</span>
+        </button>
+        <button role="menuitem" :class="{ sel: runMode === 'background' }" @click="setRunMode('background')">
+          <b>run · background</b><span>no panel — the verdict appears in this row</span>
+        </button>
+      </div>
+    </Teleport>
     <!-- evidence lightbox: full screenshot + video toggle -->
     <div v-if="evidenceView" class="evidence-lightbox" @click.self="closeEvidence">
       <div class="evidence-card">
@@ -851,8 +869,8 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 .run-menu-toggle { padding: 0 6px; }
 .run-menu-toggle.open { color: var(--color-accent, #e5484d); }
 .run-menu-pop {
-  position: absolute; top: calc(100% + 4px); right: 0; z-index: 60;
-  display: flex; flex-direction: column; min-width: max-content;
+  position: fixed; z-index: 300; /* above the table's scroll container + sticky head */
+  display: flex; flex-direction: column; width: max-content; min-width: 186px;
   background: var(--color-graphite, #1b1b1f); border: 1px solid var(--color-line, #2a2a30);
   border-radius: 4px; padding: 4px; box-shadow: 0 6px 24px rgba(0,0,0,.45);
 }
