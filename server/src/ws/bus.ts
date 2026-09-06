@@ -2,7 +2,7 @@
 export type AppEvents = {
   'app.ready': { version: string };
   'device.changed': { udid: string; name: string | null; state: string | null; platform?: string | null; kind?: string | null; lease_holder: string | null; lease_engine: string | null };
-  'run.started': { runId: string; ticketKey: string; udid?: string };
+  'run.started': { runId: string; ticketKey: string; udid?: string; templateId?: string };
   'run.freshness.checked': { runId: string; freshness: string };
   'step.started': { runId: string; idx: number; flow: string; name: string };
   'step.tap': { runId: string; idx: number; x: number; y: number; logicalW: number; logicalH: number };
@@ -18,7 +18,7 @@ export type AppEvents = {
   /** sweep fallback fired (Tier 1): probes fired / hits / latency per
    *  qualifying step — drill reports + future UI surfacing. */
   'sweep.stats': { runId: string; probes: number; hits: number; latencyMs: number; step: number; swept?: boolean; container?: { x: number; y: number; width: number; height: number } };
-  'run.aborted': { queueId: string };
+  'run.aborted': { queueId: string; runId?: string; templateId?: string };
   'queue.changed': { queueId: string; state: string };
   'forge.traffic.hit': { id: string; runId: string | null; method: string; path: string; status: number; latencyMs: number; mode: string; matchedPresetId: string | null };
   'baseline.diff.pending': { diffId: string; scopeKey: string; runId: string };

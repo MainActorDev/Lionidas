@@ -163,12 +163,17 @@ const abortedRuns = new Set<string>();
 /** Test hook: clear the registry between tests. */
 export function __setAbortRegistryForTest(): void { abortedRuns.clear(); }
 
-/** Mark a run aborted. Terminal runs are a no-op ({already}) — idempotent. */
-export function abortRun(db: Database.Database, runId: string): { ok: true } | { already: 'finished' } {
-  const run = db.prepare(`SELECT status FROM runs WHERE id = ?`).get(runId) as { status: string } | undefined;
+/** Mark a run aborted. Terminal runs are a no-op ({already}) — idempotent.
+ * The RECORD flip stays the run's own finally (B2: abort lands between
+ * steps, never kills a dispatched promise) — but the ack is immediate:
+ * with a bus, run.aborted fires here so live trackers clear at click
+ * time instead of waiting out the current step. */
+export function abortRun(db: Database.Database, runId: string, bus?: { emit: (type: 'run.aborted', payload: { queueId: string; runId?: string; templateId?: string }) => void }): { ok: true } | { already: 'finished' } {
+  const run = db.prepare(`SELECT status, template_id FROM runs WHERE id = ?`).get(runId) as { status: string; template_id: string | null } | undefined;
   if (!run) throw new Error(`run ${runId} not found`);
   if (run.status !== 'queued' && run.status !== 'running') return { already: 'finished' };
   abortedRuns.add(runId);
+  bus?.emit('run.aborted', { queueId: runId, runId, ...(run.template_id ? { templateId: run.template_id } : {}) });
   return { ok: true };
 }
 
@@ -311,7 +316,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     .prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, note, template_id, app_version)
               VALUES (?, ?, 'manual', 'running', ?, ?, ?, ?, ?, ?)`)
     .run(runId, t.ticket_key ?? 'TEMPLATE', opts.triggeredBy ?? 'qa', udid, Date.now(), `template:${templateId} ${t.name}`, templateId, appVersion);
-  deps.bus.emit('run.started', { runId, ticketKey: t.ticket_key ?? 'TEMPLATE', udid });
+  deps.bus.emit('run.started', { runId, ticketKey: t.ticket_key ?? 'TEMPLATE', udid, templateId });
   // latest-only evidence: this run replaces the previous run's artifacts
   prunePreviousRunArtifacts({ db: deps.db, artifactsDir: deps.artifactsDir }, { templateId }, runId);
 

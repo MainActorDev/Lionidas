@@ -95,7 +95,7 @@ export function registerRunRoutes(app: FastifyInstance, db: Database.Database, b
   app.post('/api/runs/:id/abort', async (req, reply) => {
     const { id } = req.params as { id: string };
     try {
-      const res = abortRun(db, id);
+      const res = abortRun(db, id, bus);
       return res;
     } catch (err) {
       return reply.code(404).send({ error: err instanceof Error ? err.message : String(err) });
