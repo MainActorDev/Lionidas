@@ -626,7 +626,15 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
             <span v-else class="a2-evidence-none" title="no evidence yet — run the case">—</span>
           </span>
           <span class="col-verdict">
-            <span v-if="t.verdict" :class="`status ${verdictStatusClass(t)}`" :title="verdictLabel(t)">{{ verdictLabel(t) }}</span>
+            <span v-if="tracker.isRunning(t.id)" class="status status-none a2-running" title="this case is running now — abort from its row or the stream panel">
+              <template v-if="tracker.progressOf(t.id)">
+                {{ tracker.progressOf(t.id)!.phase === 'gate'
+                  ? '◌ preparing…'
+                  : `◌ running · ${tracker.progressOf(t.id)!.done}/${tracker.progressOf(t.id)!.total ?? '?'}` }}
+              </template>
+              <template v-else>◌ running…</template>
+            </span>
+            <span v-else-if="t.verdict" :class="`status ${verdictStatusClass(t)}`" :title="verdictLabel(t)">{{ verdictLabel(t) }}</span>
             <span v-else class="status status-none">never run</span>
           </span>
           <span class="col-actions" @click.stop>
@@ -856,6 +864,10 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 .a2-evidence-none { color: var(--color-steel); }
 .col-verdict { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .col-verdict .status { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+/* live progress pill (background runs): subtle pulse so 'preparing…' reads
+   as activity, not a stuck verdict */
+.a2-running { animation: a2-pulse 1.6s ease-in-out infinite; }
+@keyframes a2-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 .a2-ticket { color: var(--color-steel); font-size: 10px; margin-left: 6px; }
 .a2-app-icon { width: 16px; height: 16px; border-radius: 3px; vertical-align: -3px; margin-right: 6px; }
 .a2-app-name { color: var(--color-fog); font-size: 12px; }

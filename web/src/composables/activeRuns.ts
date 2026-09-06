@@ -19,7 +19,18 @@ export interface ActiveRun {
 const state = reactive({
   runs: new Map<string, ActiveRun>(), // key: runId
   byTemplate: new Map<string, string>(), // templateId -> runId
+  /** bumps on every run.finished / run.aborted consumed — pages watch this
+   *  to refetch verdicts without owning their own WS consumer. */
+  settledCount: 0,
 });
+
+export interface RunProgress {
+  done: number;
+  total: number | null; // from run.plan; null until known (gate phase)
+  phase: 'gate' | 'steps';
+}
+/** reactive Map so template reads (progressOf) live-update on each event */
+const progress = reactive(new Map<string, RunProgress>()); // templateId -> progress
 
 let started = false;
 
@@ -52,21 +63,48 @@ export async function seedActiveRuns(fetchFn: typeof fetch = fetch): Promise<voi
 function onEvent(ev: LiveEvent): void {
   const p = ev.payload as Record<string, unknown>;
   if (ev.type === 'run.started' && typeof p['runId'] === 'string') {
+    const templateId = typeof p['templateId'] === 'string' ? p['templateId'] : null;
     upsert({
       runId: p['runId'],
-      templateId: typeof p['templateId'] === 'string' ? p['templateId'] : null,
+      templateId,
       startedAt: Date.now(),
     });
+    if (templateId) progress.set(templateId, { done: 0, total: null, phase: 'gate' });
+    return;
+  }
+  if (ev.type === 'run.plan') {
+    // total arrives once the readiness gate passes; steps[] is the plan
+    const templateId = typeof p['templateId'] === 'string' ? p['templateId'] : null;
+    const steps = Array.isArray(p['steps']) ? p['steps'].length : null;
+    if (templateId) {
+      const cur = progress.get(templateId);
+      progress.set(templateId, { done: cur?.done ?? 0, total: steps, phase: 'steps' });
+    }
+    return;
+  }
+  if (ev.type === 'step.finished') {
+    const runId = typeof p['runId'] === 'string' ? p['runId'] : null;
+    const run = runId ? state.runs.get(runId) : undefined;
+    if (run?.templateId) {
+      const cur = progress.get(run.templateId);
+      if (cur) progress.set(run.templateId, { ...cur, done: cur.done + 1 });
+    }
     return;
   }
   if (ev.type === 'run.finished' && typeof p['runId'] === 'string') {
+    const run = state.runs.get(p['runId']);
+    if (run?.templateId) progress.delete(run.templateId);
     removeRun(p['runId']);
+    state.settledCount++;
     return;
   }
   if (ev.type === 'run.aborted') {
     // click-time ack carries runId; queue-dispatch aborts carry queueId only
     const id = typeof p['runId'] === 'string' ? p['runId'] : (typeof p['queueId'] === 'string' ? p['queueId'] : null);
+    const run = id ? state.runs.get(id) : undefined;
+    if (run?.templateId) progress.delete(run.templateId);
     if (id) removeRun(id);
+    state.settledCount++;
     return;
   }
   if (ev.type === 'queue.changed') {
@@ -96,6 +134,8 @@ export function useActiveRuns(): {
   isRunning: (templateId: string) => boolean;
   activeRun: (templateId: string) => ActiveRun | null;
   all: () => ActiveRun[];
+  settledCount: () => number;
+  progressOf: (templateId: string) => RunProgress | null;
 } {
   return {
     isRunning: (templateId: string) => state.byTemplate.has(templateId),
@@ -104,6 +144,8 @@ export function useActiveRuns(): {
       return rid ? (state.runs.get(rid) ?? null) : null;
     },
     all: () => [...state.runs.values()],
+    settledCount: () => state.settledCount,
+    progressOf: (templateId: string) => progress.get(templateId) ?? null,
   };
 }
 
