@@ -31,6 +31,8 @@ export interface RunProgress {
 }
 /** reactive Map so template reads (progressOf) live-update on each event */
 const progress = reactive(new Map<string, RunProgress>()); // templateId -> progress
+/** live batch ids (stop-all aborts them so lanes stop dispatching) */
+const activeBatches = reactive(new Set<string>());
 
 let started = false;
 
@@ -107,6 +109,14 @@ function onEvent(ev: LiveEvent): void {
     state.settledCount++;
     return;
   }
+  if (ev.type === 'batch.started' && typeof p['batchId'] === 'string') {
+    activeBatches.add(p['batchId']);
+    return;
+  }
+  if (ev.type === 'batch.finished' && typeof p['batchId'] === 'string') {
+    activeBatches.delete(p['batchId']);
+    return;
+  }
   if (ev.type === 'queue.changed') {
     // queued rows can dispatch (run.started follows) or be aborted — reseed
     void seedActiveRuns();
@@ -136,6 +146,7 @@ export function useActiveRuns(): {
   all: () => ActiveRun[];
   settledCount: () => number;
   progressOf: (templateId: string) => RunProgress | null;
+  batchIds: () => string[];
 } {
   return {
     isRunning: (templateId: string) => state.byTemplate.has(templateId),
@@ -146,6 +157,7 @@ export function useActiveRuns(): {
     all: () => [...state.runs.values()],
     settledCount: () => state.settledCount,
     progressOf: (templateId: string) => progress.get(templateId) ?? null,
+    batchIds: () => [...activeBatches],
   };
 }
 

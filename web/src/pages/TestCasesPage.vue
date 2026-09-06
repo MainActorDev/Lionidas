@@ -314,6 +314,9 @@ async function stopAll(): Promise<void> {
   const results = await Promise.allSettled([
     ...runs.map((run) => fetch(`/api/runs/${run.runId}/abort`, { method: 'POST' })),
     ...queued.map((id) => fetch(`/api/queue/${id}`, { method: 'DELETE' })),
+    // parallel batches: stop lanes dispatching their next case (the current
+    // run aborts above; without this a lane would just start its next case)
+    ...tracker.batchIds().map((id) => fetch(`/api/batches/${id}/abort`, { method: 'POST' })),
   ]);
   const ok = results.filter((r) => r.status === 'fulfilled').length;
   playMsg.value = `stopped ${runs.length} run(s) · ${queued.length} queued (${ok}/${results.length} accepted)`;

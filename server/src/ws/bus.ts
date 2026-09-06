@@ -19,6 +19,8 @@ export type AppEvents = {
    *  qualifying step — drill reports + future UI surfacing. */
   'sweep.stats': { runId: string; probes: number; hits: number; latencyMs: number; step: number; swept?: boolean; container?: { x: number; y: number; width: number; height: number } };
   'run.aborted': { queueId: string; runId?: string; templateId?: string };
+  'batch.started': { batchId: string; lanes: number; cases: number };
+  'batch.finished': { batchId: string; aborted: boolean };
   'queue.changed': { queueId: string; state: string };
   'forge.traffic.hit': { id: string; runId: string | null; method: string; path: string; status: number; latencyMs: number; mode: string; matchedPresetId: string | null };
   'baseline.diff.pending': { diffId: string; scopeKey: string; runId: string };

@@ -69,6 +69,7 @@ export async function runParallelBatch(
   const batchId = `batch_${randomUUID().slice(0, 8)}`;
   const controller: Controller = { abort() { this.aborted = true; }, aborted: false };
   batches.set(batchId, controller);
+  deps.bus.emit('batch.started', { batchId, lanes: input.lanes.length, cases: input.lanes.reduce((s, l) => s + l.cases.length, 0) });
 
   const laneResults = await Promise.all(input.lanes.map(async (lane): Promise<BatchLaneResult> => {
     const result: BatchLaneResult = { device: lane.device, runIds: [], skipped: [] };
