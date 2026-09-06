@@ -286,48 +286,95 @@ export function registerManualRoutes(
     }
   });
 
-  // ── batch regression run (A2): play every template matching the filter,
-  // sequentially — one device at a time. Shared by play-all AND plans (one
-  // engine, no parallel mechanism). ──
+  // ── batch regression run: device-lane parallel (2026-09-06 plan) — one
+  // lane per booted sim, lane serial (B5 intact), lanes concurrent. One
+  // booted device ≡ the old sequential engine (same per-case semantics).
+  // Shared by play-all AND plans (one engine). ──
   async function runBatch(b: { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string> }):
-    Promise<{ ok: true; runIds: string[]; count: number } | { ok: false; code: 400 | 409; error: string; runIds: string[]; appBundleId?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null }> {
+    Promise<{ ok: true; runIds: string[]; count: number; batchId?: string; lanes?: Array<{ device: { udid: string; name: string | null }; runIds: string[]; skipped: string[]; haltedAt?: string; haltedReason?: string }> } | { ok: false; code: 400 | 409; error: string; runIds: string[]; appBundleId?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null }> {
     const { selectTemplates } = await import('./templates.ts');
+    const { planLanes, DEFAULT_COST_MS } = await import('../manual/batch/plan.ts');
+    const { runParallelBatch, ParallelScenarioError } = await import('../manual/batch/pool.ts');
     const rows = db.prepare('SELECT * FROM templates ORDER BY updated_at DESC').all() as Array<{ id: string; app_bundle_id: string | null; tags_json: string | null }>;
     const sel = selectTemplates(rows as never, { tags: b.tags, app: b.app });
     if (sel.length === 0) return { ok: false, code: 400, error: 'no templates match', runIds: [] };
-    const runIds: string[] = [];
-    for (const t of sel) {
-      let started: { runId: string; udid: string; done: Promise<void> };
-      try {
-        started = await runTemplatePlayback(
-          { db, bus: deps.bus, dispatchDeps: deps.dispatchDeps, artifactsDir: deps.artifactsDir, forgeState: deps.forgeState },
-          t.id,
-          { ...(b.udid !== undefined ? { udid: b.udid } : {}), ...(b.triggeredBy !== undefined ? { triggeredBy: b.triggeredBy } : {}), ...(b.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}), ...(b.env !== undefined ? { env: b.env } : {}) },
-        );
-      } catch (err) {
-        // B5: device freed mid-batch — abort the REST, report what ran
-        if (err instanceof PlaybackError && err.code === 'DEVICE_BUSY') {
-          return { ok: false, code: 409, error: `batch aborted at template ${t.id}: device busy`, runIds };
-        }
-        if (err instanceof PlaybackError && err.code === 'APP_NOT_INSTALLED') {
-          const out: { ok: false; code: 409; error: string; runIds: string[]; appBundleId?: string; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null } =
-            { ok: false, code: 409, error: `batch aborted at template ${t.id}: ${err.message}`, runIds };
-          if (err.payload?.appBundleId !== undefined) out.appBundleId = err.payload.appBundleId;
-          if (err.payload?.lastArtifact !== undefined) out.lastArtifact = err.payload.lastArtifact;
-          return out;
-        }
-        if (err instanceof PlaybackError && err.code === 'DEVICE_AMBIGUOUS') {
-          return { ok: false, code: 409, error: `batch aborted at template ${t.id}: ${err.message}`, runIds, booted: err.payload?.booted ?? [] };
-        }
-        throw err;
-      }
-      const { runId, done } = started;
-      runIds.push(runId);
-      // B2 watchdog now bounds each run; the batch cap remains a belt-and-braces
-      await Promise.race([done, new Promise<void>((res) => setTimeout(res, 5 * 60_000))]);
+
+    // device lanes: explicit udid pins one device (today's behavior);
+    // otherwise every booted sim from the mirror becomes a lane
+    let devices: Array<{ udid: string; name: string | null }>;
+    if (b.udid !== undefined) {
+      devices = [{ udid: b.udid, name: b.udid }];
+    } else {
+      devices = (db.prepare(`SELECT udid, name FROM devices WHERE state = 'Booted' AND kind = 'simulator' ORDER BY udid`).all() as Array<{ udid: string; name: string | null }>);
+      if (devices.length === 0) devices = [{ udid: '', name: null }]; // resolveUdid's recorded/ambiguity path
     }
-    return { ok: true, runIds, count: sel.length };
+
+    // cost hint: total duration of each template's LATEST finished run
+    const costFor = (templateId: string): number | null => {
+      const last = db.prepare(`SELECT id FROM runs WHERE template_id = ? AND finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 1`).get(templateId) as { id: string } | undefined;
+      if (!last) return null;
+      const r = db.prepare(`SELECT COALESCE(SUM(duration_ms), 0) AS ms FROM run_steps WHERE run_id = ?`).get(last.id) as { ms: number };
+      return r.ms > 0 ? r.ms : null;
+    };
+
+    const maxLanes = Number(process.env['CRUCIBLE_BATCH_MAX_LANES'] ?? '0') || undefined;
+    const lanes = planLanes({
+      cases: sel.map((t) => ({ templateId: t.id, costMs: costFor(t.id) ?? null })),
+      devices,
+      ...(maxLanes !== undefined ? { maxLanes } : {}),
+    });
+    const multiLane = lanes.filter((l) => l.cases.length > 0).length > 1;
+
+    const batchOpts: Record<string, unknown> = {
+      ...(b.triggeredBy !== undefined ? { triggeredBy: b.triggeredBy } : {}),
+      ...(b.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}),
+      ...(b.env !== undefined ? { env: b.env } : {}),
+      ...(multiLane ? { forgeAttribution: false } : {}), // proxy can't tell sims apart
+    };
+
+    let result;
+    try {
+      result = await runParallelBatch(
+        { db, bus: deps.bus, forgeState: deps.forgeState } as never,
+        {
+          lanes,
+          opts: batchOpts,
+          runOne: async (templateId, udid, o) =>
+            runTemplatePlayback(
+              { db, bus: deps.bus, dispatchDeps: deps.dispatchDeps, artifactsDir: deps.artifactsDir, forgeState: deps.forgeState },
+              templateId,
+              o as never,
+            ),
+        },
+      );
+    } catch (err) {
+      if (err instanceof ParallelScenarioError) {
+        return { ok: false, code: 409, error: `${err.message} — run with a single device or drop the scenario`, runIds: [] };
+      }
+      throw err;
+    }
+
+    // single-device lanes keep today's honest error payloads: a halted lane
+    // on a one-lane batch = the old batch-abort
+    if (lanes.filter((l) => l.cases.length > 0).length === 1 && result.lanes.some((l) => l.haltedAt)) {
+      const halted = result.lanes.find((l) => l.haltedAt)!;
+      return {
+        ok: false, code: 409,
+        error: `batch aborted at template ${halted.haltedAt}: ${halted.haltedReason ?? 'device unavailable'}`,
+        runIds: result.runIds.filter((id) => !id.startsWith('failed:')),
+      };
+    }
+    return { ok: true, runIds: result.runIds.filter((id) => !id.startsWith('failed:')), count: sel.length, batchId: result.batchId, lanes: result.lanes };
   }
+
+  // batch abort: stop dispatching pending lane cases (in-flight runs use the
+  // run-abort between-steps semantics — the pool never kills one)
+  app.post('/api/batches/:id/abort', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { abortBatch } = await import('../manual/batch/pool.ts');
+    if (!abortBatch(id)) return reply.code(404).send({ error: 'unknown or settled batch' });
+    return { ok: true };
+  });
 
   app.post('/api/templates/play-all', async (req, reply) => {
     const b = (req.body ?? {}) as { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string> };

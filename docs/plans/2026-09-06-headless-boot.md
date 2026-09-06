@@ -1,7 +1,7 @@
-# Headless simulator boot (agent-device → alloy → Crucible)
+# Headless simulator boot (ENGINE-A-CLI → alloy → Crucible)
 
 Status: **SHIPPED + live-verified 2026-09-06** — commits:
-agent-device `4ad7a98`, alloy `3017b56`, crucible `54dce65`.
+ENGINE-A-CLI `4ad7a98`, alloy `3017b56`, crucible `54dce65`.
 Date: 2026-09-06
 
 ## Plain English summary
@@ -9,7 +9,7 @@ Date: 2026-09-06
 Booting a simulator through Crucible's power button opens the Simulator.app
 GUI window on the Mac. For an automation dashboard that window is pure noise
 (focus-stealing, screen clutter) — everything Crucible does (stream,
-snapshots, taps, screenshots) works without it. agent-device already has a
+snapshots, taps, screenshots) works without it. ENGINE-A-CLI already has a
 `--headless` boot flag, but it only works for Android emulators; asking for
 it on an Apple simulator is rejected. This plan teaches Apple simulators the
 same flag (headless = skip `open -a Simulator`), threads it through alloy,
@@ -17,7 +17,7 @@ and makes Crucible's boot button use it.
 
 ## Root cause (verified by code read, 2026-09-06)
 
-Two `open -a Simulator` sites exist in agent-device's Apple platform:
+Two `open -a Simulator` sites exist in ENGINE-A-CLI's Apple platform:
 
 1. **The `boot` command path** (the one Crucible hits):
    `session-state.ts` handler → runtime bind → `platform-apple/src/runtime.ts`
@@ -41,7 +41,7 @@ Android emulators"). **The only Apple-side gap is that facts cell + op.**
 
 ## Tasks
 
-### Task 1 — agent-device: Apple `bootTargetHeadless` cell (TDD)
+### Task 1 — ENGINE-A-CLI: Apple `bootTargetHeadless` cell (TDD)
 
 Files:
 - `packages/platform-apple/src/readiness/runtime.ts`
@@ -110,7 +110,7 @@ Stage new files before trusting the layering scan (repo rule).
 3. Assert: run ok, `simctl list` shows Booted, **pgrep Simulator.app empty**.
 4. Stream + snapshot + a template run still work on the headless-booted sim
    (proves no functional regression — the GUI was never load-bearing).
-5. Control: `agent-device boot` (CLI, no --headless) still opens the GUI —
+5. Control: `ENGINE-A-CLI boot` (CLI, no --headless) still opens the GUI —
    default behavior for human users unchanged.
 
 ## Edge cases

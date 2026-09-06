@@ -90,7 +90,7 @@ describe('stream route claim-class heal (74e0bf4 pattern, stream side)', () => {
   });
 });
 
-describe('power route boot is headless (agent-device opt-in)', () => {
+describe('power route boot is headless (ENGINE-A-CLI opt-in)', () => {
   it('boot dispatch carries headless:true; shutdown does not', async () => {
     const bootInputs: Array<Record<string, unknown>> = [];
     __setAlloyForTest({

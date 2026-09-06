@@ -32,7 +32,7 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
     }
     const alloy = crucibleAlloy();
     // Boot is headless: a dashboard power button must not splash the
-    // Simulator.app GUI over the user's desktop (agent-device ≥ headless
+    // Simulator.app GUI over the user's desktop (ENGINE-A-CLI ≥ headless
     // support; the engine ignores the key on older builds — fail-open GUI).
     const dispatch = () =>
       alloy.dispatch(

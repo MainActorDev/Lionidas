@@ -232,7 +232,7 @@ async function withWatchdog<T>(runId: string, dispatch: Promise<T>, stepNameForE
 }
 
 
-export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string; bundleId?: string; env?: Record<string, string> }): Promise<{ runId: string; udid: string; done: Promise<void> }> {
+export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string; bundleId?: string; env?: Record<string, string>; forgeAttribution?: boolean }): Promise<{ runId: string; udid: string; done: Promise<void> }> {
   const t = deps.db.prepare('SELECT id, name, ticket_key, udid, steps_json, setup_json, alerts_policy, app_bundle_id, logical_w, logical_h FROM templates WHERE id = ?').get(templateId) as TemplateRow | undefined;
   if (!t) throw new Error(`template ${templateId} not found`);
   const tpl: TemplateRow = t;
@@ -317,18 +317,28 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               VALUES (?, ?, 'manual', 'running', ?, ?, ?, ?, ?, ?)`)
     .run(runId, t.ticket_key ?? 'TEMPLATE', opts.triggeredBy ?? 'qa', udid, Date.now(), `template:${templateId} ${t.name}`, templateId, appVersion);
   deps.bus.emit('run.started', { runId, ticketKey: t.ticket_key ?? 'TEMPLATE', udid, templateId });
-  // latest-only evidence: this run replaces the previous run's artifacts
-  prunePreviousRunArtifacts({ db: deps.db, artifactsDir: deps.artifactsDir }, { templateId }, runId);
+  // latest-only evidence: this run replaces the previous run's artifacts —
+  // UNLESS a sibling run of the same template is still RUNNING (parallel
+  // batches on two devices): the prune would delete the sibling's evidence
+  // mid-flight. Belt to the planner's dedupe; finished runs still prune.
+  const runningSibling = deps.db
+    .prepare(`SELECT 1 FROM runs WHERE template_id = ? AND status IN ('queued','running') AND id != ? LIMIT 1`)
+    .get(templateId, runId);
+  if (!runningSibling) prunePreviousRunArtifacts({ db: deps.db, artifactsDir: deps.artifactsDir }, { templateId }, runId);
 
   // background execution — route returns immediately; done settles at finish
   const done = (async () => {
     const alloy = crucibleAlloy();
-    // traffic attribution: everything the proxy sees while active belongs to this run
-    deps.forgeState.activeRunId = runId;
+    // traffic attribution: everything the proxy sees while active belongs to
+    // this run — UNLESS parallel attribution is off (multi-lane batches:
+    // the proxy can't tell sims apart; a stray set/clear would corrupt a
+    // sibling's attribution, so BOTH writes are skipped).
+    const attribute = opts.forgeAttribution !== false;
+    if (attribute) deps.forgeState.activeRunId = runId;
     // B1: mirror to the addon state file so the mitm addon stamps rows with
     // this run id (in-process proxy reads forgeState directly; the addon tails
     // the file). Best-effort: attribution fails soft if the dir is missing.
-    try { forgeStateService(deps).setActiveRun(runId); } catch { /* attribution best-effort */ }
+    if (attribute) { try { forgeStateService(deps).setActiveRun(runId); } catch { /* attribution best-effort */ } }
     // network choice (phase 4): scenario presets active ONLY during the run
     let restorePresets: Array<Record<string, unknown>> | null = null; // non-null ⇒ scenario activated (service owns restore)
     if (opts.scenarioId) {
@@ -1008,11 +1018,15 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           forgeStateService(deps).clearScenario();
         } catch { /* restore best-effort */ }
       }
-      deps.forgeState.activeRunId = null;
-      // B1: clear the addon's attribution too — rows after this point belong
-      // to no run. (If a scenario restored above, that write already reset
-      // activeRunId implicitly via the null default — this one is explicit.)
-      try { forgeStateService(deps).setActiveRun(null); } catch { /* clear best-effort */ }
+      // parallel-attribution-off: a stray CLEAR would null a sibling lane's
+      // attribution — skip both writes symmetrically with the set above.
+      if (attribute) {
+        deps.forgeState.activeRunId = null;
+        // B1: clear the addon's attribution too — rows after this point belong
+        // to no run. (If a scenario restored above, that write already reset
+        // activeRunId implicitly via the null default — this one is explicit.)
+        try { forgeStateService(deps).setActiveRun(null); } catch { /* clear best-effort */ }
+      }
       // policy audit lines — appended to whatever note exists
       if (noteLines.length > 0) {
         try {
