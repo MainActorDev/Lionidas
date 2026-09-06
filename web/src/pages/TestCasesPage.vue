@@ -843,7 +843,9 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
   gap: var(--s-2); align-items: center; padding: 8px 12px; min-height: 44px; cursor: pointer;
 }
 .a2-row:hover { background: var(--color-graphite); }
-.col-steps, .col-updated { color: var(--color-fog); font-size: 12px; }
+/* row cells only — the header spans share these class names and must keep
+   the thead's 10px/steel; scope with .a2-row or the headers go 12px/fog */
+.a2-row .col-steps, .a2-row .col-updated { color: var(--color-fog); font-size: 12px; }
 .a2-name { color: var(--color-paper); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .col-app { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* verdict pill ellipsizes inside its track at extreme narrow widths (the
