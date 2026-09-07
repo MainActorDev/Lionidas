@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>005 · C — Passphrase Blade</title>
+<style>
+:root {
+  --void:#000; --carbon:#111; --graphite:#191919; --iron:#202020; --slate:#3a3a3a; --pewter:#505050;
+  --steel:#606060; --ash:#7e7e7e; --fog:#b4b4b4; --chalk:#d9d9d9; --paper:#eeeeee;
+  --ember:#da5c2c; --ember-dim:#a04521;
+  --mono:'JetBrains Mono','SF Mono',Menlo,monospace;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:var(--void); font-family:var(--mono); color:var(--paper); min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; font-size:12px; }
+.hint { position:fixed; left:16px; bottom:16px; font-size:10px; color:var(--steel); max-width:210px; line-height:1.8; }
+.hint b { color:var(--fog); }
+
+/* ── full-height blade, passcode-style ── */
+.blade { width:min(420px,94vw); min-height:420px; border:1px solid var(--iron); background:var(--carbon); padding:30px 28px; position:relative; overflow:hidden; }
+.blade::after { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:linear-gradient(90deg,var(--ember),transparent 70%); }
+.top { display:flex; align-items:center; gap:10px; margin-bottom:30px; }
+.top .mark { width:12px; height:12px; background:var(--ember); border-radius:50%; }
+.top .nm { font-size:14px; font-weight:700; }
+.step { font-size:9px; letter-spacing:.13em; text-transform:uppercase; color:var(--steel); margin-bottom:6px; }
+.q { font-size:15px; margin-bottom:22px; }
+.q b { color:var(--ember); font-weight:400; }
+
+/* email step = one big input */
+.biginput { width:100%; background:var(--void); border:1px solid var(--slate); color:var(--paper); font-family:inherit; font-size:15px; padding:13px 14px; margin-bottom:14px; }
+.biginput:focus { outline:none; border-color:var(--ember); }
+.enter { width:100%; background:var(--ember); border:none; color:var(--paper); font-family:inherit; font-size:13px; font-weight:700; padding:13px; cursor:pointer; }
+.enter:hover { background:var(--ember-dim); }
+.sugg { font-size:10px; color:var(--ash); margin:10px 0 0; }
+.sugg u { color:var(--fog); cursor:pointer; }
+
+/* pin dots for demo password step */
+.dots { display:flex; gap:12px; margin:6px 0 22px; }
+.dots i { width:14px; height:14px; border:1px solid var(--slate); border-radius:50%; }
+.dots i.f { background:var(--ember); border-color:var(--ember); }
+
+.keys { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.keys button { background:var(--void); border:1px solid var(--slate); color:var(--paper); font-family:inherit; font-size:15px; padding:13px 0; cursor:pointer; }
+.keys button:hover { border-color:var(--fog); }
+.keys .mut { color:var(--steel); font-size:11px; }
+
+.alt-row { margin-top:22px; padding-top:16px; border-top:1px solid var(--iron); display:flex; justify-content:center; }
+.jira { background:none; border:1px solid var(--iron); color:var(--fog); font-family:inherit; font-size:10.5px; padding:8px 14px; cursor:pointer; }
+.jira:hover { border-color:var(--slate); color:var(--paper); }
+.foot { margin-top:16px; font-size:9px; color:var(--steel); text-align:center; }
+</style>
+</head>
+<body>
+<div class="hint"><b>005 · C</b> — Passphrase Blade<br>Two-step passcode feel: email → password. Chunky keys, terminal blade aesthetic. Jira demoted to a footer link.</div>
+
+<div class="blade">
+  <div class="top"><span class="mark"></span><span class="nm">crucible</span></div>
+
+  <!-- step 1: email -->
+  <div id="s1">
+    <div class="step">who are you</div>
+    <div class="q">sign in with your <b>work email</b></div>
+    <input class="biginput" id="email" placeholder="name@lionparcel.com" />
+    <button class="enter" onclick="step2()">continue</button>
+    <div class="sugg">recent on this mac: <u onclick="pick('dita@lionparcel.com')">dita@…</u> · <u onclick="pick('bayu@lionparcel.com')">bayu@…</u></div>
+  </div>
+
+  <!-- step 2: password -->
+  <div id="s2" style="display:none;">
+    <div class="step">welcome, <span id="who" style="color:var(--fog)">dita</span></div>
+    <div class="q">enter your <b>password</b></div>
+    <div class="dots"><i class="f"></i><i class="f"></i><i class="f"></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="keys">
+      <button onclick="fill()">1</button><button onclick="fill()">2</button><button onclick="fill()">3</button>
+      <button onclick="fill()">4</button><button onclick="fill()">5</button><button onclick="fill()">6</button>
+      <button onclick="fill()">7</button><button onclick="fill()">8</button><button onclick="fill()">9</button>
+      <button class="mut" onclick="back()">← back</button><button onclick="fill()">0</button><button class="mut" onclick="ok()">enter ⏎</button>
+    </div>
+  </div>
+
+  <!-- step 3: in -->
+  <div id="s3" style="display:none;">
+    <div class="step">session</div>
+    <div class="q">you're in, <b>dita</b> — operator</div>
+    <div style="font-size:10.5px;color:var(--fog);line-height:2;margin-bottom:18px;">
+      your name now rides on:<br>
+      · device leases &amp; manual sessions<br>
+      · runs you trigger<br>
+      · approvals you sign
+    </div>
+    <button class="enter" onclick="reset()">sign out</button>
+  </div>
+
+  <div class="alt-row"><button class="jira">◈ or continue with Jira</button></div>
+  <div class="foot">accounts provisioned by admins · no self-registration</div>
+</div>
+
+<script>
+function pick(e){ document.getElementById('email').value = e; }
+function step2(){
+  const e = document.getElementById('email').value;
+  if(!e.includes('@')) return;
+  document.getElementById('who').textContent = e.split('@')[0];
+  document.getElementById('s1').style.display='none';
+  document.getElementById('s2').style.display='';
+}
+let n = 3;
+function fill(){ n = Math.min(8, n+1); paint(); }
+function paint(){ const d=[...document.querySelectorAll('.dots i')]; d.forEach((el,i)=>el.classList.toggle('f', i<n)); if(n>=8) ok(); }
+function back(){ document.getElementById('s2').style.display='none'; document.getElementById('s1').style.display=''; }
+function ok(){ document.getElementById('s2').style.display='none'; document.getElementById('s3').style.display=''; }
+function reset(){ n=3; paint(); document.getElementById('s3').style.display='none'; document.getElementById('s1').style.display=''; }
+</script>
+</body>
+</html>

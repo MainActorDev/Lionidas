@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>005 · B — Split Gate</title>
+<style>
+:root {
+  --void:#000; --carbon:#111; --graphite:#191919; --iron:#202020; --slate:#3a3a3a; --pewter:#505050;
+  --steel:#606060; --ash:#7e7e7e; --fog:#b4b4b4; --chalk:#d9d9d9; --paper:#eeeeee;
+  --ember:#da5c2c; --ember-dim:#a04521;
+  --mono:'JetBrains Mono','SF Mono',Menlo,monospace;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:var(--void); font-family:var(--mono); color:var(--paper); min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; font-size:12px; }
+.hint { position:fixed; left:16px; bottom:16px; font-size:10px; color:var(--steel); max-width:200px; line-height:1.8; }
+.hint b { color:var(--fog); }
+
+/* ── wide split: brand narrative left, form right ── */
+.gate { width:min(760px, 96vw); display:grid; grid-template-columns: 1.1fr 1fr; border:1px solid var(--iron); background:var(--carbon); }
+.left { padding:34px 30px; border-right:1px solid var(--iron); background:var(--void); display:flex; flex-direction:column; }
+.brand { display:flex; align-items:center; gap:10px; }
+.brand .mark { width:12px; height:12px; background:var(--ember); border-radius:50%; }
+.brand .nm { font-size:15px; font-weight:700; }
+.pitch { margin-top:auto; padding-top:40px; }
+.pitch .h { font-size:17px; line-height:1.5; margin-bottom:14px; color:var(--paper); }
+.pitch .h em { color:var(--ember); font-style:normal; }
+.pitch p { font-size:10.5px; color:var(--ash); line-height:1.9; }
+.pitch .roles { display:flex; gap:8px; margin-top:18px; }
+.pitch .r { font-size:9px; color:var(--fog); border:1px solid var(--iron); padding:4px 9px; }
+.pitch .r b { color:var(--ember); font-weight:400; }
+
+.right { padding:34px 28px; display:flex; flex-direction:column; }
+.right h2 { font-size:12px; letter-spacing:.13em; text-transform:uppercase; color:var(--steel); margin-bottom:20px; }
+.field { margin-bottom:14px; }
+.field label { display:block; font-size:9px; letter-spacing:.13em; text-transform:uppercase; color:var(--steel); margin-bottom:6px; }
+.field input { width:100%; background:var(--carbon); border:1px solid var(--slate); color:var(--paper); font-family:inherit; font-size:12px; padding:10px 12px; }
+.field input:focus { outline:none; border-color:var(--fog); }
+.err { color:var(--ember); font-size:10px; min-height:14px; margin:8px 0 0; }
+.btn { width:100%; background:var(--ember); border:1px solid var(--ember); color:var(--paper); font-family:inherit; font-size:12px; font-weight:700; padding:11px; cursor:pointer; }
+.btn:hover { background:var(--ember-dim); }
+.alt { margin-top:auto; padding-top:22px; text-align:center; }
+.alt .q { font-size:10px; color:var(--steel); margin-bottom:10px; }
+.jira { background:var(--carbon); border:1px solid var(--slate); color:var(--fog); font-family:inherit; font-size:11px; padding:9px 16px; cursor:pointer; }
+.jira:hover { border-color:var(--fog); color:var(--paper); }
+.foot { font-size:9px; color:var(--steel); margin-top:14px; text-align:center; }
+</style>
+</head>
+<body>
+<div class="hint"><b>005 · B</b> — Split Gate<br>Brand + role explainer left; form right. Tells a stranger what Crucible IS while they log in.</div>
+
+<div class="gate">
+  <div class="left">
+    <div class="brand"><span class="mark"></span><span class="nm">crucible</span></div>
+    <div class="pitch">
+      <div class="h">the testing bench for <em>Lion Parcel iOS</em></div>
+      <p>Devices, runs, evidence, and monitoring in one place. Sign in with your provisioned account — your name lands on every session, run, and approval you touch.</p>
+      <div class="roles">
+        <span class="r"><b>viewer</b> watch everything</span>
+        <span class="r"><b>operator</b> drive &amp; run</span>
+        <span class="r"><b>admin</b> manage users</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="right">
+    <h2>sign in</h2>
+    <div class="field"><label>email</label><input id="email" type="email" placeholder="name@lionparcel.com" /></div>
+    <div class="field"><label>password</label><input id="pw" type="password" placeholder="••••••••" /></div>
+    <div class="err" id="err"></div>
+    <button class="btn" onclick="go()">sign in</button>
+    <div class="alt">
+      <div class="q">company account?</div>
+      <button class="jira" onclick="document.getElementById('err').textContent='→ atlassian.net redirect (demo)'">◈ continue with Jira</button>
+      <div class="foot">no account? ask an admin</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function go() {
+  const e = document.getElementById('email').value, p = document.getElementById('pw').value;
+  const err = document.getElementById('err');
+  if (!e.includes('@')) { err.textContent = 'invalid email'; return; }
+  if (!p) { err.textContent = 'password required'; return; }
+  err.textContent = '→ demo: signed in as operator';
+}
+</script>
+</body>
+</html>

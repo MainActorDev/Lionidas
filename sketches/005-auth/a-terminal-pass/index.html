@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>005 · A — Terminal Pass</title>
+<style>
+:root {
+  --void:#000; --carbon:#111; --graphite:#191919; --iron:#202020; --slate:#3a3a3a; --pewter:#505050;
+  --steel:#606060; --ash:#7e7e7e; --fog:#b4b4b4; --chalk:#d9d9d9; --paper:#eeeeee;
+  --ember:#da5c2c; --ember-dim:#a04521;
+  --mono:'JetBrains Mono','SF Mono',Menlo,monospace;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:var(--void); font-family:var(--mono); color:var(--paper); min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; font-size:12px; }
+.hint { position:fixed; left:16px; bottom:16px; font-size:10px; color:var(--steel); max-width:200px; line-height:1.8; }
+.hint b { color:var(--fog); }
+
+/* ── centered terminal card ── */
+.card { width:min(380px, 94vw); background:var(--carbon); border:1px solid var(--iron); padding:26px 26px 22px; }
+.brand { display:flex; align-items:center; gap:10px; margin-bottom:22px; }
+.brand .mark { width:12px; height:12px; background:var(--ember); border-radius:50%; }
+.brand .nm { font-size:14px; font-weight:700; letter-spacing:.02em; }
+.brand .sub { font-size:9px; color:var(--steel); margin-left:auto; }
+.field { margin-bottom:14px; }
+.field label { display:block; font-size:9px; letter-spacing:.13em; text-transform:uppercase; color:var(--steel); margin-bottom:6px; }
+.field input, .field select { width:100%; background:var(--void); border:1px solid var(--slate); color:var(--paper); font-family:inherit; font-size:12px; padding:10px 12px; }
+.field input:focus { outline:none; border-color:var(--fog); }
+.err { color:var(--ember); font-size:10px; margin:10px 0 0; min-height:14px; }
+.btn { width:100%; background:var(--ember); border:1px solid var(--ember); color:var(--paper); font-family:inherit; font-size:12px; font-weight:700; padding:11px; cursor:pointer; margin-top:8px; }
+.btn:hover { background:var(--ember-dim); }
+.divider { display:flex; align-items:center; gap:10px; margin:18px 0 14px; color:var(--steel); font-size:9px; letter-spacing:.13em; text-transform:uppercase; }
+.divider::before, .divider::after { content:''; flex:1; height:1px; background:var(--iron); }
+.jira { width:100%; background:var(--void); border:1px solid var(--slate); color:var(--fog); font-family:inherit; font-size:11px; padding:10px; cursor:pointer; }
+.jira:hover { border-color:var(--fog); color:var(--paper); }
+.jira .ic { margin-right:6px; }
+.foot { margin-top:18px; font-size:9px; color:var(--steel); text-align:center; line-height:1.8; }
+
+/* logged-in chip for the demo */
+.chip-demo { position:fixed; top:16px; right:16px; display:none; align-items:center; gap:8px; background:var(--carbon); border:1px solid var(--iron); padding:6px 10px; font-size:10px; }
+.chip-demo.on { display:flex; }
+.chip-demo .dot { width:6px; height:6px; border-radius:50%; background:var(--ember); }
+</style>
+</head>
+<body>
+<div class="hint"><b>005 · A</b> — Terminal Pass<br>One compact card, like a CLI prompt. Email+password primary; Jira secondary below the line.</div>
+
+<div class="chip-demo" id="chip"><span class="dot"></span> signed in · <b style="color:var(--ember);font-weight:400">dita</b> · operator</div>
+
+<div class="card" id="login">
+  <div class="brand">
+    <span class="mark"></span>
+    <span class="nm">crucible</span>
+    <span class="sub">internal · LAN</span>
+  </div>
+
+  <div class="field">
+    <label>email</label>
+    <input id="email" type="email" placeholder="name@lionparcel.com" autocomplete="username" />
+  </div>
+  <div class="field">
+    <label>password</label>
+    <input id="pw" type="password" placeholder="••••••••" autocomplete="current-password" />
+  </div>
+  <div class="err" id="err"></div>
+  <button class="btn" onclick="tryLogin()">sign in</button>
+
+  <div class="divider">or</div>
+  <button class="jira" onclick="jira()"><span class="ic">◈</span> continue with Jira</button>
+
+  <div class="foot">first time? ask an admin to provision your account<br>local accounts only — no self-registration</div>
+</div>
+
+<div class="card" id="ok" style="display:none;">
+  <div class="brand">
+    <span class="mark"></span>
+    <span class="nm">welcome back</span>
+  </div>
+  <div style="font-size:13px; margin-bottom:8px;">dita</div>
+  <div style="font-size:10px; color:var(--fog); margin-bottom:18px;">operator · session expires in 12h</div>
+  <button class="btn" onclick="logout()">sign out</button>
+</div>
+
+<script>
+function tryLogin() {
+  const e = document.getElementById('email').value;
+  const p = document.getElementById('pw').value;
+  if (!e.includes('@')) { document.getElementById('err').textContent = 'invalid email'; return; }
+  if (p.length < 1) { document.getElementById('err').textContent = 'password required'; return; }
+  document.getElementById('err').textContent = '';
+  document.getElementById('login').style.display = 'none';
+  document.getElementById('ok').style.display = '';
+  document.getElementById('chip').classList.add('on');
+}
+function jira() {
+  document.getElementById('err').textContent = '';
+  document.getElementById('err').textContent = '→ redirects to atlassian.net (demo)';
+}
+function logout() {
+  document.getElementById('ok').style.display = 'none';
+  document.getElementById('login').style.display = '';
+  document.getElementById('chip').classList.remove('on');
+}
+</script>
+</body>
+</html>
