@@ -35,6 +35,16 @@ export class EvidenceRecorder {
   async startVideo(): Promise<void> {
     await this.deps.dispatch('alloy_video', { udid: this.udid, action: 'stop' }, this.deps.dispatchDeps).catch(() => undefined);
     let vs = await this.startVideoOnce();
+    if (!vs.ok && classifyEngineError(vs) === 'fetch-failed') {
+      // tool-server cold-start race (batch launch, post-restart): respawn
+      // kicks the launcher's ensure-step; one backoff'd retry covers the
+      // ~2s spawn. Same class the stream route heals (dispatchWithHeal).
+      try {
+        this.deps.respawnToolServer();
+        await new Promise((r) => setTimeout(r, 1_500));
+        vs = await this.startVideoOnce();
+      } catch { /* respawn best-effort */ }
+    }
     if (!vs.ok && classifyEngineError(vs) === 'already-recording') {
       try {
         this.deps.respawnToolServer();
