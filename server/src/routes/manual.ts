@@ -4,7 +4,7 @@ import type Database from 'better-sqlite3';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { createReadStream, statSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, manualProbeSelector, finishManualSession, setRecording, getRecording, deleteRecordedStep, recordExpectStep, ManualSessionError } from '../manual/session.ts';
+import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, manualProbeSelector, manualTree, finishManualSession, setRecording, getRecording, deleteRecordedStep, recordExpectStep, ManualSessionError } from '../manual/session.ts';
 import { listSimulatorApps } from '../manual/apps.ts';
 import { installApp } from '../manual/app-install.ts';
 import { findArtifacts, importArtifact, appsStoreDir } from '../manual/artifacts.ts';
@@ -112,6 +112,18 @@ export function registerManualRoutes(
     if (!b?.selector) return reply.code(400).send({ error: 'selector required' });
     try {
       return await manualProbeSelector({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id, b.selector);
+    } catch (err) {
+      if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
+      throw err;
+    }
+  });
+
+  // Inspect mode: full AX tree for the overlay (boxes + drawer). Dumb pipe —
+  // nodes verbatim; interpretation lives in @crucible/shared/ax-tree.
+  app.post('/api/manual/:id/tree', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    try {
+      return await manualTree({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id);
     } catch (err) {
       if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
       throw err;

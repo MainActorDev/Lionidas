@@ -245,6 +245,26 @@ export async function manualProbeSelector(deps: ManualDeps, sessionId: string, s
   return { matched, labels };
 }
 
+/** Inspect mode: the full AX tree for the overlay — boxes, hover hit-testing
+ *  and the element drawer all live client-side off this one payload. Server
+ *  stays a dumb pipe: nodes pass through VERBATIM (interpretation belongs to
+ *  @crucible/shared/ax-tree, one predicate for engine and overlay). */
+export async function manualTree(deps: ManualDeps, sessionId: string): Promise<{ nodes: SnapNode[]; logicalW: number | null; logicalH: number | null; capturedAt: number }> {
+  const s = liveSession(deps, sessionId);
+  const alloy = crucibleAlloy();
+  const snap = (await alloy.dispatch('alloy_snapshot', { udid: s.udid, interactiveOnly: false }, deps.dispatchDeps)) as
+    | { ok: true; result: { nodes?: SnapNode[] } }
+    | { ok: false; error?: { message?: string } };
+  if (!snap.ok) throw new ManualSessionError('LEASE_LOST', `tree failed: ${snap.error?.message ?? 'snapshot dispatch failed'}`);
+  const nodes = snap.result.nodes ?? [];
+  const root = nodes.find((n) => n.type === 'Application')?.rect;
+  const w = root?.width ?? s.logical_w ?? null;
+  const h = root?.height ?? s.logical_h ?? null;
+  deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
+  deps.bus.emit('manual.session.tree', { sessionId, nodes: nodes.length });
+  return { nodes, logicalW: w, logicalH: h, capturedAt: Date.now() };
+}
+
 /** A7: append an expect step to the recording REGARDLESS of record toggle —
  *  assertions are added deliberately (typed/probed), not incidentally, and
  *  QA typically adds them mid-session with recording off. Thumbnail shows
