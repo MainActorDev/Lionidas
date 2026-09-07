@@ -125,14 +125,18 @@ const from = (p: MxPayload): string => {
   return `${dev} · ${p.app_version ?? '—'}`;
 };
 
-/** Crash-free rate: crashes this week ÷ days reported (honest proxy while
- *  session counts need analytics join — labeled as such, not invented precision). */
+/** Crash-free rate: crash-bearing reports ÷ reports this week (honest proxy
+ *  while session counts need an analytics join — deliberately not invented
+ *  precision). SPARSE GUARD: below the data floor the hero says `collecting`
+ *  instead of a scary number — one crash in two reports must not read as 50%. */
+const STABILITY_FLOOR = 5; // weekly reports needed before a % is honest
 const stability = computed(() => {
   const week = payloads.value.filter((p) => p.received_at > Date.now() - 7 * 86400_000);
-  if (week.length === 0) return null;
+  if (week.length === 0) return { state: 'empty' as const };
+  if (week.length < STABILITY_FLOOR) return { state: 'collecting' as const, reports: week.length };
   const crashPayloads = week.filter((p) => p.kind === 'diagnostic' && Number(p.summary['crashes'] ?? 0) > 0).length;
-  const rate = 100 - Math.min(100, crashPayloads / Math.max(1, week.length) * 100);
-  return { rate: rate.toFixed(1), reports: week.length };
+  const rate = 100 - Math.min(100, crashPayloads / week.length * 100);
+  return { state: 'ready' as const, rate: rate.toFixed(1), reports: week.length };
 });
 
 const pickedDevice = computed(() => devices.value.find((d) => d.udid === devicePick.value));
@@ -159,8 +163,14 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
     <div class="hero">
       <div class="stat stat-ember">
         <div class="label">app stability</div>
-        <div class="big">{{ stability ? stability.rate + '%' : '—' }}</div>
-        <div class="sub">{{ stability ? `${stability.reports} reports this week` : 'no reports yet — pull from a device' }}</div>
+        <div class="big" :style="stability.state === 'collecting' ? 'font-size: 16px; color: var(--color-fog);' : ''">
+          {{ stability.state === 'ready' ? stability.rate + '%' : stability.state === 'collecting' ? 'collecting…' : '—' }}
+        </div>
+        <div class="sub">
+          {{ stability.state === 'ready' ? `${stability.reports} reports this week`
+             : stability.state === 'collecting' ? `${stability.reports} of ${STABILITY_FLOOR} weekly reports needed`
+             : 'no reports yet — pull from a device' }}
+        </div>
       </div>
       <div class="stat"><div class="label">crashes</div><div class="big">{{ counts.crashes }}</div><div class="sub">this week</div></div>
       <div class="stat"><div class="label">hangs</div><div class="big">{{ counts.hangs }}</div><div class="sub">this week</div></div>
