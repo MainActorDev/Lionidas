@@ -30,7 +30,7 @@ import type { ForgeState } from '../forge/proxy.ts';
 import { substituteStep } from './template-env.ts';
 import { forgeStateService } from '../forge/state.ts';
 import { classifyBlocked } from '../db/blocked.ts';
-import { resolveSelector, countMatches, selectorLabel, matchesSelector } from './selector.ts';
+import { resolveSelector, countMatches, selectorLabel, matchesSelector, captureSelectorAt, type StepSelector } from './selector.ts';
 import { recordTap } from '../evidence/taps-store.ts';
 import type { SnapNode } from './selector.ts';
 import { sweepTriggered, blindContainerAt, probePoints, sweepFind } from './sweep.ts';
@@ -977,8 +977,50 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           }
           // 'selector-point-scaled' folds into 'selector' for the audit trail —
           // the scale factors already live in evaluated_json's scale context
+          // ── self-hardening (2026-09-07): a PASSING bare-coordinate tap
+          // captures what it actually hit (the record-time hit-test, same
+          // container guard) and writes the selector back into the case.
+          // One green run replaces fragile coordinates with the live AX
+          // identity — cases harden themselves by running. Needs the PRE-tap
+          // nodes: reuse the settle read or the sigBefore snapshot.
+          let hardened: boolean | undefined;
+          let hardenedSel: StepSelector | undefined;
+          if ((s.action === 'tap' || s.action === 'type') && !s.selector && tx !== undefined && ty !== undefined) {
+            try {
+              const preNodes = lastSettleNodes ?? (sigBefore !== null
+                ? ((await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps) as
+                    | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false }))
+                : null);
+              const nodes = preNodes && 'ok' in preNodes && preNodes.ok ? (preNodes.result.nodes ?? []) : (preNodes as SnapNode[] | null);
+              if (nodes && nodes.length > 0) {
+                const hit = captureSelectorAt(nodes, tx, ty);
+                if (hit) {
+                  hardened = true;
+                  hardenedSel = hit;
+                  // persist: only when the step still has no selector (a
+                  // concurrent edit may have added one) — same-connection
+                  // transaction, template row rewritten atomically
+                  const cur = deps.db.prepare('SELECT steps_json FROM templates WHERE id = ?').get(templateId) as { steps_json: string } | undefined;
+                  if (cur) {
+                    const steps = JSON.parse(cur.steps_json) as Array<Record<string, unknown>>;
+                    // match by ACTION + COORDINATES, not idx: the executed list
+                    // is the EXPANDED plan (subflows re-index), so s.idx is not
+                    // the stored step's idx. Coordinates are the stable identity
+                    // of a bare-coordinate step (that's the whole premise).
+                    const target = steps.find((st) => st['action'] === s.action
+                      && st['x'] === (s as { x?: number }).x && st['y'] === (s as { y?: number }).y
+                      && !st['selector']);
+                    if (target) {
+                      target['selector'] = hit;
+                      deps.db.prepare('UPDATE templates SET steps_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(steps), Date.now(), templateId);
+                    }
+                  }
+                }
+              }
+            } catch { /* hardening is best-effort — never fails the run */ }
+          }
           const resolvedByOut = resolvedBy === 'selector-point-scaled' ? 'selector' : resolvedBy;
-          insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', warnReason, t0, Date.now() - t0, '[]', JSON.stringify({ ...resolved, resolvedBy: resolvedByOut, ...(recentredAudit && { ...recentredAudit }), ...(sweepAudit && { sweep: sweepAudit }), ...(screenChanged !== undefined ? { screenChanged } : {}), ...(s.flow && { flow: s.flow }) }));
+          insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', warnReason, t0, Date.now() - t0, '[]', JSON.stringify({ ...resolved, resolvedBy: resolvedByOut, ...(recentredAudit && { ...recentredAudit }), ...(sweepAudit && { sweep: sweepAudit }), ...(screenChanged !== undefined ? { screenChanged } : {}), ...(hardened && { hardened: true, selector: hardenedSel }), ...(s.flow && { flow: s.flow }) }));
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           if (s.optional) {
