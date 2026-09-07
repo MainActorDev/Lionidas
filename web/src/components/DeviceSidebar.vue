@@ -7,7 +7,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { useDeviceStream, canvasPointToLogical } from '../composables/deviceStream.ts';
 import { hitTestNodeAt, selectorPreview, type AxNode } from '@crucible/shared/ax-tree';
-import { useInspectTree } from '../composables/useInspectTree.ts';
+import { useInspectTree, TreeFetchError } from '../composables/useInspectTree.ts';
 import InspectOverlay from './InspectOverlay.vue';
 
 export interface SidebarDevice { udid: string; name: string | null; os_version: string | null; state: string | null }
@@ -33,7 +33,11 @@ const tree = useInspectTree(async (sid, signal) => {
   const res = await fetch(`/api/manual/${sid}/tree`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}', signal,
   });
-  if (!res.ok) throw new Error(`tree ${res.status}`);
+  if (!res.ok) {
+    let code: string | undefined;
+    try { code = ((await res.json()) as { code?: string }).code; } catch { /* non-json */ }
+    throw new TreeFetchError(`tree ${res.status}`, res.status, code);
+  }
   return await res.json() as { nodes: AxNode[]; logicalW: number | null; logicalH: number | null };
 });
 
@@ -70,6 +74,15 @@ function onCanvasMove(e: MouseEvent): void {
     hoverNode.value = hitTestNodeAt(tree.nodes.value, x, y);
   });
 }
+
+// session-dead watcher: a dead manual session (server restart / lease loss)
+// surfaces on /tree as 410 SESSION_NOT_FOUND — tear the sidebar session down so
+// the operator lands on the take-control form, not a dead UI.
+watch(() => tree.state.value, (st) => {
+  if (st === 'failed' && (tree.lastError.value as TreeFetchError | null)?.code === 'SESSION_NOT_FOUND') {
+    void endSession();
+  }
+});
 
 let settleInterval: ReturnType<typeof setInterval> | null = null;
 function ensureSettleTicker(): void {
@@ -127,7 +140,12 @@ const treeLabel = computed(() => {
     case 'aligned': return `${tree.nodes.value.length} nodes${tree.animating.value ? ' · animating' : ''}`;
     case 'fetching': return 'loading tree…';
     case 'realigning': return 're-aligning…';
-    case 'failed': return 'tree unavailable';
+    case 'failed':
+      // SESSION_NOT_FOUND: the manual session is gone (server restart / lost
+      // lease) — retrying /tree can NEVER succeed; say what to do instead.
+      return (tree.lastError.value as TreeFetchError | null)?.code === 'SESSION_NOT_FOUND'
+        ? 'session lost — take control again'
+        : 'tree unavailable';
     default: return '';
   }
 });
@@ -598,7 +616,7 @@ async function endSession(): Promise<void> {
               :title="'inspect (i) — ' + (inspect ? 'clicks select, never tap' : 'show element boxes')">◎ inspect</button>
             <template v-if="inspect">
               <span class="badge" :class="tree.state.value === 'aligned' ? 'badge-accent' : ''">{{ treeLabel }}</span>
-              <button v-if="tree.state.value === 'failed'" class="btn btn-sm" @click="tree.refresh()">retry tree</button>
+              <button v-if="tree.state.value === 'failed' && (tree.lastError.value as TreeFetchError | null)?.code !== 'SESSION_NOT_FOUND'" class="btn btn-sm" @click="tree.refresh()">retry tree</button>
             </template>
             <span style="flex: 1;"></span>
             <button class="btn btn-sm" :disabled="busy" @click="scroll('up')">↑</button>

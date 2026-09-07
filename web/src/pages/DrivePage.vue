@@ -3,7 +3,7 @@ import { ref, computed, onUnmounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useDeviceStream, canvasPointToLogical } from '../composables/deviceStream.ts';
 import { hitTestNodeAt, selectorPreview, type AxNode } from '@crucible/shared/ax-tree';
-import { useInspectTree } from '../composables/useInspectTree.ts';
+import { useInspectTree, TreeFetchError } from '../composables/useInspectTree.ts';
 import InspectOverlay from '../components/InspectOverlay.vue';
 
 const route = useRoute();
@@ -35,7 +35,11 @@ const tree = useInspectTree(async (sid, signal) => {
   const res = await fetch(`/api/manual/${sid}/tree`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}', signal,
   });
-  if (!res.ok) throw new Error(`tree ${res.status}`);
+  if (!res.ok) {
+    let code: string | undefined;
+    try { code = ((await res.json()) as { code?: string }).code; } catch { /* non-json */ }
+    throw new TreeFetchError(`tree ${res.status}`, res.status, code);
+  }
   return await res.json() as { nodes: AxNode[]; logicalW: number | null; logicalH: number | null };
 });
 
@@ -166,7 +170,12 @@ const treeLabel = computed(() => {
     case 'aligned': return `${tree.nodes.value.length} nodes${tree.animating.value ? ' · animating' : ''}`;
     case 'fetching': return 'loading tree…';
     case 'realigning': return 're-aligning…';
-    case 'failed': return 'tree unavailable';
+    case 'failed':
+      // SESSION_NOT_FOUND: the manual session is gone (server restart / lost
+      // lease) — retrying /tree can NEVER succeed; say what to do instead.
+      return (tree.lastError.value as TreeFetchError | null)?.code === 'SESSION_NOT_FOUND'
+        ? 'session lost — take control again'
+        : 'tree unavailable';
     default: return '';
   }
 });

@@ -16,6 +16,9 @@ export type TreeState = 'off' | 'fetching' | 'aligned' | 'realigning' | 'failed'
 
 export interface InspectTree {
   state: Ref<TreeState>;
+  /** last fetch failure — inspect .status/.code (TreeFetchError) to decide
+   *  retryable vs session-dead before showing a message */
+  lastError: Ref<Error | null>;
   /** true when aligned on a screen that never goes still (carousel/banner
    *  cross-fades): the tree was captured at one instant and a minority of
    *  nodes (the animating region) may drift. Labeled on the pill — honest. */
@@ -38,9 +41,23 @@ export interface InspectTree {
   markInteraction(): void;
 }
 
+/** Fetch errors may carry status/code from the API (e.g. 410 SESSION_NOT_FOUND);
+ *  the host page reads them to distinguish "engine hiccup" (retryable) from
+ *  "session is dead" (must re-take control — retrying can never succeed). */
+export class TreeFetchError extends Error {
+  status?: number | undefined;
+  code?: string | undefined;
+  constructor(message: string, status?: number, code?: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
 export function useInspectTree(fetchTree: (sessionId: string, signal: AbortSignal) => Promise<{ nodes: AxNode[]; logicalW: number | null; logicalH: number | null }>): InspectTree {
   const state = ref<TreeState>('off');
   const animating = ref(false);
+  const lastError = ref<Error | null>(null);
   const nodes = ref<AxNode[]>([]);
   const logicalW = ref<number | null>(null);
   const logicalH = ref<number | null>(null);
@@ -98,6 +115,7 @@ export function useInspectTree(fetchTree: (sessionId: string, signal: AbortSigna
     } catch (e) {
       if (ac.signal.aborted || v !== version) return;
       state.value = 'failed';
+      lastError.value = e instanceof Error ? e : new Error(String(e));
     }
   }
 
@@ -107,7 +125,7 @@ export function useInspectTree(fetchTree: (sessionId: string, signal: AbortSigna
   }
 
   return {
-    state, animating, nodes, logicalW, logicalH,
+    state, animating, lastError, nodes, logicalW, logicalH,
     enable(sid: string): void {
       sessionId = sid;
       busyCompletes = 0;
