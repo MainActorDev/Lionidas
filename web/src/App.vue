@@ -1,11 +1,29 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import CmdPalette from './components/CmdPalette.vue';
+import { ref, onMounted } from 'vue';
+
+const me = ref<{ name: string; role: string } | null>(null);
+async function loadMe(): Promise<void> {
+  try {
+    const r = await fetch('/api/auth/me');
+    const b = await r.json() as { user: { name: string; role: string } | null };
+    me.value = b.user;
+  } catch { me.value = null; }
+}
+async function signOut(): Promise<void> {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  me.value = null;
+}
+onMounted(() => void loadMe());
 import { useRoute } from 'vue-router';
+import { watch } from 'vue';
 
 const route = useRoute();
 const title = computed(() => (route.meta.title as string | undefined) ?? 'crucible');
 const isActive = (name: string): boolean => route.name === name;
+// cheap re-check on route change (login/out navigations refresh the chip)
+watch(() => route.fullPath, () => void loadMe());
 </script>
 
 <template>
@@ -27,6 +45,10 @@ const isActive = (name: string): boolean => route.name === name;
         <RouterLink to="/monitoring" class="nav-item" :class="{ active: isActive('monitoring') }">monitoring</RouterLink>
       </div>
       <div class="nav-group">
+        <div class="nav-group-label">access</div>
+        <RouterLink to="/users" class="nav-item" :class="{ active: isActive('users') }">users</RouterLink>
+      </div>
+      <div class="nav-group">
         <div class="nav-group-label">network</div>
         <RouterLink to="/forge" class="nav-item" :class="{ active: isActive('forge') }">network</RouterLink>
       </div>
@@ -39,6 +61,11 @@ const isActive = (name: string): boolean => route.name === name;
     <div class="topbar">
       <span class="topbar-title">{{ title }}</span>
       <span class="topbar-spacer" />
+      <span v-if="me" class="topbar-user" title="signed in">
+        <span class="dot"></span>{{ me.name }} · {{ me.role }}
+        <button class="btn btn-sm" style="margin-left: 8px;" @click="signOut">sign out</button>
+      </span>
+      <RouterLink v-else to="/login" class="btn btn-sm" style="text-decoration: none;">sign in</RouterLink>
       <span class="badge" style="border: none; color: var(--color-steel);">⌘K</span>
     </div>
 

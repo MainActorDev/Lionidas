@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import type { RunnerDeps } from '../alloy/runner.ts';
 import { executeRun } from '../alloy/runner.ts';
-import { requirePin } from '../auth/gate.ts';
+import { requireRole } from '../auth/roles.ts';
 
 export function registerBaselineRoutes(
   app: FastifyInstance,
@@ -34,9 +34,9 @@ export function registerBaselineRoutes(
     return { baselines: rows };
   });
 
-  app.post('/api/baselines/diffs/:id/approve', { preHandler: requirePin() }, async (req, reply) => {
+  app.post('/api/baselines/diffs/:id/approve', { preHandler: requireRole('operator') }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const decidedBy = ((req.body as { by?: string } | undefined)?.by) ?? 'unknown';
+    const decidedBy = req.user?.name ?? 'unknown'; // authenticated identity — body field no longer trusted
     const row = db
       .prepare('SELECT * FROM baseline_diffs WHERE id = ? AND state = ?')
       .get(id, 'pending') as
@@ -103,9 +103,9 @@ export function registerBaselineRoutes(
     return { approved: true, withRerun: rerunOk };
   });
 
-  app.post('/api/baselines/diffs/:id/reject', { preHandler: requirePin() }, async (req, reply) => {
+  app.post('/api/baselines/diffs/:id/reject', { preHandler: requireRole('operator') }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const decidedBy = ((req.body as { by?: string } | undefined)?.by) ?? 'unknown';
+    const decidedBy = req.user?.name ?? 'unknown'; // authenticated identity — body field no longer trusted
     const r = db.prepare(`UPDATE baseline_diffs SET state = 'rejected', decided_by = ?, decided_at = ? WHERE id = ? AND state = 'pending'`).run(decidedBy, Date.now(), id);
     if (r.changes === 0) return reply.code(404).send({ error: 'pending diff not found' });
     const row = db.prepare('SELECT scope_key FROM baseline_diffs WHERE id = ?').get(id) as { scope_key: string };

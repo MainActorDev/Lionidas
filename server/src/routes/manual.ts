@@ -55,7 +55,8 @@ export function registerManualRoutes(
 
   app.post('/api/manual/start', async (req, reply) => {
     const b = req.body as { udid?: string; operator?: string; appBundleId?: string };
-    if (!b.udid || !b.operator) return reply.code(400).send({ error: 'udid and operator required' });
+    const operator = req.user?.name ?? b?.operator; // authenticated identity wins; bots keep their name
+    if (!b.udid || !operator) return reply.code(400).send({ error: 'udid required (sign in for operator identity)' });
     try {
       // Pre-select the app to open a session on: explicit param > running-app
       // guess (non-Apple, non-xctrunner) > Settings fallback. Opening the app
@@ -70,7 +71,7 @@ export function registerManualRoutes(
           appBundleId = guess?.bundleId;
         } catch { /* guess best-effort — fallback applies */ }
       }
-      const s = await startManualSession({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, b.udid, b.operator, appBundleId);
+      const s = await startManualSession({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, b.udid, operator, appBundleId);
       return s;
     } catch (err) {
       if (err instanceof ManualSessionError) return reply.code(err.code === 'QUEUE_ACTIVE' ? 409 : 410).send({ error: err.message, code: err.code });

@@ -15,6 +15,9 @@ import { registerMatrixRoute } from './routes/matrix.ts';
 import { registerEvidenceRoute } from './routes/evidence.ts';
 import { registerBaselineRoutes } from './routes/baselines.ts';
 import { registerMonitoringRoutes } from './routes/monitoring.ts';
+import { registerAuthRoutes } from './routes/auth.ts';
+import { registerUserResolution } from './auth/roles.ts';
+import { seedUsers } from './auth/users.ts';
 import { registerManualRoutes } from './routes/manual.ts';
 import { stopMitmIfRunning } from './forge/mitm/manager.ts';
 import { healStaleProxies } from './forge/sim-routing.ts';
@@ -62,6 +65,10 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   app.addHook('onRequest', async (req) => {
     req.id = crypto.randomUUID();
   });
+
+  seedUsers(db.raw, process.env['CRUCIBLE_PIN'] || null);
+  registerUserResolution(app, db.raw);
+  registerAuthRoutes(app, db.raw);
 
   const forgeState = createForgeState();
   registerForgeRoutes(app, db.raw, forgeState, bus);

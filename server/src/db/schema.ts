@@ -279,6 +279,25 @@ export function migrateM1(db: Database.Database): void {
       app_version TEXT,
       recorded_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS users(
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('viewer','operator','admin','bot')),
+      password_hash TEXT,
+      auth_source TEXT NOT NULL DEFAULT 'local',
+      jira_subject TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      last_login_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS sessions(
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      last_seen_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS mx_payloads(
       id TEXT PRIMARY KEY,
       app_id TEXT NOT NULL,
