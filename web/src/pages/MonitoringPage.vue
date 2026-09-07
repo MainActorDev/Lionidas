@@ -187,21 +187,21 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
       <div class="stat"><div class="label">disk alerts</div><div class="big">{{ counts.disk }}</div><div class="sub">this week</div></div>
     </div>
 
-    <!-- extract: the one action -->
-    <div class="extract card">
-      <span class="lbl">pull from</span>
-      <select v-model="devicePick">
-        <option v-for="d in devices" :key="d.udid" :value="d.udid">
-          {{ d.kind === 'physical' ? '📱' : '🖥' }} {{ d.name ?? d.udid.slice(0, 8) }}{{ d.state === 'Booted' ? '' : d.state ? ` · ${d.state.toLowerCase()}` : '' }}
-        </option>
-      </select>
-      <button class="btn btn-primary" :disabled="!devicePick || busy" @click="pull">{{ busy ? 'pulling…' : '⟳ pull reports' }}</button>
-      <span style="flex: 1;"></span>
-      <span v-if="pullMsg" class="meta-row" style="font-size: 10px; color: var(--color-fog);">{{ pullMsg }}</span>
-    </div>
-
-    <!-- workspace: reports feed left, devices right -->
+    <!-- workspace: pull panel left, reports feed center, devices right -->
     <div class="workspace">
+    <div class="pull-col">
+      <div class="section-label"><span>pull from</span></div>
+      <div class="pull-panel card">
+        <select v-model="devicePick" style="width: 100%;">
+          <option v-for="d in devices" :key="d.udid" :value="d.udid">
+            {{ d.kind === 'physical' ? '📱' : '🖥' }} {{ d.name ?? d.udid.slice(0, 8) }}{{ d.state === 'Booted' ? '' : d.state ? ` · ${d.state.toLowerCase()}` : '' }}
+          </option>
+        </select>
+        <button class="btn btn-primary" style="width: 100%;" :disabled="!devicePick || busy" @click="pull">{{ busy ? 'pulling…' : '⟳ pull reports' }}</button>
+        <div v-if="pullMsg" style="font-size: 10px; color: var(--color-fog); line-height: 1.6;">{{ pullMsg }}</div>
+        <div v-else style="font-size: 9.5px; color: var(--color-steel); line-height: 1.8;">apps never send anything — connect a device and pull its reports</div>
+      </div>
+    </div>
     <div class="feed-col">
     <div class="section-label"><span>reports</span></div>
     <div v-if="payloads.length === 0" class="card empty">
@@ -272,9 +272,12 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
 .extract .lbl { font-size: 9px; letter-spacing: .13em; text-transform: uppercase; color: var(--color-steel); }
 .extract select { min-width: 170px; }
 .section-label { font-size: 9px; letter-spacing: .13em; text-transform: uppercase; color: var(--color-steel); margin: 14px 0 8px; display: flex; justify-content: space-between; }
-.workspace { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; align-items: start; }
+.workspace { display: grid; grid-template-columns: 280px minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
+.pull-col { min-width: 0; }
+.pull-panel { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
 .feed-col { min-width: 0; }
 .dev-col { min-width: 0; }
+@media (max-width: 1180px) { .workspace { grid-template-columns: minmax(0, 1fr) 300px; } .pull-col { grid-column: 1 / -1; } .pull-panel { flex-direction: row; align-items: center; } .pull-panel select { width: 260px; } .pull-panel .btn { width: auto; } }
 @media (max-width: 900px) { .workspace { grid-template-columns: 1fr; } }
 .feed { display: flex; flex-direction: column; gap: 7px; }
 .inc { display: flex; gap: 12px; align-items: center; background: var(--color-carbon); border: 1px solid var(--color-iron); padding: 10px 13px; cursor: pointer; }
