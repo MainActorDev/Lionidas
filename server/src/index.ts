@@ -14,6 +14,7 @@ import { registerRunRoutes } from './routes/runs.ts';
 import { registerMatrixRoute } from './routes/matrix.ts';
 import { registerEvidenceRoute } from './routes/evidence.ts';
 import { registerBaselineRoutes } from './routes/baselines.ts';
+import { registerMonitoringRoutes } from './routes/monitoring.ts';
 import { registerManualRoutes } from './routes/manual.ts';
 import { stopMitmIfRunning } from './forge/mitm/manager.ts';
 import { healStaleProxies } from './forge/sim-routing.ts';
@@ -44,7 +45,7 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   const logger = pino({
     level: process.env['VITEST'] === 'true' || process.env['CRUCIBLE_SILENT'] === '1' ? 'silent' : cfg.logLevel,
   });
-  const app = Fastify({ loggerInstance: logger as unknown as FastifyBaseLogger });
+  const app = Fastify({ loggerInstance: logger as unknown as FastifyBaseLogger, bodyLimit: 8 * 1024 * 1024 });
   const bus = createEventBus<AppEvents>();
   const db = openDb(cfg.dbPath);
   migrateM1(db.raw);
@@ -64,6 +65,7 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
 
   const forgeState = createForgeState();
   registerForgeRoutes(app, db.raw, forgeState, bus);
+  registerMonitoringRoutes(app, db.raw);
   // baselines: dispatchDeps resolved lazily (approvals always run post-boot)
   registerBaselineRoutes(app, db.raw, {
     db: db.raw,

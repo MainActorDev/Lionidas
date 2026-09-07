@@ -279,5 +279,21 @@ export function migrateM1(db: Database.Database): void {
       app_version TEXT,
       recorded_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS mx_payloads(
+      id TEXT PRIMARY KEY,
+      app_id TEXT NOT NULL,
+      app_version TEXT,
+      device_id TEXT,
+      device_model TEXT,
+      os_version TEXT,
+      kind TEXT NOT NULL,               -- metric | diagnostic
+      received_at INTEGER NOT NULL,
+      captured_at INTEGER,
+      source TEXT,                      -- pull:<udid> | inject
+      payload_json TEXT NOT NULL,
+      summary_json TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_mx_feed ON mx_payloads(app_id, received_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_mx_dedupe ON mx_payloads(device_id, captured_at, kind);
   `);
 }
