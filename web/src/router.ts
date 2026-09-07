@@ -9,6 +9,7 @@ import DrivePage from './pages/DrivePage.vue';
 import FlakesPage from './pages/FlakesPage.vue';
 import ForgePage from './pages/ForgePage.vue';
 import TestCasesPage from './pages/TestCasesPage.vue';
+import MonitoringPage from './pages/MonitoringPage.vue';
 import GuidePage from './pages/GuidePage.vue';
 
 export const router = createRouter({
@@ -24,6 +25,7 @@ export const router = createRouter({
     { path: '/flakes', name: 'flakes', component: FlakesPage, meta: { title: 'flaky tests' } },
     { path: '/forge', name: 'forge', component: ForgePage, meta: { title: 'network' } },
     { path: '/templates', name: 'templates', component: TestCasesPage, meta: { title: 'test cases' } },
+    { path: '/monitoring', name: 'monitoring', component: MonitoringPage, meta: { title: 'monitoring' } },
     { path: '/guide', name: 'guide', component: GuidePage, meta: { title: 'guide' } },
   ] satisfies RouteRecordRaw[],
 });

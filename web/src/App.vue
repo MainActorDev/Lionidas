@@ -24,6 +24,7 @@ const isActive = (name: string): boolean => route.name === name;
         <RouterLink to="/baselines" class="nav-item" :class="{ active: isActive('baselines') }">approvals</RouterLink>
         <RouterLink to="/flakes" class="nav-item" :class="{ active: isActive('flakes') }">flaky tests</RouterLink>
         <RouterLink to="/templates" class="nav-item" :class="{ active: isActive('templates') }">test cases</RouterLink>
+        <RouterLink to="/monitoring" class="nav-item" :class="{ active: isActive('monitoring') }">monitoring</RouterLink>
       </div>
       <div class="nav-group">
         <div class="nav-group-label">network</div>
