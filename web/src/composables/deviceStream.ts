@@ -24,9 +24,13 @@ export interface DeviceStream {
   /** re-connect after a failure (manual retry from the failed overlay) */
   retry(): void;
   /** post-action screenshot fast-path — draws one still onto the live canvas
-   * without resizing it and without racing the decode loop (no-ops when the
-   * stream is actively painting — see paintStillImage). */
+   *  without resizing it and without racing the decode loop (no-ops when the
+   *  stream is actively painting — see paintStillImage). */
   paintStillImage(source: ImageBitmap | HTMLImageElement): void;
+  /** Stream-frame observer (inspect-mode settle detection): called with the
+   *  paint timestamp for every decoded frame. Returns an unsubscribe. Callbacks
+   *  must be cheap (they run inside the decode loop); do the work outside. */
+  onFrame(cb: (paintedAt: number) => void): () => void;
 }
 
 export function useDeviceStream(): DeviceStream {
@@ -51,6 +55,7 @@ export function useDeviceStream(): DeviceStream {
   let autoRetried = false; // ONE automatic attempt per failure chain — no spin
   let frameCount = 0;
   let lastFpsTime = Date.now();
+  const frameObservers = new Set<(paintedAt: number) => void>();
   let generation = 0; // invalidate stale async work after stop()/restart()
 
   // Single-flight decode with a one-slot pending buffer — the browser-side
@@ -153,6 +158,7 @@ export function useDeviceStream(): DeviceStream {
             if (ctx) {
               drawScaled(ctx, bitmap, bitmap.width, bitmap.height, targetW, targetH);
               lastPaintAt = Date.now();
+              if (frameObservers.size > 0) for (const cb of frameObservers) cb(lastPaintAt);
             }
           }
         }
@@ -280,6 +286,10 @@ export function useDeviceStream(): DeviceStream {
     },
     retry,
     paintStillImage,
+    onFrame(cb: (paintedAt: number) => void): () => void {
+      frameObservers.add(cb);
+      return () => { frameObservers.delete(cb); };
+    },
   };
 }
 
