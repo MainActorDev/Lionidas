@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { crucibleAlloy } from '../alloy/client.ts';
 import { dispatchWithHeal } from '../alloy/heal.ts';
+import { quietKeyboard } from './keyboard-quiet.ts';
 import { captureSelectorAt, countMatches } from './selector.ts';
 import type { StepSelector, SnapNode } from './selector.ts';
 
@@ -103,6 +104,10 @@ export async function startManualSession(deps: ManualDeps, udid: string, operato
       .get(udid);
     if (busy) throw new ManualSessionError('QUEUE_ACTIVE', 'a queued/running automated run owns this device — wait or abort it');
     // waiting queue entries are fine (dispatcher serializes); only ACTIVE runs block
+
+    // QA keyboard quieting (simulator-only, best-effort): autocorrect/prediction
+    // animations starve XCTest's idle-wait during rapid typing taps.
+    await quietKeyboard(udid);
 
     const runId = `run_${createHash('sha256').update(`manual${Date.now()}${Math.random()}`).digest('hex').slice(0, 8)}`;
     const sessionId = `ms_${runId.slice(4, 12)}`;
