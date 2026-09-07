@@ -2,7 +2,9 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
-import { createReadStream, statSync } from 'node:fs';
+import { createReadStream, statSync, rm } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, manualProbeSelector, manualTree, finishManualSession, setRecording, getRecording, deleteRecordedStep, recordExpectStep, ManualSessionError } from '../manual/session.ts';
 import { listSimulatorApps } from '../manual/apps.ts';
@@ -35,7 +37,17 @@ export function registerManualRoutes(
       const st = statSync(q.path);
       reply.header('content-type', 'image/png');
       reply.header('content-length', String(st.size));
-      return reply.send(createReadStream(q.path));
+      const stream = createReadStream(q.path);
+      // fast-path screenshots land in engine temp dirs (agent-device-screenshot-*)
+      // that NOTHING owns after serving — the client-visible contract makes the
+      // reader the owner. Delete after the last byte so the dirs don't pile up
+      // (175+ leaked from a single day of driving). Scoped to the temp prefix;
+      // artifact-managed paths (evidence, thumbs) never match.
+      const tempShotDir = dirname(q.path);
+      if (q.path.includes(tmpdir()) && /agent-device-screenshot-[A-Za-z0-9]+$/.test(tempShotDir)) {
+        stream.on('close', () => { rm(tempShotDir, { recursive: true, force: true }, () => undefined); });
+      }
+      return reply.send(stream);
     } catch {
       return reply.code(404).send({ error: 'frame not found' });
     }
