@@ -150,7 +150,7 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
 </script>
 
 <template>
-  <div style="max-width: 1000px;">
+  <div>
     <div class="page-header">
       <div>
         <div class="page-title">monitoring</div>
@@ -246,7 +246,7 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
 </template>
 
 <style scoped>
-.hero { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+.hero { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 14px; max-width: 1080px; }
 .stat { background: var(--color-carbon); border: 1px solid var(--color-iron); padding: 13px 15px; }
 .stat-ember { border-left: 2px solid var(--color-ember); }
 .stat .label { font-size: 9px; letter-spacing: .13em; text-transform: uppercase; color: var(--color-steel); margin-bottom: 7px; }
