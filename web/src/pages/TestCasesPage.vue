@@ -26,6 +26,7 @@ interface Template {
   appBundleId: string | null; appName: string | null; appVersion: string | null;
   tags: string[]; verdict: Verdict | null;
   evidence?: { screenshot: boolean; video: boolean };
+  selectorCoverage?: { locked: number; total: number };
   createdBy: string; createdAt: number; updatedAt: number;
 }
 interface Plan { id: string; name: string; tags: string[]; udid: string | null; appBundleId: string | null; scenarioId: string | null; env: Record<string, string> }
@@ -467,6 +468,17 @@ function relTime(ms: number): string {
   return `${Math.floor(d / 86_400_000)}d ago`;
 }
 
+/** selector-locked step count (server-computed); null = field absent (older payload) */
+function coverageOf(t: Template): { locked: number; total: number } | null { return t.selectorCoverage ?? null; }
+function stepsTitle(t: Template): string {
+  const c = coverageOf(t);
+  const base = `${t.steps.length} steps`;
+  if (!c) return base;
+  const bare = c.total - c.locked;
+  if (bare === 0) return `${base} — every interactive step is selector-locked (survives layout changes)`;
+  return `${base} — ${bare} step(s) use bare coordinates only: one layout change can break them. Re-record with selectors (or add identifiers in the app) to harden.`;
+}
+
 /** trend glyph → (symbol, system class) — mirrors .status-* semantics */
 function trendGlyphs(t: Template): Array<{ g: string; cls: string }> {
   const trend = t.verdict?.trend;
@@ -620,7 +632,11 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
             </template>
             <span v-else class="a2-app-none">no app</span>
           </span>
-          <span class="col-steps">{{ t.steps.length }}</span>
+          <span class="col-steps" :title="stepsTitle(t)">
+            {{ t.steps.length }}<span v-if="coverageOf(t) && coverageOf(t)!.locked < coverageOf(t)!.total"
+              class="steps-cov" :class="{ warn: coverageOf(t)!.total - coverageOf(t)!.locked > 0 }">
+              ·🔒{{ coverageOf(t)!.locked }}/{{ coverageOf(t)!.total }}</span>
+          </span>
           <span class="col-updated" :title="new Date(t.updatedAt).toLocaleString()">{{ relTime(t.updatedAt) }}</span>
           <span class="col-trend">
             <span v-if="t.verdict?.trend" class="trend" title="last 5 runs, oldest → newest">
@@ -864,6 +880,10 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 /* row cells only — the header spans share these class names and must keep
    the thead's 10px/steel; scope with .a2-row or the headers go 12px/fog */
 .a2-row .col-steps, .a2-row .col-updated { color: var(--color-fog); font-size: 12px; }
+/* selector-coverage badge inside the steps cell — ember when any bare
+   coordinate step exists (fragility made visible), steel when fully locked */
+.steps-cov { color: var(--color-steel); font-size: 10px; margin-left: 2px; }
+.steps-cov.warn { color: var(--color-ember, #e5484d); }
 .a2-name { color: var(--color-paper); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .col-app { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* verdict pill ellipsizes inside its track at extreme narrow widths (the

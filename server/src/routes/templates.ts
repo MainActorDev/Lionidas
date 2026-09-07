@@ -128,6 +128,21 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
         trend: v.trend, totalRuns: v.totalRuns,
       } : null;
       t.evidence = evFlags.get(t.id) ?? { screenshot: false, video: false };
+      // selector coverage: interactive steps that carry a selector survive
+      // layout changes (live AX confirmation); bare coordinates are the
+      // fragile tail. Expects are selector-only by construction — count as
+      // locked. Scroll/type/tap are interactive; location is host-level.
+      const steps = (t['steps'] as Array<Record<string, unknown>>) ?? [];
+      const interactive = steps.filter((s) => ['tap', 'type'].includes(String(s['action'])));
+      const locked = interactive.filter((s) => {
+        const sel2 = s['selector'] as { identifier?: unknown; label?: unknown } | undefined;
+        return !!sel2 && (sel2.identifier !== undefined || sel2.label !== undefined);
+      });
+      const expects = steps.filter((s) => s['action'] === 'expect');
+      t.selectorCoverage = {
+        locked: locked.length + expects.length,
+        total: interactive.length + expects.length,
+      };
     }
     return { templates: sel };
   });
