@@ -652,6 +652,31 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               await new Promise((r) => setTimeout(r, settlePollMs));
               read = await readCount();
             }
+            // mutation-aware patience (2026-09-07): remote webviews render
+            // visually first and surface AX content later — a fixed budget
+            // fails them honestly-but-wrongly. Past the base budget keep
+            // polling ONLY while the hierarchy signature still changes
+            // (content streaming in), up to a ceiling. A quiet tree fails
+            // at the base budget exactly as before.
+            if (read && read.n !== 1) {
+              const maxMs = Number(process.env.CRUCIBLE_EXPECT_MAX_MS ?? 30_000);
+              let prevSig: string | null = null;
+              let quietReads = 0;
+              while (Date.now() - settleStart < maxMs && !isAborted(runId)) {
+                await new Promise((r) => setTimeout(r, settlePollMs));
+                read = await readCount();
+                if (!read) break;
+                if (read.n === 1) break;
+                const sig = hierarchySig(read.nodesL);
+                if (sig === prevSig) {
+                  quietReads += 1;
+                  if (quietReads >= 2) break; // settled and still no match — done waiting
+                } else {
+                  quietReads = 0;
+                }
+                prevSig = sig;
+              }
+            }
             const matched = read?.n ?? 0;
             const ev = { ...resolved, expect: s.selector, matched };
             // per-expect evidence: the screen that PROVED (or broke) the
