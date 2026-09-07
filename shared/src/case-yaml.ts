@@ -13,6 +13,7 @@ import this file by relative path). Pure module: no node APIs, only
  */
 import { parse, stringify } from 'yaml';
 import { parseAlertPolicy as parseAlertPolicyRaw, type AlertPolicy } from './alert-policy.ts';
+import { IDENTIFIER_RE } from './ax-tree.ts';
 
 export interface YamlSelector { identifier?: string; label?: string; labelContains?: string; ignoreCase?: boolean; type?: string }
 export interface YamlStep {
@@ -192,7 +193,7 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
         if (typeof on === 'string' && on.trim()) {
           // identifier iff it looks like an asset id: lowercase snake_case
           // (ic_barcode, ic_tabbar_home) — anything human-readable is a label
-          if (/^[a-z][a-z0-9_]*$/.test(on)) {
+          if (IDENTIFIER_RE.test(on)) {
             if (ignoreCase) errors.push({ line: 1, message: `${prefix(i)}: ignoreCase never applies to identifiers (asset ids are exact); use 'contains' or a label` });
             return { identifier: on };
           }

@@ -11,7 +11,9 @@
     "./yaml-quote": "./src/yaml-quote.ts",
     "./yaml-completions": "./src/yaml-completions.ts",
     "./alert-policy": "./src/alert-policy.ts",
-    "./tap-overlay": "./src/tap-overlay.ts"
+    "./tap-overlay": "./src/tap-overlay.ts",
+    "./ax-tree": "./src/ax-tree.ts",
+    "./frame-settle": "./src/frame-settle.ts"
   },
   "dependencies": {
     "yaml": "^2.9.0"

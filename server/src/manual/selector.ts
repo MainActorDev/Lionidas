@@ -1,52 +1,17 @@
 /** A6 element selectors: captured at record time from the live hierarchy,
  *  resolved at playback. Chain: identifier (icons) → label+type (SwiftUI
- *  text) → coordinates (last-resort fallback, scaled cross-device). */
-export interface StepSelector { identifier?: string; label?: string; labelContains?: string; ignoreCase?: boolean; type?: string }
+ *  text) → coordinates (last-resort fallback, scaled cross-device).
+ *  The hit-test predicate, node type and container guard now live in
+ *  @crucible/shared/ax-tree (ONE definition for engine + inspect overlay);
+ *  they are re-exported below as their historical names so existing imports
+ *  keep working — pinned by an identity test. */
+import { hitTestAt, isContainerNode as isContainerNodeImpl, type AxNode, type AxSelector } from '@crucible/shared/ax-tree';
 
-export interface SnapNode {
-  index?: number; parentIndex?: number; type?: string; label?: string;
-  identifier?: string; hittable?: boolean;
-  rect?: { x: number; y: number; width: number; height: number };
-}
+export type SnapNode = AxNode;
+export type StepSelector = AxSelector;
+export const captureSelectorAt = hitTestAt;
+export const isContainerNode = isContainerNodeImpl;
 
-function contains(n: SnapNode, x: number, y: number): boolean {
-  const r = n.rect;
-  return !!r && x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height;
-}
-
-/** Deepest hittable node containing (x,y); walks up through ancestors that
- *  carry no label AND no identifier until something addressable is found.
- *  Container guard: stops the walk BEFORE screen-sized ancestors — without
- *  it a tap on unlabeled chrome resolves to the app root / page container
- *  and playback taps its center, far from the recorded point (found live:
- *  tnc template taps redirected to the app-root center). */
-export function captureSelectorAt(nodes: SnapNode[], x: number, y: number): StepSelector | null {
-  const hits = nodes.filter((n) => n.hittable && contains(n, x, y));
-  if (hits.length === 0) return null;
-  let node: SnapNode | undefined = hits.reduce((small, n) =>
-    (n.rect!.width * n.rect!.height < small.rect!.width * small.rect!.height ? n : small));
-  while (node && !node.identifier && !node.label) {
-    const parent = nodes.find((n) => n.index === node!.parentIndex);
-    if (!parent || !contains(parent, x, y)) break;
-    node = parent;
-  }
-  if (!node || (!node.identifier && !node.label)) return null;
-  if (isContainerNode(node)) return null; // screen-sized: a coordinate tap is MORE precise
-  const sel: StepSelector = {};
-  if (node.identifier) sel.identifier = node.identifier;
-  if (node.label) sel.label = node.label;
-  if (node.type) sel.type = node.type;
-  return sel;
-}
-
-/** A screen-covering or near-screen ancestor: tapping its center is never
- *  the recorded intent — recorded coordinates carry the intent instead. */
-function isContainerNode(n: SnapNode): boolean {
-  const r = n.rect;
-  if (!r) return false;
-  if (n.type === 'Application') return true;
-  return r.width >= 400 && r.height >= 600;
-}
 
 /** Shared match PREDICATE — one definition of "this node satisfies this
  *  selector" for both resolution (tapping) and existence assertions.
