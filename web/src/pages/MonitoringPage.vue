@@ -190,8 +190,7 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
     <!-- workspace: pull panel left, reports feed center, devices right -->
     <div class="workspace">
     <div class="pull-col">
-      <div class="section-label"><span>pull from</span></div>
-      <div class="pull-panel card">
+      <div class="pull-panel card" style="margin-top: 23px;">
         <select v-model="devicePick" style="width: 100%;">
           <option v-for="d in devices" :key="d.udid" :value="d.udid">
             {{ d.kind === 'physical' ? '📱' : '🖥' }} {{ d.name ?? d.udid.slice(0, 8) }}{{ d.state === 'Booted' ? '' : d.state ? ` · ${d.state.toLowerCase()}` : '' }}
@@ -270,7 +269,7 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
 .extract .lbl { font-size: 9px; letter-spacing: .13em; text-transform: uppercase; color: var(--color-steel); }
 .extract select { min-width: 170px; }
 .section-label { font-size: 9px; letter-spacing: .13em; text-transform: uppercase; color: var(--color-steel); margin: 14px 0 8px; display: flex; justify-content: space-between; }
-.workspace { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 14px; align-items: start; }
+.workspace { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 14px; align-items: start; }
 .pull-col { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
 .pull-col .devs { margin: 0; }
 .pull-panel { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
@@ -294,9 +293,9 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
 .dev { display: flex; gap: 12px; align-items: center; background: var(--color-carbon); border: 1px solid var(--color-iron); padding: 9px 13px; }
 .dev .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-ember); flex: none; }
 .dev .dot.off { background: var(--color-pewter); }
-.dev .nm { font-size: 11px; width: 170px; flex: none; }
+.dev .nm { font-size: 11px; min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dev .nm small { color: var(--color-steel); font-size: 9.5px; }
-.dev .st { font-size: 9.5px; color: var(--color-steel); flex: 1; }
+.dev .st { font-size: 9.5px; color: var(--color-steel); flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empty { padding: 22px; text-align: center; color: var(--color-steel); font-size: 10.5px; }
 .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 430px; background: var(--color-carbon); border-left: 1px solid var(--color-iron); display: flex; flex-direction: column; z-index: 60; }
 .dr-head { display: flex; justify-content: space-between; align-items: center; padding: 13px 15px; border-bottom: 1px solid var(--color-iron); }
