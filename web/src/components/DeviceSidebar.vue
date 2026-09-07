@@ -6,6 +6,9 @@
  *  tiles never embed streams inline anymore. */
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { useDeviceStream, canvasPointToLogical } from '../composables/deviceStream.ts';
+import { hitTestNodeAt, selectorPreview, type AxNode } from '@crucible/shared/ax-tree';
+import { useInspectTree } from '../composables/useInspectTree.ts';
+import InspectOverlay from './InspectOverlay.vue';
 
 export interface SidebarDevice { udid: string; name: string | null; os_version: string | null; state: string | null }
 
@@ -16,6 +19,125 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: 'close'): void }>();
 
 const stream = useDeviceStream();
+
+// ── INSPECT MODE — element boxes over the live stream (control mode only) ──
+// Contract: while inspect is ON, a canvas CLICK selects an element and NEVER
+// dispatches to the device; wheel/arrows still scroll (navigation, not interaction).
+const inspect = ref(false);
+const hoverNode = ref<AxNode | null>(null);
+const selNode = ref<AxNode | null>(null);
+const hoverXY = ref<{ x: number; y: number } | null>(null);
+let rafId = 0;
+
+const tree = useInspectTree(async (sid, signal) => {
+  const res = await fetch(`/api/manual/${sid}/tree`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}', signal,
+  });
+  if (!res.ok) throw new Error(`tree ${res.status}`);
+  return await res.json() as { nodes: AxNode[]; logicalW: number | null; logicalH: number | null };
+});
+
+function toggleInspect(): void {
+  inspect.value = !inspect.value;
+  if (inspect.value && sessionId.value) {
+    tree.enable(sessionId.value);
+    stream.onFrame(tree.feedFrame);
+  } else {
+    tree.disable();
+    hoverNode.value = null; selNode.value = null;
+  }
+}
+
+function onKey(e: KeyboardEvent): void {
+  if ((e.target as HTMLElement)?.matches?.('input, textarea, select')) return;
+  if (e.key === 'i' && sessionId.value && props.mode === 'control') { e.preventDefault(); toggleInspect(); }
+  else if (e.key === 'Escape') {
+    if (selNode.value) selNode.value = null;
+    else if (inspect.value) toggleInspect();
+  }
+}
+window.addEventListener('keydown', onKey);
+
+function onCanvasMove(e: MouseEvent): void {
+  if (!inspect.value) return;
+  const xy = { x: e.clientX, y: e.clientY };
+  if (!rafId) rafId = requestAnimationFrame(() => {
+    rafId = 0;
+    hoverXY.value = xy;
+    const canvas = stream.canvasRef.value;
+    if (!canvas || tree.state.value !== 'aligned') { hoverNode.value = null; return; }
+    const { x, y } = canvasPointToLogical(canvas, xy.x, xy.y, tree.logicalW.value, tree.logicalH.value);
+    hoverNode.value = hitTestNodeAt(tree.nodes.value, x, y);
+  });
+}
+
+let settleInterval: ReturnType<typeof setInterval> | null = null;
+function ensureSettleTicker(): void {
+  if (settleInterval) return;
+  settleInterval = setInterval(() => { if (inspect.value) tree.tick(Date.now()); }, 1000);
+}
+ensureSettleTicker();
+
+function onInspectClick(e: MouseEvent): void {
+  const canvas = stream.canvasRef.value;
+  if (!canvas || tree.state.value !== 'aligned') return;
+  const { x, y } = canvasPointToLogical(canvas, e.clientX, e.clientY, tree.logicalW.value, tree.logicalH.value);
+  selNode.value = hitTestNodeAt(tree.nodes.value, x, y);
+}
+
+async function tapThis(): Promise<void> {
+  const n = selNode.value;
+  if (!n?.rect || !sessionId.value) return;
+  tree.markInteraction();
+  busy.value = true;
+  try {
+    const r = await api(`${sessionId.value}/tap`, { x: n.rect.x + n.rect.width / 2, y: n.rect.y + n.rect.height / 2 });
+    if (r['error']) error.value = String(r['error']);
+  } finally { busy.value = false; }
+}
+
+function parentChain(n: AxNode): string[] {
+  const out: string[] = [];
+  let cur: AxNode | undefined = n;
+  while (cur?.parentIndex !== undefined && cur.parentIndex >= 0 && out.length < 4) {
+    const p = tree.nodes.value.find((m) => m.index === cur!.parentIndex);
+    if (!p) break;
+    out.push(p.identifier ?? p.label ?? p.type ?? '?');
+    cur = p;
+  }
+  return out;
+}
+
+const selPreview = computed(() => (selNode.value ? selectorPreview(selNode.value) : null));
+const chipName = computed(() => {
+  const n = hoverNode.value;
+  return n ? (n.identifier ?? n.label ?? n.type ?? 'element') : '';
+});
+const chipXY = computed(() => {
+  const canvas = stream.canvasRef.value;
+  if (!canvas || !hoverXY.value) return { x: 0, y: 0 };
+  const r = canvas.getBoundingClientRect();
+  return {
+    x: Math.min(Math.max(hoverXY.value.x - r.left + 10, 4), Math.max(r.width - 150, 4)),
+    y: Math.min(Math.max(hoverXY.value.y - r.top - 26, 4), Math.max(r.height - 22, 4)),
+  };
+});
+const treeLabel = computed(() => {
+  switch (tree.state.value) {
+    case 'aligned': return `${tree.nodes.value.length} nodes${tree.animating.value ? ' · animating' : ''}`;
+    case 'fetching': return 'loading tree…';
+    case 'realigning': return 're-aligning…';
+    case 'failed': return 'tree unavailable';
+    default: return '';
+  }
+});
+
+async function copySelector(): Promise<void> {
+  if (!selPreview.value) return;
+  try { await navigator.clipboard.writeText(selPreview.value.text); actionMsg.value = 'selector copied'; }
+  catch { actionMsg.value = 'copy blocked — select the text manually'; }
+}
+
 const sessionId = ref<string | null>(null);
 const logicalW = ref<number | null>(null);
 const logicalH = ref<number | null>(null);
@@ -215,7 +337,12 @@ const booted = computed(() => props.device?.state === 'Booted');
 watch(() => [props.device?.udid, props.mode] as const, () => {
   void reset();
 });
-onUnmounted(() => { void teardownSession(); stream.stop(); });
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKey);
+  if (settleInterval) { clearInterval(settleInterval); settleInterval = null; }
+  if (rafId) cancelAnimationFrame(rafId);
+  void teardownSession(); stream.stop();
+});
 
 async function reset(): Promise<void> {
   await teardownSession();
@@ -304,6 +431,7 @@ const typeArmed = computed(() => lastTap.value !== null);
 
 async function onTap(e: MouseEvent): Promise<void> {
   if (props.mode !== 'control' || !sessionId.value || !(e.target instanceof HTMLCanvasElement)) return;
+  if (inspect.value) { onInspectClick(e); return; } // INSPECT: select, never dispatch
   const canvas = e.target;
   const { x, y } = canvasPointToLogical(canvas, e.clientX, e.clientY, logicalW.value, logicalH.value);
   ripple.value = { x: e.clientX - canvas.getBoundingClientRect().left, y: e.clientY - canvas.getBoundingClientRect().top, id: Date.now() };
@@ -340,6 +468,7 @@ async function sendType(): Promise<void> {
 
 async function scroll(direction: string): Promise<void> {
   if (!sessionId.value) return;
+  if (inspect.value) tree.markScroll();
   busy.value = true;
   try {
     const r = await api(`${sessionId.value}/scroll`, { direction });
@@ -464,15 +593,36 @@ async function endSession(): Promise<void> {
             <button class="btn btn-sm" :disabled="!typeArmed || !typeText || busy" @click="sendType">send</button>
             <button v-if="typeArmed" class="btn btn-sm btn-ghost" @click="lastTap = null; typeText = ''">✕</button>
           </div>
-          <div style="display: flex; gap: var(--s-2); margin-top: var(--s-2);">
+          <div style="display: flex; gap: var(--s-2); margin-top: var(--s-2); align-items: center;">
+            <button class="btn btn-sm" :class="{ 'btn-accent': inspect }" @click="toggleInspect"
+              :title="'inspect (i) — ' + (inspect ? 'clicks select, never tap' : 'show element boxes')">◎ inspect</button>
+            <template v-if="inspect">
+              <span class="badge" :class="tree.state.value === 'aligned' ? 'badge-accent' : ''">{{ treeLabel }}</span>
+              <button v-if="tree.state.value === 'failed'" class="btn btn-sm" @click="tree.refresh()">retry tree</button>
+            </template>
+            <span style="flex: 1;"></span>
             <button class="btn btn-sm" :disabled="busy" @click="scroll('up')">↑</button>
             <button class="btn btn-sm" :disabled="busy" @click="scroll('down')">↓</button>
             <button class="btn btn-sm" :disabled="busy" @click="scroll('left')">←</button>
             <button class="btn btn-sm" :disabled="busy" @click="scroll('right')">→</button>
-            <span style="flex: 1;"></span>
             <button class="btn btn-sm btn-danger" :disabled="busy" @click="endSession">release</button>
           </div>
           <div v-if="busy" class="meta-row" style="margin-top: var(--s-2); color: var(--color-ash);">sending…</div>
+
+          <div v-if="inspect && selNode" class="card inspect-drawer">
+            <div style="font-size: 13px; font-weight: 600;">{{ selNode.identifier || selNode.label || selNode.type || 'element' }}</div>
+            <div class="meta-row"><span class="k">type</span><span>{{ selNode.type ?? '—' }}</span></div>
+            <div class="meta-row"><span class="k">identifier</span><span style="font-family: monospace;">{{ selNode.identifier ?? '—' }}</span></div>
+            <div class="meta-row"><span class="k">label</span><span>{{ selNode.label ?? '—' }}</span></div>
+            <div class="meta-row" v-if="selNode.rect"><span class="k">rect</span><span style="font-family: monospace;">x{{ Math.round(selNode.rect.x) }} y{{ Math.round(selNode.rect.y) }} · {{ Math.round(selNode.rect.width) }}×{{ Math.round(selNode.rect.height) }}pt</span></div>
+            <div class="meta-row"><span class="k">hittable</span><span>{{ selNode.hittable ? 'yes' : 'no' }}</span></div>
+            <div class="meta-row" v-if="parentChain(selNode).length"><span class="k">path</span><span style="font-family: monospace; font-size: 10px;">{{ parentChain(selNode).join(' › ') }}</span></div>
+            <div class="meta-row"><span class="k">selector</span><span style="font-family: monospace; color: var(--color-accent);">on: {{ selPreview?.text }}</span></div>
+            <div style="display: flex; gap: var(--s-2); margin-top: var(--s-2);">
+              <button class="btn btn-sm" @click="copySelector">copy selector</button>
+              <button class="btn btn-sm btn-primary" :disabled="busy || tree.state.value !== 'aligned' || !selNode.hittable" @click="tapThis">tap this</button>
+            </div>
+          </div>
 
           <!-- recorder: live config preview -->
           <div class="recorder">
@@ -528,6 +678,20 @@ async function endSession(): Promise<void> {
 </template>
 
 <style scoped>
+.hover-chip {
+  position: absolute;
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  background: var(--color-void);
+  color: var(--color-fog);
+  font-size: 10px;
+  font-family: monospace;
+  border: 1px solid var(--color-steel);
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 2;
+}
+.inspect-drawer { margin-top: var(--s-2); padding: var(--s-2); }
 .sidebar {
   position: fixed;
   top: 0; right: 0; bottom: 0;

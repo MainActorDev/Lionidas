@@ -340,7 +340,7 @@ onUnmounted(() => {
       <div style="display: flex; gap: var(--s-2); margin-top: var(--s-3); align-items: center;">
         <button class="btn btn-sm" :class="{ 'btn-accent': inspect }" @click="toggleInspect" :title="'inspect (i) — ' + (inspect ? 'clicks select, never tap' : '')">◎ inspect</button>
         <template v-if="inspect">
-          <span class="badge" :class="tree.state.value === 'aligned' ? 'badge-ok' : 'badge-warn'">{{ treeLabel }}</span>
+          <span class="badge" :class="tree.state.value === 'aligned' ? 'badge-accent' : ''">{{ treeLabel }}</span>
           <button v-if="tree.state.value === 'failed'" class="btn btn-sm" @click="tree.refresh()">retry tree</button>
         </template>
         <span style="flex: 1;"></span>
