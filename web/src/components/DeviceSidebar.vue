@@ -582,8 +582,12 @@ async function endSession(): Promise<void> {
 
         <template v-else>
           <div class="stream-box">
-            <canvas :ref="stream.setCanvas" @click="onTap"
-              style="width: 100%; display: block; cursor: crosshair; background: var(--color-void); min-height: 200px;"></canvas>
+            <canvas :ref="stream.setCanvas" @click="onTap" @mousemove="onCanvasMove"
+              :style="{ width: '100%', display: 'block', cursor: inspect ? 'default' : 'crosshair', background: 'var(--color-void)', minHeight: '200px' }"></canvas>
+            <InspectOverlay v-if="inspect" :nodes="tree.nodes.value" :logical-w="tree.logicalW.value" :logical-h="tree.logicalH.value"
+              :hover="hoverNode" :selected="selNode" :visible="tree.state.value === 'aligned'" />
+            <div v-if="inspect && hoverNode && tree.state.value === 'aligned'" class="hover-chip"
+              :style="{ left: `${chipXY.x}px`, top: `${chipXY.y}px` }">{{ chipName }}</div>
             <div v-if="ripple" class="tap-ripple" :style="{ left: `${ripple.x}px`, top: `${ripple.y}px` }" />
             <div v-if="stream.state.value !== 'live'" class="stream-overlay">
               <span v-if="stream.state.value === 'connecting'">connecting to device stream…</span>
