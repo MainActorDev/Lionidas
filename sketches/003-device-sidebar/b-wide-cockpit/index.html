@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>003 · B — Wide Cockpit</title>
+<style>
+:root {
+  --void:#000; --carbon:#111; --graphite:#191919; --iron:#202020; --slate:#3a3a3a; --pewter:#505050;
+  --steel:#606060; --ash:#7e7e7e; --fog:#b4b4b4; --chalk:#d9d9d9; --paper:#eeeeee;
+  --ember:#da5c2c; --ember-dim:#a04521;
+  --mono:'JetBrains Mono','SF Mono',Menlo,monospace;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:#050505; font-family:var(--mono); color:var(--paper); display:flex; justify-content:center; align-items:flex-start; min-height:100vh; padding:24px 12px; }
+.hint { position:fixed; left:16px; top:16px; font-size:10px; color:var(--steel); max-width:170px; line-height:1.7; }
+.hint b { color:var(--fog); }
+
+.sidebar { width:min(760px,96vw); background:var(--carbon); border:1px solid var(--iron); display:flex; flex-direction:column; height:calc(100vh - 48px); max-height:920px; }
+.sb-head { display:flex; justify-content:space-between; align-items:center; padding:14px 16px 12px; border-bottom:1px solid var(--iron); }
+.sb-title { font-size:13px; font-weight:700; }
+.sb-sub { font-size:10px; color:var(--steel); margin-top:3px; }
+.sb-sub .live { color:var(--ember); }
+.x { background:none; border:1px solid var(--slate); color:var(--fog); width:26px; height:26px; cursor:pointer; font-family:inherit; }
+
+.cockpit { flex:1; display:grid; grid-template-columns: minmax(280px, 1fr) 340px; min-height:0; }
+/* LEFT column — the device */
+.devcol { display:flex; flex-direction:column; border-right:1px solid var(--iron); min-width:0; }
+.stream { position:relative; background:var(--void); flex:1; min-height:0; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+.phone { height:100%; max-height:660px; aspect-ratio:428/700; position:relative; background:linear-gradient(180deg,#1a0e08 0%,#0d0d10 34%,#0d0d10 100%); overflow:hidden; }
+.phone .bar { position:absolute; top:1.5%; left:3.5%; right:3.5%; height:5%; border-radius:6px; background:#1d1d22; }
+.phone .banner { position:absolute; top:9%; left:3.5%; right:3.5%; height:13%; border-radius:8px; background:linear-gradient(120deg,#a63c14,#da5c2c 60%,#e07a48); }
+.phone .card1 { position:absolute; top:24.5%; left:3.5%; right:3.5%; height:8.5%; border-radius:8px; background:#17171b; border:1px solid var(--iron); }
+.phone .card1 .login { position:absolute; right:2.5%; top:18%; width:21%; height:64%; border-radius:6px; background:var(--ember); }
+.phone .chips { position:absolute; top:35%; left:3.5%; right:3.5%; height:4%; display:flex; gap:1.5%; }
+.phone .chips i { flex:1; border-radius:13px; background:#1b1b20; border:1px solid var(--iron); }
+.phone .grid { position:absolute; top:41%; left:3.5%; right:3.5%; display:grid; grid-template-columns:repeat(4,1fr); gap:2.5%; }
+.phone .grid i { aspect-ratio:1; border-radius:8px; background:#16161a; border:1px solid var(--iron); }
+.phone .promo { position:absolute; top:60%; left:3.5%; right:3.5%; height:11%; border-radius:8px; background:linear-gradient(120deg,#7a2f10,#a0431c); }
+.phone .nav { position:absolute; bottom:0; left:0; right:0; height:9.5%; background:#0c0c0e; border-top:1px solid var(--iron); display:flex; }
+.phone .nav i { flex:1; position:relative; }
+.phone .nav i::after { content:''; position:absolute; left:50%; top:22%; width:26px; height:26px; transform:translateX(-50%); border-radius:6px; background:#232329; }
+.phone .nav i.on::after { background:var(--ember); }
+
+.ov { position:absolute; inset:0; pointer-events:none; }
+.ov.off { display:none; }
+.ov .bx { position:absolute; border:1px solid rgba(110,168,254,.5); }
+.ov .bx.sel { border-color:var(--ember); border-width:2px; background:rgba(218,92,44,.10); }
+.hoverchip { position:absolute; background:var(--void); border:1px solid var(--slate); color:var(--paper); font-size:9px; padding:3px 8px; white-space:nowrap; z-index:5; display:none; }
+
+.stream-meta { display:flex; justify-content:space-between; font-size:9px; color:var(--steel); padding:6px 12px; border-top:1px solid var(--iron); background:var(--carbon); }
+.stream-meta .fps { color:var(--fog); }
+
+/* RIGHT column — stacked work surfaces */
+.workcol { display:flex; flex-direction:column; min-height:0; overflow-y:auto; }
+.sect { padding:12px 14px; border-bottom:1px solid var(--iron); }
+.sect-label { font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--steel); margin-bottom:9px; display:flex; justify-content:space-between; }
+.sect-label .state { color:var(--ember); letter-spacing:0; text-transform:none; }
+
+.btn { background:var(--void); border:1px solid var(--slate); color:var(--paper); font-family:inherit; font-size:11px; padding:7px 13px; cursor:pointer; }
+.btn:hover { border-color:var(--fog); }
+.btn.primary { background:var(--ember); border-color:var(--ember); font-weight:700; }
+.btn.sm { padding:5px 10px; font-size:10px; }
+.btn.on { border-color:var(--ember); color:var(--ember); }
+
+.row { display:flex; gap:8px; align-items:center; }
+.dpad { display:flex; gap:6px; }
+.dpad button { width:38px; height:32px; background:var(--void); border:1px solid var(--slate); color:var(--fog); font-family:inherit; cursor:pointer; }
+.dpad button:hover { color:var(--paper); border-color:var(--paper); }
+
+.typebox { display:flex; gap:8px; }
+.typebox input, .assertbox input { flex:1; background:var(--void); border:1px solid var(--iron); color:var(--paper); font-family:inherit; font-size:11px; padding:8px 10px; min-width:0; }
+::placeholder { color:var(--steel); }
+.typehint { font-size:9px; color:var(--steel); margin-top:5px; }
+
+/* selected element card */
+.krow { display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-bottom:1px solid var(--iron); font-size:10.5px; }
+.krow:last-of-type { border-bottom:none; }
+.krow .k { color:var(--steel); font-size:9px; min-width:64px; padding-top:1px; }
+.krow .v { color:var(--paper); text-align:right; word-break:break-all; font-size:10px; }
+.krow .v.dim { color:var(--fog); }
+
+/* steps */
+.step { display:flex; align-items:center; gap:9px; padding:7px 0; border-bottom:1px solid var(--iron); }
+.thumb { width:30px; height:52px; border-radius:3px; background:linear-gradient(180deg,#241409,#101014); border:1px solid var(--iron); flex:none; }
+.step-n { color:var(--ember); font-size:10px; min-width:16px; }
+.step-l { font-size:10px; color:var(--fog); flex:1; }
+.step-x { background:none; border:none; color:var(--steel); cursor:pointer; font-family:inherit; }
+.step-x:hover { color:var(--paper); }
+.assert-fb { font-size:9.5px; padding:5px 0 0; color:var(--paper); }
+
+.footer { padding:9px 16px; border-top:1px solid var(--iron); display:flex; justify-content:space-between; background:var(--graphite); font-size:9px; color:var(--steel); }
+.footer b { color:var(--ember); }
+</style>
+</head>
+<body>
+<div class="hint"><b>003 · B</b><br>Wide Cockpit<br><br>Sidebar widens to ~760px: device LEFT at proper aspect, everything else in a work column RIGHT. All tools visible at once — no tabs. Selected element's card sits beside the stream.</div>
+
+<aside class="sidebar">
+  <div class="sb-head">
+    <div>
+      <div class="sb-title">iPhone 14 Plus</div>
+      <div class="sb-sub"><span class="live">● manual control</span> · iOS 26.4 · operator qa</div>
+    </div>
+    <button class="x">✕</button>
+  </div>
+
+  <div class="cockpit">
+    <div class="devcol">
+      <div class="stream">
+        <div class="phone" id="phone">
+          <div class="bar"></div><div class="banner"></div>
+          <div class="card1"><div class="login"></div></div>
+          <div class="chips"><i></i><i></i><i></i><i></i></div>
+          <div class="grid"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="promo"></div>
+          <div class="nav"><i class="on"></i><i></i><i></i></div>
+          <div class="ov off" id="ov">
+            <div class="bx" style="left:3%;top:9%;width:94%;height:13%" data-l="home_banner_carousel"></div>
+            <div class="bx" style="left:3%;top:24.5%;width:94%;height:8.5%" data-l="home_login_bar_card"></div>
+            <div class="bx" style="right:3.5%;top:25.5%;width:23%;height:6.5%" data-l="home_login_bar_login_button"></div>
+            <div class="bx" style="left:3%;top:35%;width:22%;height:4%" data-l="Indonesia"></div>
+            <div class="bx" style="left:3%;top:41%;width:22%;height:13%" data-l="Pick Up"></div>
+            <div class="bx" style="left:28%;top:41%;width:22%;height:13%" data-l="Drop Paket"></div>
+            <div class="bx" style="left:0%;top:90.5%;width:33%;height:9.5%" data-l="ic_tabbar_home"></div>
+            <div class="bx" style="left:33%;top:90.5%;width:34%;height:9.5%" data-l="ic_tabbar_package"></div>
+            <div class="bx" style="left:67%;top:90.5%;width:33%;height:9.5%" data-l="ic_tabbar_account"></div>
+          </div>
+          <div class="hoverchip" id="hchip"></div>
+        </div>
+      </div>
+      <div class="stream-meta">
+        <span class="fps">live · 12fps</span>
+        <span>428pt logical · taps map 1:1</span>
+      </div>
+    </div>
+
+    <div class="workcol">
+      <!-- drive -->
+      <div class="sect">
+        <div class="sect-label"><span>drive</span></div>
+        <div class="row">
+          <div class="dpad"><button>↑</button><button>↓</button><button>←</button><button>→</button></div>
+          <span style="flex:1"></span>
+          <button class="btn sm" style="border-color:var(--pewter)">release</button>
+        </div>
+        <div class="typebox" style="margin-top:10px">
+          <input placeholder="tap a field on screen, then type here" />
+          <button class="btn sm">send</button>
+        </div>
+      </div>
+
+      <!-- inspect -->
+      <div class="sect">
+        <div class="sect-label"><span>inspect</span><span class="state" id="treestate">61 nodes · animating</span></div>
+        <div class="row" style="margin-bottom:9px">
+          <button class="btn sm" id="insbtn" onclick="toggleInspect()">◎ inspect mode</button>
+          <span style="flex:1"></span>
+          <span style="font-size:9px;color:var(--steel)">i / esc</span>
+        </div>
+        <div style="font-size:9.5px;color:var(--steel);line-height:1.7" id="selEmpty">toggle inspect, click any boxed element on the screen — its card appears here.</div>
+        <div id="selCard" style="display:none">
+          <div class="krow"><span class="k">element</span><span class="v" id="selName">—</span></div>
+          <div class="krow"><span class="k">identifier</span><span class="v dim" id="selId">—</span></div>
+          <div class="krow"><span class="k">type / rect</span><span class="v dim">Button · x300 y130 · 100×44pt</span></div>
+          <div class="krow"><span class="k">selector</span><span class="v" style="color:var(--ember)">on: home_login_bar_login_button</span></div>
+          <div class="row" style="margin-top:9px">
+            <button class="btn sm">copy selector</button>
+            <button class="btn sm primary">tap this</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- record -->
+      <div class="sect" style="border-bottom:none">
+        <div class="sect-label"><span>record</span><span class="state">● live · 3 steps</span></div>
+        <div class="step"><div class="thumb"></div><span class="step-n">1</span><span class="step-l">tap Login (home_login_bar_login_button)</span><button class="step-x">✕</button></div>
+        <div class="step"><div class="thumb"></div><span class="step-n">2</span><span class="step-l">tap Terms &amp; Conditions (auth_legal_disclaimer)</span><button class="step-x">✕</button></div>
+        <div class="step"><div class="thumb"></div><span class="step-n">3</span><span class="step-l">scroll down</span><button class="step-x">✕</button></div>
+        <div class="row" style="margin-top:10px">
+          <input placeholder="assert screen contains…" value="ACCOUNT REGISTRATION" style="flex:1;background:var(--void);border:1px solid var(--iron);color:var(--paper);font-family:inherit;font-size:11px;padding:8px 10px;min-width:0" />
+          <button class="btn sm">check</button>
+          <button class="btn sm primary">assert</button>
+        </div>
+        <div class="assert-fb">✓ 1 match — assertion will check for this</div>
+        <div class="row" style="margin-top:8px">
+          <input placeholder="template name" style="flex:1;background:var(--void);border:1px solid var(--iron);color:var(--paper);font-family:inherit;font-size:11px;padding:8px 10px;min-width:0" />
+          <button class="btn sm">save as template</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span>lease held by <b>manual:qa</b> · 12m</span>
+    <span>steps auto-save · session never counts toward AC status</span>
+  </div>
+</aside>
+
+<script>
+let inspectOn = false;
+function toggleInspect() {
+  inspectOn = !inspectOn;
+  document.getElementById('ov').classList.toggle('off', !inspectOn);
+  const b = document.getElementById('insbtn');
+  b.classList.toggle('on', inspectOn);
+  b.textContent = inspectOn ? '◎ inspecting — clicks select' : '◎ inspect mode';
+}
+const phone = document.getElementById('phone'), chip = document.getElementById('hchip');
+document.querySelectorAll('#ov .bx').forEach(bx => {
+  bx.style.pointerEvents = 'auto';
+  bx.onmousemove = () => { if (!inspectOn) return; chip.style.display='block'; chip.textContent = bx.dataset.l; chip.style.left = bx.offsetLeft+'px'; chip.style.top = (bx.offsetTop-20)+'px'; };
+  bx.onmouseleave = () => chip.style.display='none';
+  bx.onclick = () => {
+    document.querySelectorAll('#ov .bx').forEach(x => x.classList.remove('sel'));
+    bx.classList.add('sel');
+    document.getElementById('selEmpty').style.display='none';
+    const c = document.getElementById('selCard'); c.style.display='';
+    document.getElementById('selName').textContent = bx.dataset.l;
+    document.getElementById('selId').textContent = bx.dataset.l.includes(' ') ? '—' : bx.dataset.l;
+  };
+});
+</script>
+</body>
+</html>

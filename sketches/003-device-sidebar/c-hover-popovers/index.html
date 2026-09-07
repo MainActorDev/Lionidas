@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>003 · C — Hover Popovers</title>
+<style>
+:root {
+  --void:#000; --carbon:#111; --graphite:#191919; --iron:#202020; --slate:#3a3a3a; --pewter:#505050;
+  --steel:#606060; --ash:#7e7e7e; --fog:#b4b4b4; --chalk:#d9d9d9; --paper:#eeeeee;
+  --ember:#da5c2c; --ember-dim:#a04521;
+  --mono:'JetBrains Mono','SF Mono',Menlo,monospace;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:#050505; font-family:var(--mono); color:var(--paper); display:flex; justify-content:center; align-items:flex-start; min-height:100vh; padding:24px 12px; }
+.hint { position:fixed; left:16px; top:16px; font-size:10px; color:var(--steel); max-width:170px; line-height:1.7; }
+.hint b { color:var(--fog); }
+
+.sidebar { width:min(440px,94vw); background:var(--carbon); border:1px solid var(--iron); display:flex; flex-direction:column; height:calc(100vh - 48px); max-height:900px; }
+.sb-head { display:flex; justify-content:space-between; align-items:center; padding:14px 16px 12px; border-bottom:1px solid var(--iron); }
+.sb-title { font-size:13px; font-weight:700; }
+.sb-sub { font-size:10px; color:var(--steel); margin-top:3px; }
+.sb-sub .live { color:var(--ember); }
+.x { background:none; border:1px solid var(--slate); color:var(--fog); width:26px; height:26px; cursor:pointer; font-family:inherit; }
+
+/* ── the stream dominates: much taller ── */
+.stream { position:relative; background:var(--void); flex:1; min-height:0; display:flex; align-items:flex-start; justify-content:center; overflow:hidden; }
+.phone { width:100%; max-height:100%; aspect-ratio:428/680; position:relative; background:linear-gradient(180deg,#1a0e08 0%,#0d0d10 34%,#0d0d10 100%); overflow:hidden; }
+.phone .bar { position:absolute; top:1.5%; left:3.5%; right:3.5%; height:4.5%; border-radius:6px; background:#1d1d22; }
+.phone .banner { position:absolute; top:8%; left:3.5%; right:3.5%; height:12.5%; border-radius:8px; background:linear-gradient(120deg,#a63c14,#da5c2c 60%,#e07a48); }
+.phone .card1 { position:absolute; top:23%; left:3.5%; right:3.5%; height:8%; border-radius:8px; background:#17171b; border:1px solid var(--iron); }
+.phone .card1 .login { position:absolute; right:2.5%; top:16%; width:21%; height:66%; border-radius:6px; background:var(--ember); }
+.phone .chips { position:absolute; top:33%; left:3.5%; right:3.5%; height:3.7%; display:flex; gap:1.5%; }
+.phone .chips i { flex:1; border-radius:13px; background:#1b1b20; border:1px solid var(--iron); }
+.phone .grid { position:absolute; top:39%; left:3.5%; right:3.5%; display:grid; grid-template-columns:repeat(4,1fr); gap:2.5%; }
+.phone .grid i { aspect-ratio:1; border-radius:8px; background:#16161a; border:1px solid var(--iron); }
+.phone .promo { position:absolute; top:57.5%; left:3.5%; right:3.5%; height:10.5%; border-radius:8px; background:linear-gradient(120deg,#7a2f10,#a0431c); }
+.phone .nav { position:absolute; bottom:0; left:0; right:0; height:9%; background:#0c0c0e; border-top:1px solid var(--iron); display:flex; }
+.phone .nav i { flex:1; position:relative; }
+.phone .nav i::after { content:''; position:absolute; left:50%; top:20%; width:24px; height:24px; transform:translateX(-50%); border-radius:6px; background:#232329; }
+.phone .nav i.on::after { background:var(--ember); }
+
+/* inspect boxes + POPOVER on the stream itself */
+.ov { position:absolute; inset:0; pointer-events:none; }
+.ov.off { display:none; }
+.ov .bx { position:absolute; border:1px solid rgba(110,168,254,.5); }
+.ov .bx.sel { border-color:var(--ember); border-width:2px; background:rgba(218,92,44,.10); }
+
+.pop { position:absolute; z-index:6; width:236px; background:var(--graphite); border:1px solid var(--slate); box-shadow:0 8px 28px rgba(0,0,0,.6); display:none; }
+.pop.on { display:block; }
+.pop .p-head { display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border-bottom:1px solid var(--iron); }
+.pop .p-name { font-size:10.5px; font-weight:700; word-break:break-all; }
+.pop .p-x { background:none; border:none; color:var(--steel); cursor:pointer; font-family:inherit; }
+.pop .p-x:hover { color:var(--paper); }
+.pop .p-row { display:flex; justify-content:space-between; padding:4.5px 10px; font-size:9.5px; gap:8px; }
+.pop .p-row .k { color:var(--steel); white-space:nowrap; }
+.pop .p-row .v { color:var(--fog); text-align:right; word-break:break-all; }
+.pop .p-row .v.sel { color:var(--ember); }
+.pop .p-actions { display:flex; gap:6px; padding:8px 10px 10px; border-top:1px solid var(--iron); margin-top:4px; }
+.btn { background:var(--void); border:1px solid var(--slate); color:var(--paper); font-family:inherit; font-size:10px; padding:6px 11px; cursor:pointer; }
+.btn:hover { border-color:var(--fog); }
+.btn.primary { background:var(--ember); border-color:var(--ember); font-weight:700; }
+.btn.sm { padding:5px 9px; font-size:9.5px; }
+
+/* hover chip */
+.hoverchip { position:absolute; background:var(--void); border:1px solid var(--slate); color:var(--paper); font-size:9px; padding:3px 8px; white-space:nowrap; z-index:5; display:none; }
+
+.stream-meta { display:flex; justify-content:space-between; font-size:9px; color:var(--steel); padding:6px 12px; border-top:1px solid var(--iron); background:var(--carbon); }
+.stream-meta .fps { color:var(--fog); }
+
+/* ── compact dock under the stream ── */
+.dock { border-top:1px solid var(--iron); background:var(--carbon); }
+.dock-row { display:flex; gap:6px; align-items:center; padding:9px 12px; }
+.dock-row + .dock-row { border-top:1px solid var(--iron); }
+.dpad { display:flex; gap:5px; }
+.dpad button { width:34px; height:30px; background:var(--void); border:1px solid var(--slate); color:var(--fog); font-family:inherit; cursor:pointer; font-size:12px; }
+.dpad button:hover { color:var(--paper); border-color:var(--paper); }
+.btn.on { border-color:var(--ember); color:var(--ember); }
+.spacer { flex:1; }
+.statechip { font-size:9px; color:var(--steel); }
+.statechip b { color:var(--fog); font-weight:400; }
+
+.typebox { display:flex; gap:6px; flex:1; }
+.typebox input { flex:1; background:var(--void); border:1px solid var(--iron); color:var(--paper); font-family:inherit; font-size:10.5px; padding:7px 9px; min-width:0; }
+::placeholder { color:var(--steel); }
+
+/* steps strip: horizontal filmstrip */
+.steps-strip { display:flex; gap:8px; overflow-x:auto; padding:10px 12px 4px; }
+.scard { flex:0 0 auto; width:118px; border:1px solid var(--iron); background:var(--void); position:relative; }
+.scard .img { width:100%; aspect-ratio:428/160; background:linear-gradient(180deg,#241409,#101014); border-bottom:1px solid var(--iron); }
+.scard .cap { padding:5px 7px; font-size:8.5px; color:var(--fog); line-height:1.5; }
+.scard .cap b { color:var(--ember); font-weight:400; }
+.scard .sx { position:absolute; top:3px; right:3px; width:16px; height:16px; background:var(--graphite); border:1px solid var(--slate); color:var(--steel); font-size:9px; cursor:pointer; }
+.rec-pill { display:inline-flex; align-items:center; gap:6px; font-size:9.5px; color:var(--ember); }
+.rec-pill i { width:6px; height:6px; border-radius:50%; background:var(--ember); animation:pl 1.4s infinite; }
+@keyframes pl { 50% { opacity:.2; } }
+
+.footer { padding:9px 12px; border-top:1px solid var(--iron); display:flex; justify-content:space-between; background:var(--graphite); font-size:9px; color:var(--steel); }
+.footer b { color:var(--ember); }
+</style>
+</head>
+<body>
+<div class="hint"><b>003 · C</b><br>Hover Popovers<br><br>Stream-dominant: boxes + element card float ON the screen as popovers. Below: one compact dock (drive row, type row, record filmstrip). Recorder steps are thumbnails in a horizontal strip.</div>
+
+<aside class="sidebar">
+  <div class="sb-head">
+    <div>
+      <div class="sb-title">iPhone 14 Plus</div>
+      <div class="sb-sub"><span class="live">● manual control</span> · iOS 26.4 · qa</div>
+    </div>
+    <button class="x">✕</button>
+  </div>
+
+  <div class="stream">
+    <div class="phone" id="phone">
+      <div class="bar"></div><div class="banner"></div>
+      <div class="card1"><div class="login"></div></div>
+      <div class="chips"><i></i><i></i><i></i><i></i></div>
+      <div class="grid"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="promo"></div>
+      <div class="nav"><i class="on"></i><i></i><i></i></div>
+
+      <div class="ov off" id="ov">
+        <div class="bx" style="left:3%;top:8%;width:94%;height:12.5%" data-l="home_banner_carousel" data-id="home_banner_carousel" data-type="Other" data-rect="x12 y74 · 404×87pt"></div>
+        <div class="bx" style="left:3%;top:23%;width:94%;height:8%" data-l="home_login_bar_card" data-id="home_login_bar_card" data-type="Other" data-rect="x16 y217 · 362×61pt"></div>
+        <div class="bx" style="right:3.5%;top:24%;width:23%;height:6%" data-l="Login" data-id="home_login_bar_login_button" data-type="Button" data-rect="x300 y130 · 100×44pt"></div>
+        <div class="bx" style="left:3%;top:33%;width:22%;height:3.7%" data-l="Indonesia" data-id="—" data-type="Button" data-rect="x16 y240 · 80×20pt"></div>
+        <div class="bx" style="left:3%;top:39%;width:22%;height:12.5%" data-l="Pick Up" data-id="home_pickup_tile" data-type="Other" data-rect="x16 y270 · 90×90pt"></div>
+        <div class="bx" style="left:0%;top:91%;width:33%;height:9%" data-l="Home" data-id="ic_tabbar_home" data-type="Button" data-rect="x0 y860 · 141×66pt"></div>
+        <div class="bx" style="left:33%;top:91%;width:34%;height:9%" data-l="My Packages" data-id="ic_tabbar_package" data-type="Button" data-rect="x141 y860 · 145×66pt"></div>
+        <div class="bx" style="left:67%;top:91%;width:33%;height:9%" data-l="Account" data-id="ic_tabbar_account" data-type="Button" data-rect="x286 y860 · 142×66pt"></div>
+      </div>
+      <div class="hoverchip" id="hchip"></div>
+
+      <!-- element popover ON the stream -->
+      <div class="pop" id="pop">
+        <div class="p-head"><span class="p-name" id="pName">—</span><button class="p-x" onclick="closePop()">✕</button></div>
+        <div class="p-row"><span class="k">identifier</span><span class="v" id="pId">—</span></div>
+        <div class="p-row"><span class="k">type</span><span class="v" id="pType">—</span></div>
+        <div class="p-row"><span class="k">rect</span><span class="v" id="pRect">—</span></div>
+        <div class="p-row"><span class="k">selector</span><span class="v sel" id="pSel">—</span></div>
+        <div class="p-actions">
+          <button class="btn sm">copy selector</button>
+          <button class="btn sm primary">tap this</button>
+        </div>
+      </div>
+    </div>
+    <div class="stream-meta" style="position:static">
+      <span class="fps">live · 12fps</span>
+      <span id="treestate">428pt logical · taps map 1:1</span>
+    </div>
+  </div>
+
+  <div class="dock">
+    <div class="dock-row">
+      <div class="dpad"><button>↑</button><button>↓</button><button>←</button><button>→</button></div>
+      <button class="btn sm" id="insbtn" onclick="toggleInspect()">◎ inspect</button>
+      <span class="spacer"></span>
+      <span class="statechip" id="insState" style="display:none"><b>61 nodes</b> · animating</span>
+      <button class="btn sm" style="border-color:var(--pewter)">release</button>
+    </div>
+    <div class="dock-row">
+      <div class="typebox">
+        <input placeholder="tap a field on screen, then type here — enter sends" />
+        <button class="btn sm">send</button>
+      </div>
+    </div>
+    <div class="dock-row" style="padding-bottom:2px">
+      <span class="rec-pill"><i></i> recording</span>
+      <span class="statechip">assert: <b style="color:var(--paper)">✓ 1 match</b></span>
+      <span class="spacer"></span>
+      <input placeholder="assert screen contains…" style="width:150px;background:var(--void);border:1px solid var(--iron);color:var(--paper);font-family:inherit;font-size:9.5px;padding:6px 8px;" value="ACCOUNT REGISTRATION" />
+      <button class="btn sm">check</button>
+      <button class="btn sm primary">assert</button>
+    </div>
+    <div class="steps-strip">
+      <div class="scard"><div class="img"></div><div class="cap"><b>1</b> tap Login<br>home_login_bar_login_button</div><button class="sx">✕</button></div>
+      <div class="scard"><div class="img"></div><div class="cap"><b>2</b> tap T&amp;C<br>auth_legal_disclaimer</div><button class="sx">✕</button></div>
+      <div class="scard"><div class="img"></div><div class="cap"><b>3</b> scroll down</div><button class="sx">✕</button></div>
+      <div class="scard" style="border-style:dashed;display:flex;align-items:center;justify-content:center;color:var(--steel);font-size:9px;width:96px">save as template →</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span>lease <b>manual:qa</b> · 12m</span>
+    <span>steps auto-save</span>
+  </div>
+</aside>
+
+<script>
+let inspectOn = false;
+const pop = document.getElementById('pop');
+function closePop() { pop.classList.remove('on'); document.querySelectorAll('#ov .bx').forEach(x => x.classList.remove('sel')); }
+function toggleInspect() {
+  inspectOn = !inspectOn;
+  document.getElementById('ov').classList.toggle('off', !inspectOn);
+  const b = document.getElementById('insbtn');
+  b.classList.toggle('on', inspectOn);
+  b.textContent = inspectOn ? '◎ inspecting' : '◎ inspect';
+  document.getElementById('insState').style.display = inspectOn ? '' : 'none';
+  document.getElementById('treestate').textContent = inspectOn ? '61 nodes · animating — banner may drift' : '428pt logical · taps map 1:1';
+  if (!inspectOn) closePop();
+}
+const phone = document.getElementById('phone'), chip = document.getElementById('hchip');
+document.querySelectorAll('#ov .bx').forEach(bx => {
+  bx.style.pointerEvents = 'auto';
+  bx.onmousemove = () => { if (!inspectOn) return; chip.style.display='block'; chip.textContent = bx.dataset.l; chip.style.left = bx.offsetLeft+'px'; chip.style.top = (bx.offsetTop-20)+'px'; };
+  bx.onmouseleave = () => chip.style.display='none';
+  bx.onclick = e => {
+    document.querySelectorAll('#ov .bx').forEach(x => x.classList.remove('sel'));
+    bx.classList.add('sel');
+    document.getElementById('pName').textContent = bx.dataset.l;
+    document.getElementById('pId').textContent = bx.dataset.id;
+    document.getElementById('pType').textContent = bx.dataset.type;
+    document.getElementById('pRect').textContent = bx.dataset.rect;
+    document.getElementById('pSel').textContent = 'on: ' + (bx.dataset.id !== '—' ? bx.dataset.id : bx.dataset.l);
+    pop.classList.add('on');
+    // place beside the box, flip if near right edge
+    let left = bx.offsetLeft + bx.offsetWidth + 8;
+    if (left + 240 > phone.clientWidth) left = bx.offsetLeft - 244;
+    pop.style.left = Math.max(4, left) + 'px';
+    pop.style.top = Math.min(bx.offsetTop, phone.clientHeight - 220) + 'px';
+  };
+});
+</script>
+</body>
+</html>

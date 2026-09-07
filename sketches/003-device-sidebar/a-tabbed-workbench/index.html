@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>003 · A — Tabbed Workbench</title>
+<style>
+:root {
+  --void:#000; --carbon:#111; --graphite:#191919; --iron:#202020; --slate:#3a3a3a; --pewter:#505050;
+  --steel:#606060; --ash:#7e7e7e; --fog:#b4b4b4; --chalk:#d9d9d9; --paper:#eeeeee;
+  --ember:#da5c2c; --ember-dim:#a04521;
+  --mono:'JetBrains Mono','SF Mono',Menlo,monospace;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:#050505; font-family:var(--mono); color:var(--paper); display:flex; justify-content:center; align-items:flex-start; min-height:100vh; padding:24px 12px; }
+.hint { position:fixed; left:16px; top:16px; font-size:10px; color:var(--steel); max-width:170px; line-height:1.7; }
+.hint b { color:var(--fog); }
+
+.sidebar { width:min(420px,94vw); background:var(--carbon); border:1px solid var(--iron); display:flex; flex-direction:column; height:calc(100vh - 48px); max-height:900px; }
+/* ── header ── */
+.sb-head { display:flex; justify-content:space-between; align-items:center; padding:14px 16px 12px; border-bottom:1px solid var(--iron); }
+.sb-title { font-size:13px; font-weight:700; letter-spacing:.02em; }
+.sb-sub { font-size:10px; color:var(--steel); margin-top:3px; }
+.sb-sub .live { color:var(--ember); }
+.x { background:none; border:1px solid var(--slate); color:var(--fog); width:26px; height:26px; cursor:pointer; font-family:inherit; }
+.x:hover { color:var(--paper); border-color:var(--paper); }
+
+/* ── stream stage ── */
+.stream { position:relative; background:var(--void); flex:0 0 auto; }
+.phone { width:100%; aspect-ratio:428/620; display:block; background:
+  linear-gradient(180deg,#1a0e08 0%,#0d0d10 34%,#0d0d10 100%); position:relative; overflow:hidden; }
+.phone .bar { position:absolute; top:10px; left:14px; right:14px; height:34px; border-radius:6px; background:#1d1d22; }
+.phone .banner { position:absolute; top:58px; left:14px; right:14px; height:88px; border-radius:8px; background:linear-gradient(120deg,#a63c14,#da5c2c 60%,#e07a48); }
+.phone .card1 { position:absolute; top:158px; left:14px; right:14px; height:56px; border-radius:8px; background:#17171b; border:1px solid var(--iron); }
+.phone .card1 .login { position:absolute; right:10px; top:10px; width:84px; height:36px; border-radius:6px; background:var(--ember); }
+.phone .chips { position:absolute; top:226px; left:14px; right:14px; height:26px; display:flex; gap:6px; }
+.phone .chips i { flex:1; border-radius:13px; background:#1b1b20; border:1px solid var(--iron); }
+.phone .grid { position:absolute; top:266px; left:14px; right:14px; display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+.phone .grid i { aspect-ratio:1; border-radius:8px; background:#16161a; border:1px solid var(--iron); display:block; }
+.phone .promo { position:absolute; top:392px; left:14px; right:14px; height:74px; border-radius:8px; background:linear-gradient(120deg,#7a2f10,#a0431c); }
+.phone .nav { position:absolute; bottom:0; left:0; right:0; height:64px; background:#0c0c0e; border-top:1px solid var(--iron); display:flex; }
+.phone .nav i { flex:1; position:relative; }
+.phone .nav i::after { content:''; position:absolute; left:50%; top:14px; width:22px; height:22px; transform:translateX(-50%); border-radius:6px; background:#232329; }
+.phone .nav i.on::after { background:var(--ember); }
+.stream-meta { display:flex; justify-content:space-between; font-size:9px; color:var(--steel); padding:6px 12px; border-bottom:1px solid var(--iron); background:var(--carbon); }
+.stream-meta .fps { color:var(--fog); }
+
+/* ── TABS ── */
+.tabs { display:flex; border-bottom:1px solid var(--iron); background:var(--carbon); }
+.tab { flex:1; padding:10px 0 9px; background:none; border:none; border-bottom:2px solid transparent; color:var(--steel); font-family:inherit; font-size:11px; cursor:pointer; letter-spacing:.03em; }
+.tab:hover { color:var(--fog); }
+.tab.on { color:var(--paper); border-bottom-color:var(--ember); }
+.tab .dot { display:inline-block; width:5px; height:5px; border-radius:50%; background:var(--ember); margin-left:5px; vertical-align:2px; }
+
+/* ── panels ── */
+.panel { flex:1; overflow-y:auto; padding:14px 16px; display:none; }
+.panel.on { display:block; }
+.krow { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--iron); font-size:11px; }
+.krow .k { color:var(--steel); font-size:10px; min-width:74px; }
+.krow .v { color:var(--paper); font-family:var(--mono); text-align:right; word-break:break-all; }
+.krow .v.mono-dim { color:var(--fog); }
+.actions { display:flex; gap:8px; margin-top:12px; }
+.btn { background:var(--void); border:1px solid var(--slate); color:var(--paper); font-family:inherit; font-size:11px; padding:8px 14px; cursor:pointer; }
+.btn:hover { border-color:var(--fog); }
+.btn.primary { background:var(--ember); border-color:var(--ember); font-weight:700; }
+.btn.primary:hover { background:var(--ember-dim); }
+.btn.sm { padding:5px 10px; font-size:10px; }
+
+/* drive panel */
+.dpad { display:grid; grid-template-columns:repeat(3,44px); grid-template-rows:repeat(2,40px); gap:6px; justify-content:center; margin:6px 0 14px; }
+.dpad button { background:var(--void); border:1px solid var(--slate); color:var(--fog); font-family:inherit; font-size:13px; cursor:pointer; }
+.dpad button:hover { color:var(--paper); border-color:var(--paper); }
+.dpad .blank { border:none; background:none; }
+.typebox { display:flex; gap:8px; margin-bottom:6px; }
+.typebox input { flex:1; background:var(--void); border:1px solid var(--iron); color:var(--paper); font-family:inherit; font-size:11px; padding:9px 10px; }
+.typebox input::placeholder { color:var(--steel); }
+.typehint { font-size:9px; color:var(--steel); margin-bottom:4px; }
+
+/* inspect panel */
+.tree-state { display:flex; align-items:center; gap:8px; font-size:10px; color:var(--fog); padding:8px 10px; border:1px solid var(--iron); background:var(--void); margin-bottom:12px; }
+.tree-state .pulse { width:6px; height:6px; border-radius:50%; background:var(--ember); animation:pl 1.6s infinite; }
+@keyframes pl { 50% { opacity:.25; } }
+.sel-empty { color:var(--steel); font-size:10px; line-height:1.8; padding:10px 0; }
+
+/* record panel */
+.rec-head { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+.rec-count { font-size:10px; color:var(--steel); }
+.step { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--iron); }
+.thumb { width:34px; height:58px; border-radius:3px; background:linear-gradient(180deg,#241409,#101014); border:1px solid var(--iron); flex:none; }
+.step-n { color:var(--ember); font-size:10px; min-width:18px; }
+.step-l { font-size:10px; color:var(--fog); flex:1; }
+.step-x { background:none; border:none; color:var(--steel); cursor:pointer; font-family:inherit; }
+.step-x:hover { color:var(--paper); }
+.assertbox { display:flex; gap:8px; margin:12px 0 6px; }
+.assertbox input { flex:1; background:var(--void); border:1px solid var(--iron); color:var(--paper); font-family:inherit; font-size:11px; padding:8px 10px; }
+.assert-fb { font-size:10px; padding:6px 0; }
+.assert-fb.ok { color:var(--paper); }
+.assert-fb.no { color:var(--ash); }
+
+/* inspect overlay on the phone */
+.ov { position:absolute; inset:0; pointer-events:none; }
+.ov.off { display:none; }
+.ov .bx { position:absolute; border:1px solid rgba(110,168,254,.55); }
+.ov .bx:hover, .ov .bx.sel { border-color:var(--ember); background:rgba(218,92,44,.08); }
+.ov .chip { position:absolute; top:-20px; left:0; background:var(--void); border:1px solid var(--slate); color:var(--paper); font-size:9px; padding:2px 7px; white-space:nowrap; }
+.hoverchip { position:absolute; background:var(--void); border:1px solid var(--slate); color:var(--paper); font-size:9px; padding:3px 8px; white-space:nowrap; z-index:5; display:none; }
+
+.footer { padding:10px 16px; border-top:1px solid var(--iron); display:flex; justify-content:space-between; align-items:center; background:var(--graphite); }
+.footer .lease { font-size:9px; color:var(--steel); }
+.footer .lease b { color:var(--ember); }
+</style>
+</head>
+<body>
+<div class="hint"><b>003 · A</b><br>Tabbed Workbench<br><br>Stream pinned; ONE tool at a time below. Inspect boxes live on the stream; the selected element's details open in the Inspect tab (auto-switch).</div>
+
+<aside class="sidebar">
+  <div class="sb-head">
+    <div>
+      <div class="sb-title">iPhone 14 Plus</div>
+      <div class="sb-sub"><span class="live">● manual control</span> · iOS 26.4 · operator qa</div>
+    </div>
+    <button class="x">✕</button>
+  </div>
+
+  <div class="stream">
+    <div class="phone" id="phone">
+      <div class="bar"></div><div class="banner"></div>
+      <div class="card1"><div class="login"></div></div>
+      <div class="chips"><i></i><i></i><i></i><i></i></div>
+      <div class="grid"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="promo"></div>
+      <div class="nav"><i class="on"></i><i></i><i></i></div>
+      <div class="ov off" id="ov">
+        <div class="bx" style="left:6%;top:1.5%;width:88%;height:6%" data-l="VerticalScrollBar — container"></div>
+        <div class="bx" style="left:3%;top:9.5%;width:94%;height:14.5%" data-l="home_banner_carousel"></div>
+        <div class="bx" style="left:3%;top:26%;width:94%;height:9.5%" data-l="home_login_bar_card"></div>
+        <div class="bx" style="right:4%;top:27.5%;width:21%;height:6.5%" data-l="home_login_bar_login_button"></div>
+        <div class="bx" style="left:3%;top:37%;width:22%;height:4.5%" data-l="Indonesia — chip"></div>
+        <div class="bx" style="left:27%;top:37%;width:20%;height:4.5%" data-l="Singapore — chip"></div>
+        <div class="bx" style="left:3%;top:44%;width:23%;height:12%" data-l="Pick Up — tile"></div>
+        <div class="bx" style="left:28%;top:44%;width:23%;height:12%" data-l="Drop Paket — tile"></div>
+        <div class="bx" style="left:3%;top:64%;width:94%;height:12%" data-l="promo_card_business"></div>
+        <div class="bx" style="left:0%;top:89%;width:33%;height:11%" data-l="ic_tabbar_home"></div>
+        <div class="bx" style="left:33%;top:89%;width:34%;height:11%" data-l="ic_tabbar_package"></div>
+        <div class="bx" style="left:67%;top:89%;width:33%;height:11%" data-l="ic_tabbar_account"></div>
+      </div>
+      <div class="hoverchip" id="hchip"></div>
+    </div>
+    <div class="stream-meta">
+      <span class="fps">live · 12fps</span>
+      <span>428pt logical · taps map 1:1</span>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab on" data-p="drive">drive</button>
+    <button class="tab" data-p="inspect">inspect <span class="dot" id="insdot" style="display:none"></span></button>
+    <button class="tab" data-p="record">record <span class="dot" id="recdot" style="display:none"></span></button>
+  </div>
+
+  <!-- DRIVE -->
+  <div class="panel on" id="p-drive">
+    <div class="dpad">
+      <span class="blank"></span><button>↑</button><span class="blank"></span>
+      <button>←</button><button>↓</button><button>→</button>
+    </div>
+    <div class="typehint">tap a field on the screen, then type here — enter sends</div>
+    <div class="typebox">
+      <input placeholder="type into field @ 214, 156" />
+      <button class="btn sm">send</button>
+    </div>
+    <div class="actions">
+      <button class="btn" onclick="toggleInspect()" id="insbtn">◎ inspect mode</button>
+      <span style="flex:1"></span>
+      <button class="btn" style="border-color:var(--pewter)">release</button>
+    </div>
+  </div>
+
+  <!-- INSPECT -->
+  <div class="panel" id="p-inspect">
+    <div class="tree-state"><span class="pulse"></span> 61 nodes · animating <span style="color:var(--steel)">— banner region may drift</span></div>
+    <div class="sel-empty" id="selEmpty">click any boxed element on the screen.<br>the selection follows the same hit-test the engine uses at record time.</div>
+    <div id="selCard" style="display:none">
+      <div class="krow"><span class="k">element</span><span class="v" id="selName">—</span></div>
+      <div class="krow"><span class="k">identifier</span><span class="v mono-dim" id="selId">—</span></div>
+      <div class="krow"><span class="k">type</span><span class="v mono-dim">Button</span></div>
+      <div class="krow"><span class="k">rect</span><span class="v mono-dim">x300 y130 · 100×44pt</span></div>
+      <div class="krow"><span class="k">path</span><span class="v mono-dim" style="font-size:9px">login_card › banner › scroll</span></div>
+      <div class="krow"><span class="k">selector</span><span class="v" style="color:var(--ember)">on: home_login_bar_login_button</span></div>
+      <div class="actions">
+        <button class="btn sm">copy selector</button>
+        <button class="btn sm primary">tap this</button>
+        <button class="btn sm" onclick="toggleInspect()">◎ off</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RECORD -->
+  <div class="panel" id="p-record">
+    <div class="rec-head">
+      <button class="btn sm" style="border-color:var(--ember);color:var(--ember)">● recording</button>
+      <span class="rec-count">3 steps</span>
+    </div>
+    <div class="step"><div class="thumb"></div><span class="step-n">1</span><span class="step-l">tap Login (home_login_bar_login_button)</span><button class="step-x">✕</button></div>
+    <div class="step"><div class="thumb"></div><span class="step-n">2</span><span class="step-l">tap Terms &amp; Conditions (auth_legal_disclaimer)</span><button class="step-x">✕</button></div>
+    <div class="step"><div class="thumb"></div><span class="step-n">3</span><span class="step-l">scroll down</span><button class="step-x">✕</button></div>
+    <div class="assertbox">
+      <input placeholder="assert screen contains…" value="ACCOUNT REGISTRATION" />
+      <button class="btn sm">check</button>
+      <button class="btn sm primary">assert</button>
+    </div>
+    <div class="assert-fb ok">✓ 1 match — assertion will check for this</div>
+    <div class="actions">
+      <input class="btn" placeholder="template name" style="flex:1;text-align:left" />
+      <button class="btn sm">save as template</button>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span class="lease">lease held by <b>manual:qa</b> · 12m</span>
+    <span class="lease" style="color:var(--fog)">steps auto-save</span>
+  </div>
+</aside>
+
+<script>
+const tabs = document.querySelectorAll('.tab');
+tabs.forEach(t => t.onclick = () => {
+  tabs.forEach(x => x.classList.remove('on'));
+  t.classList.add('on');
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('on'));
+  document.getElementById('p-' + t.dataset.p).classList.add('on');
+});
+let inspectOn = false;
+function toggleInspect() {
+  inspectOn = !inspectOn;
+  document.getElementById('ov').classList.toggle('off', !inspectOn);
+  document.getElementById('insbtn').style.borderColor = inspectOn ? 'var(--ember)' : '';
+  document.getElementById('insdot').style.display = inspectOn ? '' : 'none';
+  if (inspectOn) {
+    tabs.forEach(x => x.classList.remove('on'));
+    tabs[1].classList.add('on');
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('on'));
+    document.getElementById('p-inspect').classList.add('on');
+  }
+}
+const phone = document.getElementById('phone'), chip = document.getElementById('hchip');
+document.querySelectorAll('#ov .bx').forEach(b => {
+  b.style.pointerEvents = 'auto';
+  b.onmousemove = e => { if (!inspectOn) return; chip.style.display='block'; chip.textContent = b.dataset.l; chip.style.left = (b.offsetLeft) + 'px'; chip.style.top = (b.offsetTop - 22) + 'px'; };
+  b.onmouseleave = () => chip.style.display='none';
+  b.onclick = () => {
+    document.querySelectorAll('#ov .bx').forEach(x => x.classList.remove('sel'));
+    b.classList.add('sel');
+    document.getElementById('selEmpty').style.display = 'none';
+    const c = document.getElementById('selCard'); c.style.display = '';
+    document.getElementById('selName').textContent = b.dataset.l;
+    document.getElementById('selId').textContent = b.dataset.l.includes(' ') ? '—' : b.dataset.l;
+  };
+});
+</script>
+</body>
+</html>
