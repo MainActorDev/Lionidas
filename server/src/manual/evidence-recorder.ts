@@ -24,15 +24,21 @@ export class EvidenceRecorder {
   constructor(private readonly deps: EvidenceRecorderDeps, private readonly runId: string, private readonly udid: string) {}
 
   /** Whole-run video, started BEFORE the app opens. Best-effort:
-   *  stop → start → on 'already active', respawn the tool-server once →
-   *  start again (the wedged-recorder ladder — live-root-caused 2026-09-05).
-   *  Failure is named in notes, never blocks. */
+   *  stop → start → on 'already active', respawn the tool-server, STOP
+   *  AGAIN (the recording outlives the tool-server process — a respawned
+   *  server still sees the device-session's active recording, so a bare
+   *  start-retry hits the same error; the re-stop is what clears it),
+   *  then start (the wedged-recorder ladder — live-root-caused
+   *  2026-09-05, re-stop leg added 2026-09-07 after abort-leftovers
+   *  wedged every later run on the device). Failure is named in notes,
+   *  never blocks. */
   async startVideo(): Promise<void> {
     await this.deps.dispatch('alloy_video', { udid: this.udid, action: 'stop' }, this.deps.dispatchDeps).catch(() => undefined);
     let vs = await this.startVideoOnce();
     if (!vs.ok && classifyEngineError(vs) === 'already-recording') {
       try {
         this.deps.respawnToolServer();
+        await this.deps.dispatch('alloy_video', { udid: this.udid, action: 'stop' }, this.deps.dispatchDeps).catch(() => undefined);
         vs = await this.startVideoOnce();
       } catch { /* respawn best-effort */ }
     }
