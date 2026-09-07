@@ -201,6 +201,15 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
         <div v-if="pullMsg" style="font-size: 10px; color: var(--color-fog); line-height: 1.6;">{{ pullMsg }}</div>
         <div v-else style="font-size: 9.5px; color: var(--color-steel); line-height: 1.8;">apps never send anything — connect a device and pull its reports</div>
       </div>
+      <div class="section-label" style="margin-top: 0;"><span>devices</span></div>
+      <div class="devs">
+        <div v-for="d in devices.filter(x => x.kind === 'physical' || x.state === 'Booted')" :key="d.udid" class="dev">
+          <span class="dot" :class="{ off: d.state !== 'Booted' && d.kind === 'simulator' }"></span>
+          <span class="nm">{{ d.name ?? d.udid.slice(0, 8) }} <small>{{ d.kind === 'physical' ? 'physical' : 'sim' }}</small></span>
+          <span class="st">{{ d.state ?? '—' }}</span>
+          <button v-if="d.udid === devicePick" class="btn btn-sm" @click="pull">pull</button>
+        </div>
+      </div>
     </div>
     <div class="feed-col">
     <div class="section-label"><span>reports</span></div>
@@ -217,19 +226,8 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
     </div>
 
     </div>
-    <div class="dev-col">
-    <div class="section-label"><span>devices</span></div>
-    <div class="devs">
-      <div v-for="d in devices.filter(x => x.kind === 'physical' || x.state === 'Booted')" :key="d.udid" class="dev">
-        <span class="dot" :class="{ off: d.state !== 'Booted' && d.kind === 'simulator' }"></span>
-        <span class="nm">{{ d.name ?? d.udid.slice(0, 8) }} <small>{{ d.kind === 'physical' ? 'physical' : 'sim' }}</small></span>
-        <span class="st">{{ d.state ?? '—' }}</span>
-        <button v-if="d.udid === devicePick" class="btn btn-sm" @click="pull">pull</button>
-      </div>
-    </div>
-    </div>
-    </div>
 
+    </div>
     <!-- drawer -->
     <transition name="sidebar">
       <aside v-if="selected" class="drawer">
@@ -272,12 +270,11 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
 .extract .lbl { font-size: 9px; letter-spacing: .13em; text-transform: uppercase; color: var(--color-steel); }
 .extract select { min-width: 170px; }
 .section-label { font-size: 9px; letter-spacing: .13em; text-transform: uppercase; color: var(--color-steel); margin: 14px 0 8px; display: flex; justify-content: space-between; }
-.workspace { display: grid; grid-template-columns: 280px minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
-.pull-col { min-width: 0; }
+.workspace { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 14px; align-items: start; }
+.pull-col { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.pull-col .devs { margin: 0; }
 .pull-panel { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
 .feed-col { min-width: 0; }
-.dev-col { min-width: 0; }
-@media (max-width: 1180px) { .workspace { grid-template-columns: minmax(0, 1fr) 300px; } .pull-col { grid-column: 1 / -1; } .pull-panel { flex-direction: row; align-items: center; } .pull-panel select { width: 260px; } .pull-panel .btn { width: auto; } }
 @media (max-width: 900px) { .workspace { grid-template-columns: 1fr; } }
 .feed { display: flex; flex-direction: column; gap: 7px; }
 .inc { display: flex; gap: 12px; align-items: center; background: var(--color-carbon); border: 1px solid var(--color-iron); padding: 10px 13px; cursor: pointer; }
