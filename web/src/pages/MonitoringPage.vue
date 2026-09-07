@@ -76,6 +76,24 @@ async function pull(): Promise<void> {
   } finally { busy.value = false; }
 }
 
+/** Pretty-print + syntax-color Apple's payload JSON for the drawer.
+ *  Colors ride the Axiom palette: keys ember, strings fog, numbers chalk,
+ *  punctuation steel. Unparseable JSON falls back to escaped text. */
+function prettyJson(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    const json = JSON.stringify(parsed, null, 2)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return json
+      .replace(/"([^"\\]*(?:\\.[^"\\]*)*)"(\s*:)/g, '<span class="j-key">"$1"</span>$2')
+      .replace(/:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/g, ': <span class="j-str">"$1"</span>')
+      .replace(/:\s*(\d+(?:\.\d+)?)/g, ': <span class="j-num">$1</span>')
+      .replace(/:\s*(true|false|null)/g, ': <span class="j-bool">$1</span>');
+  } catch {
+    return raw.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  }
+}
+
 async function openDrawer(p: MxPayload): Promise<void> {
   selected.value = p;
   showRaw.value = false;
@@ -190,7 +208,8 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
     <!-- workspace: pull panel left, reports feed center, devices right -->
     <div class="workspace">
     <div class="pull-col">
-      <div class="pull-panel card" style="margin-top: 23px;">
+      <div class="section-label"><span>devices</span></div>
+      <div class="card devices-card">
         <select v-model="devicePick" style="width: 100%;">
           <option v-for="d in devices" :key="d.udid" :value="d.udid">
             {{ d.kind === 'physical' ? '📱' : '🖥' }} {{ d.name ?? d.udid.slice(0, 8) }}{{ d.state === 'Booted' ? '' : d.state ? ` · ${d.state.toLowerCase()}` : '' }}
@@ -199,14 +218,13 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
         <button class="btn btn-primary" style="width: 100%;" :disabled="!devicePick || busy" @click="pull">{{ busy ? 'pulling…' : '⟳ pull reports' }}</button>
         <div v-if="pullMsg" style="font-size: 10px; color: var(--color-fog); line-height: 1.6;">{{ pullMsg }}</div>
         <div v-else style="font-size: 9.5px; color: var(--color-steel); line-height: 1.8;">apps never send anything — connect a device and pull its reports</div>
-      </div>
-      <div class="section-label" style="margin-top: 0;"><span>devices</span></div>
-      <div class="devs">
-        <div v-for="d in devices.filter(x => x.kind === 'physical' || x.state === 'Booted')" :key="d.udid" class="dev">
-          <span class="dot" :class="{ off: d.state !== 'Booted' && d.kind === 'simulator' }"></span>
-          <span class="nm">{{ d.name ?? d.udid.slice(0, 8) }} <small>{{ d.kind === 'physical' ? 'physical' : 'sim' }}</small></span>
-          <span class="st">{{ d.state ?? '—' }}</span>
-          <button v-if="d.udid === devicePick" class="btn btn-sm" @click="pull">pull</button>
+        <div class="devs">
+          <div v-for="d in devices.filter(x => x.kind === 'physical' || x.state === 'Booted')" :key="d.udid" class="dev" :class="{ on: d.udid === devicePick }" @click="devicePick = d.udid">
+            <span class="dot" :class="{ off: d.state !== 'Booted' && d.kind === 'simulator' }"></span>
+            <span class="nm">{{ d.name ?? d.udid.slice(0, 8) }} <small>{{ d.kind === 'physical' ? 'physical' : 'sim' }}</small></span>
+            <span class="st">{{ d.state ?? '—' }}</span>
+            <button v-if="d.udid === devicePick" class="btn btn-sm" @click.stop="pull">pull</button>
+          </div>
         </div>
       </div>
     </div>
@@ -250,7 +268,7 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
 
           <div class="section-label" style="margin-top: 14px;">source</div>
           <span class="raw-link" @click="showRaw = !showRaw">{{ showRaw ? 'hide' : 'show' }} raw Apple payload</span>
-          <pre v-if="showRaw && selected.payload_json" class="raw">{{ selected.payload_json.slice(0, 4000) }}{{ selected.payload_json.length > 4000 ? '\n… (truncated)' : '' }}</pre>
+          <pre v-if="showRaw && selected.payload_json" class="raw" v-html="prettyJson(selected.payload_json.slice(0, 12000)) + (selected.payload_json.length > 12000 ? '\n… (truncated)' : '')"></pre>
         </div>
       </aside>
     </transition>
@@ -270,8 +288,13 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
 .extract select { min-width: 170px; }
 .section-label { font-size: 9px; letter-spacing: .13em; text-transform: uppercase; color: var(--color-steel); margin: 14px 0 8px; display: flex; justify-content: space-between; }
 .workspace { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 14px; align-items: start; }
-.pull-col { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
-.pull-col .devs { margin: 0; }
+.pull-col { min-width: 0; }
+.devices-card { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
+.devices-card select { padding-right: 30px; appearance: none; -webkit-appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--color-steel) 50%), linear-gradient(135deg, var(--color-steel) 50%, transparent 50%); background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
+.devices-card .devs { display: flex; flex-direction: column; gap: 6px; margin: 2px -6px 0; }
+.dev { display: flex; gap: 10px; align-items: center; background: transparent; border: 1px solid transparent; padding: 7px 8px; border-radius: var(--r-sm); cursor: pointer; }
+.dev:hover { background: var(--color-void); }
+.dev.on { border-color: var(--color-ember); background: var(--color-void); }
 .pull-panel { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
 .feed-col { min-width: 0; }
 @media (max-width: 900px) { .workspace { grid-template-columns: 1fr; } }
@@ -289,8 +312,6 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
 .inc .what { flex: 1; min-width: 0; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .inc .what small { color: var(--color-ash); font-size: 9.5px; }
 .inc .from { font-size: 9.5px; color: var(--color-fog); text-align: right; flex: none; }
-.devs { display: flex; flex-direction: column; gap: 6px; }
-.dev { display: flex; gap: 12px; align-items: center; background: var(--color-carbon); border: 1px solid var(--color-iron); padding: 9px 13px; }
 .dev .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-ember); flex: none; }
 .dev .dot.off { background: var(--color-pewter); }
 .dev .nm { font-size: 11px; min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -303,5 +324,9 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
 .dr-sub { font-size: 9.5px; color: var(--color-steel); margin-top: 3px; }
 .dr-body { flex: 1; overflow-y: auto; padding: 13px 15px; }
 .raw-link { font-size: 10px; color: var(--color-fog); cursor: pointer; text-decoration: underline; }
-.raw { background: var(--color-void); border: 1px solid var(--color-iron); padding: 10px; font-size: 9px; color: var(--color-fog); max-height: 300px; overflow: auto; white-space: pre; line-height: 1.6; margin-top: 8px; }
+.raw { background: var(--color-void); border: 1px solid var(--color-iron); padding: 12px; font-size: 9.5px; color: var(--color-fog); max-height: 320px; overflow: auto; white-space: pre; line-height: 1.7; margin-top: 8px; border-radius: var(--r-sm); }
+.j-key { color: var(--color-ember); }
+.j-str { color: var(--color-fog); }
+.j-num { color: var(--color-chalk); }
+.j-bool { color: var(--color-steel); }
 </style>
