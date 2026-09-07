@@ -170,7 +170,6 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
     </div>
 
     <!-- hero: one number that matters + 3 supporting -->
-    <div class="dash">
     <div class="hero">
       <div class="stat stat-ember">
         <div class="label">app stability</div>
@@ -201,7 +200,9 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
       <span v-if="pullMsg" class="meta-row" style="font-size: 10px; color: var(--color-fog);">{{ pullMsg }}</span>
     </div>
 
-    <!-- feed -->
+    <!-- workspace: reports feed left, devices right -->
+    <div class="workspace">
+    <div class="feed-col">
     <div class="section-label"><span>reports</span></div>
     <div v-if="payloads.length === 0" class="card empty">
       nothing yet — plug in a device with the app installed and pull
@@ -215,7 +216,8 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
       </div>
     </div>
 
-    <!-- devices -->
+    </div>
+    <div class="dev-col">
     <div class="section-label"><span>devices</span></div>
     <div class="devs">
       <div v-for="d in devices.filter(x => x.kind === 'physical' || x.state === 'Booted')" :key="d.udid" class="dev">
@@ -224,6 +226,7 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
         <span class="st">{{ d.state ?? '—' }}</span>
         <button v-if="d.udid === devicePick" class="btn btn-sm" @click="pull">pull</button>
       </div>
+    </div>
     </div>
     </div>
 
@@ -258,9 +261,7 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
 </template>
 
 <style scoped>
-/* focused dashboard: centered, content-capped — reads as one deliberate
- * column on big screens instead of a stretched full-width strip */
-.dash { max-width: 860px; margin: 0 auto; width: 100%; }
+/* hero spans full width (standardization: no page-level cap — shell pads) */
 .hero { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 14px; }
 .stat { background: var(--color-carbon); border: 1px solid var(--color-iron); padding: 13px 15px; }
 .stat-ember { border-left: 2px solid var(--color-ember); }
@@ -271,6 +272,10 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
 .extract .lbl { font-size: 9px; letter-spacing: .13em; text-transform: uppercase; color: var(--color-steel); }
 .extract select { min-width: 170px; }
 .section-label { font-size: 9px; letter-spacing: .13em; text-transform: uppercase; color: var(--color-steel); margin: 14px 0 8px; display: flex; justify-content: space-between; }
+.workspace { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; align-items: start; }
+.feed-col { min-width: 0; }
+.dev-col { min-width: 0; }
+@media (max-width: 900px) { .workspace { grid-template-columns: 1fr; } }
 .feed { display: flex; flex-direction: column; gap: 7px; }
 .inc { display: flex; gap: 12px; align-items: center; background: var(--color-carbon); border: 1px solid var(--color-iron); padding: 10px 13px; cursor: pointer; }
 .inc:hover { border-color: var(--color-slate); }
