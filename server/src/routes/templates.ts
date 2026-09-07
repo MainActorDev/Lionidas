@@ -292,6 +292,17 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       }
     }
     const vid = db.prepare(`SELECT id FROM evidence WHERE bundle_id = ? AND type = 'video' LIMIT 1`).get(run.id) as { id: string } | undefined;
+    // zero-expect fallback: a run that failed before any expect step (gate
+    // abort, app-check fail, all steps skipped) still carries ONE final
+    // screenshot — the SAME fallback the thumbnail route uses. Without this
+    // the thumbnail shows evidence and the lightbox shows an empty gallery.
+    if (!items.some((i) => i.kind === 'screenshot')) {
+      const shot = db.prepare(`SELECT id FROM evidence WHERE bundle_id = ? AND type = 'screenshot' ORDER BY created_at DESC LIMIT 1`).get(run.id) as { id: string } | undefined;
+      if (shot) {
+        const runRow = db.prepare('SELECT status FROM runs WHERE id = ?').get(run.id) as { status: string } | undefined;
+        items.push({ stepIdx: -1, stepName: 'run end — no expect steps reached', status: runRow?.status === 'failed' ? 'fail' : 'info', kind: 'screenshot', evId: shot.id });
+      }
+    }
     if (vid) items.push({ stepIdx: -1, stepName: 'whole run', status: 'info', kind: 'video', evId: vid.id });
     return { runId: run.id, items };
   });
