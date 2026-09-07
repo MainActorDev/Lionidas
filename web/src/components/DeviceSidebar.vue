@@ -352,44 +352,16 @@ async function commitAssert(): Promise<void> {
 
 const booted = computed(() => props.device?.state === 'Booted');
 
-// ── stage frame: device-aspect box fitted inside the stage (contain) ──
-// The overlay/chip/ripple span the frame, so they span the device image
-// exactly. Recomputed on stage resize and when device dims become known.
-const stageFrame = ref<HTMLElement | null>(null);
-const frameStyle = ref<Record<string, string>>({ aspectRatio: '428 / 926' });
-let stageRO: ResizeObserver | null = null;
-
-function fitStageFrame(): void {
-  const el = stageFrame.value;
-  const stage = el?.parentElement;
-  if (!el || !stage) return;
-  const w = (tree.logicalW.value && inspect.value ? tree.logicalW.value : null) ?? logicalW.value ?? 428;
-  const h = (tree.logicalH.value && inspect.value ? tree.logicalH.value : null) ?? logicalH.value ?? 926;
-  const ar = w / h;
-  const sw = stage.clientWidth;
-  const sh = stage.clientHeight;
-  if (sw <= 0 || sh <= 0) return;
-  const fw = Math.min(sw, sh * ar);
-  const fh = fw / ar;
-  frameStyle.value = { width: `${Math.floor(fw)}px`, height: `${Math.floor(fh)}px`, aspectRatio: `${w} / ${h}` };
-}
-
-function setStageFrame(el: unknown): void {
-  stageFrame.value = (Array.isArray(el) ? el[0] : el) as HTMLElement | null ?? null;
-  if (stageFrame.value && !stageRO) {
-    stageRO = new ResizeObserver(() => fitStageFrame());
-    stageRO.observe(stageFrame.value.parentElement as HTMLElement);
-  }
-  fitStageFrame();
-}
-watch([() => logicalW.value, () => logicalH.value, () => tree.logicalW.value, () => tree.logicalH.value], fitStageFrame);
+// ── stage frame: the canvas sizes by its INTRINSIC bitmap aspect (like watch
+// mode) and the frame shrink-wraps it — overlay/chip/ripple span the canvas
+// box exactly, so they span the device image. No JS aspect math: the bitmap
+// IS the truth; logical dims have lied (320pt squish bug).
 
 // ── lifecycle: device or mode change tears everything down cleanly ──
 watch(() => [props.device?.udid, props.mode] as const, () => {
   void reset();
 });
 onUnmounted(() => {
-  stageRO?.disconnect(); stageRO = null;
   window.removeEventListener('keydown', onKey);
   if (settleInterval) { clearInterval(settleInterval); settleInterval = null; }
   if (rafId) cancelAnimationFrame(rafId);
@@ -585,9 +557,9 @@ async function endSession(): Promise<void> {
             <!-- aspect-locked frame: fitted to the stage via contain math so the
                  canvas, overlay boxes, chip and ripple all span EXACTLY the
                  device image — never the letterboxed outer container -->
-            <div v-else class="stage-frame" :ref="setStageFrame" :style="frameStyle">
+            <div v-else class="stage-frame">
               <canvas :ref="stream.setCanvas" @click="onTap" @mousemove="onCanvasMove"
-                :style="{ width: '100%', height: '100%', display: 'block', objectFit: 'contain', cursor: inspect ? 'default' : 'crosshair', background: 'var(--color-void)' }"></canvas>
+                :style="{ display: 'block', cursor: inspect ? 'default' : 'crosshair', background: 'var(--color-void)' }"></canvas>
               <InspectOverlay v-if="inspect && sessionId" :nodes="tree.nodes.value" :logical-w="tree.logicalW.value" :logical-h="tree.logicalH.value"
                 :hover="hoverNode" :selected="selNode" :visible="tree.state.value === 'aligned'" />
               <div v-if="inspect && hoverNode && tree.state.value === 'aligned' && sessionId" class="hover-chip"
@@ -837,7 +809,10 @@ async function endSession(): Promise<void> {
   border-right: 1px solid var(--color-iron);
 }
 .stream-stage { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-.stage-frame { position: relative; flex: 0 0 auto; }
+.stage-frame { position: relative; flex: 0 0 auto; height: 100%; max-width: 100%; line-height: 0; }
+/* canvas: intrinsic aspect (like watch mode), height-capped by the stage;
+ * width follows the aspect and can never exceed the stage either */
+.stage-frame canvas { height: 100%; width: auto; max-width: 100%; }
 .stage-empty {
   width: 100%; height: 100%; min-height: 320px;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
