@@ -9,6 +9,7 @@ import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { crucibleAlloy } from '../alloy/client.ts';
+import { dispatchWithHeal } from '../alloy/heal.ts';
 import { captureSelectorAt, countMatches } from './selector.ts';
 import type { StepSelector, SnapNode } from './selector.ts';
 
@@ -54,7 +55,7 @@ async function recordStep(deps: ManualDeps, sessionId: string, step: StepInput):
   let thumb: string | null = null;
   try {
     const alloy = crucibleAlloy();
-    const r = (await alloy.dispatch('alloy_screenshot', { udid: sessionUdid(deps, sessionId) }, deps.dispatchDeps)) as
+    const r = (await dispatchWithHeal('alloy_screenshot', { udid: sessionUdid(deps, sessionId) }, deps.dispatchDeps)) as
       | { ok: true; result: { path: string } }
       | { ok: false };
     if (r.ok) thumb = r.result.path;
@@ -78,7 +79,7 @@ function sessionUdid(deps: ManualDeps, sessionId: string): string {
 async function captureSelector(deps: ManualDeps, udid: string, x: number, y: number): Promise<StepSelector | null> {
   try {
     const alloy = crucibleAlloy();
-    const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
+    const snap = (await dispatchWithHeal('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
       | { ok: true; result: { nodes?: SnapNode[] } }
       | { ok: false };
     if (!snap.ok) return null;
@@ -114,7 +115,7 @@ export async function startManualSession(deps: ManualDeps, udid: string, operato
     // open needs an explicit bundle id, so true foreground detection is
     // chicken-and-egg here). Explicit param wins; Settings is the fallback.
     // Save-time app binding uses the SNAPSHOT root instead — ground truth.
-    const open = (await alloy.dispatch('alloy_apps', { action: 'open', app: appBundleId ?? 'com.apple.Preferences', udid, hold: false }, deps.dispatchDeps)) as
+    const open = (await dispatchWithHeal('alloy_apps', { action: 'open', app: appBundleId ?? 'com.apple.Preferences', udid, hold: false }, deps.dispatchDeps)) as
       | { ok: true }
       | { ok: false; error: { message: string } };
     if (!open.ok) {
@@ -122,7 +123,7 @@ export async function startManualSession(deps: ManualDeps, udid: string, operato
       throw new ManualSessionError('LEASE_LOST', `open failed: ${open.error.message}`);
     }
     // dimensions from snapshot for coord mapping
-    const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
+    const snap = (await dispatchWithHeal('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
       | { ok: true; result: { nodes?: Array<{ rect?: { width: number; height: number } }> } }
       | { ok: false };
     let w: number | null = null;
@@ -154,7 +155,7 @@ export async function manualTap(deps: ManualDeps, sessionId: string, x: number, 
   // A6: capture WHAT was tapped from the pre-action hierarchy (recording only)
   const recordingOn = readRecording(deps, sessionId).on;
   const selector = recordingOn ? await captureSelector(deps, s.udid, x, y) : null;
-  const r = (await alloy.dispatch('alloy_act', { udid: s.udid, action: 'press', target: { x, y }, settle: false }, deps.dispatchDeps)) as
+  const r = (await dispatchWithHeal('alloy_act', { udid: s.udid, action: 'press', target: { x, y }, settle: false }, deps.dispatchDeps)) as
     | { ok: true }
     | { ok: false; error: { code: string; message: string } };
   if (!r.ok) throw new ManualSessionError('LEASE_LOST', `tap failed: ${r.error.message}`);
@@ -166,7 +167,7 @@ export async function manualTap(deps: ManualDeps, sessionId: string, x: number, 
 export async function manualScroll(deps: ManualDeps, sessionId: string, direction: 'up' | 'down' | 'left' | 'right'): Promise<void> {
   const s = liveSession(deps, sessionId);
   const alloy = crucibleAlloy();
-  const r = (await alloy.dispatch('alloy_act', { udid: s.udid, action: 'scroll', direction, settle: false }, deps.dispatchDeps)) as
+  const r = (await dispatchWithHeal('alloy_act', { udid: s.udid, action: 'scroll', direction, settle: false }, deps.dispatchDeps)) as
     | { ok: true }
     | { ok: false };
   if (!r.ok) throw new ManualSessionError('LEASE_LOST', 'scroll failed');
@@ -183,7 +184,7 @@ export async function manualType(deps: ManualDeps, sessionId: string, x: number,
   const selector = recordingOn ? await captureSelector(deps, s.udid, x, y) : null;
   // engine `fill`: targets the field at (x,y) and replaces its text — same
   // coordinate space as tap (logical points from the session dims)
-  const r = (await alloy.dispatch('alloy_act', { udid: s.udid, action: 'fill', target: { x, y }, text, settle: true }, deps.dispatchDeps)) as
+  const r = (await dispatchWithHeal('alloy_act', { udid: s.udid, action: 'fill', target: { x, y }, text, settle: true }, deps.dispatchDeps)) as
     | { ok: true }
     | { ok: false; error: { code: string; message: string } };
   if (!r.ok) throw new ManualSessionError('LEASE_LOST', `type failed: ${'message' in r.error ? r.error.message : 'engine error'}`);
@@ -220,7 +221,7 @@ export function deleteRecordedStep(deps: ManualDeps, sessionId: string, idx: num
 export async function manualSnapshot(deps: ManualDeps, sessionId: string): Promise<{ path: string }> {
   const s = liveSession(deps, sessionId);
   const alloy = crucibleAlloy();
-  const r = (await alloy.dispatch('alloy_screenshot', { udid: s.udid }, deps.dispatchDeps)) as
+  const r = (await dispatchWithHeal('alloy_screenshot', { udid: s.udid }, deps.dispatchDeps)) as
     | { ok: true; result: { path: string } }
     | { ok: false; error: { message: string } };
   if (!r.ok) throw new ManualSessionError('LEASE_LOST', `snapshot failed: ${r.error.message}`);
@@ -235,7 +236,7 @@ export async function manualSnapshot(deps: ManualDeps, sessionId: string): Promi
 export async function manualProbeSelector(deps: ManualDeps, sessionId: string, sel: { identifier?: string; label?: string; type?: string }): Promise<{ matched: number; labels: string[] }> {
   const s = liveSession(deps, sessionId);
   const alloy = crucibleAlloy();
-  const snap = (await alloy.dispatch('alloy_snapshot', { udid: s.udid, interactiveOnly: false }, deps.dispatchDeps)) as
+  const snap = (await dispatchWithHeal('alloy_snapshot', { udid: s.udid, interactiveOnly: false }, deps.dispatchDeps)) as
     | { ok: true; result: { nodes?: SnapNode[] } }
     | { ok: false };
   const nodesL = snap.ok ? snap.result.nodes ?? [] : [];
@@ -252,7 +253,7 @@ export async function manualProbeSelector(deps: ManualDeps, sessionId: string, s
 export async function manualTree(deps: ManualDeps, sessionId: string): Promise<{ nodes: SnapNode[]; logicalW: number | null; logicalH: number | null; capturedAt: number }> {
   const s = liveSession(deps, sessionId);
   const alloy = crucibleAlloy();
-  const snap = (await alloy.dispatch('alloy_snapshot', { udid: s.udid, interactiveOnly: false }, deps.dispatchDeps)) as
+  const snap = (await dispatchWithHeal('alloy_snapshot', { udid: s.udid, interactiveOnly: false }, deps.dispatchDeps)) as
     | { ok: true; result: { nodes?: SnapNode[] } }
     | { ok: false; error?: { message?: string } };
   if (!snap.ok) throw new ManualSessionError('LEASE_LOST', `tree failed: ${snap.error?.message ?? 'snapshot dispatch failed'}`);
@@ -274,7 +275,7 @@ export function recordExpectStep(deps: ManualDeps, sessionId: string, selector: 
   let thumb: string | null = null;
   try {
     const alloy = crucibleAlloy();
-    const r = (() => alloy.dispatch('alloy_screenshot', { udid: sessionUdid(deps, sessionId) }, deps.dispatchDeps)) as unknown as Promise<{ ok: true; result: { path: string } } | { ok: false }>;
+    const r = (() => dispatchWithHeal('alloy_screenshot', { udid: sessionUdid(deps, sessionId) }, deps.dispatchDeps)) as unknown as Promise<{ ok: true; result: { path: string } } | { ok: false }>;
     void r.then((res) => {
       if (res.ok) {
         const st = readRecording(deps, sessionId);
@@ -297,7 +298,7 @@ export async function finishManualSession(deps: ManualDeps, sessionId: string, n
   if (!s) throw new ManualSessionError('SESSION_NOT_FOUND', `no session ${sessionId}`);
   if (s.finished_at) return; // idempotent
   const alloy = crucibleAlloy();
-  await alloy.dispatch('alloy_release', { udid: s.udid }, deps.dispatchDeps).catch(() => undefined);
+  await dispatchWithHeal('alloy_release', { udid: s.udid }, deps.dispatchDeps).catch(() => undefined);
   deps.db.prepare('UPDATE manual_sessions SET finished_at = ? WHERE id = ?').run(Date.now(), sessionId);
   deps.db.prepare(`UPDATE runs SET status = 'passed', finished_at = ?, note = ? WHERE id = ?`).run(Date.now(), note ?? `manual:${sessionId}`, s.run_id);
   deps.bus.emit('manual.session.finish', { sessionId });

@@ -21,7 +21,7 @@
  *  problems. Unknown errors pass through untouched. */
 import { crucibleAlloy, resetEngineCache } from './client.ts';
 
-const STALE_SIGNATURES = /fetch failed|already bound|ECONNREFUSED|COMMAND_FAILED/i;
+const STALE_SIGNATURES = /fetch failed|already bound|ECONNREFUSED|COMMAND_FAILED|Failed to communicate with daemon|requires an active app session/i;
 
 export interface DispatchResult {
   ok: boolean;
