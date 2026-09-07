@@ -163,7 +163,7 @@ const chipXY = computed(() => {
 
 const treeLabel = computed(() => {
   switch (tree.state.value) {
-    case 'aligned': return `${tree.nodes.value.length} nodes`;
+    case 'aligned': return `${tree.nodes.value.length} nodes${tree.animating.value ? ' · animating' : ''}`;
     case 'fetching': return 'loading tree…';
     case 'realigning': return 're-aligning…';
     case 'failed': return 'tree unavailable';

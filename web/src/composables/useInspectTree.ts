@@ -16,6 +16,10 @@ export type TreeState = 'off' | 'fetching' | 'aligned' | 'realigning' | 'failed'
 
 export interface InspectTree {
   state: Ref<TreeState>;
+  /** true when aligned on a screen that never goes still (carousel/banner
+   *  cross-fades): the tree was captured at one instant and a minority of
+   *  nodes (the animating region) may drift. Labeled on the pill — honest. */
+  animating: Ref<boolean>;
   nodes: Ref<AxNode[]>;
   logicalW: Ref<number | null>;
   logicalH: Ref<number | null>;
@@ -36,6 +40,7 @@ export interface InspectTree {
 
 export function useInspectTree(fetchTree: (sessionId: string, signal: AbortSignal) => Promise<{ nodes: AxNode[]; logicalW: number | null; logicalH: number | null }>): InspectTree {
   const state = ref<TreeState>('off');
+  const animating = ref(false);
   const nodes = ref<AxNode[]>([]);
   const logicalW = ref<number | null>(null);
   const logicalH = ref<number | null>(null);
@@ -45,9 +50,20 @@ export function useInspectTree(fetchTree: (sessionId: string, signal: AbortSigna
   let inFlight: AbortController | null = null;
   let detector = new SettleDetector();
   let settleTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastFetchAt = 0;
+  let busyCompletes = 0;      // consecutive fetches that landed while busy
+  const REFETCH_COOLDOWN_MS = 2000; // carousel screens: burst-settle-burst forever —
+                                    // cap the refetch cadence or we hammer /tree ~1/s
+  const FORCE_ALIGN_AFTER = 3;      // never-quiet screens (banner cross-fade):
+                                    // align anyway and label it `animating`
 
-  async function doFetch(): Promise<void> {
+  async function doFetch(force = false): Promise<void> {
     if (!sessionId) return;
+    if (!force && Date.now() - lastFetchAt < REFETCH_COOLDOWN_MS) {
+      scheduleRefetch(REFETCH_COOLDOWN_MS - (Date.now() - lastFetchAt) + 50);
+      return;
+    }
+    lastFetchAt = Date.now();
     const v = ++version;
     inFlight?.abort();
     const ac = new AbortController();
@@ -59,23 +75,43 @@ export function useInspectTree(fetchTree: (sessionId: string, signal: AbortSigna
       nodes.value = r.nodes;
       logicalW.value = r.logicalW;
       logicalH.value = r.logicalH;
-      state.value = 'aligned';
-      detector = new SettleDetector(); // aligned tree is fresh; restart detection
+      // QUIET-AT-COMPLETION gate: a fetch that lands mid-animation (carousel
+      // auto-advance, skeleton shimmer) must NOT flash boxes that are already
+      // stale. Only claim aligned when the screen is actually still (or the
+      // user forced a refresh — their call, manual override of the honesty rule).
+      const quiet = detector.tick(Date.now()) === 'quiet';
+      if (force || quiet) {
+        state.value = 'aligned';
+        animating.value = false; // genuinely still (or fresh manual refresh);
+        detector = new SettleDetector(); // aligned tree is fresh; restart detection
+      } else if (++busyCompletes >= FORCE_ALIGN_AFTER) {
+        // 3 fetches landed mid-animation: the screen never stills. Align anyway —
+        // static elements (the vast majority) are accurate at this instant — but
+        // LABEL it: the animating region's nodes may drift until the next refresh.
+        state.value = 'aligned';
+        animating.value = true;
+        busyCompletes = 0;
+        detector = new SettleDetector();
+      } else {
+        state.value = 'realigning'; // keep waiting; cooldown paces the next try
+      }
     } catch (e) {
       if (ac.signal.aborted || v !== version) return;
       state.value = 'failed';
     }
   }
 
-  function scheduleRefetch(): void {
+  function scheduleRefetch(delay = 150): void {
     if (settleTimer) clearTimeout(settleTimer);
-    settleTimer = setTimeout(() => { void doFetch(); }, 150); // debounce bursts
+    settleTimer = setTimeout(() => { void doFetch(); }, delay); // debounce bursts
   }
 
   return {
-    state, nodes, logicalW, logicalH,
+    state, animating, nodes, logicalW, logicalH,
     enable(sid: string): void {
       sessionId = sid;
+      busyCompletes = 0;
+      animating.value = false;
       state.value = 'fetching';
       nodes.value = [];
       void doFetch();
@@ -92,8 +128,11 @@ export function useInspectTree(fetchTree: (sessionId: string, signal: AbortSigna
       if (state.value === 'off' || state.value === 'failed') return;
       const s = detector.push(paintedAt);
       if (s === 'busy') {
-        // screen is moving — boxes no longer provably match reality
-        if (state.value === 'aligned') state.value = 'realigning';
+        // screen is moving — boxes no longer provably match reality.
+        // EXCEPT while labeled animating (never-quiet screen): that label IS
+        // the honesty; demoting every frame would flap aligned↔realigning
+        // forever and boxes would never render. Scroll/refresh still exits.
+        if (state.value === 'aligned' && !animating.value) state.value = 'realigning';
       }
     },
     tick(now: number): void {
@@ -101,13 +140,17 @@ export function useInspectTree(fetchTree: (sessionId: string, signal: AbortSigna
       const s = detector.tick(now);
       if (s === 'quiet') scheduleRefetch();
     },
-    refresh(): void { void doFetch(); },
+    refresh(): void { void doFetch(true); }, // force: bypass cooldown + quiet gate
     markScroll(): void {
       detector = new SettleDetector();
+      busyCompletes = 0;
+      animating.value = false;
       if (state.value === 'aligned') state.value = 'realigning';
     },
     markInteraction(): void {
       detector = new SettleDetector();
+      busyCompletes = 0;
+      animating.value = false;
       if (state.value === 'aligned') state.value = 'realigning';
     },
   };
