@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>004 · C — Device Bench (extraction-first)</title>
+<style>
+:root {
+  --void:#000; --carbon:#111; --graphite:#191919; --iron:#202020; --slate:#3a3a3a; --pewter:#505050;
+  --steel:#606060; --ash:#7e7e7e; --fog:#b4b4b4; --chalk:#d9d9d9; --paper:#eeeeee;
+  --ember:#da5c2c; --ember-dim:#a04521;
+  --mono:'JetBrains Mono','SF Mono',Menlo,monospace;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:var(--void); font-family:var(--mono); color:var(--paper); padding:20px; font-size:12px; }
+.hint { position:fixed; left:16px; bottom:16px; font-size:10px; color:var(--steel); max-width:210px; line-height:1.8; }
+.hint b { color:var(--fog); }
+
+.wrap { max-width:1060px; margin:0 auto; }
+.page-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:18px; }
+.page-title { font-size:16px; font-weight:700; }
+.page-sub { font-size:10px; color:var(--steel); margin-top:3px; }
+
+/* ══ the bench: device cards ARE the page ══ */
+.bench { display:grid; grid-template-columns:repeat(2, 1fr); gap:12px; margin-bottom:18px; }
+.devcard { background:var(--carbon); border:1px solid var(--iron); display:flex; }
+.devcard .phone { width:64px; background:var(--void); border-right:1px solid var(--iron); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; font-size:18px; }
+.devcard .phone .on { width:6px; height:6px; border-radius:50%; background:var(--ember); }
+.devcard .phone .off { width:6px; height:6px; border-radius:50%; background:var(--pewter); }
+.devcard .info { flex:1; padding:12px 14px; min-width:0; }
+.devcard .nm { font-size:12.5px; font-weight:700; display:flex; gap:8px; align-items:baseline; }
+.devcard .nm small { color:var(--steel); font-size:9.5px; font-weight:400; }
+.devcard .meta { font-size:9.5px; color:var(--steel); margin-top:4px; line-height:1.7; }
+.devcard .meta b { color:var(--fog); font-weight:400; }
+
+/* app rows inside a device */
+.apps { margin-top:10px; display:flex; flex-direction:column; gap:6px; }
+.app-row { display:flex; gap:10px; align-items:center; background:var(--void); border:1px solid var(--iron); padding:8px 10px; }
+.app-row .icon { width:26px; height:26px; border-radius:6px; background:linear-gradient(135deg,var(--ember),var(--ember-dim)); flex:none; }
+.app-row .an { flex:1; min-width:0; }
+.app-row .an .n { font-size:11px; }
+.app-row .an .v { font-size:9px; color:var(--steel); margin-top:2px; }
+.badge-new { font-size:9px; color:var(--ember); border:1px solid var(--ember-dim); padding:2px 7px; flex:none; }
+.badge-ok { font-size:9px; color:var(--steel); border:1px solid var(--iron); padding:2px 7px; flex:none; }
+.btn { background:var(--void); border:1px solid var(--slate); color:var(--paper); font-family:inherit; font-size:10.5px; padding:6px 11px; cursor:pointer; flex:none; }
+.btn:hover { border-color:var(--fog); }
+.btn.primary { background:var(--ember); border-color:var(--ember); font-weight:700; }
+.btn.primary:hover { background:var(--ember-dim); }
+.btn:disabled { opacity:.35; cursor:default; }
+.app-row .lastex { font-size:9px; color:var(--steel); text-align:right; flex:none; line-height:1.6; }
+
+/* extraction feedback strip (in-place) */
+.exbar { display:none; margin-top:9px; background:var(--void); border:1px solid var(--iron); padding:8px 10px; font-size:9.5px; color:var(--fog); }
+.exbar.on { display:block; }
+.exbar b { color:var(--ember); font-weight:400; }
+.exbar .steps { display:flex; gap:14px; }
+.exbar .step { color:var(--steel); }
+.exbar .step.done { color:var(--fog); }
+.exbar .step.done::before { content:'✓ '; color:var(--ember); }
+.exbar .step.active { color:var(--paper); }
+.exbar .step.active::before { content:'⟳ '; }
+
+/* ══ findings below: what past extractions surfaced ══ */
+.sect-label { font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--steel); margin:18px 0 8px; display:flex; justify-content:space-between; }
+.sect-label .r { letter-spacing:0; text-transform:none; }
+.findings { display:flex; flex-direction:column; gap:8px; }
+.find { display:flex; gap:12px; align-items:center; background:var(--carbon); border:1px solid var(--iron); padding:10px 14px; cursor:pointer; }
+.find:hover { border-color:var(--slate); }
+.t-badge { font-size:9px; font-weight:700; padding:3px 8px; letter-spacing:.08em; flex:none; width:52px; text-align:center; }
+.t-CRASH { background:var(--ember); color:var(--paper); }
+.t-HANG { background:#3a2417; color:var(--ember); border:1px solid var(--ember-dim); }
+.t-DISK { background:var(--iron); color:var(--fog); }
+.t-METRIC { background:transparent; color:var(--steel); border:1px solid var(--iron); }
+.find .when { font-size:9.5px; color:var(--steel); width:86px; flex:none; }
+.find .what { flex:1; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.find .what small { color:var(--ash); font-size:9.5px; }
+.find .from { font-size:9px; color:var(--steel); text-align:right; flex:none; line-height:1.6; }
+.tally { display:flex; gap:16px; font-size:10px; color:var(--steel); margin-bottom:10px; }
+.tally b { color:var(--paper); font-size:13px; margin-right:4px; }
+.tally .bad b { color:var(--ember); }
+</style>
+</head>
+<body>
+<div class="hint"><b>004 · C</b> — Device Bench<br>Devices-with-apps ARE the page; Extract is per app-row. Findings below. Mirrors your devices page mental model.</div>
+
+<div class="wrap">
+  <div class="page-head">
+    <div>
+      <div class="page-title">monitoring</div>
+      <div class="page-sub">devices on the bench · extract Guvnor payloads per device+app · apps never send</div>
+    </div>
+    <div class="page-sub" style="text-align:right">3 devices connected<br>2 apps reporting</div>
+  </div>
+
+  <!-- the bench -->
+  <div class="bench">
+    <div class="devcard">
+      <div class="phone">📱<span class="on"></span></div>
+      <div class="info">
+        <div class="nm">iPhone 14 Plus <small>QA-01 · physical · iOS 26.4</small></div>
+        <div class="meta">docked · last extract <b>14 min ago</b></div>
+        <div class="apps">
+          <div class="app-row">
+            <div class="icon"></div>
+            <div class="an"><div class="n">LionParcel</div><div class="v">4.2.0 DEV · 2 payloads waiting</div></div>
+            <span class="badge-new">2 new</span>
+            <button class="btn primary" onclick="extract(this)">extract</button>
+            <div class="lastex">14:02<br>3 files</div>
+          </div>
+          <div class="app-row">
+            <div class="icon"></div>
+            <div class="an"><div class="n">LionParcel</div><div class="v">4.1.9 PRODUCTION · up to date</div></div>
+            <span class="badge-ok">0 new</span>
+            <button class="btn" disabled>extract</button>
+            <div class="lastex">14:02<br>0 files</div>
+          </div>
+        </div>
+        <div class="exbar" id="ex1">
+          <div class="steps">
+            <span class="step done">container found</span>
+            <span class="step done">6 files · 41 KB</span>
+            <span class="step active">ingesting 3 new</span>
+            <span class="step">skip 2 dupes</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="devcard">
+      <div class="phone">📱<span class="on"></span></div>
+      <div class="info">
+        <div class="nm">iPhone 16 <small>docked · physical · iOS 26.4</small></div>
+        <div class="meta">paired · last extract <b>1 h ago</b></div>
+        <div class="apps">
+          <div class="app-row">
+            <div class="icon"></div>
+            <div class="an"><div class="n">LionParcel</div><div class="v">4.1.9 PRODUCTION · 1 payload waiting</div></div>
+            <span class="badge-new">1 new</span>
+            <button class="btn primary">extract</button>
+            <div class="lastex">13:11<br>4 files</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="devcard">
+      <div class="phone">🖥<span class="on"></span></div>
+      <div class="info">
+        <div class="nm">iPhone 16 Pro <small>simulator · booted</small></div>
+        <div class="meta">runner device · Guvnor app found · <b>0 payloads yet</b> (sims never receive MetricKit — use debugInject)</div>
+        <div class="apps">
+          <div class="app-row">
+            <div class="icon"></div>
+            <div class="an"><div class="n">LionParcel DEV</div><div class="v">4.2.0 · no payloads</div></div>
+            <span class="badge-ok">empty</span>
+            <button class="btn" disabled>extract</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="devcard" style="opacity:.55">
+      <div class="phone">🖥<span class="off"></span></div>
+      <div class="info">
+        <div class="nm">iPhone SE <small>simulator · shut down</small></div>
+        <div class="meta">boot the device to see its apps</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- findings -->
+  <div class="sect-label"><span>findings · all extracted payloads, latest first</span><span class="r">52 payloads · 14d retention</span></div>
+  <div class="tally">
+    <span class="bad"><b>4</b>crashes</span>
+    <span><b>11</b>hangs</span>
+    <span><b>2</b>disk exceptions</span>
+    <span><b>99.4%</b>crash-free 7d</span>
+    <span style="margin-left:auto">click a finding for the full report →</span>
+  </div>
+  <div class="findings">
+    <div class="find">
+      <span class="t-badge t-CRASH">CRASH</span>
+      <span class="when">today 14:02</span>
+      <span class="what">EXC_BAD_ACCESS KERN_INVALID_ADDRESS <small>· main thread · 14 frames</small></span>
+      <span class="from">iPhone 14 Plus · QA-01<small>LionParcel 4.2.0 DEV</small></span>
+    </div>
+    <div class="find">
+      <span class="t-badge t-HANG">HANG</span>
+      <span class="when">today 09:41</span>
+      <span class="what">250ms+ unresponsive <small>· checkout step 2</small></span>
+      <span class="from">iPhone 16<small>LionParcel 4.1.9 PROD</small></span>
+    </div>
+    <div class="find">
+      <span class="t-badge t-DISK">DISK</span>
+      <span class="when">yesterday</span>
+      <span class="what">1.1 GB written in 24h <small>· exceeds threshold</small></span>
+      <span class="from">iPhone 14 Plus · QA-01<small>LionParcel 4.2.0 DEV</small></span>
+    </div>
+    <div class="find">
+      <span class="t-badge t-METRIC">METRIC</span>
+      <span class="when">yesterday</span>
+      <span class="what">daily report <small>· launch p70 1.4s · hitch 0.8% · mem 214MB</small></span>
+      <span class="from">iPhone 16<small>LionParcel 4.1.9 PROD</small></span>
+    </div>
+  </div>
+</div>
+
+<script>
+function extract(btn) {
+  const bar = document.getElementById('ex1');
+  bar.classList.add('on');
+  btn.textContent = 'extracting…';
+  setTimeout(() => {
+    document.querySelectorAll('#ex1 .step').forEach(s => { s.classList.remove('active'); s.classList.add('done'); });
+    document.querySelector('#ex1 .steps').insertAdjacentHTML('beforeend', '<span class="step done"><b>3 ingested</b> · 2 dupes skipped · 0.9s</span>');
+    btn.textContent = 'extract';
+  }, 1600);
+}
+</script>
+</body>
+</html>

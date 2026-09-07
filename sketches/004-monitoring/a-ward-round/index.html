@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>004 · A — Ward Round (fleet-first)</title>
+<style>
+:root {
+  --void:#000; --carbon:#111; --graphite:#191919; --iron:#202020; --slate:#3a3a3a; --pewter:#505050;
+  --steel:#606060; --ash:#7e7e7e; --fog:#b4b4b4; --chalk:#d9d9d9; --paper:#eeeeee;
+  --ember:#da5c2c; --ember-dim:#a04521;
+  --mono:'JetBrains Mono','SF Mono',Menlo,monospace;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:var(--void); font-family:var(--mono); color:var(--paper); padding:20px; font-size:12px; }
+.hint { position:fixed; left:16px; bottom:16px; font-size:10px; color:var(--steel); max-width:210px; line-height:1.8; }
+.hint b { color:var(--fog); }
+
+.wrap { max-width:1060px; margin:0 auto; }
+.page-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:18px; }
+.page-title { font-size:16px; font-weight:700; }
+.page-sub { font-size:10px; color:var(--steel); margin-top:3px; }
+
+/* ── hero strip: the ward board ── */
+.hero { display:grid; grid-template-columns: 1.5fr 1fr 1fr 1fr; gap:10px; margin-bottom:16px; }
+.stat { background:var(--carbon); border:1px solid var(--iron); padding:14px 16px; position:relative; }
+.stat .label { font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--steel); margin-bottom:8px; }
+.stat .big { font-size:26px; font-weight:700; line-height:1; }
+.stat .big small { font-size:12px; color:var(--fog); font-weight:400; }
+.stat .sub { font-size:9.5px; color:var(--ash); margin-top:7px; }
+.stat.ember { border-left:2px solid var(--ember); }
+.stat .delta-up { color:var(--fog); } .stat .delta-bad { color:var(--ember); }
+.spark { display:flex; gap:2px; align-items:flex-end; height:26px; margin-top:9px; }
+.spark i { flex:1; background:var(--pewter); min-height:2px; }
+.spark i.hi { background:var(--ember); }
+
+/* ── extract bar: THE action ── */
+.extract { display:flex; gap:8px; align-items:center; background:var(--graphite); border:1px solid var(--iron); padding:10px 12px; margin-bottom:16px; }
+.extract .lbl { font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--steel); }
+select, .btn { background:var(--void); border:1px solid var(--slate); color:var(--paper); font-family:inherit; font-size:11px; padding:7px 10px; }
+select { min-width:170px; }
+.btn { cursor:pointer; }
+.btn:hover { border-color:var(--fog); }
+.btn.primary { background:var(--ember); border-color:var(--ember); font-weight:700; }
+.btn.primary:hover { background:var(--ember-dim); }
+.extract .result { font-size:10px; color:var(--fog); margin-left:auto; }
+.extract .result b { color:var(--ember); font-weight:400; }
+
+/* ── sections ── */
+.sect-label { font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--steel); margin:16px 0 8px; display:flex; justify-content:space-between; }
+.sect-label .r { letter-spacing:0; text-transform:none; }
+
+/* incident feed */
+.feed { display:flex; flex-direction:column; gap:8px; }
+.inc { display:flex; gap:12px; align-items:center; background:var(--carbon); border:1px solid var(--iron); padding:11px 14px; cursor:pointer; }
+.inc:hover { border-color:var(--slate); }
+.inc.sel { border-color:var(--ember); }
+.inc .t-badge { font-size:9px; font-weight:700; padding:3px 8px; letter-spacing:.08em; flex:none; width:52px; text-align:center; }
+.t-CRASH { background:var(--ember); color:var(--paper); }
+.t-HANG { background:#3a2417; color:var(--ember); border:1px solid var(--ember-dim); }
+.t-CPU { background:var(--iron); color:var(--fog); }
+.t-DISK { background:var(--iron); color:var(--fog); }
+.t-METRIC { background:transparent; color:var(--steel); border:1px solid var(--iron); }
+.inc .when { font-size:10px; color:var(--steel); width:88px; flex:none; }
+.inc .what { flex:1; min-width:0; font-size:11px; color:var(--paper); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.inc .what small { color:var(--ash); font-size:9.5px; }
+.inc .from { font-size:9.5px; color:var(--fog); text-align:right; flex:none; }
+.inc .from small { display:block; color:var(--steel); font-size:9px; }
+.inc .count { font-size:10px; color:var(--ember); flex:none; }
+
+/* devices strip (mini) */
+.devs { display:flex; gap:8px; }
+.dev { flex:1; background:var(--carbon); border:1px solid var(--iron); padding:10px 12px; cursor:pointer; }
+.dev:hover { border-color:var(--slate); }
+.dev .nm { font-size:11px; }
+.dev .meta { font-size:9px; color:var(--steel); margin-top:4px; line-height:1.6; }
+.dev .meta b { color:var(--fog); font-weight:400; }
+.dev .live { color:var(--ember); }
+.dev .has { color:var(--ember); font-size:9px; }
+
+/* ══ detail: right drawer on select ══ */
+.drawer { position:fixed; top:0; right:-440px; bottom:0; width:440px; background:var(--carbon); border-left:1px solid var(--iron); transition:right .18s ease; display:flex; flex-direction:column; z-index:40; }
+.drawer.on { right:0; }
+.dr-head { display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid var(--iron); }
+.dr-title { font-size:12px; font-weight:700; }
+.dr-sub { font-size:9.5px; color:var(--steel); margin-top:3px; }
+.dr-body { flex:1; overflow-y:auto; padding:14px 16px; }
+.krow { display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-bottom:1px solid var(--iron); font-size:10.5px; }
+.krow .k { color:var(--steel); font-size:9px; min-width:70px; padding-top:1px; flex:none; }
+.krow .v { color:var(--paper); text-align:right; word-break:break-all; font-size:10px; }
+.sub-label { font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--steel); margin:14px 0 7px; }
+/* call stack */
+.frame { display:flex; gap:10px; font-size:10px; padding:5px 0 5px 10px; border-left:2px solid var(--iron); margin-left:2px; }
+.frame.app { border-left-color:var(--ember); }
+.frame .idx { color:var(--steel); width:20px; flex:none; }
+.frame .bin { color:var(--fog); width:120px; flex:none; overflow:hidden; text-overflow:ellipsis; }
+.frame .off { color:var(--ash); }
+.frame .hot { color:var(--ember); margin-left:auto; font-size:9px; flex:none; }
+.raw { background:var(--void); border:1px solid var(--iron); padding:10px; font-size:9px; color:var(--fog); max-height:180px; overflow:auto; white-space:pre; line-height:1.6; }
+</style>
+</head>
+<body>
+<div class="hint"><b>004 · A</b> — Ward Round<br>Fleet health leads. Extract bar is the ONE action. Click an incident → drawer.</div>
+
+<div class="wrap">
+  <div class="page-head">
+    <div>
+      <div class="page-title">monitoring</div>
+      <div class="page-sub">MetricKit reports · extracted from devices on demand · nothing leaves the phone by itself</div>
+    </div>
+    <div class="page-sub" style="text-align:right">last extract · 14 min ago<br>3 apps · 5 devices seen</div>
+  </div>
+
+  <!-- hero -->
+  <div class="hero">
+    <div class="stat ember">
+      <div class="label">crash-free sessions</div>
+      <div class="big">99.4<small>%</small></div>
+      <div class="sub"><span class="delta-bad">▾ 0.3pt</span> vs last week · 7d window</div>
+      <div class="spark"><i style="height:90%"></i><i style="height:88%"></i><i style="height:91%"></i><i style="height:90%"></i><i style="height:84%"></i><i class="hi" style="height:60%"></i><i class="hi" style="height:52%"></i></div>
+    </div>
+    <div class="stat">
+      <div class="label">crashes · 7d</div>
+      <div class="big">4</div>
+      <div class="sub">2 devices · 2 app versions</div>
+    </div>
+    <div class="stat">
+      <div class="label">hangs · 7d</div>
+      <div class="big">11</div>
+      <div class="sub">p90 hang 3.8s · checkout flow</div>
+    </div>
+    <div class="stat">
+      <div class="label">disk exc · 7d</div>
+      <div class="big">2</div>
+      <div class="sub">both on iOS 26.4</div>
+    </div>
+  </div>
+
+  <!-- extract bar -->
+  <div class="extract">
+    <span class="lbl">extract</span>
+    <select>
+      <option>📱 iPhone 14 Plus · QA-01 (physical)</option>
+      <option>📱 iPhone 16 · docked (physical)</option>
+      <option>🖥 iPhone 16 Pro · simulator (booted)</option>
+      <option>🖥 iPhone 14 Plus · simulator (booted)</option>
+    </select>
+    <select>
+      <option>LionParcel (com.lionparcel.services.consumer) · 4.2.0 DEV</option>
+      <option>LionParcel · 4.1.9 PRODUCTION</option>
+    </select>
+    <button class="btn primary">⟳ extract reports</button>
+    <span class="result">last run: <b>3 new payloads</b> · 2 skips (dupes) · 0.9s</span>
+  </div>
+
+  <!-- incident feed -->
+  <div class="sect-label"><span>incidents · latest first</span><span class="r">filter: <u>all</u> · crash · hang · cpu · disk</span></div>
+  <div class="feed">
+    <div class="inc sel" onclick="openDr(this)">
+      <span class="t-badge t-CRASH">CRASH</span>
+      <span class="when">today 14:02</span>
+      <span class="what">EXC_BAD_ACCESS KERN_INVALID_ADDRESS <small>· main thread · 14 frames</small></span>
+      <span class="from">LionParcel 4.2.0 DEV<small>iPhone 14 Plus · iOS 26.4</small></span>
+    </div>
+    <div class="inc" onclick="openDr(this)">
+      <span class="t-badge t-HANG">HANG</span>
+      <span class="when">today 09:41</span>
+      <span class="what">250ms+ unresponsive <small>· main thread · checkout step 2</small></span>
+      <span class="from">LionParcel 4.2.0 DEV<small>iPhone 16 · iOS 26.4</small></span>
+      <span class="count">×3</span>
+    </div>
+    <div class="inc" onclick="openDr(this)">
+      <span class="t-badge t-DISK">DISK</span>
+      <span class="when">yesterday</span>
+      <span class="what">1.1 GB written in 24h <small>· exceeds exception threshold</small></span>
+      <span class="from">LionParcel 4.2.0 DEV<small>iPhone 14 Plus · iOS 26.4</small></span>
+    </div>
+    <div class="inc" onclick="openDr(this)">
+      <span class="t-badge t-METRIC">METRIC</span>
+      <span class="when">yesterday</span>
+      <span class="what">daily report <small>· launch p70 1.4s · hitch 0.8% · mem 214MB</small></span>
+      <span class="from">LionParcel 4.1.9 PROD<small>iPhone 16 · iOS 26.4</small></span>
+    </div>
+    <div class="inc" onclick="openDr(this)">
+      <span class="t-badge t-CRASH">CRASH</span>
+      <span class="when">2 days ago</span>
+      <span class="what">SIGABRT <small>· uncaught exception NSInvalidArgumentException</small></span>
+      <span class="from">LionParcel 4.2.0 DEV<small>iPhone 14 Plus · iOS 26.4</small></span>
+    </div>
+  </div>
+
+  <!-- devices strip -->
+  <div class="sect-label"><span>devices seen · payloads waiting</span><span class="r">dock a device to extract more</span></div>
+  <div class="devs">
+    <div class="dev">
+      <div class="nm">iPhone 14 Plus <span class="live">●</span></div>
+      <div class="meta">QA-01 · physical · iOS 26.4<br>last extract 14 min ago · <b>2 payloads waiting</b></div>
+    </div>
+    <div class="dev">
+      <div class="nm">iPhone 16 <span class="live">●</span></div>
+      <div class="meta">docked · physical · iOS 26.4<br>last extract 1 h ago · <span class="has">up to date</span></div>
+    </div>
+    <div class="dev">
+      <div class="nm">iPhone 16 Pro</div>
+      <div class="meta">simulator · booted<br>never extracted · <b>Guvnor found · 0 payloads</b></div>
+    </div>
+    <div class="dev">
+      <div class="nm">iPhone 14 Plus</div>
+      <div class="meta">simulator · booted<br>no Guvnor app installed</div>
+    </div>
+  </div>
+</div>
+
+<!-- drawer -->
+<aside class="drawer" id="drawer">
+  <div class="dr-head">
+    <div>
+      <div class="dr-title">CRASH · EXC_BAD_ACCESS</div>
+      <div class="dr-sub">today 14:02 · LionParcel 4.2.0 DEV · iPhone 14 Plus · iOS 26.4</div>
+    </div>
+    <button class="btn" onclick="closeDr()">✕</button>
+  </div>
+  <div class="dr-body">
+    <div class="krow"><span class="k">exception</span><span class="v">EXC_BAD_ACCESS / KERN_INVALID_ADDRESS at 0x0000000103b2ef40</span></div>
+    <div class="krow"><span class="k">signal</span><span class="v">SIGSEGV</span></div>
+    <div class="krow"><span class="k">termination</span><span class="v">foreground running · 00:04:12 uptime</span></div>
+    <div class="krow"><span class="k">device</span><span class="v">iPhone 14 Plus · iOS 26.4 · app 4.2.0 (420)</span></div>
+
+    <div class="sub-label">crashed thread · call stack</div>
+    <div class="frame app"><span class="idx">0</span><span class="bin">LionParcelLogistics</span><span class="off">+1284412</span><span class="hot">● app frame</span></div>
+    <div class="frame app"><span class="idx">1</span><span class="bin">LionParcelLogistics</span><span class="off">+1283190</span></div>
+    <div class="frame"><span class="idx">2</span><span class="bin">UIKitCore</span><span class="off">+15409202</span></div>
+    <div class="frame"><span class="idx">3</span><span class="bin">UIKitCore</span><span class="off">+15408551</span></div>
+    <div class="frame app"><span class="idx">4</span><span class="bin">LionParcelLogistics</span><span class="off">+1022144</span></div>
+    <div class="frame"><span class="idx">5</span><span class="bin">libdispatch.dylib</span><span class="off">+3856</span></div>
+    <div class="frame"><span class="idx">6</span><span class="bin">libsystem_pthread</span><span class="off">+27940</span></div>
+    <div style="font-size:9px;color:var(--steel);margin-top:8px">unsymbolicated — offsets are `offsetIntoBinaryTextSegment`; symbolication (atos) arrives phase 2</div>
+
+    <div class="sub-label">raw payload</div>
+    <div class="raw">{
+  "crashDiagnostics" : [ {
+    "signal" : "SIGSEGV",
+    "exceptionType" : "EXC_BAD_ACCESS",
+    "exceptionCode" : "KERN_INVALID_ADDRESS at 0x0000000103b2ef40",
+    "callStackTree" : { "callStacks" : [ { "threadAttributed": true, ... } ] },
+    "diagnosticMetaData" : { "appVersion" : "4.2.0 (420)", ... }
+  } ]
+}</div>
+  </div>
+</aside>
+
+<script>
+function openDr(el) {
+  document.querySelectorAll('.inc').forEach(x => x.classList.remove('sel'));
+  el.classList.add('sel');
+  document.getElementById('drawer').classList.add('on');
+}
+function closeDr() { document.getElementById('drawer').classList.remove('on'); document.querySelectorAll('.inc').forEach(x => x.classList.remove('sel')); }
+</script>
+</body>
+</html>
