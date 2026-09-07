@@ -587,7 +587,7 @@ async function endSession(): Promise<void> {
                  device image — never the letterboxed outer container -->
             <div v-else class="stage-frame" :ref="setStageFrame" :style="frameStyle">
               <canvas :ref="stream.setCanvas" @click="onTap" @mousemove="onCanvasMove"
-                :style="{ width: '100%', height: '100%', display: 'block', cursor: inspect ? 'default' : 'crosshair', background: 'var(--color-void)' }"></canvas>
+                :style="{ width: '100%', height: '100%', display: 'block', objectFit: 'contain', cursor: inspect ? 'default' : 'crosshair', background: 'var(--color-void)' }"></canvas>
               <InspectOverlay v-if="inspect && sessionId" :nodes="tree.nodes.value" :logical-w="tree.logicalW.value" :logical-h="tree.logicalH.value"
                 :hover="hoverNode" :selected="selNode" :visible="tree.state.value === 'aligned'" />
               <div v-if="inspect && hoverNode && tree.state.value === 'aligned' && sessionId" class="hover-chip"
