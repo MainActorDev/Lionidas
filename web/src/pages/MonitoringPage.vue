@@ -170,6 +170,7 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
     </div>
 
     <!-- hero: one number that matters + 3 supporting -->
+    <div class="dash">
     <div class="hero">
       <div class="stat stat-ember">
         <div class="label">app stability</div>
@@ -224,6 +225,7 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
         <button v-if="d.udid === devicePick" class="btn btn-sm" @click="pull">pull</button>
       </div>
     </div>
+    </div>
 
     <!-- drawer -->
     <transition name="sidebar">
@@ -256,7 +258,10 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
 </template>
 
 <style scoped>
-.hero { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 14px; max-width: 1080px; }
+/* focused dashboard: centered, content-capped — reads as one deliberate
+ * column on big screens instead of a stretched full-width strip */
+.dash { max-width: 860px; margin: 0 auto; width: 100%; }
+.hero { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 14px; }
 .stat { background: var(--color-carbon); border: 1px solid var(--color-iron); padding: 13px 15px; }
 .stat-ember { border-left: 2px solid var(--color-ember); }
 .stat .label { font-size: 9px; letter-spacing: .13em; text-transform: uppercase; color: var(--color-steel); margin-bottom: 7px; }
