@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>004 · A2 — Ward Round (concise)</title>
+<style>
+:root {
+  --void:#000; --carbon:#111; --graphite:#191919; --iron:#202020; --slate:#3a3a3a; --pewter:#505050;
+  --steel:#606060; --ash:#7e7e7e; --fog:#b4b4b4; --chalk:#d9d9d9; --paper:#eeeeee;
+  --ember:#da5c2c; --ember-dim:#a04521;
+  --mono:'JetBrains Mono','SF Mono',Menlo,monospace;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:var(--void); font-family:var(--mono); color:var(--paper); padding:20px; font-size:12px; }
+.hint { position:fixed; left:16px; bottom:16px; font-size:10px; color:var(--steel); max-width:200px; line-height:1.8; }
+.hint b { color:var(--fog); }
+
+.wrap { max-width:1000px; margin:0 auto; }
+.page-head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:16px; }
+.page-title { font-size:16px; font-weight:700; }
+.page-sub { font-size:10px; color:var(--steel); margin-top:3px; }
+
+/* ── hero: one number leads ── */
+.hero { display:grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap:10px; margin-bottom:14px; }
+.stat { background:var(--carbon); border:1px solid var(--iron); padding:13px 15px; }
+.stat.ember { border-left:2px solid var(--ember); }
+.stat .label { font-size:9px; letter-spacing:.13em; text-transform:uppercase; color:var(--steel); margin-bottom:7px; }
+.stat .big { font-size:25px; font-weight:700; line-height:1; }
+.stat .big small { font-size:12px; color:var(--fog); font-weight:400; }
+.stat .sub { font-size:9.5px; color:var(--ash); margin-top:6px; }
+.stat .sub .bad { color:var(--ember); }
+.spark { display:flex; gap:2px; align-items:flex-end; height:22px; margin-top:8px; }
+.spark i { flex:1; background:var(--pewter); min-height:2px; }
+.spark i.hi { background:var(--ember); }
+
+/* ── extract: one obvious action ── */
+.extract { display:flex; gap:8px; align-items:center; background:var(--graphite); border:1px solid var(--iron); padding:9px 11px; margin-bottom:14px; }
+.extract .lbl { font-size:9px; letter-spacing:.13em; text-transform:uppercase; color:var(--steel); }
+select, .btn { background:var(--void); border:1px solid var(--slate); color:var(--paper); font-family:inherit; font-size:11px; padding:7px 10px; }
+select { min-width:160px; }
+.btn { cursor:pointer; }
+.btn:hover { border-color:var(--fog); }
+.btn.primary { background:var(--ember); border-color:var(--ember); font-weight:700; }
+.btn.primary:hover { background:var(--ember-dim); }
+.extract .spacer { flex:1; }
+.extract .result { font-size:10px; color:var(--fog); }
+.extract .result b { color:var(--ember); font-weight:400; }
+
+/* ── incident feed: terse rows ── */
+.sect-label { font-size:9px; letter-spacing:.13em; text-transform:uppercase; color:var(--steel); margin:14px 0 8px; display:flex; justify-content:space-between; }
+.sect-label .r { letter-spacing:0; text-transform:none; cursor:pointer; }
+.feed { display:flex; flex-direction:column; gap:7px; }
+.inc { display:flex; gap:12px; align-items:center; background:var(--carbon); border:1px solid var(--iron); padding:10px 13px; cursor:pointer; }
+.inc:hover { border-color:var(--slate); }
+.inc.sel { border-color:var(--ember); }
+.t-badge { font-size:9px; font-weight:700; padding:3px 0; letter-spacing:.08em; flex:none; width:50px; text-align:center; }
+.t-CRASH { background:var(--ember); color:var(--paper); }
+.t-HANG { background:#3a2417; color:var(--ember); border:1px solid var(--ember-dim); }
+.t-CPU { background:var(--iron); color:var(--fog); }
+.t-DISK { background:var(--iron); color:var(--fog); }
+.t-METRIC { background:transparent; color:var(--steel); border:1px solid var(--iron); }
+.inc .when { font-size:10px; color:var(--steel); width:74px; flex:none; }
+.inc .what { flex:1; min-width:0; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.inc .what small { color:var(--ash); font-size:9.5px; }
+.inc .from { font-size:9.5px; color:var(--fog); text-align:right; flex:none; }
+.inc .from small { display:block; color:var(--steel); font-size:9px; }
+
+/* ── devices: one line each ── */
+.devs { display:flex; flex-direction:column; gap:6px; }
+.dev { display:flex; gap:12px; align-items:center; background:var(--carbon); border:1px solid var(--iron); padding:9px 13px; }
+.dev .dot { width:6px; height:6px; border-radius:50%; background:var(--ember); flex:none; }
+.dev .dot.off { background:var(--pewter); }
+.dev .nm { font-size:11px; width:170px; flex:none; }
+.dev .nm small { color:var(--steel); font-size:9.5px; }
+.dev .st { font-size:9.5px; color:var(--steel); flex:1; }
+.dev .st b { color:var(--fog); font-weight:400; }
+.dev .st .has { color:var(--ember); }
+.dev .mini { flex:none; }
+
+/* ══ drawer ══ */
+.drawer { position:fixed; top:0; right:-430px; bottom:0; width:430px; background:var(--carbon); border-left:1px solid var(--iron); transition:right .18s ease; display:flex; flex-direction:column; z-index:40; }
+.drawer.on { right:0; }
+.dr-head { display:flex; justify-content:space-between; align-items:center; padding:13px 15px; border-bottom:1px solid var(--iron); }
+.dr-title { font-size:12px; font-weight:700; }
+.dr-sub { font-size:9.5px; color:var(--steel); margin-top:3px; }
+.dr-body { flex:1; overflow-y:auto; padding:13px 15px; }
+.krow { display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-bottom:1px solid var(--iron); font-size:10.5px; }
+.krow .k { color:var(--steel); font-size:9px; min-width:64px; padding-top:1px; flex:none; }
+.krow .v { color:var(--paper); text-align:right; word-break:break-all; font-size:10px; }
+.sub-label { font-size:9px; letter-spacing:.13em; text-transform:uppercase; color:var(--steel); margin:13px 0 6px; }
+.frame { display:flex; gap:10px; font-size:10px; padding:4px 0 4px 10px; border-left:2px solid var(--iron); margin-left:2px; }
+.frame.app { border-left-color:var(--ember); }
+.frame .idx { color:var(--steel); width:18px; flex:none; }
+.frame .bin { color:var(--fog); width:140px; flex:none; overflow:hidden; text-overflow:ellipsis; }
+.frame .off { color:var(--ash); }
+.note { font-size:9px; color:var(--steel); margin-top:8px; }
+.raw-link { font-size:10px; color:var(--fog); cursor:pointer; text-decoration:underline; }
+.raw { display:none; background:var(--void); border:1px solid var(--iron); padding:10px; font-size:9px; color:var(--fog); max-height:150px; overflow:auto; white-space:pre; line-height:1.6; margin-top:8px; }
+.raw.on { display:block; }
+</style>
+</head>
+<body>
+<div class="hint"><b>004 · A2</b> — Ward Round, concise cut.<br>One number leads. Five words per row max. Detail lives in the drawer.</div>
+
+<div class="wrap">
+  <div class="page-head">
+    <div>
+      <div class="page-title">monitoring</div>
+      <div class="page-sub">app health · reports pulled from devices on demand</div>
+    </div>
+    <div class="page-sub" style="text-align:right">updated 14 min ago</div>
+  </div>
+
+  <!-- hero: one number that matters + 3 supporting -->
+  <div class="hero">
+    <div class="stat ember">
+      <div class="label">app stability</div>
+      <div class="big">99.4<small>%</small></div>
+      <div class="sub">crash-free · <span class="bad">▾ 0.3</span> this week</div>
+      <div class="spark"><i style="height:90%"></i><i style="height:88%"></i><i style="height:91%"></i><i style="height:90%"></i><i style="height:84%"></i><i class="hi" style="height:60%"></i><i class="hi" style="height:52%"></i></div>
+    </div>
+    <div class="stat">
+      <div class="label">crashes</div>
+      <div class="big">4</div>
+      <div class="sub">this week</div>
+    </div>
+    <div class="stat">
+      <div class="label">hangs</div>
+      <div class="big">11</div>
+      <div class="sub">this week</div>
+    </div>
+    <div class="stat">
+      <div class="label">disk alerts</div>
+      <div class="big">2</div>
+      <div class="sub">this week</div>
+    </div>
+  </div>
+
+  <!-- extract: the one action -->
+  <div class="extract">
+    <span class="lbl">pull from</span>
+    <select>
+      <option>📱 iPhone 14 Plus · QA-01</option>
+      <option>📱 iPhone 16</option>
+      <option>🖥 iPhone 16 Pro · sim</option>
+    </select>
+    <button class="btn primary">⟳ pull reports</button>
+    <span class="spacer"></span>
+    <span class="result">last pull: <b>3 new</b> · 0.9s</span>
+  </div>
+
+  <!-- feed -->
+  <div class="sect-label"><span>reports</span><span class="r">all · crash · hang · disk · daily</span></div>
+  <div class="feed">
+    <div class="inc sel" onclick="openDr(this)">
+      <span class="t-badge t-CRASH">CRASH</span>
+      <span class="when">14:02</span>
+      <span class="what">app crashed <small>· bad memory access</small></span>
+      <span class="from">QA-01 · 4.2.0 DEV</span>
+    </div>
+    <div class="inc" onclick="openDr(this)">
+      <span class="t-badge t-HANG">HANG</span>
+      <span class="when">09:41</span>
+      <span class="what">app froze <small>· 3× today</small></span>
+      <span class="from">iPhone 16 · 4.1.9 PROD</span>
+    </div>
+    <div class="inc" onclick="openDr(this)">
+      <span class="t-badge t-DISK">DISK</span>
+      <span class="when">yesterday</span>
+      <span class="what">heavy disk writes <small>· 1.1 GB in a day</small></span>
+      <span class="from">QA-01 · 4.2.0 DEV</span>
+    </div>
+    <div class="inc" onclick="openDr(this)">
+      <span class="t-badge t-METRIC">DAILY</span>
+      <span class="when">yesterday</span>
+      <span class="what">typical day <small>· launch 1.4s · memory 214MB</small></span>
+      <span class="from">iPhone 16 · 4.1.9 PROD</span>
+    </div>
+  </div>
+
+  <!-- devices: one line each -->
+  <div class="sect-label"><span>devices</span><span class="r">plug in a device to pull more</span></div>
+  <div class="devs">
+    <div class="dev">
+      <span class="dot"></span>
+      <span class="nm">iPhone 14 Plus <small>QA-01</small></span>
+      <span class="st">pulled 14 min ago · <b class="has">2 new reports waiting</b></span>
+      <button class="btn mini" style="padding:5px 10px;font-size:10px">pull</button>
+    </div>
+    <div class="dev">
+      <span class="dot"></span>
+      <span class="nm">iPhone 16</span>
+      <span class="st">pulled 1 h ago · up to date</span>
+      <button class="btn mini" style="padding:5px 10px;font-size:10px">pull</button>
+    </div>
+    <div class="dev">
+      <span class="dot off"></span>
+      <span class="nm">iPhone 16 Pro <small>sim</small></span>
+      <span class="st">no reports — sims never generate them</span>
+    </div>
+  </div>
+</div>
+
+<!-- drawer -->
+<aside class="drawer" id="drawer">
+  <div class="dr-head">
+    <div>
+      <div class="dr-title">CRASH · bad memory access</div>
+      <div class="dr-sub">today 14:02 · QA-01 · LionParcel 4.2.0 DEV</div>
+    </div>
+    <button class="btn" onclick="closeDr()">✕</button>
+  </div>
+  <div class="dr-body">
+    <div class="krow"><span class="k">what</span><span class="v">app touched memory it shouldn't</span></div>
+    <div class="krow"><span class="k">when</span><span class="v">today 14:02 · 4 min after launch</span></div>
+    <div class="krow"><span class="k">device</span><span class="v">iPhone 14 Plus · iOS 26.4</span></div>
+
+    <div class="sub-label">where it happened · main thread</div>
+    <div class="frame app"><span class="idx">0</span><span class="bin">LionParcelLogistics</span><span class="off">+1284412</span></div>
+    <div class="frame app"><span class="idx">1</span><span class="bin">LionParcelLogistics</span><span class="off">+1283190</span></div>
+    <div class="frame"><span class="idx">2</span><span class="bin">UIKitCore</span><span class="off">+15409202</span></div>
+    <div class="frame"><span class="idx">3</span><span class="bin">UIKitCore</span><span class="off">+15408551</span></div>
+    <div class="frame app"><span class="idx">4</span><span class="bin">LionParcelLogistics</span><span class="off">+1022144</span></div>
+    <div class="note">orange frames = our code · addresses map to code lines once symbolicated</div>
+
+    <div class="sub-label">source</div>
+    <span class="raw-link" onclick="document.getElementById('raw').classList.toggle('on')">show raw Apple payload</span>
+    <div class="raw" id="raw">{ "crashDiagnostics" : [ { "signal": "SIGSEGV",
+  "exceptionType": "EXC_BAD_ACCESS",
+  "callStackTree": { ... } } ] }</div>
+  </div>
+</aside>
+
+<script>
+function openDr(el) {
+  document.querySelectorAll('.inc').forEach(x => x.classList.remove('sel'));
+  el.classList.add('sel');
+  document.getElementById('drawer').classList.add('on');
+}
+function closeDr() { document.getElementById('drawer').classList.remove('on'); document.querySelectorAll('.inc').forEach(x => x.classList.remove('sel')); }
+</script>
+</body>
+</html>
