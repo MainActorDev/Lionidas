@@ -17,6 +17,9 @@ interface MxDevice { udid: string; name: string | null; kind: 'simulator' | 'phy
 
 const router = useRouter();
 const payloads = ref<MxPayload[]>([]);
+// last FETCHED detail (with payload_json) — the 10s feed poll refreshes rows
+// without raw JSON; keep it so an open drawer never loses its raw view.
+const fetchedDetail = ref<MxPayload | null>(null);
 const counts = ref<{ crashes: number; hangs: number; disk: number; cpu: number }>({ crashes: 0, hangs: 0, disk: 0, cpu: 0 });
 const devices = ref<MxDevice[]>([]);
 const devicePick = ref('');
@@ -76,9 +79,11 @@ async function pull(): Promise<void> {
 async function openDrawer(p: MxPayload): Promise<void> {
   selected.value = p;
   showRaw.value = false;
+  if (fetchedDetail.value?.id === p.id) { selected.value = fetchedDetail.value; return; }
   try {
     const r = await fetch(`/api/diagnostics/payloads/${p.id}`);
-    selected.value = await r.json() as MxPayload;
+    fetchedDetail.value = await r.json() as MxPayload;
+    if (selected.value?.id === p.id) selected.value = fetchedDetail.value;
   } catch { /* keep summary-only view */ }
 }
 
