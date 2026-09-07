@@ -1,4 +1,5 @@
 <script setup lang="ts">
+
 /** Pushed sidebar: live device stream with two modes.
  *  watch  — read-only canvas (no lease; never blocks automation)
  *  control — full manual session (lease-held; reuses DrivePage interaction model)
@@ -502,22 +503,23 @@ async function endSession(): Promise<void> {
   stream.stop();
 }
 </script>
-
 <template>
   <transition name="sidebar">
-    <aside v-if="device" class="sidebar">
-      <header class="sidebar-head">
+    <aside v-if="device" class="sidebar" :class="{ 'sidebar-wide': mode === 'control' }">
+      <header class="sb-head">
         <div>
-          <div class="sidebar-title">{{ device.name ?? device.udid.slice(0, 8) }}</div>
-          <div class="sidebar-sub">
-            {{ device.os_version ?? '—' }} · {{ mode === 'watch' ? 'read-only' : 'manual control' }}
+          <div class="sb-title">{{ device.name ?? device.udid.slice(0, 8) }}</div>
+          <div class="sb-sub">
+            <span v-if="mode === 'control' && sessionId" class="lease-on">● manual control</span>
+            <span v-else>{{ mode === 'watch' ? 'read-only' : 'manual control' }}</span>
+            · {{ device.os_version ?? '—' }}<template v-if="mode === 'control' && operator"> · {{ operator }}</template>
           </div>
         </div>
-        <button class="btn btn-sm" @click="emit('close')">✕</button>
+        <button class="btn btn-sm sb-x" @click="emit('close')">✕</button>
       </header>
 
-      <!-- watch: stream only -->
-      <div v-if="mode === 'watch'" class="sidebar-body">
+      <!-- WATCH: narrow, stream only -->
+      <div v-if="mode === 'watch'" class="sb-body">
         <div class="stream-box">
           <canvas :ref="stream.setCanvas" style="width: 100%; display: block; background: var(--color-void); min-height: 160px;"></canvas>
           <div v-if="stream.state.value !== 'live'" class="stream-overlay">
@@ -538,61 +540,26 @@ async function endSession(): Promise<void> {
         <button class="btn" style="width: 100%; margin-top: var(--s-3);" @click="emit('close')">close</button>
       </div>
 
-      <!-- control: lease + interactions -->
-      <div v-else class="sidebar-body">
-        <div v-if="!sessionId" class="card" style="padding: var(--s-3);">
-          <div class="meta-row"><span class="k">operator</span><input v-model="operator" style="width: 140px; " /></div>
-          <div class="meta-row">
-            <span class="k">app</span>
-            <select v-model="appBundleId" style="flex: 1;">
-              <option value="">auto (best guess)</option>
-              <option v-for="a in appOptions" :key="a.bundleId" :value="a.bundleId">{{ a.name }}</option>
-            </select>
-          </div>
-          <button class="btn btn-primary" style="width: 100%; margin-top: var(--s-3);" :disabled="busy || !booted" @click="startSession">
-            {{ busy ? 'starting…' : booted ? 'acquire & take control' : 'device not booted' }}
-          </button>
-          <div v-if="error" class="meta-row" style="color: var(--color-ember); margin-top: var(--s-2);">{{ error }}</div>
-        </div>
-
-        <!-- install app: discovery picker → explicit install (repo/DerivedData
-             are pick sources only; the server clones into its own store) -->
-        <div v-if="booted && !sessionId" class="card" style="padding: var(--s-3); margin-top: var(--s-2);">
-          <div class="card-header" style="margin-bottom: var(--s-2);">
-            <span class="card-title">install app</span>
-          </div>
-          <button v-if="!artifactsLoaded" class="btn btn-sm" @click="loadArtifacts">browse artifacts…</button>
-          <template v-else-if="artifacts.length > 0">
-            <div class="meta-row">
-              <span class="k">artifact</span>
-              <select v-model="artifactPick" style="flex: 1;">
-                <option v-for="a in artifacts" :key="a.path" :value="a.path">
-                  {{ a.bundleId === appBundleId || !appBundleId ? artifactLabel(a) : `${artifactLabel(a)} (${a.bundleId})` }}
-                </option>
-              </select>
+      <!-- CONTROL: wide cockpit -->
+      <div v-else class="sb-body cockpit">
+        <!-- LEFT: the device -->
+        <div class="devcol">
+          <div class="stream-box stream-stage">
+            <div v-if="!sessionId" class="stage-empty">
+              <div class="stage-empty-title">device ready</div>
+              <div class="stage-empty-sub">{{ booted ? 'take control from the panel on the right to begin' : 'boot the device first' }}</div>
             </div>
-            <button class="btn" style="width: 100%; margin-top: var(--s-2);" :disabled="installing || !artifactPick" @click="installPicked">
-              {{ installing ? 'installing… (≈12s)' : 'install' }}
-            </button>
-          </template>
-          <div v-else class="meta-row" style="color: var(--color-steel);">no artifacts found on disk — build the app first</div>
-          <div v-if="installMsg" class="meta-row" style="margin-top: var(--s-2);">{{ installMsg }}</div>
-          <div v-if="installErr" class="meta-row" style="color: var(--color-ember); margin-top: var(--s-2);">{{ installErr }}</div>
-        </div>
-
-        <template v-else>
-          <div class="stream-box">
-            <canvas :ref="stream.setCanvas" @click="onTap" @mousemove="onCanvasMove"
-              :style="{ width: '100%', display: 'block', cursor: inspect ? 'default' : 'crosshair', background: 'var(--color-void)', minHeight: '200px' }"></canvas>
-            <InspectOverlay v-if="inspect" :nodes="tree.nodes.value" :logical-w="tree.logicalW.value" :logical-h="tree.logicalH.value"
+            <canvas v-else :ref="stream.setCanvas" @click="onTap" @mousemove="onCanvasMove"
+              :style="{ width: '100%', height: '100%', display: 'block', objectFit: 'contain', cursor: inspect ? 'default' : 'crosshair', background: 'var(--color-void)' }"></canvas>
+            <InspectOverlay v-if="inspect && sessionId" :nodes="tree.nodes.value" :logical-w="tree.logicalW.value" :logical-h="tree.logicalH.value"
               :hover="hoverNode" :selected="selNode" :visible="tree.state.value === 'aligned'" />
-            <div v-if="inspect && hoverNode && tree.state.value === 'aligned'" class="hover-chip"
+            <div v-if="inspect && hoverNode && tree.state.value === 'aligned' && sessionId" class="hover-chip"
               :style="{ left: `${chipXY.x}px`, top: `${chipXY.y}px` }">{{ chipName }}</div>
             <div v-if="ripple" class="tap-ripple" :style="{ left: `${ripple.x}px`, top: `${ripple.y}px` }" />
-            <div v-if="stream.state.value !== 'live'" class="stream-overlay">
+            <div v-if="sessionId && stream.state.value !== 'live'" class="stream-overlay">
               <span v-if="stream.state.value === 'connecting'">connecting to device stream…</span>
               <span v-else-if="stream.state.value === 'paused'">run in progress — stream paused</span>
-            <span v-else-if="stream.state.value === 'reconnecting'">stream reconnecting…</span>
+              <span v-else-if="stream.state.value === 'reconnecting'">stream reconnecting…</span>
               <template v-else-if="stream.state.value === 'failed'">
                 <span>{{ stream.failure.value || 'stream unavailable' }}</span>
                 <button v-if="stream.retryable.value" class="btn btn-sm stream-retry" @click="stream.retry()">retry stream</button>
@@ -602,59 +569,124 @@ async function endSession(): Promise<void> {
           <div class="stream-meta">
             <span v-if="stream.state.value === 'live'">{{ stream.fps.value > 0 ? `live · ${stream.fps.value}fps` : 'live · idle (screen unchanged)' }}</span>
             <span v-else>{{ stream.state.value }}</span>
-            <span>{{ logicalW ? `${logicalW}pt logical · taps map 1:1` : 'tap anywhere on screen' }}</span>
+            <span>{{ sessionId && logicalW ? `${logicalW}pt logical · taps map 1:1` : sessionId ? 'tap anywhere on screen' : 'no session' }}</span>
           </div>
-          <div v-if="error" class="meta-row" style="color: var(--color-ember); margin-top: var(--s-2);">{{ error }}</div>
-          <div class="type-box">
-            <input
-              v-model="typeText"
-              :placeholder="typeArmed ? `type into field @ ${lastTap!.x},${lastTap!.y} — enter to send` : 'tap a field on screen first, then type here'"
-              :disabled="!typeArmed || busy"
-              @keydown.enter="sendType"
-            />
-            <button class="btn btn-sm" :disabled="!typeArmed || !typeText || busy" @click="sendType">send</button>
-            <button v-if="typeArmed" class="btn btn-sm btn-ghost" @click="lastTap = null; typeText = ''">✕</button>
-          </div>
-          <div style="display: flex; gap: var(--s-2); margin-top: var(--s-2); align-items: center;">
-            <button class="btn btn-sm" :class="{ 'btn-accent': inspect }" @click="toggleInspect"
-              :title="'inspect (i) — ' + (inspect ? 'clicks select, never tap' : 'show element boxes')">◎ inspect</button>
-            <template v-if="inspect">
-              <span class="badge" :class="tree.state.value === 'aligned' ? 'badge-accent' : ''">{{ treeLabel }}</span>
-              <button v-if="tree.state.value === 'failed' && (tree.lastError.value as TreeFetchError | null)?.code !== 'SESSION_NOT_FOUND'" class="btn btn-sm" @click="tree.refresh()">retry tree</button>
-            </template>
-            <span style="flex: 1;"></span>
-            <button class="btn btn-sm" :disabled="busy" @click="scroll('up')">↑</button>
-            <button class="btn btn-sm" :disabled="busy" @click="scroll('down')">↓</button>
-            <button class="btn btn-sm" :disabled="busy" @click="scroll('left')">←</button>
-            <button class="btn btn-sm" :disabled="busy" @click="scroll('right')">→</button>
-            <button class="btn btn-sm btn-danger" :disabled="busy" @click="endSession">release</button>
-          </div>
-          <div v-if="busy" class="meta-row" style="margin-top: var(--s-2); color: var(--color-ash);">sending…</div>
+        </div>
 
-          <div v-if="inspect && selNode" class="card inspect-drawer">
-            <div style="font-size: 13px; font-weight: 600;">{{ selNode.identifier || selNode.label || selNode.type || 'element' }}</div>
-            <div class="meta-row"><span class="k">type</span><span>{{ selNode.type ?? '—' }}</span></div>
-            <div class="meta-row"><span class="k">identifier</span><span style="font-family: monospace;">{{ selNode.identifier ?? '—' }}</span></div>
-            <div class="meta-row"><span class="k">label</span><span>{{ selNode.label ?? '—' }}</span></div>
-            <div class="meta-row" v-if="selNode.rect"><span class="k">rect</span><span style="font-family: monospace;">x{{ Math.round(selNode.rect.x) }} y{{ Math.round(selNode.rect.y) }} · {{ Math.round(selNode.rect.width) }}×{{ Math.round(selNode.rect.height) }}pt</span></div>
-            <div class="meta-row"><span class="k">hittable</span><span>{{ selNode.hittable ? 'yes' : 'no' }}</span></div>
-            <div class="meta-row" v-if="parentChain(selNode).length"><span class="k">path</span><span style="font-family: monospace; font-size: 10px;">{{ parentChain(selNode).join(' › ') }}</span></div>
-            <div class="meta-row"><span class="k">selector</span><span style="font-family: monospace; color: var(--color-accent);">on: {{ selPreview?.text }}</span></div>
-            <div style="display: flex; gap: var(--s-2); margin-top: var(--s-2);">
-              <button class="btn btn-sm" @click="copySelector">copy selector</button>
-              <button class="btn btn-sm btn-primary" :disabled="busy || tree.state.value !== 'aligned' || !selNode.hittable" @click="tapThis">tap this</button>
-            </div>
-          </div>
-
-          <!-- recorder: live config preview -->
-          <div class="recorder">
-            <div class="recorder-head">
-              <button class="btn btn-sm" :class="{ 'btn-danger': recording }" :disabled="busy" @click="toggleRecording">
-                {{ recording ? '● recording' : 'record' }}
+        <!-- RIGHT: work column -->
+        <div class="workcol">
+          <!-- connect / install (pre-session) -->
+          <template v-if="!sessionId">
+            <div class="sect">
+              <div class="sect-label"><span>take control</span></div>
+              <div class="meta-row"><span class="k">operator</span><input v-model="operator" style="width: 140px;" /></div>
+              <div class="meta-row">
+                <span class="k">app</span>
+                <select v-model="appBundleId" style="flex: 1;">
+                  <option value="">auto (best guess)</option>
+                  <option v-for="a in appOptions" :key="a.bundleId" :value="a.bundleId">{{ a.name }}</option>
+                </select>
+              </div>
+              <button class="btn btn-primary" style="width: 100%; margin-top: var(--s-2);" :disabled="busy || !booted" @click="startSession">
+                {{ busy ? 'starting…' : booted ? 'acquire & take control' : 'device not booted' }}
               </button>
-              <span style="font-size: 10px; color: var(--color-steel);">{{ steps.length }} steps</span>
+              <div v-if="error" class="form-err">{{ error }}</div>
             </div>
-            <!-- A7: assertion authoring — probe the live screen, commit on exactly-1 match -->
+
+            <div class="sect">
+              <div class="sect-label"><span>install app</span></div>
+              <button v-if="!artifactsLoaded" class="btn btn-sm" @click="loadArtifacts">browse artifacts…</button>
+              <template v-else-if="artifacts.length > 0">
+                <div class="meta-row">
+                  <span class="k">artifact</span>
+                  <select v-model="artifactPick" style="flex: 1;">
+                    <option v-for="a in artifacts" :key="a.path" :value="a.path">
+                      {{ a.bundleId === appBundleId || !appBundleId ? artifactLabel(a) : `${artifactLabel(a)} (${a.bundleId})` }}
+                    </option>
+                  </select>
+                </div>
+                <button class="btn" style="width: 100%; margin-top: var(--s-2);" :disabled="installing || !artifactPick" @click="installPicked">
+                  {{ installing ? 'installing… (≈12s)' : 'install' }}
+                </button>
+              </template>
+              <div v-else class="sect-hint">no artifacts found on disk — build the app first</div>
+              <div v-if="installMsg" class="sect-hint" style="margin-top: var(--s-2);">{{ installMsg }}</div>
+              <div v-if="installErr" class="form-err" style="margin-top: var(--s-2);">{{ installErr }}</div>
+            </div>
+          </template>
+
+          <!-- drive -->
+          <div v-if="sessionId" class="sect">
+            <div class="sect-label"><span>drive</span></div>
+            <div class="row">
+              <div class="dpad">
+                <button :disabled="busy" @click="scroll('up')">↑</button>
+                <button :disabled="busy" @click="scroll('down')">↓</button>
+                <button :disabled="busy" @click="scroll('left')">←</button>
+                <button :disabled="busy" @click="scroll('right')">→</button>
+              </div>
+              <span class="spacer"></span>
+              <button class="btn btn-sm btn-quiet" :disabled="busy" @click="endSession">release</button>
+            </div>
+            <div class="type-box">
+              <input
+                v-model="typeText"
+                :placeholder="typeArmed ? `type into field @ ${lastTap!.x}, ${lastTap!.y} — enter sends` : 'tap a field on screen, then type here'"
+                :disabled="!typeArmed || busy"
+                @keydown.enter="sendType"
+              />
+              <button class="btn btn-sm" :disabled="!typeArmed || !typeText || busy" @click="sendType">send</button>
+              <button v-if="typeArmed" class="btn btn-sm btn-ghost" @click="lastTap = null; typeText = ''">✕</button>
+            </div>
+            <div v-if="error" class="form-err" style="margin-top: var(--s-2);">{{ error }}</div>
+            <div v-if="busy" class="sect-hint" style="margin-top: var(--s-2);">sending…</div>
+          </div>
+
+          <!-- inspect -->
+          <div v-if="sessionId" class="sect">
+            <div class="sect-label">
+              <span>inspect</span>
+              <span v-if="inspect" class="sect-state" :class="{ 'sect-state-warn': tree.state.value !== 'aligned' }">{{ treeLabel }}</span>
+            </div>
+            <div class="row" style="margin-bottom: var(--s-2);">
+              <button class="btn btn-sm" :class="{ 'btn-accent': inspect }" @click="toggleInspect"
+                :title="'inspect (i) — ' + (inspect ? 'clicks select, never tap' : 'show element boxes')">
+                {{ inspect ? '◎ inspecting — clicks select' : '◎ inspect mode' }}
+              </button>
+              <span class="spacer"></span>
+              <span class="kbd-hint">i / esc</span>
+            </div>
+            <div v-if="tree.state.value === 'failed' && (tree.lastError.value as TreeFetchError | null)?.code !== 'SESSION_NOT_FOUND'"
+              class="row" style="margin-bottom: var(--s-2);">
+              <button class="btn btn-sm" @click="tree.refresh()">retry tree</button>
+            </div>
+            <div v-if="!selNode" class="sect-hint" style="line-height: 1.8;">
+              {{ inspect ? 'click any boxed element on the screen — its card appears here.' : 'toggle inspect, then click any element on the screen.' }}
+            </div>
+            <div v-else class="el-card">
+              <div class="el-name">{{ selNode.identifier || selNode.label || selNode.type || 'element' }}</div>
+              <div class="krow"><span class="k">identifier</span><span class="v mono">{{ selNode.identifier ?? '—' }}</span></div>
+              <div class="krow"><span class="k">type</span><span class="v">{{ selNode.type ?? '—' }}</span></div>
+              <div class="krow"><span class="k">label</span><span class="v">{{ selNode.label ?? '—' }}</span></div>
+              <div class="krow" v-if="selNode.rect"><span class="k">rect</span><span class="v mono">x{{ Math.round(selNode.rect.x) }} y{{ Math.round(selNode.rect.y) }} · {{ Math.round(selNode.rect.width) }}×{{ Math.round(selNode.rect.height) }}pt</span></div>
+              <div class="krow"><span class="k">hittable</span><span class="v">{{ selNode.hittable ? 'yes' : 'no' }}</span></div>
+              <div class="krow" v-if="parentChain(selNode).length"><span class="k">path</span><span class="v mono v-dim" style="font-size: 9px;">{{ parentChain(selNode).join(' › ') }}</span></div>
+              <div class="krow"><span class="k">selector</span><span class="v mono v-ember">on: {{ selPreview?.text }}</span></div>
+              <div class="row" style="margin-top: var(--s-2);">
+                <button class="btn btn-sm" @click="copySelector">copy selector</button>
+                <button class="btn btn-sm btn-primary" :disabled="busy || tree.state.value !== 'aligned' || !selNode.hittable" @click="tapThis">tap this</button>
+                <span class="spacer"></span>
+                <span v-if="actionMsg" class="sect-hint">{{ actionMsg }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- record -->
+          <div v-if="sessionId" class="sect sect-last">
+            <div class="sect-label">
+              <span>record</span>
+              <span class="sect-state" :class="{ 'sect-state-on': recording }">{{ recording ? '● live' : 'paused' }} · {{ steps.length }} steps</span>
+            </div>
             <div class="assert-box">
               <input
                 v-model="assertText"
@@ -683,23 +715,160 @@ async function endSession(): Promise<void> {
                 <button class="btn btn-sm btn-ghost step-del" @click="removeStep(s.idx)">✕</button>
               </div>
             </div>
-            <div v-else style="font-size: 10px; color: var(--color-steel); margin-top: var(--s-2);">
+            <div v-else class="sect-hint" style="margin-top: var(--s-2);">
               {{ recording ? 'every tap / scroll / type will appear here as a step' : 'turn on recording to capture a test config' }}
             </div>
-            <div v-if="steps.length > 0" class="save-tpl">
-              <input v-model="saveName" class="input" placeholder="template name" @keydown.enter="saveAsTemplate" />
-              <input v-model="saveTicket" class="input" placeholder="ticket (LP-123, optional)" />
-              <button class="btn btn-sm" :disabled="!saveName.trim() || saving" @click="saveAsTemplate">{{ saving ? 'saving…' : 'save as template' }}</button>
-              <span v-if="savedMsg" style="font-size: 10px; color: var(--color-steel);">{{ savedMsg }}</span>
+            <div class="row" style="margin-top: var(--s-2); gap: var(--s-2);">
+              <button class="btn btn-sm" :class="{ 'btn-danger': recording }" :disabled="busy" @click="toggleRecording">
+                {{ recording ? '● stop recording' : 'record' }}
+              </button>
+              <template v-if="steps.length > 0">
+                <input v-model="saveName" class="input" placeholder="template name" @keydown.enter="saveAsTemplate" />
+                <button class="btn btn-sm" :disabled="!saveName.trim() || saving" @click="saveAsTemplate">{{ saving ? 'saving…' : 'save as template' }}</button>
+              </template>
+              <span v-if="savedMsg" class="sect-hint">{{ savedMsg }}</span>
             </div>
           </div>
-        </template>
+        </div>
       </div>
+
+      <!-- footer: lease state -->
+      <footer v-if="mode === 'control' && sessionId" class="sb-foot">
+        <span>lease held · operator <b>{{ operator }}</b></span>
+        <span>steps auto-save · never counts toward AC status</span>
+      </footer>
     </aside>
   </transition>
 </template>
 
 <style scoped>
+/* shell */
+.sidebar {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  width: min(420px, 92vw);
+  background: var(--color-carbon);
+  border-left: 1px solid var(--color-iron);
+  display: flex; flex-direction: column;
+  z-index: 60;
+}
+.sidebar-wide { width: min(760px, 96vw); }
+.sb-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--color-iron);
+  flex: 0 0 auto;
+}
+.sb-title { font-size: 13px; font-weight: 700; letter-spacing: 0.02em; }
+.sb-sub { font-size: 10px; color: var(--color-steel); margin-top: 3px; }
+.lease-on { color: var(--color-ember); }
+.sb-body { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; padding: 12px; }
+.sb-foot {
+  flex: 0 0 auto;
+  display: flex; justify-content: space-between;
+  padding: 9px 16px;
+  border-top: 1px solid var(--color-iron);
+  background: var(--color-graphite);
+  font-size: 9px; color: var(--color-steel);
+}
+.sb-foot b { color: var(--color-ember); font-weight: 400; }
+
+/* watch mode (unchanged narrow) */
+.stream-box { position: relative; }
+.stream-overlay {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--color-fog);
+  font-size: var(--text-caption);
+  pointer-events: none;
+  flex-direction: column; gap: var(--s-2); padding: var(--s-2); text-align: center;
+}
+.stream-overlay .stream-retry { pointer-events: auto; }
+.stream-meta {
+  display: flex; justify-content: space-between;
+  font-size: 9px; color: var(--color-steel);
+  padding: 6px 2px;
+}
+
+/* cockpit */
+.cockpit { flex-direction: row; gap: 0; padding: 0; overflow: hidden; }
+.devcol {
+  flex: 1 1 0; min-width: 0;
+  display: flex; flex-direction: column;
+  border-right: 1px solid var(--color-iron);
+}
+.stream-stage { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.stage-empty {
+  width: 100%; height: 100%; min-height: 320px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  color: var(--color-steel); gap: 8px;
+  background: var(--color-void);
+}
+.stage-empty-title { font-size: 12px; color: var(--color-fog); }
+.stage-empty-sub { font-size: 10px; }
+.devcol .stream-meta { border-top: 1px solid var(--color-iron); background: var(--color-carbon); padding: 6px 12px; }
+
+.workcol {
+  flex: 0 0 340px;
+  display: flex; flex-direction: column;
+  overflow-y: auto;
+  min-height: 0;
+}
+.sect { padding: 12px 14px; border-bottom: 1px solid var(--color-iron); }
+.sect-last { border-bottom: none; }
+.sect-label {
+  font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--color-steel); margin-bottom: 9px;
+  display: flex; justify-content: space-between; align-items: baseline;
+}
+.sect-state { color: var(--color-fog); letter-spacing: 0; text-transform: none; font-size: 9px; }
+.sect-state-on { color: var(--color-ember); }
+.sect-state-warn { color: var(--color-ember); }
+.sect-hint { font-size: 9.5px; color: var(--color-steel); }
+.form-err { color: var(--color-ember); font-size: 10px; margin-top: var(--s-2); }
+.row { display: flex; gap: 8px; align-items: center; }
+.spacer { flex: 1; }
+.kbd-hint { font-size: 9px; color: var(--color-steel); border: 1px solid var(--color-iron); padding: 2px 6px; border-radius: var(--r-sm); }
+
+.dpad { display: flex; gap: 5px; }
+.dpad button {
+  width: 36px; height: 32px;
+  background: var(--color-void); border: 1px solid var(--color-slate);
+  color: var(--color-fog); font-family: inherit; cursor: pointer; font-size: 12px;
+}
+.dpad button:hover:not(:disabled) { color: var(--color-paper); border-color: var(--color-paper); }
+.dpad button:disabled { opacity: 0.4; cursor: default; }
+.btn-quiet { border-color: var(--color-pewter); }
+
+.type-box { display: flex; gap: 8px; margin-top: 10px; }
+.type-box input { flex: 1; min-width: 0; }
+
+/* element card */
+.el-card { border: 1px solid var(--color-iron); background: var(--color-void); padding: 10px 12px; }
+.el-name { font-size: 11.5px; font-weight: 700; margin-bottom: 6px; word-break: break-all; }
+.krow { display: flex; justify-content: space-between; gap: 10px; padding: 4.5px 0; border-bottom: 1px solid var(--color-iron); font-size: 10.5px; }
+.krow:last-of-type { border-bottom: none; }
+.krow .k { color: var(--color-steel); font-size: 9px; min-width: 64px; padding-top: 1px; flex: none; }
+.krow .v { color: var(--color-paper); text-align: right; word-break: break-all; font-size: 10px; }
+.v-dim { color: var(--color-fog); }
+.v-ember { color: var(--color-ember); }
+
+/* recorder */
+.assert-box { display: flex; gap: 8px; }
+.assert-box input { flex: 1; min-width: 0; }
+.assert-feedback { font-size: 9.5px; padding: 6px 0 0; }
+.steps { margin-top: 8px; }
+.step { display: flex; align-items: center; gap: 9px; padding: 7px 0; border-bottom: 1px solid var(--color-iron); }
+.step:last-child { border-bottom: none; }
+.step-thumb { width: 30px; height: 52px; border-radius: 3px; object-fit: cover; border: 1px solid var(--color-iron); flex: none; }
+.step-thumb-empty { display: flex; align-items: center; justify-content: center; color: var(--color-steel); font-size: 9px; }
+.step-body { flex: 1; min-width: 0; display: flex; gap: 7px; align-items: baseline; }
+.step-idx { color: var(--color-ember); font-size: 10px; flex: none; }
+.step-label { font-size: 10px; color: var(--color-fog); word-break: break-word; }
+.step-del { flex: none; }
+
+/* hover chip + ripple (inspect) */
 .hover-chip {
   position: absolute;
   padding: 2px 8px;
@@ -713,66 +882,6 @@ async function endSession(): Promise<void> {
   white-space: nowrap;
   z-index: 2;
 }
-.inspect-drawer { margin-top: var(--s-2); padding: var(--s-2); }
-.sidebar {
-  position: fixed;
-  top: 0; right: 0; bottom: 0;
-  width: min(420px, 92vw);
-  background: var(--color-ink, #101014);
-  border-left: 1px solid var(--color-iron);
-  box-shadow: -18px 0 48px rgba(0, 0, 0, 0.5);
-  z-index: 60;
-  display: flex;
-  flex-direction: column;
-}
-.sidebar-head {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: var(--s-3) var(--s-4);
-  border-bottom: 1px solid var(--color-iron);
-}
-.sidebar-title { font-size: var(--text-h3, 15px); color: var(--color-paper); }
-.sidebar-sub { font-size: var(--text-caption); color: var(--color-steel); }
-.sidebar-body { padding: var(--s-3) var(--s-4); overflow-y: auto; flex: 1; }
-.stream-box { position: relative; border: 1px solid var(--color-iron); border-radius: var(--r-sm); overflow: hidden; }
-.stream-meta {
-  display: flex; justify-content: space-between;
-  font-size: 10px; color: var(--color-steel); margin-top: 4px;
-}
-.type-box {
-  display: flex; gap: var(--s-2); margin-top: var(--s-2);
-}
-.type-box input { flex: 1; }
-.recorder { margin-top: var(--s-4); border-top: 1px solid var(--color-iron); padding-top: var(--s-3); }
-.assert-box { display: flex; gap: var(--s-2); margin-top: var(--s-2); }
-.assert-box input { flex: 1; min-width: 0; }
-.assert-feedback { font-size: 10px; margin-top: 4px; }
-.recorder-head { display: flex; align-items: center; gap: var(--s-2); }
-.steps { margin-top: var(--s-2); display: flex; flex-direction: column; gap: var(--s-2); max-height: 300px; overflow-y: auto; }
-.step { display: flex; align-items: center; gap: var(--s-2); }
-.step-thumb {
-  width: 36px; height: 64px; object-fit: cover; border-radius: 3px;
-  border: 1px solid var(--color-iron); background: var(--color-void); flex: none;
-}
-.step-thumb-empty { display: flex; align-items: center; justify-content: center; color: var(--color-steel); font-size: 10px; }
-.step-body { flex: 1; min-width: 0; font-size: 11px; }
-.step-idx { color: var(--color-steel); margin-right: 6px; }
-.step-label { color: var(--color-fog); }
-.step-del { opacity: 0; }
-.step:hover .step-del { opacity: 1; }
-.save-tpl { display: flex; gap: var(--s-2); margin-top: var(--s-3); align-items: center; flex-wrap: wrap; }
-.save-tpl .input { flex: 1; min-width: 100px; }
-.stream-overlay {
-  position: absolute; inset: 0;
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(0, 0, 0, 0.55);
-  color: var(--color-fog);
-  font-size: var(--text-caption);
-  pointer-events: none;
-}
-/* failed state with a retry button: stack message + action, make ONLY the
- * button clickable (canvas interactions stay dead while the stream is down) */
-.stream-overlay:has(.stream-retry) { flex-direction: column; gap: var(--s-2); padding: var(--s-2); text-align: center; }
-.stream-overlay .stream-retry { pointer-events: auto; }
 .tap-ripple {
   position: absolute;
   width: 28px; height: 28px;
@@ -786,6 +895,12 @@ async function endSession(): Promise<void> {
   from { opacity: 0.9; scale: 0.4; }
   to { opacity: 0; scale: 1.6; }
 }
-.sidebar-enter-active, .sidebar-leave-active { transition: transform 0.22s ease, opacity 0.22s ease; }
-.sidebar-enter-from, .sidebar-leave-to { transform: translateX(100%); opacity: 0; }
+
+@media (max-width: 860px) {
+  .sidebar-wide { width: 96vw; }
+  .cockpit { flex-direction: column; }
+  .devcol { border-right: none; border-bottom: 1px solid var(--color-iron); flex: 0 0 auto; }
+  .stream-stage { min-height: 300px; }
+  .workcol { flex: 1 1 auto; }
+}
 </style>
