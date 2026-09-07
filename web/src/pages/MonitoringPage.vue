@@ -88,10 +88,20 @@ async function openDrawer(p: MxPayload): Promise<void> {
 }
 
 /** Plain-language rendering per the A2 spec — jargon lives in the drawer. */
+/** Apple ships memory as "214,000 kB" (locale-grouped string) — parse and
+ *  humanize to MB. Returns null for unparseable values. */
+function kbToMb(raw: string): string | null {
+  const kb = parseFloat(raw.replace(/[^\d.]/g, ''));
+  if (Number.isNaN(kb)) return null;
+  const mb = kb / 1024;
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
+}
+
 const what = (p: MxPayload): { headline: string; detail: string } => {
   if (p.kind === 'metric') {
     const launch = p.summary['launchAvgMs'] ? `${(Number(p.summary['launchAvgMs']) / 1000).toFixed(1)}s` : null;
-    const mem = typeof p.summary['peakMemory'] === 'string' ? p.summary['peakMemory'] : null;
+    const memRaw = typeof p.summary['peakMemory'] === 'string' ? p.summary['peakMemory'] : null;
+    const mem = memRaw ? kbToMb(memRaw) : null;
     return { headline: 'typical day', detail: [launch && `launch ${launch}`, mem && `memory ${mem}`].filter(Boolean).join(' · ') || 'daily report' };
   }
   const c = Number(p.summary['crashes'] ?? 0);
