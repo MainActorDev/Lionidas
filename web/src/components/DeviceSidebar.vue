@@ -352,11 +352,44 @@ async function commitAssert(): Promise<void> {
 
 const booted = computed(() => props.device?.state === 'Booted');
 
+// ── stage frame: device-aspect box fitted inside the stage (contain) ──
+// The overlay/chip/ripple span the frame, so they span the device image
+// exactly. Recomputed on stage resize and when device dims become known.
+const stageFrame = ref<HTMLElement | null>(null);
+const frameStyle = ref<Record<string, string>>({ aspectRatio: '428 / 926' });
+let stageRO: ResizeObserver | null = null;
+
+function fitStageFrame(): void {
+  const el = stageFrame.value;
+  const stage = el?.parentElement;
+  if (!el || !stage) return;
+  const w = (tree.logicalW.value && inspect.value ? tree.logicalW.value : null) ?? logicalW.value ?? 428;
+  const h = (tree.logicalH.value && inspect.value ? tree.logicalH.value : null) ?? logicalH.value ?? 926;
+  const ar = w / h;
+  const sw = stage.clientWidth;
+  const sh = stage.clientHeight;
+  if (sw <= 0 || sh <= 0) return;
+  const fw = Math.min(sw, sh * ar);
+  const fh = fw / ar;
+  frameStyle.value = { width: `${Math.floor(fw)}px`, height: `${Math.floor(fh)}px`, aspectRatio: `${w} / ${h}` };
+}
+
+function setStageFrame(el: unknown): void {
+  stageFrame.value = (Array.isArray(el) ? el[0] : el) as HTMLElement | null ?? null;
+  if (stageFrame.value && !stageRO) {
+    stageRO = new ResizeObserver(() => fitStageFrame());
+    stageRO.observe(stageFrame.value.parentElement as HTMLElement);
+  }
+  fitStageFrame();
+}
+watch([() => logicalW.value, () => logicalH.value, () => tree.logicalW.value, () => tree.logicalH.value], fitStageFrame);
+
 // ── lifecycle: device or mode change tears everything down cleanly ──
 watch(() => [props.device?.udid, props.mode] as const, () => {
   void reset();
 });
 onUnmounted(() => {
+  stageRO?.disconnect(); stageRO = null;
   window.removeEventListener('keydown', onKey);
   if (settleInterval) { clearInterval(settleInterval); settleInterval = null; }
   if (rafId) cancelAnimationFrame(rafId);
@@ -549,14 +582,18 @@ async function endSession(): Promise<void> {
               <div class="stage-empty-title">device ready</div>
               <div class="stage-empty-sub">{{ booted ? 'take control from the panel on the right to begin' : 'boot the device first' }}</div>
             </div>
-            <canvas v-else :ref="stream.setCanvas" @click="onTap" @mousemove="onCanvasMove"
-              :style="{ width: '100%', height: '100%', display: 'block', objectFit: 'contain', cursor: inspect ? 'default' : 'crosshair', background: 'var(--color-void)' }"></canvas>
-            <InspectOverlay v-if="inspect && sessionId" :nodes="tree.nodes.value" :logical-w="tree.logicalW.value" :logical-h="tree.logicalH.value"
-              :hover="hoverNode" :selected="selNode" :visible="tree.state.value === 'aligned'" />
-            <div v-if="inspect && hoverNode && tree.state.value === 'aligned' && sessionId" class="hover-chip"
-              :style="{ left: `${chipXY.x}px`, top: `${chipXY.y}px` }">{{ chipName }}</div>
-            <div v-if="ripple" class="tap-ripple" :style="{ left: `${ripple.x}px`, top: `${ripple.y}px` }" />
-            <div v-if="sessionId && stream.state.value !== 'live'" class="stream-overlay">
+            <!-- aspect-locked frame: fitted to the stage via contain math so the
+                 canvas, overlay boxes, chip and ripple all span EXACTLY the
+                 device image — never the letterboxed outer container -->
+            <div v-else class="stage-frame" :ref="setStageFrame" :style="frameStyle">
+              <canvas :ref="stream.setCanvas" @click="onTap" @mousemove="onCanvasMove"
+                :style="{ width: '100%', height: '100%', display: 'block', cursor: inspect ? 'default' : 'crosshair', background: 'var(--color-void)' }"></canvas>
+              <InspectOverlay v-if="inspect && sessionId" :nodes="tree.nodes.value" :logical-w="tree.logicalW.value" :logical-h="tree.logicalH.value"
+                :hover="hoverNode" :selected="selNode" :visible="tree.state.value === 'aligned'" />
+              <div v-if="inspect && hoverNode && tree.state.value === 'aligned' && sessionId" class="hover-chip"
+                :style="{ left: `${chipXY.x}px`, top: `${chipXY.y}px` }">{{ chipName }}</div>
+              <div v-if="ripple" class="tap-ripple" :style="{ left: `${ripple.x}px`, top: `${ripple.y}px` }" />
+              <div v-if="stream.state.value !== 'live'" class="stream-overlay">
               <span v-if="stream.state.value === 'connecting'">connecting to device stream…</span>
               <span v-else-if="stream.state.value === 'paused'">run in progress — stream paused</span>
               <span v-else-if="stream.state.value === 'reconnecting'">stream reconnecting…</span>
@@ -564,6 +601,7 @@ async function endSession(): Promise<void> {
                 <span>{{ stream.failure.value || 'stream unavailable' }}</span>
                 <button v-if="stream.retryable.value" class="btn btn-sm stream-retry" @click="stream.retry()">retry stream</button>
               </template>
+            </div>
             </div>
           </div>
           <div class="stream-meta">
@@ -799,6 +837,7 @@ async function endSession(): Promise<void> {
   border-right: 1px solid var(--color-iron);
 }
 .stream-stage { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.stage-frame { position: relative; flex: 0 0 auto; }
 .stage-empty {
   width: 100%; height: 100%; min-height: 320px;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
