@@ -1,5 +1,6 @@
 /** Auth routes: local login, Jira SSO, session introspection, admin user CRUD. */
 import type { FastifyInstance } from 'fastify';
+import { randomUUID as cryptoRandomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { createSession, destroySession, hashPassword, jiraConfigured, newUserId, userByEmail, userByJiraSubject, verifyPassword, type Role, type UserRow } from '../auth/users.ts';
 import { requireRole, SESSION_COOKIE } from '../auth/roles.ts';
@@ -42,14 +43,19 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
     if (!jiraConfigured()) return reply.code(503).send({ error: 'Jira SSO not configured (CRUCIBLE_JIRA_CLIENT_ID/SECRET)' });
     const clientId = process.env['CRUCIBLE_JIRA_CLIENT_ID']!;
     const redirect = `http://${process.env['CRUCIBLE_HOST'] ?? '127.0.0.1:9230'}/api/auth/jira/callback`;
-    const url = `https://auth.atlassian.com/authorize?audience=api.atlassian.com&client_id=${clientId}&scope=read%3ame%20read%3ajira-user&redirect_uri=${encodeURIComponent(redirect)}&state=${Math.random().toString(36).slice(2)}&response_type=code&prompt=consent`;
+    const state = cryptoRandomUUID();
+    const url = `https://auth.atlassian.com/authorize?audience=api.atlassian.com&client_id=${clientId}&scope=read%3ame%20read%3ajira-user&redirect_uri=${encodeURIComponent(redirect)}&state=${state}&response_type=code&prompt=consent`;
+    reply.header('set-cookie', `crucible_oauth_state=${state}; Path=/api/auth/jira; HttpOnly; SameSite=Lax; Max-Age=600`);
     return reply.redirect(url);
   });
 
   app.get('/api/auth/jira/callback', async (req, reply) => {
     if (!jiraConfigured()) return reply.code(503).send({ error: 'Jira SSO not configured' });
-    const q = req.query as { code?: string };
+    const q = req.query as { code?: string; state?: string; error?: string };
+    if (q.error) return reply.code(401).send({ error: `atlassian: ${q.error}` });
     if (!q.code) return reply.code(400).send({ error: 'missing code' });
+    const cookieState = /(?:^|;\s*)crucible_oauth_state=([^;]+)/.exec(req.headers['cookie'] ?? '')?.[1];
+    if (!q.state || !cookieState || q.state !== cookieState) return reply.code(400).send({ error: 'oauth state mismatch (re-open login)' });
     try {
       const redirect = `http://${process.env['CRUCIBLE_HOST'] ?? '127.0.0.1:9230'}/api/auth/jira/callback`;
       const tokenRes = await fetch('https://auth.atlassian.com/oauth/token', {

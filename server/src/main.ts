@@ -1,3 +1,6 @@
+// load server/.env if present (secrets live there, never in git)
+try { process.loadEnvFile(new URL('../.env', import.meta.url)); } catch { /* no .env */ }
+
 /** Entry: build + listen + graceful shutdown (SIGTERM/SIGINT → drain → close). */
 import { buildApp } from './index.ts';
 import { VERSION } from './routes/health.ts';
