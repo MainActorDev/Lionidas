@@ -24,7 +24,6 @@ import { healStaleProxies } from './forge/sim-routing.ts';
 import { registerTemplateRoutes } from './routes/templates.ts';
 import { registerFlakeRoutes } from './routes/flakes.ts';
 import { registerEventsWs } from './routes/events-ws.ts';
-import { registerAuthStatus } from './auth/gate.ts';
 import { startGcLoop } from './gc/retention.ts';
 import { bootReconcile } from './alloy/reconcile.ts';
 import { startIdleWatchdog } from './manual/session.ts';
@@ -59,8 +58,6 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   registerMatrixRoute(app, db.raw);
   registerEvidenceRoute(app, db.raw);
   await registerEventsWs(app, bus);
-
-  registerAuthStatus(app);
 
   app.addHook('onRequest', async (req) => {
     req.id = crypto.randomUUID();

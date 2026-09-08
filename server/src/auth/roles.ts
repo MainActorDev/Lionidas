@@ -4,7 +4,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type Database from 'better-sqlite3';
 import { timingSafeEqual } from 'node:crypto';
-import { resolveSession, userForAgentToken, type Role, type UserRow } from './users.ts';
+import { resolveSession, userForAgentToken, verifyPassword, type Role, type UserRow } from './users.ts';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -43,10 +43,19 @@ export function registerUserResolution(app: FastifyInstance, db: Database.Databa
     }
     const token = extractAgentToken(req);
     if (token) {
-      const cfgAgent = process.env['CRUCIBLE_AGENT_TOKEN'] || null;
-      if (cfgAgent && constantEq(token, cfgAgent)) {
-        const bot = userForAgentToken(db, token) ?? userForAgentToken(db, 'lioclaw');
-        if (bot) req.user = bot;
+      // per-bot tokens first: each bot's own secret (stored scrypt in its row).
+      // token format: <botname>-<secret> so we know which row to check.
+      const botName = token.split('-')[0] ?? '';
+      const bot = db.prepare("SELECT * FROM users WHERE role = 'bot' AND active = 1 AND (name = ? OR email = ?)").get(botName, `${botName}@bot.local`) as import('./users.ts').UserRow | undefined;
+      if (bot?.password_hash && verifyPassword(token.slice(botName.length + 1), bot.password_hash)) {
+        req.user = bot;
+      } else {
+        // legacy shared token (transition) — maps to its prefix bot, else lioclaw
+        const cfgAgent = process.env['CRUCIBLE_AGENT_TOKEN'] || null;
+        if (cfgAgent && constantEq(token, cfgAgent)) {
+          const fallback = userForAgentToken(db, token) ?? userForAgentToken(db, 'lioclaw');
+          if (fallback) req.user = fallback;
+        }
       }
     }
   });

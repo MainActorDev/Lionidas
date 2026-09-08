@@ -9,6 +9,8 @@ interface Diff {
 const diffs = ref<Diff[]>([]);
 const decided = ref('');
 
+interface BaselineRow { id: string; scope_key: string; approved_by: string; approved_at: number; ticket_key: string | null }
+const history = ref<BaselineRow[]>([]);
 async function load(): Promise<void> {
   const res = await fetch('/api/baselines/diffs?state=pending');
   diffs.value = (await res.json() as { diffs: Diff[] }).diffs;
@@ -16,13 +18,20 @@ async function load(): Promise<void> {
 async function decide(id: string, action: 'approve' | 'reject'): Promise<void> {
   const res = await fetch(`/api/baselines/diffs/${id}/${action}`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ by: 'dashboard' }),
+    body: JSON.stringify({}), // identity comes from the session server-side
   });
   const body = await res.json() as { approved?: boolean; rejected?: boolean; withRerun?: boolean };
   decided.value = `${id} → ${action}${body.withRerun ? ' (baseline re-run)' : ''}`;
   await load();
 }
-onMounted(load);
+async function loadHistory(): Promise<void> {
+  try {
+    const r = await fetch('/api/baselines');
+    const b = await r.json() as { baselines?: BaselineRow[] };
+    history.value = (b.baselines ?? []).slice(0, 20);
+  } catch { /* best effort */ }
+}
+onMounted(() => { void load(); void loadHistory(); });
 </script>
 
 <template>
@@ -56,6 +65,21 @@ onMounted(load);
         <button class="btn btn-primary" @click="decide(d.id, 'approve')">approve — intentional change</button>
         <button class="btn btn-danger" @click="decide(d.id, 'reject')">reject — regression</button>
       </div>
+    </div>
+
+    <div class="section-label" style="margin-top: var(--s-4);"><span>approval history</span></div>
+    <div class="card table-wrap" style="padding: 0;" v-if="history.length > 0">
+      <table>
+        <thead><tr><th>scope</th><th>approved by</th><th>when</th><th>ticket</th></tr></thead>
+        <tbody>
+          <tr v-for="b in history" :key="b.id">
+            <td style="font-family: monospace; font-size: 10px;">{{ b.scope_key }}</td>
+            <td>{{ b.approved_by }}</td>
+            <td style="color: var(--color-steel); font-size: 10px;">{{ new Date(b.approved_at).toLocaleString() }}</td>
+            <td style="color: var(--color-steel);">{{ b.ticket_key ?? '—' }}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </div>
 </template>

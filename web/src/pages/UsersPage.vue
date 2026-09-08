@@ -45,6 +45,24 @@ function resetPassword(u: U): void {
 
 const when = (t: number | null): string => t ? new Date(t).toLocaleString() : 'never';
 
+// sessions + auth log (admin)
+interface Sess { id: string; name: string; email: string; created_at: number; expires_at: number; last_seen_at: number }
+const sessions = ref<Sess[]>([]);
+interface LogRow { at: number; email: string | null; event: string; detail: string | null }
+const log = ref<LogRow[]>([]);
+async function loadAccess(): Promise<void> {
+  try {
+    const [s1, l1] = await Promise.all([fetch('/api/sessions'), fetch('/api/auth/log')]);
+    if (s1.ok) sessions.value = ((await s1.json()) as { sessions: Sess[] }).sessions ?? [];
+    if (l1.ok) log.value = ((await l1.json()) as { log: LogRow[] }).log ?? [];
+  } catch { /* best effort */ }
+}
+async function killSession(id: string): Promise<void> {
+  await fetch(`/api/sessions/${id}`, { method: 'DELETE' });
+  await loadAccess();
+}
+onMounted(() => void loadAccess());
+
 onMounted(() => void load());
 </script>
 
@@ -109,6 +127,36 @@ onMounted(() => void load());
               </template>
               <span v-else style="font-size: 9px; color: var(--color-steel);">pipeline</span>
             </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section-label" style="margin-top: var(--s-4);"><span>active sessions</span></div>
+    <div class="card table-wrap" style="padding: 0;" v-if="sessions.length > 0">
+      <table>
+        <thead><tr><th>user</th><th>last seen</th><th>expires</th><th style="text-align: right;"></th></tr></thead>
+        <tbody>
+          <tr v-for="s in sessions" :key="s.id">
+            <td>{{ s.name }} <small style="color: var(--color-steel);">{{ s.email }}</small></td>
+            <td style="font-size: 10px; color: var(--color-steel);">{{ when(s.last_seen_at) }}</td>
+            <td style="font-size: 10px; color: var(--color-steel);">{{ new Date(s.expires_at).toLocaleTimeString() }}</td>
+            <td style="text-align: right;"><button class="btn btn-sm btn-danger" @click="killSession(s.id)">kill</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section-label" style="margin-top: var(--s-4);"><span>auth log</span></div>
+    <div class="card table-wrap" style="padding: 0;" v-if="log.length > 0">
+      <table>
+        <thead><tr><th>when</th><th>who</th><th>event</th><th>detail</th></tr></thead>
+        <tbody>
+          <tr v-for="(l, i) in log.slice(0, 30)" :key="i">
+            <td style="font-size: 10px; color: var(--color-steel);">{{ new Date(l.at).toLocaleString() }}</td>
+            <td>{{ l.email ?? '—' }}</td>
+            <td><span class="badge" :style="l.event === 'login_failed' ? 'color: var(--color-ember);' : ''">{{ l.event }}</span></td>
+            <td style="font-size: 10px; color: var(--color-steel);">{{ l.detail ?? '' }}</td>
           </tr>
         </tbody>
       </table>

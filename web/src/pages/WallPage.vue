@@ -4,7 +4,7 @@ import NewRunModal from '../components/NewRunModal.vue';
 import DeviceSidebar, { type SidebarDevice } from '../components/DeviceSidebar.vue';
 import { useLiveEvents } from '../stores/live.ts';
 
-interface DeviceRow { udid: string; name: string | null; state: string | null; platform: string | null; kind: string | null; os_version: string | null; resolution: string | null; lease_holder: string | null; lease_engine: string | null }
+interface DeviceRow { udid: string; name: string | null; state: string | null; platform: string | null; kind: string | null; os_version: string | null; resolution: string | null; lease_holder: string | null; lease_engine: string | null; lease_display?: string | null }
 interface QueueRow { id: string; state: string; priority: number; requested_by: string }
 interface RunRow { id: string; ticket_key: string; status: string; kind: string }
 
@@ -169,7 +169,7 @@ onUnmounted(() => { if (poll) clearInterval(poll); closeSidebar(); unwatchEvents
                 <div v-if="d.resolution" style="font-size: 10px; color: var(--color-steel);">{{ d.resolution }}</div>
               </td>
               <td>
-                <b v-if="d.lease_holder?.startsWith('manual:')" style="color: var(--color-ember);">manual</b>
+                <b v-if="d.lease_holder?.startsWith('manual:')" style="color: var(--color-ember);" :title="d.lease_display ?? 'manual'">{{ d.lease_display && d.lease_display !== 'manual' ? d.lease_display : 'manual' }}</b>
                 <b v-else-if="d.lease_holder">{{ d.lease_holder }}</b>
                 <span v-else style="color: var(--color-steel);">free</span>
               </td>

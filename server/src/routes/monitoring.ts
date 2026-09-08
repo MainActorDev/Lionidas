@@ -3,14 +3,14 @@
  *  pipeline (simctl/devicectl pull → ingest) and the feed the dashboard reads. */
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
-import { requirePinOrAgent } from '../auth/gate.ts';
+import { requireRole } from '../auth/roles.ts';
 import { ingestPayload, type IngestEnvelope } from '../diagnostics/ingest.ts';
 import { extractFromDevice, listGuvnorDevices } from '../diagnostics/extract.ts';
 
 export function registerMonitoringRoutes(app: FastifyInstance, db: Database.Database): void {
   // ingest — internal/pipeline surface (agent token). 8MB: Fastify default 1MB
   // would 413 on chunky daily-metric payloads.
-  app.post('/api/diagnostics/payloads', { preHandler: requirePinOrAgent(), bodyLimit: 8 * 1024 * 1024 }, async (req, reply) => {
+  app.post('/api/diagnostics/payloads', { preHandler: requireRole('operator'), bodyLimit: 8 * 1024 * 1024 }, async (req, reply) => {
     const b = req.body as IngestEnvelope | IngestEnvelope[] | null;
     const envelopes: IngestEnvelope[] = Array.isArray(b) ? b : b ? [b] : [];
     if (envelopes.length === 0) return reply.code(400).send({ error: 'envelope(s) required' });
@@ -62,7 +62,7 @@ export function registerMonitoringRoutes(app: FastifyInstance, db: Database.Data
   app.get('/api/diagnostics/devices', async () => listGuvnorDevices());
 
   // extraction: pull Guvnor payload files out of a device's app container → ingest
-  app.post('/api/diagnostics/extract', { preHandler: requirePinOrAgent() }, async (req, reply) => {
+  app.post('/api/diagnostics/extract', { preHandler: requireRole('operator') }, async (req, reply) => {
     const b = req.body as { udid?: string; appId?: string } | null;
     if (!b?.udid || !b?.appId) return reply.code(400).send({ error: 'udid and appId required' });
     try {

@@ -314,6 +314,14 @@ export function migrateM1(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_mx_feed ON mx_payloads(app_id, received_at DESC);
     CREATE INDEX IF NOT EXISTS idx_mx_dedupe ON mx_payloads(device_id, captured_at, kind);
+    CREATE TABLE IF NOT EXISTS auth_log(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      at INTEGER NOT NULL,
+      email TEXT,
+      user_id TEXT,
+      event TEXT NOT NULL,            -- login | login_failed | logout | session_killed
+      detail TEXT
+    );
   `);
   // additive auth-era columns (older DBs migrate in place)
   const cols = db.prepare("SELECT name FROM pragma_table_info('templates')").all() as Array<{ name: string }>;

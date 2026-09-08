@@ -11,8 +11,10 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
     const user = userByEmail(db, b.email.toLowerCase().trim());
     // uniform failure: never reveal whether the email exists
     if (!user || user.auth_source === 'bot' || !user.password_hash || !user.active || !verifyPassword(b.password, user.password_hash)) {
+      db.prepare('INSERT INTO auth_log(at, email, event, detail) VALUES (?, ?, ?, ?)').run(Date.now(), b.email.toLowerCase().trim(), 'login_failed', 'invalid credentials');
       return reply.code(401).send({ error: 'invalid email or password' });
     }
+    db.prepare('INSERT INTO auth_log(at, email, user_id, event) VALUES (?, ?, ?, ?)').run(Date.now(), user.email, user.id, 'login');
     db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(Date.now(), user.id);
     const s = createSession(db, user.id);
     reply.header('set-cookie', `${SESSION_COOKIE}=${s.cookie}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${12 * 60 * 60}`);
@@ -23,7 +25,10 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
     const cookieHeader = req.headers['cookie'];
     const cookie = typeof cookieHeader === 'string' ? cookieHeader : '';
     const m = /(?:^|;\s*)crucible_session=([a-f0-9]{64})/.exec(cookie);
-    if (m?.[1]) destroySession(db, m[1]);
+    if (m?.[1]) {
+      destroySession(db, m[1]);
+      db.prepare('INSERT INTO auth_log(at, user_id, event) VALUES (?, ?, ?)').run(Date.now(), req.user?.id ?? null, 'logout');
+    }
     reply.header('set-cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; Max-Age=0`);
     return { ok: true };
   });
@@ -80,6 +85,26 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
   });
 
   // ── user management (admin) ──
+  app.get('/api/auth/log', { preHandler: requireRole('admin') }, async () => {
+    const rows = db.prepare('SELECT * FROM auth_log ORDER BY at DESC LIMIT 200').all();
+    return { log: rows };
+  });
+
+  app.get('/api/sessions', { preHandler: requireRole('admin') }, async () => {
+    const rows = db.prepare(`SELECT s.id, s.user_id, u.name, u.email, s.created_at, s.expires_at, s.last_seen_at
+                             FROM sessions s JOIN users u ON u.id = s.user_id ORDER BY s.last_seen_at DESC LIMIT 100`).all();
+    return { sessions: rows.map((r) => ({ ...r as Record<string, unknown>, id: (r as { id: string }).id.slice(0, 8) })) };
+  });
+
+  app.delete('/api/sessions/:prefix', { preHandler: requireRole('admin') }, async (req, reply) => {
+    const { prefix } = req.params as { prefix: string };
+    const row = db.prepare('SELECT id, user_id FROM sessions WHERE id LIKE ?').get(`${prefix}%`) as { id: string; user_id: string } | undefined;
+    if (!row) return reply.code(404).send({ error: 'session not found' });
+    destroySession(db, row.id);
+    db.prepare('INSERT INTO auth_log(at, user_id, event, detail) VALUES (?, ?, ?, ?)').run(Date.now(), row.user_id, 'session_killed', `killed by ${req.user?.name ?? 'admin'} (prefix ${prefix})`);
+    return { ok: true };
+  });
+
   app.get('/api/users', { preHandler: requireRole('admin') }, async () => {
     const rows = db.prepare('SELECT * FROM users ORDER BY created_at').all() as UserRow[];
     return { users: rows.map(publicUser) };
@@ -102,7 +127,7 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
 
   app.patch('/api/users/:id', { preHandler: requireRole('admin') }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const b = req.body as { role?: Role; active?: boolean; password?: string } | null;
+    const b = req.body as { role?: Role; active?: boolean; password?: string; botToken?: string } | null;
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
     if (!user) return reply.code(404).send({ error: 'not found' });
     if (b?.role && ['viewer', 'operator', 'admin'].includes(b.role)) {
@@ -117,6 +142,13 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
       if (b.password.length < 8) return reply.code(400).send({ error: 'password min 8 chars' });
       db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(b.password), id);
       db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id); // reset forces re-login
+    }
+    if (typeof b?.botToken === 'string') {
+      // issue/rotate a per-bot agent token (bot rows only) — the value is returned ONCE here
+      if (user.role !== 'bot') return reply.code(400).send({ error: 'botToken applies to bot users only' });
+      if (b.botToken.length < 8) return reply.code(400).send({ error: 'token min 8 chars' });
+      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(b.botToken), id);
+      return { user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow), botToken: `${user.name}-${b.botToken}` };
     }
     return { user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow) };
   });

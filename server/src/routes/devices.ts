@@ -9,7 +9,9 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
   app.get('/api/devices', async () => {
     // simulator-only wall: physical devices stay out of the list entirely
     const rows = db
-      .prepare("SELECT udid, name, state, platform, kind, os_version, resolution, lease_holder, lease_engine, last_seen FROM devices WHERE kind = 'simulator' ORDER BY state = 'Booted' DESC, name")
+      .prepare(`SELECT d.udid, d.name, d.state, d.platform, d.kind, d.os_version, d.resolution, d.lease_holder, d.lease_engine, d.last_seen,
+                       CASE WHEN d.lease_holder LIKE 'manual:%' THEN COALESCE((SELECT ms.operator FROM manual_sessions ms WHERE ms.id = substr(d.lease_holder, 8) AND ms.finished_at IS NULL), 'manual') ELSE d.lease_holder END AS lease_display
+                FROM devices d WHERE d.kind = 'simulator' ORDER BY d.state = 'Booted' DESC, d.name`)
       .all();
     return { devices: rows };
   });

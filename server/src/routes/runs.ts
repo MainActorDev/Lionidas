@@ -9,7 +9,7 @@ import { jiraConfig, buildCommentBody, postComment } from '../integrations/jira.
 import { alloyDispatchDepsSync } from '../alloy/runtime.ts';
 import { scanFlowSet } from '../domain/acs.ts';
 import { diskState } from '../gc/retention.ts';
-import { requirePinOrAgent } from '../auth/gate.ts';
+import { requireRole } from '../auth/roles.ts';
 
 interface RunRow {
   id: string; ticket_key: string; kind: string; status: string; triggered_by: string;
@@ -18,7 +18,7 @@ interface RunRow {
 }
 
 export function registerRunRoutes(app: FastifyInstance, db: Database.Database, bus?: TypedEventBus<AppEvents>): void {
-  app.post('/api/runs', { preHandler: requirePinOrAgent() }, async (req, reply) => {
+  app.post('/api/runs', { preHandler: requireRole('operator') }, async (req, reply) => {
     const body = req.body as Partial<QueueSpec> & { priority?: 'manual' | 'scheduled' | 'agent'; scenarioId?: string };
     // disk quota: pause new runs at 100% (PLAN §11)
     const disk = diskState(process.env['CRUCIBLE_ARTIFACTS_DIR'] ?? './artifacts');
