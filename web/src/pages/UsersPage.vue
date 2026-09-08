@@ -130,7 +130,9 @@ onMounted(() => void load());
             <td style="font-size: 10px; color: var(--color-steel);">{{ when(u.last_login_at) }}</td>
             <td style="text-align: right; white-space: nowrap;">
               <template v-if="u.role !== 'bot'">
-                <button class="btn btn-sm" @click="resetPassword(u)">reset pw</button>
+                <button v-if="!u.approved" class="btn btn-sm btn-primary" @click="approve(u.id, true)">approve</button>
+                <button v-else-if="u.auth_source === 'jira'" class="btn btn-sm" :style="{ marginLeft: '6px' }" @click="approve(u.id, false)">revoke</button>
+                <button class="btn btn-sm" :style="{ marginLeft: u.approved && u.auth_source !== 'jira' ? '0' : '6px' }" @click="resetPassword(u)">reset pw</button>
                 <button class="btn btn-sm" :style="{ marginLeft: '6px' }" @click="patch(u.id, { active: !u.active }, u.active ? `deactivated — ${u.email}` : `reactivated — ${u.email}`)">
                   {{ u.active ? 'deactivate' : 'reactivate' }}
                 </button>
