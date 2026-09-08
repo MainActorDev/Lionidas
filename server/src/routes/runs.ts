@@ -51,7 +51,7 @@ export function registerRunRoutes(app: FastifyInstance, db: Database.Database, b
       ...(body.kind !== undefined ? { kind: body.kind } : {}),
       ...(body.parentRunId !== undefined ? { parentRunId: body.parentRunId } : {}),
     };
-    const queueId = enqueue(db, spec, body.triggeredBy!, prio);
+    const queueId = enqueue(db, spec, req.user?.name ?? body.triggeredBy!, prio); // session wins
     bus?.emit('queue.changed', { queueId, state: 'waiting' });
     return reply.code(202).send({ queueId });
   });

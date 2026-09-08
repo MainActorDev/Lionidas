@@ -216,7 +216,7 @@ export function registerManualRoutes(
       const { runId, udid } = await runTemplatePlayback(
         { db, bus: deps.bus, dispatchDeps: deps.dispatchDeps, artifactsDir: deps.artifactsDir, forgeState: deps.forgeState },
         id,
-        { ...(b?.udid !== undefined ? { udid: b.udid } : {}), ...(b?.triggeredBy !== undefined ? { triggeredBy: b.triggeredBy } : {}), ...(b?.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}), ...(b?.env !== undefined ? { env: b.env } : {}) },
+        { ...(b?.udid !== undefined ? { udid: b.udid } : {}), ...(req.user?.name !== undefined ? { triggeredBy: req.user.name } : (b?.triggeredBy !== undefined ? { triggeredBy: b.triggeredBy } : {})), ...(b?.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}), ...(b?.env !== undefined ? { env: b.env } : {}) },
       );
       return { runId, udid };
     } catch (err) {
