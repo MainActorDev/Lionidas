@@ -4,7 +4,7 @@ import { buildApp } from '../src/index.ts';
 let app: Awaited<ReturnType<typeof buildApp>>;
 
 beforeEach(async () => {
-  app = await buildApp({ ...process.env, CRUCIBLE_DB_PATH: ':memory:', VITEST: 'true' });
+  app = await buildApp({ ...process.env, CRUCIBLE_DB_PATH: ':memory:', VITEST: 'true', CRUCIBLE_REQUIRE_AUTH: '0' }); // auth 401s covered in auth.test.ts
 });
 
 describe('POST /api/devices/:udid/stream (S1)', () => {

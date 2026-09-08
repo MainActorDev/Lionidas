@@ -70,7 +70,7 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   // Hard read gate: with CRUCIBLE_REQUIRE_AUTH (default ON), every route except
   // the auth surface and health requires a session. Set CRUCIBLE_REQUIRE_AUTH=0
   // to return to the open-read transition mode.
-  if ((process.env['CRUCIBLE_REQUIRE_AUTH'] ?? '1') === '1') {
+  if ((env['CRUCIBLE_REQUIRE_AUTH'] ?? '1') === '1') { // env param wins (buildApp contract)
     app.addHook('onRequest', async (req, reply) => {
       const open = req.url.startsWith('/api/auth') || req.url.startsWith('/api/health') || req.url === '/' || !req.url.startsWith('/api/');
       if (open || req.user) return;

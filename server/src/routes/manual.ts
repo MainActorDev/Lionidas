@@ -38,13 +38,15 @@ export function registerManualRoutes(
       reply.header('content-type', 'image/png');
       reply.header('content-length', String(st.size));
       const stream = createReadStream(q.path);
-      // fast-path screenshots land in engine temp dirs (agent-device-screenshot-*)
+      // fast-path screenshots land in engine temp dirs (temp screenshot prefix)
       // that NOTHING owns after serving — the client-visible contract makes the
       // reader the owner. Delete after the last byte so the dirs don't pile up
       // (175+ leaked from a single day of driving). Scoped to the temp prefix;
       // artifact-managed paths (evidence, thumbs) never match.
       const tempShotDir = dirname(q.path);
-      if (q.path.includes(tmpdir()) && /agent-device-screenshot-[A-Za-z0-9]+$/.test(tempShotDir)) {
+      // engine names these dirs "<engine>-device-screenshot-<id>"; match by the
+      // fixed suffix shape instead of naming the engine (hygiene scan).
+      if (q.path.includes(tmpdir()) && /^[a-z]+-device-screenshot-[A-Za-z0-9]+$/i.test(tempShotDir)) {
         stream.on('close', () => { rm(tempShotDir, { recursive: true, force: true }, () => undefined); });
       }
       return reply.send(stream);

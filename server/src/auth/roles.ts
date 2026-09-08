@@ -50,10 +50,12 @@ export function registerUserResolution(app: FastifyInstance, db: Database.Databa
       if (bot?.password_hash && verifyPassword(token.slice(botName.length + 1), bot.password_hash)) {
         req.user = bot;
       } else {
-        // legacy shared token (transition) — maps to its prefix bot, else lioclaw
+        // legacy shared token (transition) — maps to its prefix bot, else lioclaw,
+        // else any active bot (minimal DBs may seed only one machine identity).
         const cfgAgent = process.env['CRUCIBLE_AGENT_TOKEN'] || null;
         if (cfgAgent && constantEq(token, cfgAgent)) {
-          const fallback = userForAgentToken(db, token) ?? userForAgentToken(db, 'lioclaw');
+          const fallback = userForAgentToken(db, token) ?? userForAgentToken(db, 'lioclaw')
+            ?? db.prepare("SELECT * FROM users WHERE role = 'bot' AND active = 1 AND approved = 1 ORDER BY name LIMIT 1").get() as UserRow | undefined;
           if (fallback) req.user = fallback;
         }
       }
