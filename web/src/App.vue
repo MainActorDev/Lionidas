@@ -22,12 +22,15 @@ import { watch } from 'vue';
 const route = useRoute();
 const title = computed(() => (route.meta.title as string | undefined) ?? 'crucible');
 const isActive = (name: string): boolean => route.name === name;
+const isPublic = computed(() => route.meta.public === true);
 // cheap re-check on route change (login/out navigations refresh the chip)
 watch(() => route.fullPath, () => void loadMe());
 </script>
 
 <template>
-  <div class="app">
+  <!-- public routes (login) own the full viewport — no app chrome -->
+  <router-view v-if="isPublic" />
+  <div v-else class="app">
     <div class="logo"><span class="logo-mark" /> crucible</div>
 
     <nav class="sidebar">
