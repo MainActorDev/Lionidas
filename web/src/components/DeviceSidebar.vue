@@ -556,7 +556,7 @@ async function endSession(): Promise<void> {
 </script>
 <template>
   <transition name="sidebar">
-    <aside v-if="device" class="sidebar" :class="{ 'sidebar-wide': phase === 'driving' }">
+    <aside v-if="device" class="sidebar sidebar-wide">
       <header class="sb-head">
         <div>
           <div class="sb-title">{{ device.name ?? device.udid.slice(0, 8) }}</div>
@@ -569,70 +569,59 @@ async function endSession(): Promise<void> {
         <button class="btn btn-sm sb-x" @click="emit('close')">✕</button>
       </header>
 
-      <!-- PHASE 1: watching — stream + escalation -->
-      <div v-if="phase === 'watching'" class="sb-body">
-        <div class="stream-box">
-          <canvas :ref="stream.setCanvas" style="width: 100%; display: block; background: var(--color-void); min-height: 160px;"></canvas>
-          <div v-if="stream.state.value !== 'live'" class="stream-overlay">
-            <span v-if="stream.state.value === 'connecting'">connecting to device stream…</span>
-            <span v-else-if="stream.state.value === 'paused'">run in progress — stream paused</span>
-            <span v-else-if="stream.state.value === 'reconnecting'">stream reconnecting…</span>
-            <template v-else-if="stream.state.value === 'failed'">
-              <span>{{ stream.failure.value || 'stream unavailable' }}</span>
-              <button v-if="stream.retryable.value" class="btn btn-sm stream-retry" @click="stream.retry()">retry stream</button>
-            </template>
-          </div>
-        </div>
-        <div class="stream-meta">
-          <span v-if="stream.state.value === 'live'">{{ stream.fps.value > 0 ? `live · ${stream.fps.value}fps` : 'live · idle (screen unchanged)' }}</span>
-          <span v-else>{{ stream.state.value }}</span>
-          <span>read-only · does not hold the device</span>
-        </div>
-
-        <div class="sect" style="margin-top: var(--s-3);">
-          <div class="meta-row">
-            <span class="k">app</span>
-            <select v-model="appBundleId" style="flex: 1;">
-              <option value="">auto (best guess)</option>
-              <option v-for="a in appOptions" :key="a.bundleId" :value="a.bundleId">{{ a.name }}</option>
-            </select>
-          </div>
-          <label class="meta-row" style="cursor: pointer;">
-            <input type="checkbox" v-model="showSystemApps" style="width: auto;" />
-            <span class="k" style="flex: 1;">show system apps</span>
-          </label>
-          <button class="btn btn-primary" style="width: 100%; margin-top: var(--s-2);" :disabled="busy || takeControlBlocked" @click="startSession">
-            {{ busy ? 'taking control…' : takeControlWhy || 'take control' }}
-          </button>
-          <div v-if="error" class="form-err" style="margin-top: var(--s-2);">{{ error }}</div>
-        </div>
-
-        <div class="sect">
-          <div class="sect-label"><span>install app</span></div>
-          <button v-if="!artifactsLoaded" class="btn btn-sm" @click="loadArtifacts">browse artifacts…</button>
-          <template v-else>
-            <div v-for="r in yourApps" :key="r.key" class="app-row" :class="{ picked: artifactPick && r.builds.some((b) => b.path === artifactPick) }">
-              <div class="app-row-head" @click="expandedRow = expandedRow === r.key ? null : r.key">
-                <span class="app-name">{{ r.name }}</span>
-                <span class="app-meta">{{ r.version ?? '—' }} · {{ ageOf(r.mtimeMs) }} · {{ r.builds.length > 1 ? `${r.builds.length} builds` : r.source }}</span>
+      <!-- PHASE 1: watching — stream left, escalation right (cockpit layout) -->
+      <div v-if="phase === 'watching'" class="sb-body cockpit">
+        <div class="devcol">
+          <div class="stream-box stream-stage">
+            <div class="stage-frame">
+              <canvas :ref="stream.setCanvas" @click="onTap" @mousemove="onCanvasMove"
+                :style="{ display: 'block', cursor: 'default', background: 'var(--color-void)' }"></canvas>
+              <div v-if="stream.state.value !== 'live'" class="stream-overlay">
+                <span v-if="stream.state.value === 'connecting'">connecting to device stream…</span>
+                <span v-else-if="stream.state.value === 'paused'">run in progress — stream paused</span>
+                <span v-else-if="stream.state.value === 'reconnecting'">stream reconnecting…</span>
+                <template v-else-if="stream.state.value === 'failed'">
+                  <span>{{ stream.failure.value || 'stream unavailable' }}</span>
+                  <button v-if="stream.retryable.value" class="btn btn-sm stream-retry" @click="stream.retry()">retry stream</button>
+                </template>
               </div>
-              <div v-if="expandedRow === r.key" class="app-builds">
-                <div v-for="b in r.builds" :key="b.path" class="app-build" :class="{ picked: artifactPick === b.path }"
-                  @click="artifactPick = b.path; appBundleId = r.bundleId">
-                  <span>{{ b.path.split('/').pop() }}</span>
-                  <span class="app-meta">{{ ageOf(b.mtimeMs) }} · {{ b.source }}</span>
-                </div>
-              </div>
-              <button v-else class="btn btn-sm" style="width: 100%; margin-top: 4px;"
-                @click="artifactPick = r.builds[0]!.path; appBundleId = r.bundleId">use newest</button>
             </div>
-            <button v-if="macApps.length" class="btn btn-sm btn-quiet" style="width: 100%; margin-top: var(--s-2);"
-              @click="showMacApps = !showMacApps">{{ showMacApps ? 'hide' : `also on this mac (${macApps.length})` }}</button>
-            <template v-if="showMacApps">
-              <div v-for="r in macApps" :key="r.key" class="app-row" :class="{ picked: artifactPick && r.builds.some((b) => b.path === artifactPick) }">
+          </div>
+          <div class="stream-meta">
+            <span v-if="stream.state.value === 'live'">{{ stream.fps.value > 0 ? `live · ${stream.fps.value}fps` : 'live · idle (screen unchanged)' }}</span>
+            <span v-else>{{ stream.state.value }}</span>
+            <span>watching · read-only · does not hold the device</span>
+          </div>
+        </div>
+
+        <div class="workcol">
+          <div class="sect">
+            <div class="sect-label"><span>session</span></div>
+            <div class="meta-row">
+              <span class="k">app</span>
+              <select v-model="appBundleId" style="flex: 1;">
+                <option value="">auto (best guess)</option>
+                <option v-for="a in appOptions" :key="a.bundleId" :value="a.bundleId">{{ a.name }}</option>
+              </select>
+            </div>
+            <label class="meta-row" style="cursor: pointer;">
+              <input type="checkbox" v-model="showSystemApps" style="width: auto;" />
+              <span class="k" style="flex: 1;">show system apps</span>
+            </label>
+            <button class="btn btn-primary" style="width: 100%; margin-top: var(--s-2);" :disabled="busy || takeControlBlocked" @click="startSession">
+              {{ busy ? 'taking control…' : takeControlWhy || 'take control' }}
+            </button>
+            <div v-if="error" class="form-err" style="margin-top: var(--s-2);">{{ error }}</div>
+          </div>
+
+          <div class="sect">
+            <div class="sect-label"><span>install app</span></div>
+            <button v-if="!artifactsLoaded" class="btn btn-sm" @click="loadArtifacts">browse artifacts…</button>
+            <template v-else>
+              <div v-for="r in yourApps" :key="r.key" class="app-row" :class="{ picked: artifactPick && r.builds.some((b) => b.path === artifactPick) }">
                 <div class="app-row-head" @click="expandedRow = expandedRow === r.key ? null : r.key">
                   <span class="app-name">{{ r.name }}</span>
-                  <span class="app-meta">{{ r.version ?? '—' }} · {{ ageOf(r.mtimeMs) }}</span>
+                  <span class="app-meta">{{ r.version ?? '—' }} · {{ ageOf(r.mtimeMs) }} · {{ r.builds.length > 1 ? `${r.builds.length} builds` : r.source }}</span>
                 </div>
                 <div v-if="expandedRow === r.key" class="app-builds">
                   <div v-for="b in r.builds" :key="b.path" class="app-build" :class="{ picked: artifactPick === b.path }"
@@ -644,16 +633,37 @@ async function endSession(): Promise<void> {
                 <button v-else class="btn btn-sm" style="width: 100%; margin-top: 4px;"
                   @click="artifactPick = r.builds[0]!.path; appBundleId = r.bundleId">use newest</button>
               </div>
+              <button v-if="macApps.length" class="btn btn-sm btn-quiet" style="width: 100%; margin-top: var(--s-2);"
+                @click="showMacApps = !showMacApps">{{ showMacApps ? 'hide' : `also on this mac (${macApps.length})` }}</button>
+              <template v-if="showMacApps">
+                <div v-for="r in macApps" :key="r.key" class="app-row" :class="{ picked: artifactPick && r.builds.some((b) => b.path === artifactPick) }">
+                  <div class="app-row-head" @click="expandedRow = expandedRow === r.key ? null : r.key">
+                    <span class="app-name">{{ r.name }}</span>
+                    <span class="app-meta">{{ r.version ?? '—' }} · {{ ageOf(r.mtimeMs) }}</span>
+                  </div>
+                  <div v-if="expandedRow === r.key" class="app-builds">
+                    <div v-for="b in r.builds" :key="b.path" class="app-build" :class="{ picked: artifactPick === b.path }"
+                      @click="artifactPick = b.path; appBundleId = r.bundleId">
+                      <span>{{ b.path.split('/').pop() }}</span>
+                      <span class="app-meta">{{ ageOf(b.mtimeMs) }} · {{ b.source }}</span>
+                    </div>
+                  </div>
+                  <button v-else class="btn btn-sm" style="width: 100%; margin-top: 4px;"
+                    @click="artifactPick = r.builds[0]!.path; appBundleId = r.bundleId">use newest</button>
+                </div>
+              </template>
+              <button class="btn" style="width: 100%; margin-top: var(--s-2);" :disabled="installing || !artifactPick" @click="installPicked">
+                {{ installing ? 'installing… (≈12s)' : 'install' }}
+              </button>
             </template>
-            <button class="btn" style="width: 100%; margin-top: var(--s-2);" :disabled="installing || !artifactPick" @click="installPicked">
-              {{ installing ? 'installing… (≈12s)' : 'install' }}
-            </button>
-          </template>
-          <div v-if="installMsg" class="sect-hint" style="margin-top: var(--s-2);">{{ installMsg }}</div>
-          <div v-if="installErr" class="form-err" style="margin-top: var(--s-2);">{{ installErr }}</div>
-        </div>
+            <div v-if="installMsg" class="sect-hint" style="margin-top: var(--s-2);">{{ installMsg }}</div>
+            <div v-if="installErr" class="form-err" style="margin-top: var(--s-2);">{{ installErr }}</div>
+          </div>
 
-        <button class="btn btn-sm btn-quiet" style="width: 100%;" @click="emit('close')">close</button>
+          <div class="sect sect-last" style="margin-top: auto; padding-top: var(--s-3);">
+            <button class="btn btn-sm btn-quiet" style="width: 100%;" @click="emit('close')">close</button>
+          </div>
+        </div>
       </div>
 
       <!-- PHASE 2: driving — cockpit -->
