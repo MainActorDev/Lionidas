@@ -127,6 +127,28 @@ export function useDeviceStream(): DeviceStream {
     ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
   }
 
+  /** rAF-paced painter: one pending bitmap max; a newer frame replaces an
+   *  unpainted older one (closed immediately). steady presentation cadence. */
+  let pendingPaint: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; bitmap: ImageBitmap; w: number; h: number } | null = null;
+  let rafScheduled = false;
+  function schedulePaint(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, bitmap: ImageBitmap, w: number, h: number): void {
+    if (pendingPaint) pendingPaint.bitmap.close(); // superseded before display
+    pendingPaint = { canvas, ctx, bitmap, w, h };
+    if (rafScheduled) return;
+    rafScheduled = true;
+    requestAnimationFrame(() => {
+      rafScheduled = false;
+      const job = pendingPaint;
+      pendingPaint = null;
+      if (!job) return;
+      if (job.canvas.width !== job.w || job.canvas.height !== job.h) { job.canvas.width = job.w; job.canvas.height = job.h; }
+      drawScaled(job.ctx, job.bitmap, job.bitmap.width, job.bitmap.height, job.w, job.h);
+      job.bitmap.close();
+      lastPaintAt = Date.now();
+      if (frameObservers.size > 0) for (const cb of frameObservers) cb(lastPaintAt);
+    });
+  }
+
   async function decodeLoop(): Promise<void> {
     if (decoding) return;
     decoding = true;
@@ -153,16 +175,19 @@ export function useDeviceStream(): DeviceStream {
             const dpr = window.devicePixelRatio || 1;
             const targetW = Math.max(1, Math.round(cssW * dpr));
             const targetH = Math.max(1, Math.round(targetW * bitmap.height / bitmap.width));
-            if (canvas.width !== targetW || canvas.height !== targetH) { canvas.width = targetW; canvas.height = targetH; }
+            // (resize happens inside the rAF paint job — an eager resize here
+            //  clears the canvas and opens a black-frame window mid-burst)
             const ctx = canvas.getContext('2d');
             if (ctx) {
-              drawScaled(ctx, bitmap, bitmap.width, bitmap.height, targetW, targetH);
-              lastPaintAt = Date.now();
-              if (frameObservers.size > 0) for (const cb of frameObservers) cb(lastPaintAt);
+              // rAF-paced paint (latest-wins): decode immediately, but draw on
+              // the display's cadence. The source emits ~8fps in bursts with
+              // 30-110ms gaps — painting on arrival makes the canvas strobe;
+              // pacing to rAF coalesces bursts and fills gaps with steady
+              // presentation. Latest bitmap wins; older ones close at paint time.
+              schedulePaint(canvas, ctx, bitmap, targetW, targetH);
             }
           }
         }
-        bitmap.close();
         frameCount++;
         const now = Date.now();
         if (now - lastFpsTime >= 1000) {
