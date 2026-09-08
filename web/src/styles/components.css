@@ -91,10 +91,21 @@ input, textarea, select {
 input::placeholder, textarea::placeholder { color: var(--color-steel); }
 input:focus, textarea:focus, select:focus { outline: none; border-color: var(--color-fog); }
 
-/* Selects: content-sized (not full-width like inputs) + clearance for the native
-   chevron so the selected value never slides under the arrow. */
-select { width: auto; min-width: 7ch; max-width: 100%; padding-right: var(--s-5); }
-select[multiple] { width: 100%; padding-right: var(--s-3); }
+/* Selects: content-sized + CUSTOM chevron — the native arrow is glued to the
+   container edge and can't be inset, so we strip it and draw our own with room
+   from the container's right edge. Text keeps normal input padding. */
+select {
+  width: auto; min-width: 7ch; max-width: 100%;
+  appearance: none; -webkit-appearance: none;
+  padding-right: var(--s-5);
+  background-image: linear-gradient(45deg, transparent 50%, var(--color-steel) 50%),
+                    linear-gradient(135deg, var(--color-steel) 50%, transparent 50%);
+  background-position: calc(100% - 14px) calc(50% - 2px), calc(100% - 9px) calc(50% - 2px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+select:disabled { background-image: none; padding-right: var(--s-3); }
+select[multiple] { width: 100%; padding-right: var(--s-3); background-image: none; }
 
 /* ─── Tables ─── */
 .table-wrap { overflow-x: auto; }
