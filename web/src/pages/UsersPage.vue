@@ -3,6 +3,26 @@
  *  Standardization: full .main width, content-sized table, shared primitives. */
 import { computed, ref, onMounted } from 'vue';
 
+// Non-admins get a SELF view: own profile + own activity (runs, manual sessions,
+// logins) — the same page, scoped to their identity by the server.
+interface Me { id: string; name: string; email: string; role: string; auth_source: string }
+const me = ref<Me | null>(null);
+const isAdmin = computed(() => me.value?.role === 'admin');
+interface ActRun { id: string; ticket_key: string | null; kind: string; status: string; started_at: number; finished_at: number | null }
+interface ActManual { id: string; udid: string; run_id: string | null; operator: string; started_at: number; finished_at: number | null }
+interface ActLogin { at: number; event: string; detail: string | null }
+const myRuns = ref<ActRun[]>([]);
+const myManual = ref<ActManual[]>([]);
+const myLogins = ref<ActLogin[]>([]);
+async function loadSelf(): Promise<void> {
+  try {
+    const r = await fetch('/api/me/activity');
+    if (!r.ok) return;
+    const b = await r.json() as { me: Me; runs: ActRun[]; manual: ActManual[]; logins: ActLogin[] };
+    me.value = b.me; myRuns.value = b.runs ?? []; myManual.value = b.manual ?? []; myLogins.value = b.logins ?? [];
+  } catch { /* best effort */ }
+}
+
 interface U { id: string; email: string; name: string; role: string; auth_source: string; active: boolean; approved: boolean; last_login_at: number | null }
 const users = ref<U[]>([]);
 const pendingCount = computed(() => users.value.filter((u) => !u.approved).length);
@@ -12,6 +32,8 @@ const form = ref({ email: '', name: '', role: 'operator', password: '' });
 const creating = ref(false);
 
 async function load(): Promise<void> {
+  await loadSelf();
+  if (!isAdmin.value) return; // non-admin: self view only, no user list
   const r = await fetch('/api/users');
   if (r.status === 403) { err.value = 'admin role required'; return; }
   const b = await r.json() as { users: U[] };
@@ -68,7 +90,7 @@ async function killSession(id: string): Promise<void> {
   await fetch(`/api/sessions/${id}`, { method: 'DELETE' });
   await loadAccess();
 }
-onMounted(() => void loadAccess());
+onMounted(() => { if (isAdmin.value) void loadAccess(); });
 
 onMounted(() => void load());
 </script>
@@ -77,15 +99,68 @@ onMounted(() => void load());
   <div>
     <div class="page-header">
       <div>
-        <div class="page-title">users</div>
-        <div class="page-desc">provisioned accounts · roles gate what a person can touch</div>
+        <div class="page-title">{{ isAdmin ? 'users' : 'your activity' }}</div>
+        <div class="page-desc">{{ isAdmin ? 'provisioned accounts · roles gate what a person can touch' : `${me?.name ?? ''} · ${me?.email ?? ''}` }}</div>
       </div>
-      <span class="badge">admin</span>
+      <span class="badge">{{ me?.role ?? '…' }}</span>
+    </div>
+
+    <!-- non-admin self view -->
+    <div v-if="me && !isAdmin" style="display: flex; flex-direction: column; gap: var(--s-3);">
+      <div class="section-label"><span>your runs</span></div>
+      <div class="card table-wrap" style="padding: 0;">
+        <table v-if="myRuns.length">
+          <thead><tr><th>run</th><th>ticket</th><th>kind</th><th>status</th><th>started</th></tr></thead>
+          <tbody>
+            <tr v-for="r in myRuns" :key="r.id">
+              <td><RouterLink :to="`/runs/${r.id}`" style="font-family: monospace;">{{ r.id.slice(0, 10) }}</RouterLink></td>
+              <td>{{ r.ticket_key ?? '—' }}</td>
+              <td>{{ r.kind }}</td>
+              <td>{{ r.status }}</td>
+              <td style="font-size: 10px; color: var(--color-steel);">{{ when(r.started_at) }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-else class="meta-row" style="padding: var(--s-3);">no runs yet</div>
+      </div>
+
+      <div class="section-label"><span>your manual sessions</span></div>
+      <div class="card table-wrap" style="padding: 0;">
+        <table v-if="myManual.length">
+          <thead><tr><th>session</th><th>device</th><th>app</th><th>started</th><th>ended</th></tr></thead>
+          <tbody>
+            <tr v-for="m in myManual" :key="m.id">
+              <td style="font-family: monospace;">{{ m.id.slice(0, 10) }}</td>
+              <td style="font-family: monospace;">{{ m.udid.slice(0, 12) }}</td>
+              <td><RouterLink v-if="m.run_id" :to="`/runs/${m.run_id}`" style="font-family: monospace;">{{ m.run_id.slice(0, 10) }}</RouterLink><span v-else>—</span></td>
+              <td style="font-size: 10px; color: var(--color-steel);">{{ when(m.started_at) }}</td>
+              <td style="font-size: 10px; color: var(--color-steel);">{{ m.finished_at ? when(m.finished_at) : 'live' }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-else class="meta-row" style="padding: var(--s-3);">no manual sessions yet</div>
+      </div>
+
+      <div class="section-label"><span>your sign-in history</span></div>
+      <div class="card table-wrap" style="padding: 0;">
+        <table v-if="myLogins.length">
+          <thead><tr><th>when</th><th>event</th><th>detail</th></tr></thead>
+          <tbody>
+            <tr v-for="(l, i) in myLogins" :key="i">
+              <td style="font-size: 10px; color: var(--color-steel);">{{ when(l.at) }}</td>
+              <td><span class="badge">{{ l.event }}</span></td>
+              <td style="font-size: 10px; color: var(--color-steel);">{{ l.detail ?? '' }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-else class="meta-row" style="padding: var(--s-3);">no sign-in history</div>
+      </div>
     </div>
 
     <div v-if="err" class="meta-row" style="color: var(--color-ember); margin-bottom: 10px;">{{ err }}</div>
     <div v-if="msg" class="meta-row" style="color: var(--color-fog); margin-bottom: 10px;">{{ msg }}</div>
 
+    <template v-if="isAdmin">
     <div class="card" style="padding: var(--s-3); margin-bottom: var(--s-3);">
       <div class="section-label" style="margin-bottom: var(--s-2);">provision a user</div>
       <div style="display: flex; gap: var(--s-2); flex-wrap: wrap; align-items: center;">
@@ -144,6 +219,9 @@ onMounted(() => void load());
       </table>
     </div>
 
+    </template>
+
+    <template v-if="isAdmin">
     <div class="section-label" style="margin-top: var(--s-4);"><span>active sessions</span></div>
     <div class="card table-wrap" style="padding: 0;" v-if="sessions.length > 0">
       <table>
@@ -173,5 +251,6 @@ onMounted(() => void load());
         </tbody>
       </table>
     </div>
+    </template>
   </div>
 </template>

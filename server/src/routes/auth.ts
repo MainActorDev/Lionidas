@@ -136,6 +136,21 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
     return { ok: true };
   });
 
+  // self-activity: any signed-in user — their own runs, manual sessions, logins.
+  // Server scopes rows by req.user; non-admins never see other users' data.
+  app.get('/api/me/activity', async (req) => {
+    const me = req.user!;
+    const runs = db.prepare(
+      `SELECT id, ticket_key, kind, status, started_at, finished_at FROM runs
+       WHERE triggered_by = ? ORDER BY started_at DESC LIMIT 20`).all(me.name) as Array<Record<string, unknown>>;
+    const manual = db.prepare(
+      `SELECT id, udid, run_id, operator, started_at, finished_at FROM manual_sessions
+       WHERE operator = ? ORDER BY started_at DESC LIMIT 20`).all(me.name) as Array<Record<string, unknown>>;
+    const logins = db.prepare(
+      `SELECT at, event, detail FROM auth_log WHERE user_id = ? OR email = ? ORDER BY at DESC LIMIT 20`).all(me.id, me.email) as Array<Record<string, unknown>>;
+    return { me: publicUser(me), runs, manual, logins };
+  });
+
   app.get('/api/users', { preHandler: requireRole('admin') }, async () => {
     const rows = db.prepare('SELECT * FROM users ORDER BY created_at').all() as UserRow[];
     return { users: rows.map(publicUser) };
