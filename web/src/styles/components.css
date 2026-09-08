@@ -91,6 +91,11 @@ input, textarea, select {
 input::placeholder, textarea::placeholder { color: var(--color-steel); }
 input:focus, textarea:focus, select:focus { outline: none; border-color: var(--color-fog); }
 
+/* Selects: content-sized (not full-width like inputs) + clearance for the native
+   chevron so the selected value never slides under the arrow. */
+select { width: auto; min-width: 7ch; max-width: 100%; padding-right: var(--s-5); }
+select[multiple] { width: 100%; padding-right: var(--s-3); }
+
 /* ─── Tables ─── */
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: var(--text-body); }
