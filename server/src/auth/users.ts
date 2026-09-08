@@ -9,6 +9,7 @@ import { randomBytes, scryptSync, timingSafeEqual, randomUUID } from 'node:crypt
 export type Role = 'viewer' | 'operator' | 'admin' | 'bot';
 
 export interface UserRow {
+  approved: number;
   id: string; email: string; name: string; role: Role;
   password_hash: string | null; auth_source: string; jira_subject: string | null;
   active: number; created_at: number; last_login_at: number | null;
@@ -32,8 +33,8 @@ export function verifyPassword(plain: string, stored: string): boolean {
 // ── seeding: idempotent, on every boot ──
 export function seedUsers(db: Database.Database, adminBootstrapPassword: string | null): void {
   const now = Date.now();
-  const upsert = db.prepare(`INSERT INTO users(id, email, name, role, password_hash, auth_source, active, created_at)
-                             VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+  const upsert = db.prepare(`INSERT INTO users(id, email, name, role, password_hash, auth_source, active, approved, created_at)
+                             VALUES (?, ?, ?, ?, ?, ?, 1, 1, ?)
                              ON CONFLICT(email) DO NOTHING`);
   upsert.run('usr_admin01', 'admin@lionparcel.com', 'admin', 'admin', adminBootstrapPassword ? hashPassword(adminBootstrapPassword) : null, 'local', now);
   upsert.run('usr_botlioc', 'lioclaw@bot.local', 'lioclaw', 'bot', null, 'bot', now);
@@ -87,7 +88,7 @@ export function resolveSession(db: Database.Database, cookie: string): UserRow |
     return undefined;
   }
   const user = userById(db, row.user_id);
-  if (!user || !user.active) return undefined;
+  if (!user || !user.active || !user.approved) return undefined; // pending users have no valid session
   // sliding expiry: touching keeps you in; idle 12h drops you
   db.prepare('UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE id = ?').run(now, now + SESSION_TTL_MS, cookie);
   return user;

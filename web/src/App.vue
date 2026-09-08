@@ -13,13 +13,15 @@ async function loadMe(): Promise<void> {
 }
 async function signOut(): Promise<void> {
   await fetch('/api/auth/logout', { method: 'POST' });
+  await router.push('/login');
   me.value = null;
 }
 onMounted(() => void loadMe());
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { watch } from 'vue';
 
 const route = useRoute();
+const router = useRouter();
 const title = computed(() => (route.meta.title as string | undefined) ?? 'crucible');
 const isActive = (name: string): boolean => route.name === name;
 const isPublic = computed(() => route.meta.public === true);

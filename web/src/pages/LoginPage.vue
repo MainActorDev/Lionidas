@@ -9,6 +9,10 @@ const route = useRoute();
 const email = ref('');
 const password = ref('');
 const err = ref('');
+// post-redirect auth errors (jira sso: pending approval / deactivated)
+const redirectError = route.query.error === 'pending'
+  ? 'your account is awaiting admin approval — you will get access once approved'
+  : route.query.error === 'deactivated' ? 'this account has been deactivated by an admin' : '';
 const busy = ref(false);
 const jiraReady = ref(false);
 
@@ -55,7 +59,7 @@ async function signIn(): Promise<void> {
         <label for="pw">password</label>
         <input id="pw" v-model="password" type="password" placeholder="••••••••" autocomplete="current-password" @keydown.enter="signIn" />
       </div>
-      <div class="err">{{ err }}</div>
+      <div class="err">{{ err || redirectError }}</div>
       <button class="btn btn-primary" :disabled="busy" @click="signIn">{{ busy ? 'signing in…' : 'sign in' }}</button>
 
       <div class="divider">or</div>

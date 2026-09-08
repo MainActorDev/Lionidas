@@ -238,6 +238,9 @@ export function migrateM1(db: Database.Database): void {
     // (manual runs) + the video alignment anchor. Guards live in
     // taps-store.recordTap; retention deletes ride ON DELETE CASCADE.
     'ALTER TABLE runs ADD COLUMN video_started_at INTEGER',
+    // Auth v2 — admin approval gate: Jira auto-created users are born pending (approved=0)
+    // and cannot log in until an admin approves. Local users are admin-created → born approved.
+    'ALTER TABLE users ADD COLUMN approved INTEGER NOT NULL DEFAULT 1',
   ]) {
     try { db.exec(col); } catch { /* column exists */ }
   }

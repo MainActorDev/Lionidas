@@ -1,10 +1,11 @@
 <script setup lang="ts">
 /** Users (admin): provision local accounts, set roles, reset passwords, deactivate.
  *  Standardization: full .main width, content-sized table, shared primitives. */
-import { ref, onMounted } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 
-interface U { id: string; email: string; name: string; role: string; auth_source: string; active: boolean; last_login_at: number | null }
+interface U { id: string; email: string; name: string; role: string; auth_source: string; active: boolean; approved: boolean; last_login_at: number | null }
 const users = ref<U[]>([]);
+const pendingCount = computed(() => users.value.filter((u) => !u.approved).length);
 const err = ref('');
 const msg = ref('');
 const form = ref({ email: '', name: '', role: 'operator', password: '' });
@@ -57,6 +58,12 @@ async function loadAccess(): Promise<void> {
     if (l1.ok) log.value = ((await l1.json()) as { log: LogRow[] }).log ?? [];
   } catch { /* best effort */ }
 }
+async function approve(id: string, on: boolean): Promise<void> {
+  await fetch(`/api/users/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ approved: on }) });
+  await load();
+  await loadAccess();
+}
+
 async function killSession(id: string): Promise<void> {
   await fetch(`/api/sessions/${id}`, { method: 'DELETE' });
   await loadAccess();
@@ -116,7 +123,10 @@ onMounted(() => void load());
               </select>
             </td>
             <td><span class="badge">{{ u.auth_source }}</span></td>
-            <td>{{ u.active ? 'active' : 'deactivated' }}</td>
+            <td>
+                <span v-if="!u.approved" class="badge" style="color: var(--color-ember);">pending approval</span>
+                <span v-else>{{ u.active ? 'active' : 'deactivated' }}</span>
+              </td>
             <td style="font-size: 10px; color: var(--color-steel);">{{ when(u.last_login_at) }}</td>
             <td style="text-align: right; white-space: nowrap;">
               <template v-if="u.role !== 'bot'">

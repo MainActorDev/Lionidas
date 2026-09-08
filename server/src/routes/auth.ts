@@ -11,9 +11,15 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
     if (!b?.email || !b?.password) return reply.code(400).send({ error: 'email and password required' });
     const user = userByEmail(db, b.email.toLowerCase().trim());
     // uniform failure: never reveal whether the email exists
-    if (!user || user.auth_source === 'bot' || !user.password_hash || !user.active || !verifyPassword(b.password, user.password_hash)) {
-      db.prepare('INSERT INTO auth_log(at, email, event, detail) VALUES (?, ?, ?, ?)').run(Date.now(), b.email.toLowerCase().trim(), 'login_failed', 'invalid credentials');
+    const badCredentials = () => {
+      const email = (b?.email ?? '').toLowerCase().trim();
+      db.prepare('INSERT INTO auth_log(at, email, event, detail) VALUES (?, ?, ?, ?)').run(Date.now(), email, 'login_failed', 'invalid credentials');
       return reply.code(401).send({ error: 'invalid email or password' });
+    };
+    if (!user || user.auth_source === 'bot' || !user.password_hash || !user.active || !verifyPassword(b.password, user.password_hash)) return badCredentials();
+    if (!user.approved) {
+      db.prepare('INSERT INTO auth_log(at, email, user_id, event, detail) VALUES (?, ?, ?, ?, ?)').run(Date.now(), user.email, user.id, 'login_failed', 'pending admin approval');
+      return reply.code(403).send({ error: 'account awaiting admin approval' });
     }
     db.prepare('INSERT INTO auth_log(at, email, user_id, event) VALUES (?, ?, ?, ?)').run(Date.now(), user.email, user.id, 'login');
     db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(Date.now(), user.id);
@@ -71,16 +77,23 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
       // find by subject, then by email (link a local account to Jira), else create viewer
       let user = userByJiraSubject(db, me.account_id)
         ?? userByEmail(db, me.email.toLowerCase());
+      let created = false;
       if (!user) {
         const id = newUserId();
-        db.prepare(`INSERT INTO users(id, email, name, role, auth_source, jira_subject, active, created_at)
-                    VALUES (?, ?, ?, 'viewer', 'jira', ?, 1, ?)`)
+        db.prepare(`INSERT INTO users(id, email, name, role, auth_source, jira_subject, active, approved, created_at)
+                    VALUES (?, ?, ?, 'viewer', 'jira', ?, 1, 0, ?)`)
           .run(id, me.email.toLowerCase(), me.name ?? me.email.split('@')[0], me.account_id, Date.now());
         user = userByEmail(db, me.email.toLowerCase())!;
+        created = true;
       } else if (user.jira_subject !== me.account_id) {
         db.prepare('UPDATE users SET jira_subject = ? WHERE id = ?').run(me.account_id, user.id);
       }
-      if (!user.active) return reply.code(403).send({ error: 'account deactivated' });
+      if (!user.active) return reply.redirect('/login?error=deactivated');
+      if (!user.approved) {
+        // first Jira login creates a PENDING row; admin approves in the users page.
+        if (created) db.prepare('INSERT INTO auth_log(at, email, user_id, event, detail) VALUES (?, ?, ?, ?, ?)').run(Date.now(), user.email, user.id, 'jira_signup_pending', `first login — awaiting approval (${user.email})`);
+        return reply.redirect('/login?error=pending');
+      }
       db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(Date.now(), user.id);
       const s = createSession(db, user.id);
       reply.header('set-cookie', `${SESSION_COOKIE}=${s.cookie}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${12 * 60 * 60}`);
@@ -133,11 +146,16 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
 
   app.patch('/api/users/:id', { preHandler: requireRole('admin') }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const b = req.body as { role?: Role; active?: boolean; password?: string; botToken?: string } | null;
+    const b = req.body as { role?: Role; active?: boolean; approved?: boolean; password?: string; botToken?: string } | null;
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
     if (!user) return reply.code(404).send({ error: 'not found' });
     if (b?.role && ['viewer', 'operator', 'admin'].includes(b.role)) {
       db.prepare('UPDATE users SET role = ? WHERE id = ?').run(b.role, id);
+    }
+    if (typeof b?.approved === 'boolean') {
+      db.prepare('UPDATE users SET approved = ? WHERE id = ?').run(b.approved ? 1 : 0, id);
+      if (b.approved) db.prepare('INSERT INTO auth_log(at, user_id, event, detail) VALUES (?, ?, ?, ?)').run(Date.now(), id, 'approved', `by ${req.user?.name ?? 'admin'}`);
+      return { user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow) };
     }
     if (typeof b?.active === 'boolean') {
       if (user.id === 'usr_admin01' && b.active === false) return reply.code(400).send({ error: 'cannot deactivate the bootstrap admin' });
@@ -161,5 +179,5 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
 }
 
 function publicUser(u: UserRow): Record<string, unknown> {
-  return { id: u.id, email: u.email, name: u.name, role: u.role, auth_source: u.auth_source, active: !!u.active, last_login_at: u.last_login_at };
+  return { id: u.id, email: u.email, name: u.name, role: u.role, auth_source: u.auth_source, active: !!u.active, approved: !!u.approved, last_login_at: u.last_login_at };
 }
