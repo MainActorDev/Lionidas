@@ -119,6 +119,8 @@ interface StreamClient {
 }
 
 interface UpstreamSubscription {
+  /** first watcher's session cookie — forwarded on internal re-resolves (auth gate) */
+  cookie: string | undefined;
   url: string;
   /** device this subscription serves — anchors the run-still feed when the
    *  pump pauses and URL re-resolves reshuffle the map mid-run */
@@ -174,13 +176,17 @@ async function pumpUpstream(url: string, sub: UpstreamSubscription, udid: string
       upstreams.delete(sub.url);
       try {
         const port = Number(process.env['CRUCIBLE_PORT'] ?? 9230);
-        const resp = await fetch(`http://127.0.0.1:${port}/api/devices/${udid}/stream`, { method: 'POST' });
+        // forward the watcher's session — the stream route sits behind the auth gate
+        const resp = await fetch(`http://127.0.0.1:${port}/api/devices/${udid}/stream`, {
+          method: 'POST',
+          headers: sub.cookie ? { cookie: sub.cookie } : {},
+        });
         if (resp.ok) {
           const body = await resp.json() as { streamUrl: string };
           if (body.streamUrl && body.streamUrl !== sub.url) {
             let fresh = upstreams.get(body.streamUrl);
             if (!fresh) {
-              fresh = { url: body.streamUrl, udid, clients: new Set(), abortController: new AbortController(), refCount: 0, everGotFrame: false, notifiedOutage: false, outageStartedAt: 0 };
+              fresh = { url: body.streamUrl, udid, cookie: sub.cookie, clients: new Set(), abortController: new AbortController(), refCount: 0, everGotFrame: false, notifiedOutage: false, outageStartedAt: 0 };
               upstreams.set(body.streamUrl, fresh);
             }
             for (const c of sub.clients) {
@@ -318,6 +324,7 @@ export async function registerStreamRelay(app: FastifyInstance, bus: TypedEventB
   app.get('/api/stream/:udid', { websocket: true }, (connection, req) => {
     const socket = ((connection as unknown as { socket?: WebSocket }).socket ?? connection) as unknown as WebSocket & { on(e: string, cb: () => void): void };
     const { udid } = req.params as { udid: string };
+    const watcherCookie = req.headers['cookie'] ?? undefined;
 
     // resolve stream URL via alloy (from the request's query or the mirror)
     void (async () => {
@@ -325,7 +332,11 @@ export async function registerStreamRelay(app: FastifyInstance, bus: TypedEventB
         // resolve via our own HTTP route (runtime guaranteed initialized — the
         // lazy alloy init in index.ts fires before this can be reached in prod)
         const port = Number(process.env['CRUCIBLE_PORT'] ?? 9230);
-        const resp = await fetch(`http://127.0.0.1:${port}/api/devices/${udid}/stream`, { method: 'POST' });
+        // forward the watcher's session — the stream route sits behind the auth gate
+        const resp = await fetch(`http://127.0.0.1:${port}/api/devices/${udid}/stream`, {
+          method: 'POST',
+          headers: watcherCookie ? { cookie: watcherCookie } : {},
+        });
         if (!resp.ok) {
           const body = await resp.json() as { error?: string; retryable?: boolean };
           socket.send(JSON.stringify({ error: body.error ?? `route ${resp.status}`, retryable: body.retryable ?? false }));
@@ -336,7 +347,7 @@ export async function registerStreamRelay(app: FastifyInstance, bus: TypedEventB
         const url = body.streamUrl;
         let sub = upstreams.get(url);
         if (!sub) {
-          sub = { url, udid, clients: new Set(), abortController: new AbortController(), refCount: 0, everGotFrame: false, notifiedOutage: false, outageStartedAt: 0 };
+          sub = { url, udid, cookie: watcherCookie, clients: new Set(), abortController: new AbortController(), refCount: 0, everGotFrame: false, notifiedOutage: false, outageStartedAt: 0 };
           upstreams.set(url, sub);
         }
 
