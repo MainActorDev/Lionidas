@@ -1,9 +1,20 @@
 /** Auth routes: local login, Jira SSO, session introspection, admin user CRUD. */
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { randomUUID as cryptoRandomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { createSession, destroySession, hashPassword, jiraConfigured, newUserId, userByEmail, userByJiraSubject, verifyPassword, type Role, type UserRow } from '../auth/users.ts';
 import { requireRole, SESSION_COOKIE } from '../auth/roles.ts';
+
+
+/** OAuth origin = the origin the browser is actually on (Host header), so the
+ *  state cookie set at /start is visible at /callback through the same origin.
+ *  Dev: localhost:5180 (vite proxies /api to the API server). Prod: single origin.
+ *  Override with CRUCIBLE_PUBLIC_ORIGIN when behind a proxy that rewrites Host. */
+function publicOrigin(req: FastifyRequest): string {
+  const host = Array.isArray(req.headers['host']) ? req.headers['host'][0] : req.headers['host'];
+  const fallback = '127.0.0.1:9230';
+  return process.env['CRUCIBLE_PUBLIC_ORIGIN'] ?? `http://${host ?? fallback}`;
+}
 
 export function registerAuthRoutes(app: FastifyInstance, db: Database.Database): void {
   app.post('/api/auth/login', async (req, reply) => {
@@ -45,10 +56,10 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
   });
 
   // ── Jira SSO (env-gated; 503-honest when unconfigured) ──
-  app.get('/api/auth/jira/start', async (_req, reply) => {
+  app.get('/api/auth/jira/start', async (req, reply) => {
     if (!jiraConfigured()) return reply.code(503).send({ error: 'Jira SSO not configured (CRUCIBLE_JIRA_CLIENT_ID/SECRET)' });
     const clientId = process.env['CRUCIBLE_JIRA_CLIENT_ID']!;
-    const redirect = `http://${process.env['CRUCIBLE_HOST'] ?? '127.0.0.1:9230'}/api/auth/jira/callback`;
+    const redirect = `${publicOrigin(req)}/api/auth/jira/callback`;
     const state = cryptoRandomUUID();
     const url = `https://auth.atlassian.com/authorize?audience=api.atlassian.com&client_id=${clientId}&scope=read%3ame%20read%3ajira-user&redirect_uri=${encodeURIComponent(redirect)}&state=${state}&response_type=code&prompt=consent`;
     reply.header('set-cookie', `crucible_oauth_state=${state}; Path=/api/auth/jira; HttpOnly; SameSite=Lax; Max-Age=600`);
@@ -63,7 +74,7 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
     const cookieState = /(?:^|;\s*)crucible_oauth_state=([^;]+)/.exec(req.headers['cookie'] ?? '')?.[1];
     if (!q.state || !cookieState || q.state !== cookieState) return reply.code(400).send({ error: 'oauth state mismatch (re-open login)' });
     try {
-      const redirect = `http://${process.env['CRUCIBLE_HOST'] ?? '127.0.0.1:9230'}/api/auth/jira/callback`;
+      const redirect = `${publicOrigin(req)}/api/auth/jira/callback`;
       const tokenRes = await fetch('https://auth.atlassian.com/oauth/token', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ grant_type: 'authorization_code', client_id: process.env['CRUCIBLE_JIRA_CLIENT_ID'], client_secret: process.env['CRUCIBLE_JIRA_CLIENT_SECRET'], code: q.code, redirect_uri: redirect }),
@@ -88,16 +99,17 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
       } else if (user.jira_subject !== me.account_id) {
         db.prepare('UPDATE users SET jira_subject = ? WHERE id = ?').run(me.account_id, user.id);
       }
-      if (!user.active) return reply.redirect('/login?error=deactivated');
+      const origin = publicOrigin(req);
+      if (!user.active) return reply.redirect(`${origin}/login?error=deactivated`);
       if (!user.approved) {
         // first Jira login creates a PENDING row; admin approves in the users page.
         if (created) db.prepare('INSERT INTO auth_log(at, email, user_id, event, detail) VALUES (?, ?, ?, ?, ?)').run(Date.now(), user.email, user.id, 'jira_signup_pending', `first login — awaiting approval (${user.email})`);
-        return reply.redirect('/login?error=pending');
+        return reply.redirect(`${origin}/login?error=pending`);
       }
       db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(Date.now(), user.id);
       const s = createSession(db, user.id);
       reply.header('set-cookie', `${SESSION_COOKIE}=${s.cookie}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${12 * 60 * 60}`);
-      return reply.redirect('/');
+      return reply.redirect(`${publicOrigin(req)}/`);
     } catch (err) {
       return reply.code(502).send({ error: `jira login failed: ${err instanceof Error ? err.message : 'unknown'}` });
     }
