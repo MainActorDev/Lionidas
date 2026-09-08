@@ -569,13 +569,19 @@ async function endSession(): Promise<void> {
         <button class="btn btn-sm sb-x" @click="emit('close')">✕</button>
       </header>
 
-      <!-- PHASE 1: watching — stream left, escalation right (cockpit layout) -->
-      <div v-if="phase === 'watching'" class="sb-body cockpit">
+      <!-- ONE cockpit: stream column is persistent across phases (same canvas,
+           no teardown flash); only the work column swaps watching vs driving -->
+      <div class="sb-body cockpit">
         <div class="devcol">
           <div class="stream-box stream-stage">
             <div class="stage-frame">
               <canvas :ref="stream.setCanvas" @click="onTap" @mousemove="onCanvasMove"
-                :style="{ display: 'block', cursor: 'default', background: 'var(--color-void)' }"></canvas>
+                :style="{ display: 'block', cursor: inspect && sessionId ? 'default' : sessionId ? 'crosshair' : 'default', background: 'var(--color-void)' }"></canvas>
+              <InspectOverlay v-if="inspect && sessionId" :nodes="tree.nodes.value" :logical-w="tree.logicalW.value" :logical-h="tree.logicalH.value"
+                :hover="hoverNode" :selected="selNode" :visible="tree.state.value === 'aligned'" />
+              <div v-if="inspect && hoverNode && tree.state.value === 'aligned' && sessionId" class="hover-chip"
+                :style="{ left: `${chipXY.x}px`, top: `${chipXY.y}px` }">{{ chipName }}</div>
+              <div v-if="ripple" class="tap-ripple" :style="{ left: `${ripple.x}px`, top: `${ripple.y}px` }" />
               <div v-if="stream.state.value !== 'live'" class="stream-overlay">
                 <span v-if="stream.state.value === 'connecting'">connecting to device stream…</span>
                 <span v-else-if="stream.state.value === 'paused'">run in progress — stream paused</span>
@@ -590,11 +596,13 @@ async function endSession(): Promise<void> {
           <div class="stream-meta">
             <span v-if="stream.state.value === 'live'">{{ stream.fps.value > 0 ? `live · ${stream.fps.value}fps` : 'live · idle (screen unchanged)' }}</span>
             <span v-else>{{ stream.state.value }}</span>
-            <span>watching · read-only · does not hold the device</span>
+            <span v-if="sessionId && logicalW">{{ logicalW }}pt logical · taps map 1:1</span>
+            <span v-else>watching · read-only · does not hold the device</span>
           </div>
         </div>
 
-        <div class="workcol">
+        <!-- work column: watching controls vs driving controls -->
+        <div v-if="phase === 'watching'" class="workcol">
           <div class="sect">
             <div class="sect-label"><span>session</span></div>
             <div class="meta-row">
@@ -664,44 +672,9 @@ async function endSession(): Promise<void> {
             <button class="btn btn-sm btn-quiet" style="width: 100%;" @click="emit('close')">close</button>
           </div>
         </div>
-      </div>
 
-      <!-- PHASE 2: driving — cockpit -->
-      <div v-else class="sb-body cockpit">
-        <!-- LEFT: the device -->
-        <div class="devcol">
-          <div class="stream-box stream-stage">
-            <!-- aspect-locked frame: fitted to the stage via contain math so the
-                 canvas, overlay boxes, chip and ripple all span EXACTLY the
-                 device image — never the letterboxed outer container -->
-            <div class="stage-frame">
-              <canvas :ref="stream.setCanvas" @click="onTap" @mousemove="onCanvasMove"
-                :style="{ display: 'block', cursor: inspect ? 'default' : 'crosshair', background: 'var(--color-void)' }"></canvas>
-              <InspectOverlay v-if="inspect && sessionId" :nodes="tree.nodes.value" :logical-w="tree.logicalW.value" :logical-h="tree.logicalH.value"
-                :hover="hoverNode" :selected="selNode" :visible="tree.state.value === 'aligned'" />
-              <div v-if="inspect && hoverNode && tree.state.value === 'aligned' && sessionId" class="hover-chip"
-                :style="{ left: `${chipXY.x}px`, top: `${chipXY.y}px` }">{{ chipName }}</div>
-              <div v-if="ripple" class="tap-ripple" :style="{ left: `${ripple.x}px`, top: `${ripple.y}px` }" />
-              <div v-if="stream.state.value !== 'live'" class="stream-overlay">
-              <span v-if="stream.state.value === 'connecting'">connecting to device stream…</span>
-              <span v-else-if="stream.state.value === 'paused'">run in progress — stream paused</span>
-              <span v-else-if="stream.state.value === 'reconnecting'">stream reconnecting…</span>
-              <template v-else-if="stream.state.value === 'failed'">
-                <span>{{ stream.failure.value || 'stream unavailable' }}</span>
-                <button v-if="stream.retryable.value" class="btn btn-sm stream-retry" @click="stream.retry()">retry stream</button>
-              </template>
-            </div>
-            </div>
-          </div>
-          <div class="stream-meta">
-            <span v-if="stream.state.value === 'live'">{{ stream.fps.value > 0 ? `live · ${stream.fps.value}fps` : 'live · idle (screen unchanged)' }}</span>
-            <span v-else>{{ stream.state.value }}</span>
-            <span>{{ sessionId && logicalW ? `${logicalW}pt logical · taps map 1:1` : sessionId ? 'tap anywhere on screen' : 'no session' }}</span>
-          </div>
-        </div>
+        <div v-else class="workcol">
 
-        <!-- RIGHT: work column -->
-        <div class="workcol">
 
           <!-- drive -->
           <div v-if="sessionId" class="sect">
@@ -820,11 +793,6 @@ async function endSession(): Promise<void> {
         </div>
       </div>
 
-      <!-- footer: lease state -->
-      <footer v-if="phase === 'driving' && sessionId" class="sb-foot">
-        <span>lease held · driving as <b>{{ meName || 'you' }}</b></span>
-        <span>steps auto-save · never counts toward AC status</span>
-      </footer>
     </aside>
   </transition>
 </template>
