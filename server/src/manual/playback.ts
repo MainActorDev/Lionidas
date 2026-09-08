@@ -316,8 +316,8 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
   deps.db
     .prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, note, template_id, app_version)
               VALUES (?, ?, 'manual', 'running', ?, ?, ?, ?, ?, ?)`)
-    .run(runId, t.ticket_key ?? 'TEMPLATE', opts.triggeredBy ?? 'qa', udid, Date.now(), `template:${templateId} ${t.name}`, templateId, appVersion);
-  deps.bus.emit('run.started', { runId, ticketKey: t.ticket_key ?? 'TEMPLATE', udid, templateId });
+    .run(runId, t.ticket_key ?? '-', opts.triggeredBy ?? 'qa', udid, Date.now(), `template:${templateId} ${t.name}`, templateId, appVersion);
+  deps.bus.emit('run.started', { runId, ticketKey: t.ticket_key ?? '-', udid, templateId });
   // latest-only evidence: this run replaces the previous run's artifacts —
   // UNLESS a sibling run of the same template is still RUNNING (parallel
   // batches on two devices): the prune would delete the sibling's evidence
