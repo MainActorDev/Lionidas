@@ -33,3 +33,18 @@ export const router = createRouter({
     { path: '/guide', name: 'guide', component: GuidePage, meta: { title: 'guide' } },
   ] satisfies RouteRecordRaw[],
 });
+
+
+// Auth guard: pages require a session; /login is public. The API's own 401s
+// remain the enforcement — this is the UX layer (redirect instead of empty pages).
+router.beforeEach(async (to) => {
+  if (to.meta.public) return true;
+  try {
+    const r = await fetch('/api/auth/me');
+    const b = await r.json() as { user: unknown | null };
+    if (b.user) return true;
+    return { path: '/login', query: { redirect: to.fullPath } };
+  } catch {
+    return true; // server unreachable — let the page render its own error state
+  }
+});

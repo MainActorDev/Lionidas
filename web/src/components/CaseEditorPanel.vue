@@ -17,6 +17,9 @@ const props = defineProps<{
   total: number;
   /** last-saved timestamp (ms) — rendered as "· saved Xm/h ago" */
   updatedAt?: number;
+  /** attribution — who authored / last edited this case */
+  createdBy?: string | null;
+  updatedBy?: string | null;
   description: string | null;
   ticketKey: string | null;
   tags: string[];
@@ -193,7 +196,7 @@ const savedAgo = computed((): string | null => {
   <div class="ce-panel">
     <div class="ce-head">
       <span class="fname">{{ caseName }}</span>
-      <span class="meta">{{ stepsCount }} step{{ stepsCount === 1 ? '' : 's' }}<template v-if="savedAgo"> · saved {{ savedAgo }}</template><template v-if="dirty"> · <span style="color: var(--color-ember);">unsaved</span></template></span>
+      <span class="meta">{{ stepsCount }} step{{ stepsCount === 1 ? '' : 's' }}<template v-if="savedAgo"> · saved {{ savedAgo }}</template><template v-if="updatedBy"> · by {{ updatedBy }}</template><template v-if="createdBy && createdBy !== updatedBy"> · created {{ createdBy }}</template><template v-if="dirty"> · <span style="color: var(--color-ember);">unsaved</span></template></span>
       <span v-if="total > 1" class="hop">
         <button class="btn btn-sm" :disabled="position <= 1" title="previous case in filter" @click="hop(-1)">‹</button>
         <span class="meta">{{ position }} / {{ total }}</span>

@@ -27,7 +27,7 @@ interface Template {
   tags: string[]; verdict: Verdict | null;
   evidence?: { screenshot: boolean; video: boolean };
   selectorCoverage?: { locked: number; total: number };
-  createdBy: string; createdAt: number; updatedAt: number;
+  createdBy: string; createdAt: number; updatedAt: number; updatedBy?: string | null;
 }
 interface Plan { id: string; name: string; tags: string[]; udid: string | null; appBundleId: string | null; scenarioId: string | null; env: Record<string, string> }
 
@@ -692,6 +692,8 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
             :position="yamlPosition.pos"
             :total="yamlPosition.total"
             :updated-at="t.updatedAt"
+            :created-by="t.createdBy"
+            :updated-by="t.updatedBy ?? null"
             :description="t.description"
             :ticket-key="t.ticketKey"
             :tags="t.tags ?? []"

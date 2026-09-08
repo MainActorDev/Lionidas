@@ -315,4 +315,11 @@ export function migrateM1(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_mx_feed ON mx_payloads(app_id, received_at DESC);
     CREATE INDEX IF NOT EXISTS idx_mx_dedupe ON mx_payloads(device_id, captured_at, kind);
   `);
+  // additive auth-era columns (older DBs migrate in place)
+  const cols = db.prepare("SELECT name FROM pragma_table_info('templates')").all() as Array<{ name: string }>;
+  const has = (c: string): boolean => cols.some((x) => x.name === c);
+  if (!has('created_by')) db.prepare('ALTER TABLE templates ADD COLUMN created_by TEXT').run();
+  if (!has('updated_by')) db.prepare('ALTER TABLE templates ADD COLUMN updated_by TEXT').run();
+  db.exec(`
+  `);
 }

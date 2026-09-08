@@ -70,6 +70,17 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   registerUserResolution(app, db.raw);
   registerAuthRoutes(app, db.raw);
 
+  // Hard read gate: with CRUCIBLE_REQUIRE_AUTH (default ON), every route except
+  // the auth surface and health requires a session. Set CRUCIBLE_REQUIRE_AUTH=0
+  // to return to the open-read transition mode.
+  if ((process.env['CRUCIBLE_REQUIRE_AUTH'] ?? '1') === '1') {
+    app.addHook('onRequest', async (req, reply) => {
+      const open = req.url.startsWith('/api/auth') || req.url.startsWith('/api/health') || req.url === '/' || !req.url.startsWith('/api/');
+      if (open || req.user) return;
+      await reply.code(401).send({ error: 'sign in required' });
+    });
+  }
+
   const forgeState = createForgeState();
   registerForgeRoutes(app, db.raw, forgeState, bus);
   registerMonitoringRoutes(app, db.raw);
