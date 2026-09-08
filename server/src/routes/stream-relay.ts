@@ -19,6 +19,7 @@ import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
+import { internalAuthHeaders } from '../auth/roles.ts';
 
 const execFileAsync = promisify(execFileCb);
 
@@ -179,7 +180,7 @@ async function pumpUpstream(url: string, sub: UpstreamSubscription, udid: string
         // forward the watcher's session — the stream route sits behind the auth gate
         const resp = await fetch(`http://127.0.0.1:${port}/api/devices/${udid}/stream`, {
           method: 'POST',
-          headers: sub.cookie ? { cookie: sub.cookie } : {},
+          headers: sub.cookie ? { cookie: sub.cookie } : internalAuthHeaders(),
         });
         if (resp.ok) {
           const body = await resp.json() as { streamUrl: string };
@@ -335,7 +336,7 @@ export async function registerStreamRelay(app: FastifyInstance, bus: TypedEventB
         // forward the watcher's session — the stream route sits behind the auth gate
         const resp = await fetch(`http://127.0.0.1:${port}/api/devices/${udid}/stream`, {
           method: 'POST',
-          headers: watcherCookie ? { cookie: watcherCookie } : {},
+          headers: watcherCookie ? { cookie: watcherCookie } : internalAuthHeaders(),
         });
         if (!resp.ok) {
           const body = await resp.json() as { error?: string; retryable?: boolean };

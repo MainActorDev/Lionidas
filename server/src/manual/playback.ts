@@ -41,6 +41,7 @@ import { listSimulatorApps } from './apps.ts';
 import { lastArtifactFor } from './app-catalog-store.ts';
 import { setLocation, clearLocation, prodExecute } from './location.ts';
 import { ensureLocationGrant } from './location-tcc.ts';
+import { internalAuthHeaders } from '../auth/roles.ts';
 
 const defaultListApps = (udid: string): Promise<Array<{ bundleId: string }>> =>
   listSimulatorApps(udid).then((apps) => apps.map((a) => ({ bundleId: a.bundleId })));
@@ -383,7 +384,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       while (Date.now() < deadline) {
         if (isAborted(runId)) return;
         try {
-          const resp = await fetch(`http://127.0.0.1:${Number(process.env['CRUCIBLE_PORT'] ?? 9230)}/api/devices/${gateUdid}/stream`, { method: 'POST' });
+          const resp = await fetch(`http://127.0.0.1:${Number(process.env['CRUCIBLE_PORT'] ?? 9230)}/api/devices/${gateUdid}/stream`, { method: 'POST', headers: internalAuthHeaders() });
           if (resp.ok) {
             const { streamUrl } = await resp.json() as { streamUrl: string };
             // probe the upstream directly: a JPEG SOI in the first bytes

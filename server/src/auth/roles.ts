@@ -3,7 +3,7 @@
  *  The old requirePin/requirePinOrAgent die with this module's adoption. */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type Database from 'better-sqlite3';
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { resolveSession, userForAgentToken, verifyPassword, type Role, type UserRow } from './users.ts';
 
 declare module 'fastify' {
@@ -29,6 +29,17 @@ function extractAgentToken(req: FastifyRequest): string | null {
 }
 
 /** onRequest: resolve req.user from cookie session OR agent token (bot). */
+/** Internal service token: minted once per boot, lets server-side self-calls
+ *  (playback stream gate, stream relay) pass the auth gate as the lioclaw bot.
+ *  Random per process; never persisted, never leaves localhost. */
+const BOOT_SECRET = randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, '');
+export function internalAuthHeaders(): Record<string, string> {
+  return { 'x-crucible-agent': `crucible-${BOOT_SECRET}` };
+}
+export function isInternalToken(token: string | undefined): boolean {
+  return token === `crucible-${BOOT_SECRET}`;
+}
+
 export function registerUserResolution(app: FastifyInstance, db: Database.Database): void {
   app.addHook('onRequest', async (req) => {
     const cookieHeader = req.headers['cookie'];
@@ -42,6 +53,11 @@ export function registerUserResolution(app: FastifyInstance, db: Database.Databa
       }
     }
     const token = extractAgentToken(req);
+    if (token && isInternalToken(token)) {
+      const svc = db.prepare("SELECT * FROM users WHERE role = 'bot' AND active = 1 AND approved = 1 AND name = 'lioclaw'").get() as UserRow | undefined;
+      if (svc) req.user = svc; // internal self-call rides as lioclaw
+      return;
+    }
     if (token) {
       // per-bot tokens first: each bot's own secret (stored scrypt in its row).
       // token format: <botname>-<secret> so we know which row to check.
