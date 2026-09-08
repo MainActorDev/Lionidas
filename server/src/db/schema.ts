@@ -291,6 +291,7 @@ export function migrateM1(db: Database.Database): void {
       auth_source TEXT NOT NULL DEFAULT 'local',
       jira_subject TEXT,
       active INTEGER NOT NULL DEFAULT 1,
+      approved INTEGER NOT NULL DEFAULT 1,  -- 0 = awaiting admin approval (Jira first-login)
       created_at INTEGER NOT NULL,
       last_login_at INTEGER
     );
