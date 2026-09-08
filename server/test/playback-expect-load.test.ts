@@ -96,14 +96,14 @@ describe('expect settle — late webview content', () => {
     mutating = false; // static 'shell' tree — no mutation, no match
     populateAtCall = Number.MAX_SAFE_INTEGER;
     seedTemplate('absent', [{ idx: 0, action: 'expect', selector: { label: TARGET } }]);
-    const t0 = Date.now();
     const { runId } = await play('absent');
-    const wall = Date.now() - t0;
     const row = stepRow(runId);
     expect(row.status).toBe('fail');
     expect(row.reason).toContain('not found');
-    // fast negative: the 2s mutation ceiling must NOT be consumed (startup
-    // overhead alone runs ~700ms, so bound at 1200 — a ceiling hang would be ≥2s)
-    expect(wall).toBeLessThan(1200);
+    // fast negative: the 2s mutation ceiling must NOT be consumed. Assert on
+    // poll WORK (snapshot calls), not wall time — under parallel-suite CPU
+    // contention a correct run stretches past any wall bound. A ceiling hang
+    // polls ~2000ms/5ms ≈ 400 calls; a base-budget exit is a handful (< 50).
+    expect(snapCalls).toBeLessThan(50);
   });
 });
