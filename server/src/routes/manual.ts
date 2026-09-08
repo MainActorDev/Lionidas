@@ -317,7 +317,9 @@ export function registerManualRoutes(
   // lane per booted sim, lane serial (B5 intact), lanes concurrent. One
   // booted device ≡ the old sequential engine (same per-case semantics).
   // Shared by play-all AND plans (one engine). ──
-  async function runBatch(b: { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string> }):
+  // authenticated identity wins for attribution; body triggeredBy only for
+  // bots/agents whose user IS the machine. Mirrors the manual-session rule.
+  async function runBatch(b: { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string> }, reqUser?: { name: string } | null):
     Promise<{ ok: true; runIds: string[]; count: number; batchId?: string; lanes?: Array<{ device: { udid: string; name: string | null }; runIds: string[]; skipped: string[]; haltedAt?: string; haltedReason?: string }> } | { ok: false; code: 400 | 409; error: string; runIds: string[]; appBundleId?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null }> {
     const { selectTemplates } = await import('./templates.ts');
     const { planLanes, DEFAULT_COST_MS } = await import('../manual/batch/plan.ts');
@@ -352,8 +354,9 @@ export function registerManualRoutes(
     });
     const multiLane = lanes.filter((l) => l.cases.length > 0).length > 1;
 
+    const by = reqUser?.name ?? b.triggeredBy; // session user > explicit body > legacy 'qa' fallback
     const batchOpts: Record<string, unknown> = {
-      ...(b.triggeredBy !== undefined ? { triggeredBy: b.triggeredBy } : {}),
+      ...(by !== undefined ? { triggeredBy: by } : {}),
       ...(b.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}),
       ...(b.env !== undefined ? { env: b.env } : {}),
       ...(multiLane ? { forgeAttribution: false } : {}), // proxy can't tell sims apart
@@ -405,7 +408,7 @@ export function registerManualRoutes(
 
   app.post('/api/templates/play-all', async (req, reply) => {
     const b = (req.body ?? {}) as { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string> };
-    const r = await runBatch(b);
+    const r = await runBatch(b, req.user);
     if (!r.ok) return reply.code(r.code).send({ error: r.error, code: r.code === 409 ? 'DEVICE_BUSY' : undefined, runIds: r.runIds });
     return { runIds: r.runIds, count: r.count };
   });
@@ -475,7 +478,7 @@ export function registerManualRoutes(
       ...(p.scenarioId !== null ? { scenarioId: p.scenarioId } : {}),
       env: p.env,
       triggeredBy: `plan:${p.name || id}`,
-    });
+    }, req.user); // session user wins for run attribution
     if (!r.ok) return reply.code(r.code).send({ error: r.error, code: r.code === 409 ? 'DEVICE_BUSY' : undefined, runIds: r.runIds });
     return { runIds: r.runIds, count: r.count };
   });
