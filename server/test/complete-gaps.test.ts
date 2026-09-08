@@ -6,7 +6,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { migrateM1 } from '../src/db/schema.ts';
 import { runGc, diskState } from '../src/gc/retention.ts';
-import { authConfig } from '../src/auth/gate.ts';
 import type { AppEvents } from '../src/ws/bus.ts';
 
 let db: Database.Database;
@@ -81,21 +80,7 @@ describe('disk quota (§12/§11)', () => {
   });
 });
 
-describe('auth gate (§16.3)', () => {
-  it('dev mode: both unset → allow-all', () => {
-    delete process.env['CRUCIBLE_PIN'];
-    delete process.env['CRUCIBLE_AGENT_TOKEN'];
-    const cfg = authConfig();
-    expect(cfg.pin).toBeNull();
-    expect(cfg.agentToken).toBeNull();
-  });
-  it('configured when env set', () => {
-    process.env['CRUCIBLE_PIN'] = '1234';
-    const cfg = authConfig();
-    expect(cfg.pin).toBe('1234');
-    delete process.env['CRUCIBLE_PIN'];
-  });
-});
+// auth gate (§16.3) tests retired with the PIN gate — roles.ts owns auth now (test/auth.test.ts)
 
 describe('boot reconciliation (M1 §5)', () => {
   it('stale waiting queue rows aborted; stuck runs aborted', async () => {
