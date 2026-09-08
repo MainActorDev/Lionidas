@@ -18,7 +18,14 @@ const lastRuns = ref<Record<string, RunRow>>({});
 let poll: ReturnType<typeof setInterval> | null = null;
 
 // ── sidebar (pushed) — the one stream mount point on the wall ──
-const sidebar = ref<{ device: SidebarDevice; mode: 'watch' | 'control' } | null>(null);
+const sidebar = ref<{ device: SidebarDevice } | null>(null);
+/** udids with a live run (take-control blocked state in the sidebar) */
+const runActiveUdids = ref(new Set<string>());
+const runActiveSet = computed(() => runActiveUdids.value);
+function leaseInfoFor(udid: string | undefined): string | null {
+  if (!udid) return null;
+  return devices.value.find((d) => d.udid === udid)?.lease_display ?? null;
+}
 
 const booted = computed(() => devices.value.filter((d) => d.state === 'Booted'));
 const shelf = computed(() => devices.value.filter((d) => d.state !== 'Booted'));
@@ -50,12 +57,9 @@ async function openTicket(): Promise<void> {
   if (key) window.location.href = `/tickets/${encodeURIComponent(key)}`;
 }
 
-function openSidebar(d: DeviceRow, mode: 'watch' | 'control'): void {
-  if (!sidebar.value || sidebar.value.device.udid !== d.udid || sidebar.value.mode !== mode) {
-    sidebar.value = {
-      device: { udid: d.udid, name: d.name, os_version: d.os_version, state: d.state },
-      mode,
-    };
+function openSidebar(d: DeviceRow): void {
+  if (!sidebar.value || sidebar.value.device.udid !== d.udid) {
+    sidebar.value = { device: { udid: d.udid, name: d.name, os_version: d.os_version, state: d.state } };
   }
 }
 function closeSidebar(): void { sidebar.value = null; }
@@ -67,7 +71,7 @@ watch(
     if (!sidebar.value) return;
     const fresh = devices.value.find((d) => d.udid === sidebar.value?.device.udid);
     if (!fresh) { closeSidebar(); return; }
-    sidebar.value = { device: { udid: fresh.udid, name: fresh.name, os_version: fresh.os_version, state: fresh.state }, mode: sidebar.value.mode };
+    sidebar.value = { device: { udid: fresh.udid, name: fresh.name, os_version: fresh.os_version, state: fresh.state } };
     void sig;
   },
 );
@@ -92,6 +96,12 @@ const unwatchEvents = watch(
   () => {
     const latest = live.events[live.events.length - 1];
     if (latest && latest.type === 'device.changed') void load();
+    if (latest && latest.type === 'run.started' && typeof latest.payload['udid'] === 'string') {
+      const s2 = new Set(runActiveUdids.value); s2.add(latest.payload['udid']); runActiveUdids.value = s2;
+    }
+    if (latest && latest.type === 'run.finished' && typeof latest.payload['udid'] === 'string') {
+      const s2 = new Set(runActiveUdids.value); s2.delete(latest.payload['udid']); runActiveUdids.value = s2;
+    }
   },
 );
 
@@ -103,7 +113,7 @@ onMounted(() => {
     const w = q.get('watch');
     if (w) {
       const d = devices.value.find((x) => x.udid === w && x.state === 'Booted');
-      if (d) openSidebar(d, 'watch');
+      if (d) openSidebar(d);
     }
     if (q.get('new') === '1') newRunOpen.value = true;
     if (w || q.get('new')) window.history.replaceState({}, '', '/');
@@ -159,7 +169,7 @@ onUnmounted(() => { if (poll) clearInterval(poll); closeSidebar(); unwatchEvents
             </tr>
           </thead>
           <tbody>
-            <tr v-for="d in booted" :key="d.udid" :class="{ 'row-booted': true, 'row-active': sidebar?.device.udid === d.udid }" @click="openSidebar(d, 'watch')">
+            <tr v-for="d in booted" :key="d.udid" :class="{ 'row-booted': true, 'row-active': sidebar?.device.udid === d.udid }" @click="openSidebar(d)">
               <td>
                 <div style="color: var(--color-paper);">{{ d.name ?? d.udid.slice(0, 8) }}</div>
                 <div style="font-size: 10px; color: var(--color-steel); user-select: text;">{{ d.udid }}</div>
@@ -181,8 +191,7 @@ onUnmounted(() => { if (poll) clearInterval(poll); closeSidebar(); unwatchEvents
                 <span v-else style="color: var(--color-steel);">—</span>
               </td>
               <td style="text-align: right; white-space: nowrap;" @click.stop>
-                <button class="btn btn-sm" @click="openSidebar(d, 'watch')">watch</button>
-                <button class="btn btn-sm" style="margin-left: 6px;" @click="openSidebar(d, 'control')">take control</button>
+                <button class="btn btn-sm" @click="openSidebar(d)">drive</button>
                 <button class="btn btn-sm btn-danger" style="margin-left: 6px;" @click="power(d.udid, 'shutdown')">shut down</button>
               </td>
             </tr>
@@ -214,7 +223,7 @@ onUnmounted(() => { if (poll) clearInterval(poll); closeSidebar(); unwatchEvents
     </template>
 
     <NewRunModal :open="newRunOpen" @close="newRunOpen = false" />
-    <DeviceSidebar :device="sidebar?.device ?? null" :mode="sidebar?.mode ?? 'watch'" @close="closeSidebar" />
+    <DeviceSidebar :device="sidebar?.device ?? null" :lease-display="leaseInfoFor(sidebar?.device?.udid)" :run-active="runActiveSet.has(sidebar?.device?.udid ?? '')" @close="closeSidebar" />
   </div>
 </template>
 

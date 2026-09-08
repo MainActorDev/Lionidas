@@ -15,7 +15,9 @@ export interface SidebarDevice { udid: string; name: string | null; os_version: 
 
 const props = defineProps<{
   device: SidebarDevice | null;
-  mode: 'watch' | 'control';
+  /** wall-side lease info for the blocked-state display (held by / run active) */
+  leaseDisplay?: string | null;
+  runActive?: boolean;
 }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
 
@@ -55,7 +57,7 @@ function toggleInspect(): void {
 
 function onKey(e: KeyboardEvent): void {
   if ((e.target as HTMLElement)?.matches?.('input, textarea, select')) return;
-  if (e.key === 'i' && sessionId.value && props.mode === 'control') { e.preventDefault(); toggleInspect(); }
+  if (e.key === 'i' && sessionId.value) { e.preventDefault(); toggleInspect(); }
   else if (e.key === 'Escape') {
     if (selNode.value) selNode.value = null;
     else if (inspect.value) toggleInspect();
@@ -78,7 +80,7 @@ function onCanvasMove(e: MouseEvent): void {
 
 // session-dead watcher: a dead manual session (server restart / lease loss)
 // surfaces on /tree as 410 SESSION_NOT_FOUND — tear the sidebar session down so
-// the operator lands on the take-control form, not a dead UI.
+// the operator lands on the phase-1 stream, not a dead UI.
 watch(() => tree.state.value, (st) => {
   if (st === 'failed' && (tree.lastError.value as TreeFetchError | null)?.code === 'SESSION_NOT_FOUND') {
     void endSession();
@@ -162,20 +164,30 @@ const logicalW = ref<number | null>(null);
 const logicalH = ref<number | null>(null);
 const busy = ref(false);
 const error = ref('');
-const operator = ref('qa');
+// phase machine: watching (read-only stream) → driving (lease + dispatch)
+const phase = ref<'watching' | 'driving'>('watching');
+const leaseHeldElsewhere = computed(() => !!props.leaseDisplay && props.leaseDisplay !== meName.value && phase.value === 'watching');
+const takeControlBlocked = computed(() => !booted.value || props.runActive === true || leaseHeldElsewhere.value);
+const takeControlWhy = computed(() => !booted.value ? 'device not booted' : props.runActive === true ? 'run in progress' : leaseHeldElsewhere.value ? `held by ${props.leaseDisplay}` : '');
+// display name of the signed-in user (status line + audit surface)
+const meName = ref('');
+void (async () => { try { const r = await fetch('/api/auth/me'); const b = await r.json() as { user?: { name?: string } }; meName.value = b.user?.name ?? ''; } catch { /* offline */ } })();
+const showSystemApps = ref(false);
 // app picker: which app the control session opens on (avoids the
 // foreground-hijack when the guess is wrong; snapshot still grounds the
 // save-time binding)
 const appBundleId = ref('');
 const appOptions = ref<Array<{ bundleId: string; name: string; running: boolean }>>([]);
 let appOptionsLoaded = false;
+watch(showSystemApps, () => { appOptionsLoaded = false; loadAppOptions(); });
 async function loadAppOptions(): Promise<void> {
   if (!props.device || appOptionsLoaded) return;
   try {
     const res = await fetch(`/api/devices/${props.device.udid}/apps`);
     const body = await res.json() as { apps?: Array<{ bundleId: string; name: string; running: boolean }> };
     if (body.apps) {
-      appOptions.value = body.apps.filter((a) => !a.bundleId.startsWith('com.apple.') && !a.bundleId.endsWith('.xctrunner'));
+      const all = body.apps.filter((a) => !a.bundleId.endsWith('.xctrunner')); // runner stubs never shown
+      appOptions.value = all.filter((a) => showSystemApps.value || !a.bundleId.startsWith('com.apple.'));
       const runningGuess = appOptions.value.find((a) => a.running);
       if (runningGuess) appBundleId.value = runningGuess.bundleId;
       appOptionsLoaded = true;
@@ -190,6 +202,41 @@ interface ArtifactRow { path: string; bundleId: string; version: string | null; 
 const artifacts = ref<ArtifactRow[]>([]);
 const artifactsLoaded = ref(false);
 const artifactPick = ref('');
+/** deduped picker model: one row per bundle id (newest build as headline),
+ *  tiered: build-roots+store = "your apps"; deriveddata = "on this mac" */
+interface AppRow { key: string; name: string; bundleId: string; version: string | null; mtimeMs: number; source: string; builds: ArtifactRow[] }
+const yourApps = ref<AppRow[]>([]);
+const macApps = ref<AppRow[]>([]);
+const showMacApps = ref(false);
+const expandedRow = ref<string | null>(null);
+function buildAppRows(list: ArtifactRow[]): void {
+  const byBundle = new Map<string, ArtifactRow[]>();
+  for (const a of list) {
+    const k = a.bundleId ?? a.path;
+    byBundle.set(k, [...(byBundle.get(k) ?? []), a]);
+  }
+  const row = (builds: ArtifactRow[]): AppRow => {
+    const sorted = [...builds].sort((x, y) => y.mtimeMs - x.mtimeMs);
+    const head = sorted[0]!;
+    // name: prefer the human .app name (LionParcelLogistics), not the store's
+    // bundle-timestamped filename — build-source entries carry it
+    // store filenames look like <bundle>-<version>-<mtime> (all-lowercase dotted
+    // prefix + trailing digit segments); anything else is a human .app name
+    const storeName = /^[a-z][a-z0-9]*(\.[a-z0-9-]+)+-\d+(\.\d+)*-\d+$/;
+    const humanName = sorted.map((b) => b.path.split('/').pop()?.replace(/\.app$/, '') ?? '')
+      .find((n) => n && !storeName.test(n));
+    return { key: head.bundleId ?? head.path, name: humanName ?? head.bundleId ?? 'app',
+             bundleId: head.bundleId ?? '', version: head.version, mtimeMs: head.mtimeMs, source: head.source, builds: sorted };
+  };
+  const rows = [...byBundle.values()].map(row).sort((a, b) => b.mtimeMs - a.mtimeMs);
+  yourApps.value = rows.filter((r) => r.builds.some((b) => b.source !== 'deriveddata'));
+  macApps.value = rows.filter((r) => r.builds.every((b) => b.source === 'deriveddata'));
+}
+watch(artifacts, (list) => buildAppRows(list));
+const ageOf = (ms: number): string => {
+  const m = Math.round((Date.now() - ms) / 60000);
+  return m < 60 ? `${m}m ago` : m < 2880 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`;
+};
 const installing = ref(false);
 const installMsg = ref('');
 const installErr = ref('');
@@ -358,7 +405,8 @@ const booted = computed(() => props.device?.state === 'Booted');
 // IS the truth; logical dims have lied (320pt squish bug).
 
 // ── lifecycle: device or mode change tears everything down cleanly ──
-watch(() => [props.device?.udid, props.mode] as const, () => {
+watch(() => props.device?.udid, () => {
+  phase.value = 'watching';
   void reset();
 });
 onUnmounted(() => {
@@ -373,10 +421,7 @@ async function reset(): Promise<void> {
   stream.stop();
   error.value = '';
   if (!props.device) return;
-  if (props.mode === 'watch') {
-    stream.start(props.device.udid);
-  }
-  // control mode: session starts on explicit "take control" (lease acquisition)
+  stream.start(props.device.udid); // every open streams; driving is an escalation
 }
 
 async function teardownSession(): Promise<void> {
@@ -392,7 +437,7 @@ async function teardownSession(): Promise<void> {
 
 // ── watch mode ──
 watch(() => props.device?.udid, (udid) => {
-  if (udid && props.mode === 'watch' && booted.value) stream.start(udid);
+  if (udid && booted.value) stream.start(udid);
 }, { immediate: true });
 
 // ── control mode ──
@@ -402,14 +447,14 @@ async function startSession(): Promise<void> {
   try {
     const res = await fetch('/api/manual/start', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ udid: props.device.udid, operator: operator.value, ...(appBundleId.value ? { appBundleId: appBundleId.value } : {}) }),
+      body: JSON.stringify({ udid: props.device.udid, ...(appBundleId.value ? { appBundleId: appBundleId.value } : {}) }), // operator = session identity
     });
     const body = await res.json() as { sessionId?: string; logicalW?: number | null; logicalH?: number | null; error?: string };
     if (body.sessionId) {
       sessionId.value = body.sessionId;
       logicalW.value = body.logicalW ?? null;
       logicalH.value = body.logicalH ?? null;
-      stream.start(props.device.udid);
+      phase.value = 'driving'; // same canvas, no stream restart
       void loadSteps();
       recordPoll = setInterval(() => void loadSteps(), 1200);
     } else error.value = body.error ?? 'failed to start';
@@ -454,7 +499,7 @@ const typeText = ref('');
 const typeArmed = computed(() => lastTap.value !== null);
 
 async function onTap(e: MouseEvent): Promise<void> {
-  if (props.mode !== 'control' || !sessionId.value || !(e.target instanceof HTMLCanvasElement)) return;
+  if (!sessionId.value || !(e.target instanceof HTMLCanvasElement)) return; // taps only dispatch while driving
   if (inspect.value) { onInspectClick(e); return; } // INSPECT: select, never dispatch
   const canvas = e.target;
   const { x, y } = canvasPointToLogical(canvas, e.clientX, e.clientY, logicalW.value, logicalH.value);
@@ -505,26 +550,27 @@ async function scroll(direction: string): Promise<void> {
 
 async function endSession(): Promise<void> {
   await teardownSession();
-  stream.stop();
+  if (inspect.value) toggleInspect(); // session-bound tree dies with the session
+  phase.value = 'watching';           // release-to-watch: stream keeps flowing
 }
 </script>
 <template>
   <transition name="sidebar">
-    <aside v-if="device" class="sidebar" :class="{ 'sidebar-wide': mode === 'control' }">
+    <aside v-if="device" class="sidebar" :class="{ 'sidebar-wide': phase === 'driving' }">
       <header class="sb-head">
         <div>
           <div class="sb-title">{{ device.name ?? device.udid.slice(0, 8) }}</div>
           <div class="sb-sub">
-            <span v-if="mode === 'control' && sessionId" class="lease-on">● manual control</span>
-            <span v-else>{{ mode === 'watch' ? 'read-only' : 'manual control' }}</span>
-            · {{ device.os_version ?? '—' }}<template v-if="mode === 'control' && operator"> · {{ operator }}</template>
+            <span v-if="phase === 'driving'" class="lease-on">● driving{{ meName ? ` · ${meName}` : '' }}</span>
+            <span v-else>watching · read-only</span>
+            · {{ device.os_version ?? '—' }}
           </div>
         </div>
         <button class="btn btn-sm sb-x" @click="emit('close')">✕</button>
       </header>
 
-      <!-- WATCH: narrow, stream only -->
-      <div v-if="mode === 'watch'" class="sb-body">
+      <!-- PHASE 1: watching — stream + escalation -->
+      <div v-if="phase === 'watching'" class="sb-body">
         <div class="stream-box">
           <canvas :ref="stream.setCanvas" style="width: 100%; display: block; background: var(--color-void); min-height: 160px;"></canvas>
           <div v-if="stream.state.value !== 'live'" class="stream-overlay">
@@ -542,22 +588,83 @@ async function endSession(): Promise<void> {
           <span v-else>{{ stream.state.value }}</span>
           <span>read-only · does not hold the device</span>
         </div>
-        <button class="btn" style="width: 100%; margin-top: var(--s-3);" @click="emit('close')">close</button>
+
+        <div class="sect" style="margin-top: var(--s-3);">
+          <div class="meta-row">
+            <span class="k">app</span>
+            <select v-model="appBundleId" style="flex: 1;">
+              <option value="">auto (best guess)</option>
+              <option v-for="a in appOptions" :key="a.bundleId" :value="a.bundleId">{{ a.name }}</option>
+            </select>
+          </div>
+          <label class="meta-row" style="cursor: pointer;">
+            <input type="checkbox" v-model="showSystemApps" style="width: auto;" />
+            <span class="k" style="flex: 1;">show system apps</span>
+          </label>
+          <button class="btn btn-primary" style="width: 100%; margin-top: var(--s-2);" :disabled="busy || takeControlBlocked" @click="startSession">
+            {{ busy ? 'taking control…' : takeControlWhy || 'take control' }}
+          </button>
+          <div v-if="error" class="form-err" style="margin-top: var(--s-2);">{{ error }}</div>
+        </div>
+
+        <div class="sect">
+          <div class="sect-label"><span>install app</span></div>
+          <button v-if="!artifactsLoaded" class="btn btn-sm" @click="loadArtifacts">browse artifacts…</button>
+          <template v-else>
+            <div v-for="r in yourApps" :key="r.key" class="app-row" :class="{ picked: artifactPick && r.builds.some((b) => b.path === artifactPick) }">
+              <div class="app-row-head" @click="expandedRow = expandedRow === r.key ? null : r.key">
+                <span class="app-name">{{ r.name }}</span>
+                <span class="app-meta">{{ r.version ?? '—' }} · {{ ageOf(r.mtimeMs) }} · {{ r.builds.length > 1 ? `${r.builds.length} builds` : r.source }}</span>
+              </div>
+              <div v-if="expandedRow === r.key" class="app-builds">
+                <div v-for="b in r.builds" :key="b.path" class="app-build" :class="{ picked: artifactPick === b.path }"
+                  @click="artifactPick = b.path; appBundleId = r.bundleId">
+                  <span>{{ b.path.split('/').pop() }}</span>
+                  <span class="app-meta">{{ ageOf(b.mtimeMs) }} · {{ b.source }}</span>
+                </div>
+              </div>
+              <button v-else class="btn btn-sm" style="width: 100%; margin-top: 4px;"
+                @click="artifactPick = r.builds[0]!.path; appBundleId = r.bundleId">use newest</button>
+            </div>
+            <button v-if="macApps.length" class="btn btn-sm btn-quiet" style="width: 100%; margin-top: var(--s-2);"
+              @click="showMacApps = !showMacApps">{{ showMacApps ? 'hide' : `also on this mac (${macApps.length})` }}</button>
+            <template v-if="showMacApps">
+              <div v-for="r in macApps" :key="r.key" class="app-row" :class="{ picked: artifactPick && r.builds.some((b) => b.path === artifactPick) }">
+                <div class="app-row-head" @click="expandedRow = expandedRow === r.key ? null : r.key">
+                  <span class="app-name">{{ r.name }}</span>
+                  <span class="app-meta">{{ r.version ?? '—' }} · {{ ageOf(r.mtimeMs) }}</span>
+                </div>
+                <div v-if="expandedRow === r.key" class="app-builds">
+                  <div v-for="b in r.builds" :key="b.path" class="app-build" :class="{ picked: artifactPick === b.path }"
+                    @click="artifactPick = b.path; appBundleId = r.bundleId">
+                    <span>{{ b.path.split('/').pop() }}</span>
+                    <span class="app-meta">{{ ageOf(b.mtimeMs) }} · {{ b.source }}</span>
+                  </div>
+                </div>
+                <button v-else class="btn btn-sm" style="width: 100%; margin-top: 4px;"
+                  @click="artifactPick = r.builds[0]!.path; appBundleId = r.bundleId">use newest</button>
+              </div>
+            </template>
+            <button class="btn" style="width: 100%; margin-top: var(--s-2);" :disabled="installing || !artifactPick" @click="installPicked">
+              {{ installing ? 'installing… (≈12s)' : 'install' }}
+            </button>
+          </template>
+          <div v-if="installMsg" class="sect-hint" style="margin-top: var(--s-2);">{{ installMsg }}</div>
+          <div v-if="installErr" class="form-err" style="margin-top: var(--s-2);">{{ installErr }}</div>
+        </div>
+
+        <button class="btn btn-sm btn-quiet" style="width: 100%;" @click="emit('close')">close</button>
       </div>
 
-      <!-- CONTROL: wide cockpit -->
+      <!-- PHASE 2: driving — cockpit -->
       <div v-else class="sb-body cockpit">
         <!-- LEFT: the device -->
         <div class="devcol">
           <div class="stream-box stream-stage">
-            <div v-if="!sessionId" class="stage-empty">
-              <div class="stage-empty-title">device ready</div>
-              <div class="stage-empty-sub">{{ booted ? 'take control from the panel on the right to begin' : 'boot the device first' }}</div>
-            </div>
             <!-- aspect-locked frame: fitted to the stage via contain math so the
                  canvas, overlay boxes, chip and ripple all span EXACTLY the
                  device image — never the letterboxed outer container -->
-            <div v-else class="stage-frame">
+            <div class="stage-frame">
               <canvas :ref="stream.setCanvas" @click="onTap" @mousemove="onCanvasMove"
                 :style="{ display: 'block', cursor: inspect ? 'default' : 'crosshair', background: 'var(--color-void)' }"></canvas>
               <InspectOverlay v-if="inspect && sessionId" :nodes="tree.nodes.value" :logical-w="tree.logicalW.value" :logical-h="tree.logicalH.value"
@@ -585,45 +692,6 @@ async function endSession(): Promise<void> {
 
         <!-- RIGHT: work column -->
         <div class="workcol">
-          <!-- connect / install (pre-session) -->
-          <template v-if="!sessionId">
-            <div class="sect">
-              <div class="sect-label"><span>take control</span></div>
-              <div class="meta-row"><span class="k">operator</span><input v-model="operator" style="width: 140px;" /></div>
-              <div class="meta-row">
-                <span class="k">app</span>
-                <select v-model="appBundleId" style="flex: 1;">
-                  <option value="">auto (best guess)</option>
-                  <option v-for="a in appOptions" :key="a.bundleId" :value="a.bundleId">{{ a.name }}</option>
-                </select>
-              </div>
-              <button class="btn btn-primary" style="width: 100%; margin-top: var(--s-2);" :disabled="busy || !booted" @click="startSession">
-                {{ busy ? 'starting…' : booted ? 'acquire & take control' : 'device not booted' }}
-              </button>
-              <div v-if="error" class="form-err">{{ error }}</div>
-            </div>
-
-            <div class="sect">
-              <div class="sect-label"><span>install app</span></div>
-              <button v-if="!artifactsLoaded" class="btn btn-sm" @click="loadArtifacts">browse artifacts…</button>
-              <template v-else-if="artifacts.length > 0">
-                <div class="meta-row">
-                  <span class="k">artifact</span>
-                  <select v-model="artifactPick" style="flex: 1;">
-                    <option v-for="a in artifacts" :key="a.path" :value="a.path">
-                      {{ a.bundleId === appBundleId || !appBundleId ? artifactLabel(a) : `${artifactLabel(a)} (${a.bundleId})` }}
-                    </option>
-                  </select>
-                </div>
-                <button class="btn" style="width: 100%; margin-top: var(--s-2);" :disabled="installing || !artifactPick" @click="installPicked">
-                  {{ installing ? 'installing… (≈12s)' : 'install' }}
-                </button>
-              </template>
-              <div v-else class="sect-hint">no artifacts found on disk — build the app first</div>
-              <div v-if="installMsg" class="sect-hint" style="margin-top: var(--s-2);">{{ installMsg }}</div>
-              <div v-if="installErr" class="form-err" style="margin-top: var(--s-2);">{{ installErr }}</div>
-            </div>
-          </template>
 
           <!-- drive -->
           <div v-if="sessionId" class="sect">
@@ -743,8 +811,8 @@ async function endSession(): Promise<void> {
       </div>
 
       <!-- footer: lease state -->
-      <footer v-if="mode === 'control' && sessionId" class="sb-foot">
-        <span>lease held · operator <b>{{ operator }}</b></span>
+      <footer v-if="phase === 'driving' && sessionId" class="sb-foot">
+        <span>lease held · driving as <b>{{ meName || 'you' }}</b></span>
         <span>steps auto-save · never counts toward AC status</span>
       </footer>
     </aside>
@@ -917,4 +985,17 @@ async function endSession(): Promise<void> {
   .stream-stage { min-height: 300px; }
   .workcol { flex: 1 1 auto; }
 }
+</style>
+
+<style scoped>
+/* deduped app picker rows (install card) */
+.app-row { border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 6px 8px; margin-bottom: 6px; }
+.app-row.picked { border-color: var(--color-fog); }
+.app-row-head { display: flex; flex-direction: column; gap: 2px; cursor: pointer; }
+.app-name { font-size: var(--text-body); }
+.app-meta { font-size: 10px; color: var(--color-steel); }
+.app-builds { margin-top: 4px; border-top: 1px solid var(--color-iron); padding-top: 4px; }
+.app-build { display: flex; justify-content: space-between; gap: 8px; padding: 3px 4px; cursor: pointer; font-size: 11px; }
+.app-build:hover { background: var(--color-iron); }
+.app-build.picked { color: var(--color-paper); background: var(--color-iron); }
 </style>
