@@ -212,3 +212,62 @@ import VideoToolbox
         #expect(Size(width: canvasW, height: canvasH) == Size(width: 472, height: 970))
     }
 }
+
+@Suite struct ButtonPlacementTests {
+    static let phone5Padding = Insets(top: 0, left: 9, bottom: 0, right: 9)
+    static let comp = Size(width: 472, height: 970)
+
+    static let power = ChromeButton(
+        name: "power", imageName: "X_Power BTN",
+        anchor: .right, align: .leading,
+        normalOffset: Point(x: -8, y: 262), rolloverOffset: Point(x: -3, y: 262)
+    )
+    static let mute = ChromeButton(
+        name: "mute", imageName: "Mute BTN",
+        anchor: .left, align: .leading,
+        normalOffset: Point(x: 8, y: 160), rolloverOffset: Point(x: 3, y: 160)
+    )
+    // iPad-style top anchor (trailing): N=(-74,8), R=(-74,3)
+    static let ipadPower = ChromeButton(
+        name: "power", imageName: "P",
+        anchor: .top, align: .trailing,
+        normalOffset: Point(x: -74, y: 8), rolloverOffset: Point(x: -74, y: 3)
+    )
+    static let bottomBtn = ChromeButton(
+        name: "home", imageName: "H",
+        anchor: .bottom, align: .trailing,
+        normalOffset: Point(x: -30, y: -6), rolloverOffset: Point(x: -30, y: -1)
+    )
+
+    @Test func rightAnchorAtRestMirrorsRollover() {
+        // restX = 2(-8) - (-3) = -13 → leftX = 9 + 472 - 13 = 468
+        // restY = 2(262) - 262   = 262 → topY  = 0 + 262
+        let p = Chromes.buttonTopLeft(button: Self.power, imageSize: Size(width: 16, height: 64),
+                                      compositeSize: Self.comp, margins: Self.phone5Padding)
+        #expect(p == Point(x: 468, y: 262))
+    }
+
+    @Test func leftAnchorCentresXTopEdgesY() {
+        // mute: x centre = 9 + 8 = 17; imgW 16 → leftX = 17 - 8 = 9
+        // y top edge = 0 + 160 (rollover collapse: 2(160)-160 = 160)
+        let p = Chromes.buttonTopLeft(button: Self.mute, imageSize: Size(width: 16, height: 32),
+                                      compositeSize: Self.comp, margins: Self.phone5Padding)
+        #expect(p == Point(x: 9, y: 160))
+    }
+
+    @Test func topAnchorTrailingEdgeAligns() {
+        // restY = 2(8) - 3 = 13 → topY = 0 + 13 - imgH(16) = -3
+        // restX = 2(-74)-(-74) = -74 → trailing leftX = 9 + 472 - 74 - imgW(32) = 375
+        let p = Chromes.buttonTopLeft(button: Self.ipadPower, imageSize: Size(width: 32, height: 16),
+                                      compositeSize: Self.comp, margins: Self.phone5Padding)
+        #expect(p == Point(x: 375, y: -3))
+    }
+
+    @Test func bottomAnchorTrailing() {
+        // restY = 2(-6) - (-1) = -11 → topY = 0 + 970 + (-11) = 959
+        // restX = 2(-30) - (-30) = -30 → leftX = 9 + 472 - 30 - imgW(20) = 431
+        let p = Chromes.buttonTopLeft(button: Self.bottomBtn, imageSize: Size(width: 20, height: 10),
+                                      compositeSize: Self.comp, margins: Self.phone5Padding)
+        #expect(p == Point(x: 431, y: 959))
+    }
+}

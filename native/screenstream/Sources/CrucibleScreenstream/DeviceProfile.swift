@@ -5,7 +5,10 @@
 import Foundation
 
 // Shared value types for chrome geometry (scale-1 chrome-px space).
-struct Size: Equatable, Sendable { var width: Double; var height: Double }
+struct Size: Equatable, Sendable {
+    var width: Double; var height: Double
+    static let zero = Size(width: 0, height: 0)
+}
 struct Point: Equatable, Sendable { var x: Double; var y: Double }
 struct Rect: Equatable, Sendable { var origin: Point; var size: Size }
 struct Insets: Equatable, Sendable {
