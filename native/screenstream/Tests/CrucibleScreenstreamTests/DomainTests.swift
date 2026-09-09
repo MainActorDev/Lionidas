@@ -143,3 +143,53 @@ import VideoToolbox
         #expect(p.screenSize == Size(width: 390, height: 844))  // integrated, NOT tvOut
     }
 }
+
+@Suite struct DeviceChromeTests {
+    static let phone5JSON = """
+    {"identifier":"com.apple.dt.devicekit.chrome.phone5",
+     "images":{"topLeft":"Phone TL","top":"PhoneTop","topRight":"Phone TR",
+       "right":"PhoneRight","bottomRight":"Phone BR","bottom":"PhoneBase",
+       "bottomLeft":"Phone BL","left":"PhoneLeft","screen":"Screen",
+       "sizing":{"leftWidth":22,"rightWidth":22,"topHeight":22,"bottomHeight":22},
+       "padding":{"width":9,"height":0},
+       "devicePadding":{"top":0,"left":9,"bottom":0,"right":9}},
+     "paths":{"simpleOutsideBorder":{"cornerRadiusX":75}},
+     "inputs":[
+       {"name":"mute","anchor":"left","image":"Mute BTN","imageDown":"Mute BTN Dn",
+        "onTop":false,"offsets":{"normal":{"x":8,"y":160},"rollover":{"x":3,"y":160}}},
+       {"name":"power","anchor":"right","image":"X_Power BTN","imageDown":"X_Power BTN Dn",
+        "align":"leading","onTop":false,"offsets":{"normal":{"x":-8,"y":262},"rollover":{"x":-3,"y":262}}}]}
+    """
+
+    @Test func parsesFullChrome() throws {
+        let c = try DeviceChrome.parsing(json: Data(Self.phone5JSON.utf8))
+        #expect(c.identifier == "phone5")
+        #expect(c.screenInsets == Insets(top: 22, left: 22, bottom: 22, right: 22))
+        #expect(c.outerCornerRadius == 75)
+        #expect(c.devicePadding == Insets(top: 0, left: 9, bottom: 0, right: 9))
+        #expect(c.compositeImageName == nil)          // phone5 is 9-slice only
+        #expect(c.slice?.topLeft == "Phone TL")
+        #expect(c.buttons.count == 2)
+        #expect(c.buttons[1].anchor == .right)
+        #expect(c.buttons[1].normalOffset == Point(x: -8, y: 262))
+        #expect(c.buttons[1].imageDownName == "X_Power BTN Dn")
+        #expect(c.buttons[1].onTop == false)
+    }
+
+    @Test func derivedRadii() throws {
+        let c = try DeviceChrome.parsing(json: Data(Self.phone5JSON.utf8))
+        #expect(c.bezelWidth == 22)
+        #expect(c.innerCornerRadius == 53)            // 75 − 22
+    }
+
+    @Test func screenRectInComposite() throws {
+        let c = try DeviceChrome.parsing(json: Data(Self.phone5JSON.utf8))
+        let r = c.screenRect(in: Size(width: 472, height: 970))
+        #expect(r.origin == Point(x: 22, y: 22))
+        #expect(r.size == Size(width: 428, height: 926))
+    }
+
+    @Test func sliceIsAllOrNothing() {
+        #expect(DeviceChromeSlice(json: ["topLeft": "a"]) == nil)
+    }
+}
