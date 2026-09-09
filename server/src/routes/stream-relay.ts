@@ -35,6 +35,18 @@ const execFileAsync = promisify(execFileCb);
  *  construction) paints the same WS fan-out at ~1fps until the run ends. */
 const runActiveDevices = new Set<string>();
 
+/** Live engine sockets per udid — the run hooks push run_pause/run_resume
+ *  control messages so the ENCODER stops during runs (run-hold), not just
+ *  the pump. Sockets self-unregister on close. */
+const engineSockets = new Map<string, Set<import('ws').default>>();
+function engineHold(udid: string, type: 'run_pause' | 'run_resume'): void {
+  const socks = engineSockets.get(udid);
+  if (!socks) return;
+  for (const ws of socks) {
+    try { ws.send(JSON.stringify({ type })); } catch { /* dead — reaped on close */ }
+  }
+}
+
 /** Cadence of the run-still feed (ms). Conservative: the stills exist to
  *  prove liveness and keep the canvas painted, not to be smooth video.
  *  0 (or negative) disables the feed — the test suite sets this so fake
@@ -315,15 +327,16 @@ async function drain(c: StreamClient): Promise<void> {
   if (c.latestFrame) void drain(c);
 }
 
-/** WS upstream (baguette avcc): connect, forward every binary message to the
- *  same latest-wins fan-out the MJPEG pump uses. Text frames surface only as
- *  error envelopes ({ok:false,error}) mapped onto the relay's error shape.
+/** WS upstream (crucible-screenstream avcc): connect, forward every binary
+ *  message to the same latest-wins fan-out. Text frames surface only as error
+ *  envelopes ({ok:false,error}) mapped onto the relay's error shape.
  *  Close/outage rides the identical OUTAGE_CLOSE_MS recovery the HTTP pump
- *  uses — re-resolve re-ensures the baguette process. */
+ *  uses — re-resolve re-ensures the engine process. */
 async function pumpWsUpstream(url: string, sub: UpstreamSubscription, udid: string): Promise<void> {
   const WebSocket = (await import('ws')).default;
   while (sub.refCount > 0) {
-    // run-pause: identical contract to the HTTP pump's — stop pulling frames
+    // run-pause: hold the ENGINE itself (run_pause control) so the encoder
+    // stops instead of encoding to a dead pump; clients get the paused notice.
     let pauseNotified = false;
     while (sub.refCount > 0 && runActiveDevices.has(udid)) {
       if (!pauseNotified) {
@@ -369,6 +382,7 @@ async function pumpWsUpstream(url: string, sub: UpstreamSubscription, udid: stri
       try {
         ws = new WebSocket(url, { handshakeTimeout: 5000 });
       } catch { done(); return; }
+      let registered = false;
       const onMsg = (data: Buffer, isBinary: boolean): void => {
         if (isBinary) {
           sub.notifiedOutage = false;
@@ -379,16 +393,32 @@ async function pumpWsUpstream(url: string, sub: UpstreamSubscription, udid: stri
             const body = JSON.parse(data.toString()) as { ok?: boolean; error?: string };
             if (body.ok === false && body.error) {
               for (const c of sub.clients) {
-                try { c.socket.send(JSON.stringify({ error: `baguette: ${body.error}`, retryable: true })); } catch { /* gone */ }
+                try { c.socket.send(JSON.stringify({ error: `screenstream: ${body.error}`, retryable: true })); } catch { /* gone */ }
               }
             }
           } catch { /* non-JSON text — ignore */ }
         }
       };
-      ws.on('open', () => { sub.notifiedOutage = false; });
+      ws.on('open', () => {
+        sub.notifiedOutage = false;
+        let socks = engineSockets.get(udid);
+        if (!socks) { socks = new Set(); engineSockets.set(udid, socks); }
+        socks.add(ws);
+        registered = true;
+        // run already active → hold immediately (run_started raced our open)
+        if (runActiveDevices.has(udid)) {
+          try { ws.send(JSON.stringify({ type: 'run_pause' })); } catch { /* dead */ }
+        }
+      });
       ws.on('message', (data, isBinary) => onMsg(data as Buffer, isBinary));
       ws.on('error', () => { try { ws.terminate(); } catch { /* already dead */ } done(); });
-      ws.on('close', () => done());
+      ws.on('close', () => {
+        if (registered) {
+          const socks = engineSockets.get(udid);
+          if (socks) { socks.delete(ws); if (socks.size === 0) engineSockets.delete(udid); }
+        }
+        done();
+      });
       sub.abortController.signal.addEventListener('abort', () => { try { ws.terminate(); } catch { /* already dead */ } }, { once: true });
     });
     if (sub.refCount === 0) return;
@@ -409,8 +439,8 @@ async function pumpWsUpstream(url: string, sub: UpstreamSubscription, udid: stri
 export async function registerStreamRelay(app: FastifyInstance, bus: TypedEventBus<AppEvents>): Promise<void> {
   // pause pumps while a run holds the device (see runActiveDevices above);
   // the still feed keeps every watcher's canvas painted through the pause
-  bus.on('run.started', (p) => { if (p.udid) { runActiveDevices.add(p.udid); runStillFeed(p.udid); } });
-  bus.on('run.finished', (p) => { if (p.udid) runActiveDevices.delete(p.udid); });
+  bus.on('run.started', (p) => { if (p.udid) { runActiveDevices.add(p.udid); engineHold(p.udid, 'run_pause'); runStillFeed(p.udid); } });
+  bus.on('run.finished', (p) => { if (p.udid) { runActiveDevices.delete(p.udid); engineHold(p.udid, 'run_resume'); } });
   // events-ws.ts registers the websocket plugin first; re-registering throws
   // "decorator 'ws' has already been added". We only add our route here.
 

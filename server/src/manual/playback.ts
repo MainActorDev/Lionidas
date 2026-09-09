@@ -795,7 +795,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 }
               }
             } else {
-              // two-source truth (baguette 1.1/1.2): the walk missed — was it
+              // two-source truth (steal-list 1.1/1.2): the walk missed — was it
               // walk-blindness (childless container at the recorded point)?
               // Probe the 5-point stencil; a selector hit is a verified,
               // recentre-safe resolution the coordinate fallback never is.

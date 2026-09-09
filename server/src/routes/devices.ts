@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { ensureBaguette, baguetteStreamUrl } from '../stream/baguette.ts';
+import { ensureScreenstream, screenstreamUrl } from '../stream/screenstream.ts';
 import type Database from 'better-sqlite3';
 import { createReadStream, statSync } from 'node:fs';
 import { crucibleAlloy } from '../alloy/client.ts';
@@ -78,61 +78,28 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
   });
 
   // S1: live stream URL (watch = read-only, no lease). Fails soft → wall falls back to pulse.
-  // Streaming is simulator-only (engine MJPEG has no physical-device source) — gate early
-  // so the UI gets an honest, typed reason instead of a generic engine failure.
+  // crucible-screenstream is the ONLY engine (no MJPEG fallback): gate early,
+  // surface engine failures honestly with a retry hint.
   app.post('/api/devices/:udid/stream', async (req, reply) => {
     const { udid } = req.params as { udid: string };
-    // H.264 path (baguette): opt-in per-request (?format=avcc) or env default.
-    // Any baguette host problem degrades to the mjpeg resolve — never a stream error.
-    const qf = req.query as { format?: string };
-    const fmt = qf.format === 'avcc' || (process.env['CRUCIBLE_STREAM_FORMAT'] === 'avcc' && qf.format !== 'mjpeg') ? 'avcc' : 'mjpeg';
-    if (fmt === 'avcc') {
-      const b0 = db.prepare(`SELECT state, kind FROM devices WHERE udid = ?`).get(udid) as { state: string | null; kind: string | null } | undefined;
-      if (!b0 || b0.state !== 'Booted') return reply.code(409).send({ error: 'device not booted' });
-      if (b0.kind && b0.kind !== 'simulator') return reply.code(422).send({ error: 'live stream is simulator-only', code: 'SIM_ONLY' });
-      try {
-        await ensureBaguette();
-        return { streamUrl: baguetteStreamUrl(udid), format: 'avcc' };
-      } catch (err) {
-        req.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'baguette unavailable — falling back to mjpeg resolve');
-      }
-    }
-    const booted = db.prepare(`SELECT state, platform, kind FROM devices WHERE udid = ?`).get(udid) as
-      | { state: string | null; platform: string | null; kind: string | null }
+    const booted = db.prepare(`SELECT state, kind FROM devices WHERE udid = ?`).get(udid) as
+      | { state: string | null; kind: string | null }
       | undefined;
     if (!booted || booted.state !== 'Booted') return reply.code(409).send({ error: 'device not booted' });
-    if (booted.kind !== 'simulator') {
-      return reply.code(422).send({ error: 'live stream is simulator-only (no MJPEG source for physical devices)', code: 'SIM_ONLY' });
+    if (booted.kind && booted.kind !== 'simulator') {
+      return reply.code(422).send({ error: 'live stream is simulator-only (no framebuffer source for physical devices)', code: 'SIM_ONLY' });
     }
-    // self-heal: a dead tool-server ("fetch failed") is the known staleness
-    // class — dispatchWithHeal inspects the IN-BAND error envelope (dispatch
-    // never throws engine errors), resets alloy's engine clients (fresh
-    // engine-B client respawns tool-server), retries once before surfacing.
-    let r = await dispatchWithHeal('alloy_stream', { udid }, alloyDispatchDepsSync());
-    // claim-class heal (the power route's 74e0bf4 pattern): an own-session
-    // DEVICE_IN_USE with no Crucible-side run/session is ours to release —
-    // release + retry once; genuine third-party ownership still errors.
-    if (!r.ok && /is owned by session|DEVICE_IN_USE/i.test(r.error?.message ?? '')) {
-      const busy =
-        db.prepare(`SELECT 1 FROM runs WHERE device_udid = ? AND status IN ('queued','running') LIMIT 1`).get(udid) ??
-        db.prepare('SELECT 1 FROM manual_sessions WHERE udid = ? AND finished_at IS NULL LIMIT 1').get(udid);
-      if (!busy) {
-        await crucibleAlloy().dispatch('alloy_release', { udid }, alloyDispatchDepsSync()).catch(() => undefined);
-        r = await dispatchWithHeal('alloy_stream', { udid }, alloyDispatchDepsSync());
-      }
+    try {
+      await ensureScreenstream();
+      return { streamUrl: screenstreamUrl(udid), format: 'avcc' };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      req.log.warn({ err: msg }, 'crucible-screenstream unavailable');
+      // A spawn/health failure is transient by construction (binary missing is
+      // the one permanent class) — the UI offers a retry.
+      const permanent = msg.includes('binary not found');
+      return reply.code(503).send({ error: `stream unavailable: ${msg}`, retryable: !permanent });
     }
-    if (!r.ok) {
-      // TRANSPORT_STALE: stale engine handle class (dead tool-server / broken
-      // spawn chain) — retrying the whole stream resolve usually recovers,
-      // so the UI offers a retry. Anything else is surfaced as-is.
-      const stale = /fetch failed|ECONNREFUSED|COMMAND_FAILED/i.test(r.error?.message ?? '');
-      return reply.code(503).send({
-        error: `stream unavailable: ${r.error?.message ?? 'engine error'}`,
-        code: r.error?.code,
-        retryable: stale,
-      });
-    }
-    return r.result as { streamUrl: string; platform: string };
   });
 
   // frame file serve for watch (same guard shape as manual-frame but allows a booted device)

@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { migrateM1 } from '../src/db/schema.ts';
 import { registerDeviceRoutes } from '../src/routes/devices.ts';
 import { __setAlloyForTest, type AlloyExports } from '../src/alloy/client.ts';
+import { __setScreenstreamEnsureForTest } from '../src/stream/screenstream.ts';
 
 const U = 'SIM-HEAL-1';
 
@@ -56,37 +57,47 @@ afterEach(async () => {
   db.close();
 });
 
-describe('stream route claim-class heal (74e0bf4 pattern, stream side)', () => {
-  it('DEVICE_IN_USE + no active run → release + retry → streamUrl returned', async () => {
-    __setAlloyForTest(fakeAlloy({ failStream: true }));
-    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/stream` });
-    expect(r.statusCode).toBe(200);
-    expect((r.json() as { streamUrl: string }).streamUrl).toContain('stream.mjpeg');
-    expect(releaseCalls).toBe(1);
-    expect(streamCalls).toBe(2); // initial fail + post-release retry
+describe('stream route (crucible-screenstream contract — no fallback)', () => {
+  it('engine healthy → 200 + engine WS URL', async () => {
+    __setScreenstreamEnsureForTest(async () => 8440);
+    try {
+      const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/stream` });
+      expect(r.statusCode).toBe(200);
+      expect((r.json() as { streamUrl: string }).streamUrl).toContain(`/devices/${U}/stream`);
+    } finally {
+      __setScreenstreamEnsureForTest(null);
+    }
   });
 
-  it('DEVICE_IN_USE + active run holds device → NO release, error surfaces honestly', async () => {
-    __setAlloyForTest(fakeAlloy({ failStream: true }));
-    db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at)
-                VALUES ('run_h1', 'T', 'manual', 'running', 'qa', ?, 0)`).run(U);
-    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/stream` });
-    expect(r.statusCode).toBe(503);
-    expect(releaseCalls).toBe(0);
-    expect(r.json().error).toContain('is owned by session');
-  });
-
-  it('non-claim failure → no release, surfaced as-is', async () => {
+  it('engine down → 503, NO alloy release attempted (engine owns streaming now)', async () => {
+    let releaseAttempted = false;
     __setAlloyForTest({
       createRuntime: async () => ({ state: {}, deps: null }),
       dispatch: async (tool: string) => {
-        if (tool === 'alloy_stream') return { ok: false, error: { message: 'simulator-stream: fetch failed' } };
+        if (tool === 'alloy_release') releaseAttempted = true;
         return { ok: true, result: {} };
       },
     } as unknown as AlloyExports);
-    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/stream` });
-    expect(r.statusCode).toBe(503);
-    expect(r.json().retryable).toBe(true); // fetch-failed class stays retryable
+    __setScreenstreamEnsureForTest(() => Promise.reject(new Error('crucible-screenstream did not become healthy in 15s')));
+    try {
+      const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/stream` });
+      expect(r.statusCode).toBe(503);
+      expect((r.json() as { retryable?: boolean }).retryable).toBe(true);
+      expect(releaseAttempted).toBe(false);
+    } finally {
+      __setScreenstreamEnsureForTest(null);
+    }
+  });
+
+  it('binary missing → 503 permanent (retryable=false)', async () => {
+    __setScreenstreamEnsureForTest(() => Promise.reject(new Error('crucible-screenstream binary not found: /x (build it)')));
+    try {
+      const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/stream` });
+      expect(r.statusCode).toBe(503);
+      expect((r.json() as { retryable?: boolean }).retryable).toBe(false);
+    } finally {
+      __setScreenstreamEnsureForTest(null);
+    }
   });
 });
 

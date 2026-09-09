@@ -5,7 +5,7 @@
  *  graceful degradation. Pages mount the returned canvas element and read state.
  */
 import { ref, type Ref } from 'vue';
-import { makeAvccDecoder, makeMjpegDecoder, hasAvccSupport, type Codec } from './stream/codecs.ts';
+import { makeAvccDecoder, hasAvccSupport, type Codec } from './stream/codecs.ts';
 
 export type StreamState = 'idle' | 'connecting' | 'live' | 'paused' | 'reconnecting' | 'failed';
 
@@ -279,7 +279,7 @@ export function useDeviceStream(): DeviceStream {
     }
   }
 
-/** baguette's session shape, 1:1 (stream-session.js): decoder fed by the WS,
+/** Engine session shape (baguette lineage, stream-session.js): decoder fed by the WS,
  *  one pending frame max, rAF paints it at FRAME-NATIVE canvas dims and closes
  *  it. No relay frames, no resampling, no dpr math — their pipeline as-is. */
   function attachDirect(socket: WebSocket, udid: string, gen: number): void {
@@ -312,7 +312,7 @@ export function useDeviceStream(): DeviceStream {
       if (typeof ev.data === 'string') {
         try {
           const body = JSON.parse(ev.data) as { ok?: boolean; error?: string };
-          if (body.ok === false && body.error) fail(`baguette: ${body.error}`, false);
+          if (body.ok === false && body.error) fail(`screenstream: ${body.error}`, false);
         } catch { /* not JSON */ }
         return;
       }
@@ -360,21 +360,21 @@ export function useDeviceStream(): DeviceStream {
     const gen = generation;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     state.value = isRetry ? 'reconnecting' : 'connecting';
-    // avcc: browser talks DIRECTLY to baguette (their UI's shape — the relay
-    // hop exists for the mjpeg engine path). Resolve the URL via our API
-    // (auth + spawn supervision), then connect straight to it.
+    // avcc: browser talks DIRECTLY to crucible-screenstream (our engine —
+    // the relay hop exists for the legacy mjpeg path). Resolve the URL via our
+    // API (auth + spawn supervision), then connect through the same-origin
+    // vite proxy.
     if (pendingFormat === 'avcc') {
       try {
         const r = await fetch(`/api/devices/${udid}/stream?format=avcc`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
         const b = await r.json() as { streamUrl?: string; error?: string };
         if (!r.ok || !b.streamUrl) throw new Error(b.error ?? `resolve ${r.status}`);
-        // same-origin via the vite proxy (/baguette → 127.0.0.1:8430): the
-        // browser tags the WS sec-fetch-site: same-origin, which baguette's
-        // trust check accepts — cross-origin direct connects are refused by
-        // design (their sec-fetch guard) and can't be flag-bypassed
-        const bag = `/baguette${new URL(b.streamUrl).pathname}${new URL(b.streamUrl).search}`;
+        // same-origin via the vite proxy (/screenstream → 127.0.0.1:8440):
+        // the browser tags the WS sec-fetch-site: same-origin, which the
+        // engine's loopback trust check accepts
+        const engine = `/screenstream${new URL(b.streamUrl).pathname}${new URL(b.streamUrl).search}`;
         state.value = isRetry ? 'reconnecting' : 'connecting';
-        attachDirect(new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${bag}`), udid, gen);
+        attachDirect(new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${engine}`), udid, gen);
         return;
       } catch (err) {
         fail(err instanceof Error ? err.message : String(err), true);

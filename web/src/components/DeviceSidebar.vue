@@ -170,7 +170,7 @@ const leaseHeldElsewhere = computed(() => !!props.leaseDisplay && props.leaseDis
 const takeControlBlocked = computed(() => !booted.value || props.runActive === true || leaseHeldElsewhere.value);
 const takeControlWhy = computed(() => !booted.value ? 'device not booted' : props.runActive === true ? 'run in progress' : leaseHeldElsewhere.value ? `held by ${props.leaseDisplay}` : '');
 // display name of the signed-in user (status line + audit surface) + the
-// server's stream format default (avcc when baguette is enabled, else mjpeg)
+// server's stream format default — avcc (crucible-screenstream is the only engine)
 const meName = ref('');
 const streamFormat = ref<'avcc' | 'mjpeg' | null>(null);
 let startedFormat: 'avcc' | 'mjpeg' | null = null; // set at stream.start

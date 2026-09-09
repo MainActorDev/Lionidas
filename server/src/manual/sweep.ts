@@ -1,5 +1,5 @@
-/** Sweep fallback — two-source truth for selector resolution (baguette
- *  steal-list Tier 1.1/1.2). When the AX walk structurally cannot see a
+/** Sweep fallback — two-source truth for selector resolution (steal-list
+ *  Tier 1.1/1.2). When the AX walk structurally cannot see a
  *  control (SwiftUI childless containers: tab bars, nav bars), probe the
  *  point hit-test instead. Pure functions — dispatch is injected. */
 import { matchesSelector, type SnapNode, type StepSelector } from './selector.ts';
