@@ -109,3 +109,37 @@ import VideoToolbox
         #expect(!s.pendingForceKeyframe)     // …and consumed the forced IDR
     }
 }
+
+@Suite struct DeviceProfileTests {
+    static let plist = try! PropertyListSerialization.data(fromPropertyList: [
+        "chromeIdentifier": "com.apple.dt.devicekit.chrome.phone5",
+        "mainScreenWidth": 1284, "mainScreenHeight": 2778, "mainScreenScale": 3,
+    ], format: .binary, options: 0)
+
+    @Test func parsesBareIdentifierAndScreenPoints() throws {
+        let p = try DeviceProfile.parsing(plistData: Self.plist)
+        #expect(p.chromeIdentifier == "phone5")
+        #expect(p.screenSize == Size(width: 428, height: 926))
+    }
+
+    @Test func missingChromeIdentifierThrows() {
+        let empty = try! PropertyListSerialization.data(fromPropertyList: ["x": 1], format: .binary, options: 0)
+        #expect(throws: DeviceProfileParseError.missingChromeIdentifier) {
+            _ = try DeviceProfile.parsing(plistData: empty)
+        }
+    }
+
+    @Test func xcode27CapabilitiesFallback() throws {
+        let caps = try! PropertyListSerialization.data(fromPropertyList: [
+            "capabilities": ["displays": [
+                ["displayType": "tvOut", "width": 720, "height": 480, "scale": 1],
+                ["displayType": "integrated", "width": 1170, "height": 2532, "scale": 3],
+            ]],
+        ], format: .binary, options: 0)
+        let bare = try! PropertyListSerialization.data(fromPropertyList: [
+            "chromeIdentifier": "com.apple.dt.devicekit.chrome.phone11",
+        ], format: .binary, options: 0)
+        let p = try DeviceProfile.parsing(plistData: bare, capabilitiesData: caps)
+        #expect(p.screenSize == Size(width: 390, height: 844))  // integrated, NOT tvOut
+    }
+}
