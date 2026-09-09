@@ -173,6 +173,7 @@ const takeControlWhy = computed(() => !booted.value ? 'device not booted' : prop
 // server's stream format default (avcc when baguette is enabled, else mjpeg)
 const meName = ref('');
 const streamFormat = ref<'avcc' | 'mjpeg' | null>(null);
+let startedFormat: 'avcc' | 'mjpeg' | null = null; // set at stream.start
 void (async () => {
   try {
     const r = await fetch('/api/auth/me');
@@ -181,6 +182,13 @@ void (async () => {
     streamFormat.value = b.streamFormat ?? null;
   } catch { /* offline — null lets the server default rule */ }
 })();
+
+// late format arrival (sidebar opened before /me resolved): if the server's
+// default differs from what we started with, restart in the right mode
+watch(streamFormat, (fmt) => {
+  if (!fmt || !props.device) return;
+  if (startedFormat && startedFormat !== fmt) stream.start(props.device.udid, { format: fmt });
+});
 const showSystemApps = ref(false);
 // app picker: which app the control session opens on (avoids the
 // foreground-hijack when the guess is wrong; snapshot still grounds the
@@ -430,6 +438,7 @@ async function reset(): Promise<void> {
   stream.stop();
   error.value = '';
   if (!props.device) return;
+  startedFormat = streamFormat.value ?? startedFormat;
   stream.start(props.device.udid, streamFormat.value ? { format: streamFormat.value } : undefined); // every open streams; driving is an escalation
 }
 
@@ -446,7 +455,7 @@ async function teardownSession(): Promise<void> {
 
 // ── watch mode ──
 watch(() => props.device?.udid, (udid) => {
-  if (udid && booted.value) stream.start(udid, streamFormat.value ? { format: streamFormat.value } : undefined);
+  if (udid && booted.value) { startedFormat = streamFormat.value ?? startedFormat; stream.start(udid, streamFormat.value ? { format: streamFormat.value } : undefined); }
 }, { immediate: true });
 
 // ── control mode ──

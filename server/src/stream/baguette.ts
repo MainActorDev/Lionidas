@@ -59,7 +59,13 @@ export function ensureBaguette(): Promise<number> {
       if (Date.now() - spawnedAt < MAX_AGE_MS) return PORT;
       stop();
     }
-    const p = spawn(BIN, ['serve', '--port', String(PORT), '--host', '127.0.0.1'], {
+    // trust the web app's origin: the browser's direct AVCC WS carries
+    // Origin: http://<host>:5180, and baguette's loopback rule requires the
+    // origin PORT to match its own — the documented hatch for exactly this
+    // baguette matches the ORIGIN HOST (no port/scheme) against --allowed-hosts
+    const webOriginHost = process.env['CRUCIBLE_HOST'] === 'localhost' ? 'localhost' : '127.0.0.1';
+    const p = spawn(BIN, ['serve', '--port', String(PORT), '--host', '127.0.0.1',
+      '--allowed-hosts', webOriginHost], {
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false,
     });

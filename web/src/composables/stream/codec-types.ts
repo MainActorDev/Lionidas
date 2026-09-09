@@ -5,7 +5,6 @@ export interface Codec {
   dispose(): void;
 }
 
-/** Called with a paintable source: ImageBitmap (JPEG seed / mjpeg frames) or a
- *  playing <video> element (AVCC via jmuxer/MSE — current frame at call time). */
-export type OnFrame = (frame: ImageBitmap | HTMLVideoElement) => void;
+/** ImageBitmap (JPEG seed / mjpeg) or VideoFrame (AVCC WebCodecs output). */
+export type OnFrame = (frame: ImageBitmap | VideoFrame) => void;
 export type OnLog = (msg: string, isErr?: boolean) => void;

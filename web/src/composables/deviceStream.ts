@@ -53,6 +53,7 @@ export function useDeviceStream(): DeviceStream {
   let codec: Codec | null = null;
   let lastFrameAt = 0;
   let livenessTimer: ReturnType<typeof setInterval> | null = null;
+  let directRaf: (() => void) | null = null;
   let currentUdid = '';
   /** requested upstream format (avcc opt-in / mjpeg fallback); null = server default */
   let pendingFormat: 'avcc' | 'mjpeg' | null = null;
@@ -75,7 +76,7 @@ export function useDeviceStream(): DeviceStream {
   //    drop-on-newer-arrival approach froze the canvas under motion).
   let pendingBuf: ArrayBuffer | null = null;
   /** latest delivered source from the AVCC codec (playing <video> or seed bitmap) */
-  let delivered: { value: ImageBitmap | HTMLVideoElement | null } = { value: null };
+  let delivered: { value: ImageBitmap | VideoFrame | null } = { value: null };
   let decoding = false;
   let lastPaintAt = 0; // stream-frame paint time — gates the standalone fast-path
   // Reusable offscreen for stepped downscaling (mip-style halving) — created
@@ -140,11 +141,11 @@ export function useDeviceStream(): DeviceStream {
    *  rAF is PAUSED in hidden tabs — the pending job (and the last painted
    *  bitmap, kept unclosed) survives until visibility returns, so a
    *  backgrounded stream resumes showing the freshest frame instantly. */
-  type PaintSource = ImageBitmap | HTMLVideoElement;
+  type PaintSource = ImageBitmap | VideoFrame;
   type PaintJob = { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; bitmap: PaintSource; w: number; h: number };
-  const srcW = (b: PaintSource): number => (b as HTMLVideoElement).videoWidth || (b as ImageBitmap).width;
-  const srcH = (b: PaintSource): number => (b as HTMLVideoElement).videoHeight || (b as ImageBitmap).height;
-  const closeSrc = (b: PaintSource | null | undefined): void => { if (b instanceof ImageBitmap) { try { b.close(); } catch { /* ok */ } } };
+  const srcW = (b: PaintSource): number => (b as VideoFrame).displayWidth || (b as ImageBitmap).width;
+  const srcH = (b: PaintSource): number => (b as VideoFrame).displayHeight || (b as ImageBitmap).height;
+  const closeSrc = (b: PaintSource | null | undefined): void => { try { (b as VideoFrame | ImageBitmap | undefined)?.close?.(); } catch { /* ok */ } };
   let pendingPaint: PaintJob | null = null;
   let lastFrame: PaintJob | null = null;
   let rafScheduled = false;
@@ -278,12 +279,96 @@ export function useDeviceStream(): DeviceStream {
     }
   }
 
-  function connect(udid: string, isRetry: boolean): void {
+/** baguette's session shape, 1:1 (stream-session.js): decoder fed by the WS,
+ *  one pending frame max, rAF paints it at FRAME-NATIVE canvas dims and closes
+ *  it. No relay frames, no resampling, no dpr math — their pipeline as-is. */
+  function attachDirect(socket: WebSocket, udid: string, gen: number): void {
+    ws = socket;
+    ws.binaryType = 'arraybuffer';
+    let pending: ImageBitmap | VideoFrame | null = null;
+    let rafId = 0;
+    let alive = true;
+    codec = makeAvccDecoder(
+      (frame) => {
+        if (pending && typeof (pending as VideoFrame).close === 'function') {
+          try { (pending as VideoFrame).close(); } catch { /* ok */ }
+        }
+        pending = frame;
+      },
+      (msg, isErr) => { if (isErr) failure.value = msg; },
+    );
+    ws.onopen = () => { state.value = 'live'; };
+    ws.onmessage = (ev: MessageEvent) => {
+      if (gen !== generation) return;
+      if (typeof ev.data === 'string') {
+        try {
+          const body = JSON.parse(ev.data) as { ok?: boolean; error?: string };
+          if (body.ok === false && body.error) fail(`baguette: ${body.error}`, false);
+        } catch { /* not JSON */ }
+        return;
+      }
+      state.value = 'live';
+      failure.value = '';
+      frames.value++;
+      countFps();
+      codec?.feed(ev.data as ArrayBuffer);
+    };
+    ws.onclose = () => {
+      if (gen !== generation) return;
+      alive = false;
+      if (rafId) cancelAnimationFrame(rafId);
+      state.value = 'reconnecting';
+      retryTimer = setTimeout(() => {
+        if (gen === generation && currentUdid) connect(currentUdid, true);
+      }, 1500);
+    };
+    ws.onerror = () => { /* onclose fires */ };
+    const paint = (): void => {
+      if (!alive || gen !== generation) return;
+      const canvas = canvasRef.value;
+      if (pending && canvas) {
+        const f = pending;
+        pending = null;
+        const w = (f as VideoFrame).displayWidth || (f as ImageBitmap).width;
+        const h = (f as VideoFrame).displayHeight || (f as ImageBitmap).height;
+        if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(f, 0, 0);
+          lastPaintAt = Date.now();
+          if (frameObservers.size > 0) for (const cb of frameObservers) cb(lastPaintAt);
+        }
+        if (typeof (f as VideoFrame).close === 'function') { try { (f as VideoFrame).close(); } catch { /* ok */ } }
+      }
+      rafId = requestAnimationFrame(paint);
+    };
+    rafId = requestAnimationFrame(paint);
+    // route stop() through the same cleanup: track the raf loop for teardown
+    directRaf = () => { alive = false; if (rafId) cancelAnimationFrame(rafId); };
+  }
+
+  async function connect(udid: string, isRetry: boolean): Promise<void> {
     const gen = generation;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     state.value = isRetry ? 'reconnecting' : 'connecting';
-    const fmtQ = pendingFormat ? `?format=${pendingFormat}` : '';
-    ws = new WebSocket(`${proto}://${location.host}/api/stream/${udid}${fmtQ}`);
+    // avcc: browser talks DIRECTLY to baguette (their UI's shape — the relay
+    // hop exists for the mjpeg engine path). Resolve the URL via our API
+    // (auth + spawn supervision), then connect straight to it.
+    if (pendingFormat === 'avcc') {
+      try {
+        const r = await fetch(`/api/devices/${udid}/stream?format=avcc`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+        const b = await r.json() as { streamUrl?: string; error?: string };
+        if (!r.ok || !b.streamUrl) throw new Error(b.error ?? `resolve ${r.status}`);
+        const bag = b.streamUrl.replace('127.0.0.1', location.hostname); // loopback from the browser's view
+        state.value = isRetry ? 'reconnecting' : 'connecting';
+        attachDirect(new WebSocket(bag), udid, gen);
+        return;
+      } catch (err) {
+        fail(err instanceof Error ? err.message : String(err), true);
+        return;
+      }
+    }
+    ws = new WebSocket(`${proto}://${location.host}/api/stream/${udid}`);
     ws.binaryType = 'arraybuffer';
     ws.onmessage = (ev) => {
       if (gen !== generation) return;
@@ -335,7 +420,7 @@ export function useDeviceStream(): DeviceStream {
       if (Date.now() - lastFrameAt > 30_000) {
         state.value = 'reconnecting';
         teardown();
-        connect(currentUdid, true);
+        void connect(currentUdid, true);
       }
     }, 5_000);
     ws.onclose = () => {
@@ -396,6 +481,7 @@ export function useDeviceStream(): DeviceStream {
     if (ws) { ws.onclose = null; ws.onmessage = null; ws.close(); ws = null; }
     if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
     if (livenessTimer) { clearInterval(livenessTimer); livenessTimer = null; }
+    if (directRaf) { directRaf(); directRaf = null; }
     if (autoRetryTimer) { clearTimeout(autoRetryTimer); autoRetryTimer = null; }
   }
 
@@ -414,7 +500,7 @@ export function useDeviceStream(): DeviceStream {
       pendingFormat = opts?.format ?? null;
       failure.value = '';
       retryable.value = false;
-      connect(udid, false);
+      void connect(udid, false);
     },
     stop(): void {
       currentUdid = '';
