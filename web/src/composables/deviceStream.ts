@@ -299,9 +299,13 @@ export function useDeviceStream(): DeviceStream {
     );
     ws.onopen = () => {
       state.value = 'live';
-      // QA-grade sharpness: the 8Mbps default starves 1284×2778@60 UI text
-      // into mush. 20Mbps is nothing on loopback; text edges survive encode.
-      try { socket.send(JSON.stringify({ type: 'set_bitrate', bps: 20_000_000 })); } catch { /* socket gone */ }
+      // QA-grade sharpness: 4:2:0 H.264 at 60fps starves per-frame bits for
+      // text edges. 30fps doubles the per-frame budget (UI verification never
+      // needs 60), 24Mbps makes edges hold. Both live-retunable.
+      try {
+        socket.send(JSON.stringify({ type: 'set_fps', fps: 30 }));
+        socket.send(JSON.stringify({ type: 'set_bitrate', bps: 24_000_000 }));
+      } catch { /* socket gone */ }
     };
     ws.onmessage = (ev: MessageEvent) => {
       if (gen !== generation) return;
