@@ -1,4 +1,7 @@
 // crucible-screenstream — first-party device stream engine for Crucible.
+// Routes: /healthz, /devices/<udid>/stream (WS), /devices/<udid>/bezel.png
+// (?buttons=false for bare), /devices/<udid>/definition.json (bezel layout),
+// /devices/<udid>/bezel-button/<name>.png (overlay sprites).
 // Architecture follows baguette (Apache-2.0); see LICENSES/screenstream-ATTRIBUTION.md.
 import Foundation
 

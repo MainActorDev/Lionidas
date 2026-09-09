@@ -10,6 +10,12 @@ implementation while this engine was developed:
 - VideoToolbox low-latency H.264 tuning profile.
 - H.264 keyframe classification via the `NotSync` sample attachment.
 - WebSocket framing patterns for the AVCC tag protocol.
+- DeviceKit chrome pipeline: profile.plist/chrome.json parsing (`DeviceProfile`,
+  `DeviceChrome`), 9-slice bezel composition (`NineSliceLayout`,
+  `PDFRasterizer.compose9Slice`), and the hardware-button anchor table
+  (`Chromes.buttonTopLeft` — the asymmetric per-anchor offset semantics and
+  the `2N − R` at-rest mirror) are ports of Baguette's Chrome domain, whose
+  geometry was itself verified against SimulatorKit layout constraints.
 
 The Swift sources in `Sources/CrucibleScreenstream/` were written for
 Crucible; where a function mirrors Baguette's approach, comments in the
