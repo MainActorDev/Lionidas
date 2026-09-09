@@ -51,6 +51,8 @@ export function useDeviceStream(): DeviceStream {
 
   let ws: WebSocket | null = null;
   let codec: Codec | null = null;
+  let lastFrameAt = 0;
+  let livenessTimer: ReturnType<typeof setInterval> | null = null;
   let currentUdid = '';
   /** requested upstream format (avcc opt-in / mjpeg fallback); null = server default */
   let pendingFormat: 'avcc' | 'mjpeg' | null = null;
@@ -72,8 +74,8 @@ export function useDeviceStream(): DeviceStream {
   //  - starving never happens: every completed decode paints (the previous
   //    drop-on-newer-arrival approach froze the canvas under motion).
   let pendingBuf: ArrayBuffer | null = null;
-  /** latest decoded VideoFrame/ImageBitmap from the AVCC codec (display-ready) */
-  let delivered: { value: ImageBitmap | VideoFrame | null } = { value: null };
+  /** latest delivered source from the AVCC codec (playing <video> or seed bitmap) */
+  let delivered: { value: ImageBitmap | HTMLVideoElement | null } = { value: null };
   let decoding = false;
   let lastPaintAt = 0; // stream-frame paint time — gates the standalone fast-path
   // Reusable offscreen for stepped downscaling (mip-style halving) — created
@@ -138,11 +140,11 @@ export function useDeviceStream(): DeviceStream {
    *  rAF is PAUSED in hidden tabs — the pending job (and the last painted
    *  bitmap, kept unclosed) survives until visibility returns, so a
    *  backgrounded stream resumes showing the freshest frame instantly. */
-  type PaintSource = ImageBitmap | VideoFrame;
+  type PaintSource = ImageBitmap | HTMLVideoElement;
   type PaintJob = { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; bitmap: PaintSource; w: number; h: number };
-  const srcW = (b: PaintSource): number => (b as VideoFrame).displayWidth ?? (b as ImageBitmap).width;
-  const srcH = (b: PaintSource): number => (b as VideoFrame).displayHeight ?? (b as ImageBitmap).height;
-  const closeSrc = (b: PaintSource | null | undefined): void => { try { (b as VideoFrame | ImageBitmap | undefined)?.close?.(); } catch { /* ok */ } };
+  const srcW = (b: PaintSource): number => (b as HTMLVideoElement).videoWidth || (b as ImageBitmap).width;
+  const srcH = (b: PaintSource): number => (b as HTMLVideoElement).videoHeight || (b as ImageBitmap).height;
+  const closeSrc = (b: PaintSource | null | undefined): void => { if (b instanceof ImageBitmap) { try { b.close(); } catch { /* ok */ } } };
   let pendingPaint: PaintJob | null = null;
   let lastFrame: PaintJob | null = null;
   let rafScheduled = false;
@@ -165,7 +167,7 @@ export function useDeviceStream(): DeviceStream {
       if (!job) return;
       const prev = lastFrame;
       runPaintJob(job);
-      if (prev && prev !== job) prev.bitmap.close(); // retire the previous frame's bitmap
+      if (prev && prev !== job) closeSrc(prev.bitmap); // retire the previous source
     });
   }
   document.addEventListener('visibilitychange', () => {
@@ -184,22 +186,23 @@ export function useDeviceStream(): DeviceStream {
     }
   });
 
-  /** AVCC delivery: hand the decoded frame to the SAME rAF painter. VideoFrame
-   *  is display-ready (no resample needed); bitmap path identical to seeds. */
+  /** AVCC delivery: hand the video element (current frame) to the SAME rAF
+   *  painter; the JPEG seed bitmap rides the identical path. */
   async function paintDelivered(): Promise<void> {
     const src = delivered.value;
     if (!src) return;
     const canvas = canvasRef.value;
     if (!canvas) return;
-    // display-resolution backing (same policy as the mjpeg path): the VideoFrame
-    // is full-res; painting it 1:1 into a 1284px backing on a ~230px CSS box makes
-    // the compositor do the downscale — do it here at high quality instead
+    // display-resolution backing (same policy as the mjpeg path): the source is
+    // full-res; painting 1:1 into a 1284px backing on a ~230px CSS box makes the
+    // compositor downscale — do it here at high quality instead
     const cssW = canvas.clientWidth || canvas.getBoundingClientRect().width;
     if (cssW <= 0) return;
+    const w = srcW(src), h = srcH(src);
+    if (!w || !h) return;
     const dpr = window.devicePixelRatio || 1;
     const targetW = Math.max(1, Math.round(cssW * dpr));
-    const vf = src as VideoFrame;
-    const targetH = Math.max(1, Math.round(targetW * (vf.displayHeight ?? (src as ImageBitmap).height) / (vf.displayWidth ?? (src as ImageBitmap).width)));
+    const targetH = Math.max(1, Math.round(targetW * h / w));
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     schedulePaint(canvas, ctx, src, targetW, targetH);
@@ -257,16 +260,21 @@ export function useDeviceStream(): DeviceStream {
             }
           }
         }
-        frameCount++;
-        const now = Date.now();
-        if (now - lastFpsTime >= 1000) {
-          fps.value = Math.round((frameCount * 1000) / (now - lastFpsTime));
-          frameCount = 0;
-          lastFpsTime = now;
-        }
+        countFps();
       }
     } finally {
       decoding = false;
+    }
+  }
+
+  /** fps accounting shared by the mjpeg decode loop and the AVCC codec path */
+  function countFps(): void {
+    frameCount++;
+    const now = Date.now();
+    if (now - lastFpsTime >= 1000) {
+      fps.value = Math.round((frameCount * 1000) / (now - lastFpsTime));
+      frameCount = 0;
+      lastFpsTime = now;
     }
   }
 
@@ -289,7 +297,11 @@ export function useDeviceStream(): DeviceStream {
           else if (body.status === 'run-active' && body.paused) state.value = 'paused';
           else if (body.format === 'avcc' && !codec && hasAvccSupport()) {
             codec = makeAvccDecoder(
-              (frame) => { delivered.value = frame; void paintDelivered(); },
+              (frame) => {
+                frames.value++; countFps();
+                delivered.value = frame;
+                void paintDelivered();
+              },
               (msg, isErr) => { if (isErr) failure.value = msg; },
             );
           } else if (body.format === 'avcc' && !codec && !hasAvccSupport()) {
@@ -305,10 +317,27 @@ export function useDeviceStream(): DeviceStream {
       retryable.value = false;
       autoRetried = false; // healthy again — a future outage gets its own auto-retry
       frames.value++;
+      lastFrameAt = Date.now();
       if (codec) { codec.feed(ev.data as ArrayBuffer); return; }
       pendingBuf = ev.data as ArrayBuffer;
       void decodeLoop();
     };
+    // zombie watchdog: emit-on-change streams send NOTHING while idle, so
+    // 'no frames' alone is not death — but the meta line stays honest only if
+    // we distinguish. A relay/upstream that dies WITHOUT closing our socket
+    // (wedged server instance) leaves 'live' lying forever. Force one reconnect
+    // if NO message of any kind arrives for 30s AND we've seen frames before
+    // (first-frame timeout is the server's job; this is the after-first gap).
+    if (livenessTimer) clearInterval(livenessTimer);
+    livenessTimer = setInterval(() => {
+      if (gen !== generation || state.value !== 'live') return;
+      if (frames.value === 0) return; // pre-first-frame: server's timeout owns it
+      if (Date.now() - lastFrameAt > 30_000) {
+        state.value = 'reconnecting';
+        teardown();
+        connect(currentUdid, true);
+      }
+    }, 5_000);
     ws.onclose = () => {
       if (gen !== generation) return;
       // auto-reconnect while started (server restart, engine respawn)
@@ -363,9 +392,10 @@ export function useDeviceStream(): DeviceStream {
   function teardown(): void {
     generation++;
     if (codec) { codec.dispose(); codec = null; }
-    if (delivered.value) { try { (delivered.value as VideoFrame).close?.(); } catch { /* ok */ } delivered.value = null; }
+    delivered.value = null; // bitmaps were owned by paint jobs; the video element belongs to the codec
     if (ws) { ws.onclose = null; ws.onmessage = null; ws.close(); ws = null; }
     if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+    if (livenessTimer) { clearInterval(livenessTimer); livenessTimer = null; }
     if (autoRetryTimer) { clearTimeout(autoRetryTimer); autoRetryTimer = null; }
   }
 

@@ -96,6 +96,9 @@ importers:
       codemirror:
         specifier: ^6.0.2
         version: 6.0.2
+      jmuxer:
+        specifier: ^2.1.4
+        version: 2.1.4
       pinia:
         specifier: ^2.2.0
         version: 2.3.1(typescript@5.9.3)(vue@3.5.42(typescript@5.9.3))
@@ -1326,6 +1329,9 @@ packages:
   is-fullwidth-code-point@3.0.0:
     resolution: {integrity: sha512-zymm5+u+sCsSWyD9qNaejV3DFvhCKclKdizYaJUuHA83RLjb7nSuGnddCHGv0hk+KY7BMAlsWeK4Ueg6EV6XQg==}
     engines: {node: '>=8'}
+
+  jmuxer@2.1.4:
+    resolution: {integrity: sha512-4BfC1K8rVU1m2MgNhks4GvhAk4HYSdmc/XJB4m58tcSRgPNydwgYnPNlWiEpYjzJVGuiUQKvNbovCUejcC/8Jw==}
 
   js-tokens@9.0.1:
     resolution: {integrity: sha512-mxa9E9ITFOt0ban3j6L5MpjwegGz6lBQmM1IJkWeBZGcMxto50+eWdjC/52xDbS2vy0k7vIMK0Fe2wfL9OQSpQ==}
@@ -2782,6 +2788,8 @@ snapshots:
   ipaddr.js@2.5.0: {}
 
   is-fullwidth-code-point@3.0.0: {}
+
+  jmuxer@2.1.4: {}
 
   js-tokens@9.0.1: {}
 

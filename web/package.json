@@ -20,6 +20,7 @@
     "@crucible/shared": "workspace:../shared",
     "@lezer/highlight": "^1.2.3",
     "codemirror": "^6.0.2",
+    "jmuxer": "^2.1.4",
     "pinia": "^2.2.0",
     "vue": "^3.5.0",
     "vue-router": "^4.4.0",
