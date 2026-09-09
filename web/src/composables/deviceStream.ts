@@ -359,9 +359,13 @@ export function useDeviceStream(): DeviceStream {
         const r = await fetch(`/api/devices/${udid}/stream?format=avcc`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
         const b = await r.json() as { streamUrl?: string; error?: string };
         if (!r.ok || !b.streamUrl) throw new Error(b.error ?? `resolve ${r.status}`);
-        const bag = b.streamUrl.replace('127.0.0.1', location.hostname); // loopback from the browser's view
+        // same-origin via the vite proxy (/baguette → 127.0.0.1:8430): the
+        // browser tags the WS sec-fetch-site: same-origin, which baguette's
+        // trust check accepts — cross-origin direct connects are refused by
+        // design (their sec-fetch guard) and can't be flag-bypassed
+        const bag = `/baguette${new URL(b.streamUrl).pathname}${new URL(b.streamUrl).search}`;
         state.value = isRetry ? 'reconnecting' : 'connecting';
-        attachDirect(new WebSocket(bag), udid, gen);
+        attachDirect(new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${bag}`), udid, gen);
         return;
       } catch (err) {
         fail(err instanceof Error ? err.message : String(err), true);

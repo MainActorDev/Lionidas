@@ -62,16 +62,20 @@ export function ensureBaguette(): Promise<number> {
     // trust the web app's origin: the browser's direct AVCC WS carries
     // Origin: http://<host>:5180, and baguette's loopback rule requires the
     // origin PORT to match its own — the documented hatch for exactly this
-    // baguette matches the ORIGIN HOST (no port/scheme) against --allowed-hosts
-    const webOriginHost = process.env['CRUCIBLE_HOST'] === 'localhost' ? 'localhost' : '127.0.0.1';
+    // baguette matches the ORIGIN HOST (no port/scheme) against --allowed-hosts.
+    // The web app is reachable as BOTH 127.0.0.1:5180 and localhost:5180 — trust
+    // both spellings, or half the dev URLs get their WS upgrade refused.
     const p = spawn(BIN, ['serve', '--port', String(PORT), '--host', '127.0.0.1',
-      '--allowed-hosts', webOriginHost], {
+      '--allowed-hosts', '127.0.0.1', '--allowed-hosts', 'localhost'], {
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false,
     });
     proc = p;
     spawnedAt = Date.now();
-    p.on('exit', () => { proc = null; ready = null; }); // next need respawns
+    p.on('exit', () => {
+      proc = null;
+      ready = null; // died after a successful ensure — next need must respawn
+    });
     p.stdout?.on('data', () => { /* readiness via probe */ });
     p.stderr?.on('data', (d: Buffer) => { if (process.env['CRUCIBLE_LOG_LEVEL'] === 'debug') console.error('[baguette]', d.toString().trim()); });
     const deadline = Date.now() + 15_000;
