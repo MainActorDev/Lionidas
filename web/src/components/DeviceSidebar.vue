@@ -7,6 +7,7 @@
  *  tiles never embed streams inline anymore. */
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { useDeviceStream, canvasPointToLogical } from '../composables/deviceStream.ts';
+import { useDeviceBezel } from '../composables/useDeviceBezel.ts';
 import { hitTestNodeAt, selectorPreview, type AxNode } from '@crucible/shared/ax-tree';
 import { useInspectTree, TreeFetchError } from '../composables/useInspectTree.ts';
 import InspectOverlay from './InspectOverlay.vue';
@@ -22,6 +23,7 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: 'close'): void }>();
 
 const stream = useDeviceStream();
+const bezel = useDeviceBezel(computed(() => props.device?.udid));
 
 // ── INSPECT MODE — element boxes over the live stream (control mode only) ──
 // Contract: while inspect is ON, a canvas CLICK selects an element and NEVER
@@ -455,6 +457,7 @@ async function teardownSession(): Promise<void> {
 
 // ── watch mode ──
 watch(() => props.device?.udid, (udid) => {
+  void bezel.load();
   if (udid && booted.value) { startedFormat = streamFormat.value ?? startedFormat; stream.start(udid, streamFormat.value ? { format: streamFormat.value } : undefined); }
 }, { immediate: true });
 
@@ -593,7 +596,16 @@ async function endSession(): Promise<void> {
         <div class="devcol">
           <div class="stream-box stream-stage">
             <div class="stage-frame">
-              <canvas :ref="stream.setCanvas" @click="onTap" @mousemove="onCanvasMove"
+              <div v-if="bezel.def.value" class="bezel-wrap"
+                :style="{ aspectRatio: `${bezel.def.value.bezel.width} / ${bezel.def.value.bezel.height}` }">
+                <img class="bezel-img" :src="`/screenstream${bezel.def.value.bezel.url}`" alt="" draggable="false" />
+                <canvas :ref="stream.setCanvas" @click="onTap" @mousemove="onCanvasMove" class="bezel-screen"
+                  :style="{ left: `${bezel.def.value.screen.xPct}%`, top: `${bezel.def.value.screen.yPct}%`,
+                            width: `${bezel.def.value.screen.wPct}%`, height: `${bezel.def.value.screen.hPct}%`,
+                            borderRadius: `${bezel.def.value.screenRadius.pctW}% / ${bezel.def.value.screenRadius.pctH}%`,
+                            cursor: inspect && sessionId ? 'default' : sessionId ? 'crosshair' : 'default', background: 'var(--color-void)' }"></canvas>
+              </div>
+              <canvas v-else :ref="stream.setCanvas" @click="onTap" @mousemove="onCanvasMove"
                 :style="{ display: 'block', cursor: inspect && sessionId ? 'default' : sessionId ? 'crosshair' : 'default', background: 'var(--color-void)' }"></canvas>
               <InspectOverlay v-if="inspect && sessionId" :nodes="tree.nodes.value" :logical-w="tree.logicalW.value" :logical-h="tree.logicalH.value"
                 :hover="hoverNode" :selected="selNode" :visible="tree.state.value === 'aligned'" />
@@ -874,6 +886,12 @@ async function endSession(): Promise<void> {
 }
 .stream-stage { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .stage-frame { position: relative; flex: 0 0 auto; height: 100%; max-width: 100%; line-height: 0; }
+/* device bezel: engine chrome PNG behind the canvas; canvas sits at the
+ * screen cutout rect in percent space. Canvas keeps intrinsic aspect sizing
+ * (bezel aspect == screen aspect by construction). */
+.bezel-wrap { position: relative; height: 100%; max-width: 100%; }
+.bezel-img { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; user-select: none; -webkit-user-drag: none; }
+.bezel-screen { position: absolute; display: block; }
 /* canvas: intrinsic aspect (like watch mode), height-capped by the stage;
  * width follows the aspect and can never exceed the stage either */
 .stage-frame canvas { height: 100%; width: auto; max-width: 100%; }
