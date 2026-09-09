@@ -90,6 +90,17 @@ final class PDFRasterizer: @unchecked Sendable {
         canvasSize: Size, scale: CGFloat,
         layers: [(image: CGImage, topLeft: Point)]
     ) throws -> CGImage {
+        try compose(canvasSize: canvasSize, scale: scale,
+                    sized: layers.map { ($0.image, $0.topLeft,
+                        Size(width: Double($0.image.width) / Double(scale),
+                             height: Double($0.image.height) / Double(scale))) })
+    }
+
+    /// Draw layers at EXPLICIT scale-1 sizes (edges stretch to layout rects).
+    func compose(
+        canvasSize: Size, scale: CGFloat,
+        sized: [(image: CGImage, topLeft: Point, size: Size)]
+    ) throws -> CGImage {
         let w = max(1, Int(canvasSize.width * scale))
         let h = max(1, Int(canvasSize.height * scale))
         guard let ctx = CGContext(
@@ -101,13 +112,10 @@ final class PDFRasterizer: @unchecked Sendable {
         // CG origin is bottom-left; chrome-px space is top-left. Flip once.
         ctx.translateBy(x: 0, y: CGFloat(h))
         ctx.scaleBy(x: 1, y: -1)
-        for layer in layers {
-            let dw = CGFloat(layer.image.width)
-            let dh = CGFloat(layer.image.height)
-            // images are pre-rasterized at `scale`; draw at scale-1 coords × scale
+        for layer in sized {
             let rect = CGRect(
                 x: layer.topLeft.x * scale, y: layer.topLeft.y * scale,
-                width: (dw / scale) * scale, height: (dh / scale) * scale
+                width: layer.size.width * scale, height: layer.size.height * scale
             )
             ctx.draw(layer.image, in: rect)
         }
@@ -134,11 +142,17 @@ final class PDFRasterizer: @unchecked Sendable {
             width: layout.topLeft.size.width + layout.top.size.width + layout.topRight.size.width,
             height: layout.topLeft.size.height + layout.left.size.height + layout.bottomLeft.size.height
         )
-        return try compose(canvasSize: canvas, scale: scale, layers: [
-            (tl, layout.topLeft.origin), (tp, layout.top.origin), (tr, layout.topRight.origin),
-            (lf, layout.left.origin), (rt, layout.right.origin),
-            (bl, layout.bottomLeft.origin), (bt, layout.bottom.origin), (br, layout.bottomRight.origin),
-        ])
+        // Edges STRETCH to their layout rects (draw rect ≠ natural size);
+        // corners draw natural. Pass explicit sizes.
+        func layer(_ image: CGImage, _ rect: Rect) -> (image: CGImage, topLeft: Point, size: Size) {
+            (image, rect.origin, rect.size)
+        }
+        let entries: [(image: CGImage, topLeft: Point, size: Size)] = [
+            layer(tl, layout.topLeft), layer(tp, layout.top), layer(tr, layout.topRight),
+            layer(lf, layout.left), layer(rt, layout.right),
+            layer(bl, layout.bottomLeft), layer(bt, layout.bottom), layer(br, layout.bottomRight),
+        ]
+        return try compose(canvasSize: canvas, scale: scale, sized: entries)
     }
 
     /// CGImage → PNG bytes (lossless — bezels are flat vector art).

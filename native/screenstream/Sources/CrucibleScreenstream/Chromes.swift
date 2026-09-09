@@ -133,6 +133,7 @@ final class Chromes: @unchecked Sendable {
             let caps = try? store.capabilitiesPlistData(deviceName: deviceName)
             profile = try DeviceProfile.parsing(plistData: plist, capabilitiesData: caps)
         } catch {
+            FileHandle.standardError.write(Data("[chromes] profile parse failed for \(deviceName): \(error)\n".utf8))
             return nil
         }
         let chromeID = profile.chromeIdentifier
@@ -145,6 +146,9 @@ final class Chromes: @unchecked Sendable {
         lock.unlock()
 
         let resolved = loadAssets(chromeIdentifier: chromeID, profile: profile)
+        if resolved == nil {
+            FileHandle.standardError.write(Data("[chromes] loadAssets nil for \(chromeID) (device \(deviceName))\n".utf8))
+        }
 
         lock.lock()
         cache[chromeID] = resolved
@@ -226,20 +230,38 @@ final class Chromes: @unchecked Sendable {
            let image = try? rasterizer.rasterize(pdfData: pdf, scale: scale) {
             return image
         }
-        guard let slice = chrome.slice,
-              let inner = profile.screenSize else { return nil }
-        let names = [slice.topLeft, slice.top, slice.topRight, slice.right,
-                     slice.bottomRight, slice.bottom, slice.bottomLeft, slice.left]
+        guard let slice = chrome.slice else {
+            FileHandle.standardError.write(Data("[chromes] no slice and no composite for \(chromeIdentifier)\n".utf8))
+            return nil
+        }
+        guard let inner = profile.screenSize else {
+            FileHandle.standardError.write(Data("[chromes] no screenSize on profile — cannot 9-slice \(chromeIdentifier)\n".utf8))
+            return nil
+        }
+        // keyed by ROLE (topLeft/top/…) — compose9Slice's lookup keys.
         var pdfs: [String: Data] = [:]
-        for n in names {
-            guard let pdf = try? store.chromeAssetPDF(chromeIdentifier: chromeIdentifier, imageName: n) else { return nil }
-            pdfs[n] = pdf
+        let roles: [(String, String)] = [
+            ("topLeft", slice.topLeft), ("top", slice.top), ("topRight", slice.topRight),
+            ("right", slice.right), ("bottomRight", slice.bottomRight), ("bottom", slice.bottom),
+            ("bottomLeft", slice.bottomLeft), ("left", slice.left),
+        ]
+        for (role, n) in roles {
+            guard let pdf = try? store.chromeAssetPDF(chromeIdentifier: chromeIdentifier, imageName: n) else {
+                FileHandle.standardError.write(Data("[chromes] missing slice pdf '\(n)' in \(chromeIdentifier)\n".utf8))
+                return nil
+            }
+            pdfs[role] = pdf
         }
         let layout = NineSliceLayout.compose(
             insets: chrome.screenInsets, inner: inner,
             corner: .zero, edge: .zero
         )
-        return try? rasterizer.compose9Slice(pdfs: pdfs, layout: layout, scale: scale)
+        do {
+            return try rasterizer.compose9Slice(pdfs: pdfs, layout: layout, scale: scale)
+        } catch {
+            FileHandle.standardError.write(Data("[chromes] compose9Slice threw \(error) for \(chromeIdentifier)\n".utf8))
+            return nil
+        }
     }
 
     private func assemble(chromeIdentifier: String, chrome: DeviceChrome, composite: CGImage) -> DeviceChromeAssets? {

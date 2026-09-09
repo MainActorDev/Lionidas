@@ -271,3 +271,11 @@ import VideoToolbox
         #expect(p == Point(x: 431, y: 959))
     }
 }
+
+@Suite struct ChromeIntegrationTests {
+    @Test func phone5Live() throws {
+        let chromes = Chromes()
+        let assets = chromes.assets(deviceName: "iPhone 14 Plus")
+        #expect(assets != nil)
+    }
+}

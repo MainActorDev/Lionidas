@@ -12,6 +12,7 @@ final class ScreenstreamServer: @unchecked Sendable {
     private let port: UInt16
     private let listener: NWListener
     private let discovery = SimDiscovery()
+    private let chromes = Chromes()
     private let stateLock = NSLock()
     private var streams: [String: DeviceStream] = [:]      // udid → stream
     private var sessions: [ObjectIdentifier: Session] = [:]
@@ -62,11 +63,26 @@ final class ScreenstreamServer: @unchecked Sendable {
             let method = parts.count > 0 ? String(parts[0]) : ""
             let path = parts.count > 1 ? String(parts[1]) : ""
 
+            let cleanPath = String(path.split(separator: "?")[0])
+            let query = path.contains("?") ? String(path.split(separator: "?", maxSplits: 1)[1]) : ""
             if method == "GET", path == "/healthz" {
                 self.sendHealth(conn)
-            } else if method == "GET", path.hasPrefix("/devices/"), path.hasSuffix("/stream"),
+            } else if method == "GET", cleanPath.hasPrefix("/devices/"), cleanPath.hasSuffix("/stream"),
                       let wsKey = header(named: "Sec-WebSocket-Key", in: head) {
-                self.upgradeWebSocket(conn, path: path, key: wsKey)
+                self.upgradeWebSocket(conn, path: cleanPath, key: wsKey)
+            } else if method == "GET", cleanPath.hasSuffix("/bezel.png") {
+                let udid = String(cleanPath.dropFirst("/devices/".count).dropLast("/bezel.png".count))
+                self.serveBezel(conn, udid: udid, query: query)
+            } else if method == "GET", cleanPath.hasSuffix("/definition.json") {
+                let udid = String(cleanPath.dropFirst("/devices/".count).dropLast("/definition.json".count))
+                self.serveDefinition(conn, udid: udid)
+            } else if method == "GET", cleanPath.contains("/bezel-button/") {
+                // /devices/<udid>/bezel-button/<file>
+                let parts = cleanPath.split(separator: "/")
+                guard parts.count >= 4 else { return self.respond(conn, status: "404 Not Found", body: "{\"error\":\"not found\"}") }
+                let udid = String(parts[1])
+                let file = String(parts[3])
+                self.serveBezelButton(conn, udid: udid, file: file)
             } else {
                 self.respond(conn, status: "404 Not Found", body: "{\"error\":\"not found\"}")
             }
@@ -201,6 +217,50 @@ final class ScreenstreamServer: @unchecked Sendable {
             s?.setClientCount(remaining)
         }
         session.begin()
+    }
+
+    private func respondBinary(_ conn: NWConnection, status: String, contentType: String, body: Data) {
+        let head = "HTTP/1.1 \(status)\r\nContent-Type: \(contentType)\r\nContent-Length: \(body.count)\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
+        var payload = Data(head.utf8)
+        payload.append(body)
+        conn.send(content: payload, completion: .contentProcessed { _ in
+            conn.cancel()
+        })
+    }
+
+    /// /devices/<udid>/bezel.png[?buttons=false] — merged bezel by default;
+    /// bare body (no buttons) for the overlay UI.
+    private func serveBezel(_ conn: NWConnection, udid: String, query: String) {
+        guard let assets = chromeAssets(udid: udid) else {
+            respond(conn, status: "404 Not Found", body: "{\"error\":\"no chrome for \(Self.jsonEscape(udid))\"}")
+            return
+        }
+        let withButtons = !query.split(separator: "&").contains { $0.hasPrefix("buttons=") && $0.dropFirst("buttons=".count) == "false" }
+        respondBinary(conn, status: "200 OK", contentType: "image/png",
+                      body: withButtons ? assets.bezelPNG : assets.barePNG)
+    }
+
+    private func serveDefinition(_ conn: NWConnection, udid: String) {
+        guard let assets = chromeAssets(udid: udid) else {
+            respond(conn, status: "404 Not Found", body: "{\"error\":\"no chrome for \(Self.jsonEscape(udid))\"}")
+            return
+        }
+        respond(conn, status: "200 OK", body: assets.definitionJSON(udid: udid))
+    }
+
+    private func serveBezelButton(_ conn: NWConnection, udid: String, file: String) {
+        guard let assets = chromeAssets(udid: udid),
+              let png = assets.buttonPNGs[file.hasSuffix(".png") ? String(file.dropLast(4)) : file]
+        else {
+            respond(conn, status: "404 Not Found", body: "{\"error\":\"no such button\"}")
+            return
+        }
+        respondBinary(conn, status: "200 OK", contentType: "image/png", body: png)
+    }
+
+    private func chromeAssets(udid: String) -> DeviceChromeAssets? {
+        guard let name = discovery.deviceTypeName(udid: udid) else { return nil }
+        return chromes.assets(deviceName: name)
     }
 
     private func handleControl(_ msg: [String: Any], stream: DeviceStream) {
