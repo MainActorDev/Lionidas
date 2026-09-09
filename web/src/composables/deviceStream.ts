@@ -128,9 +128,20 @@ export function useDeviceStream(): DeviceStream {
   }
 
   /** rAF-paced painter: one pending bitmap max; a newer frame replaces an
-   *  unpainted older one (closed immediately). steady presentation cadence. */
+   *  unpainted older one (closed immediately). steady presentation cadence.
+   *  rAF is PAUSED in hidden tabs — the pending job (and the last painted
+   *  bitmap, kept unclosed) survives until visibility returns, so a
+   *  backgrounded stream resumes showing the freshest frame instantly. */
   let pendingPaint: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; bitmap: ImageBitmap; w: number; h: number } | null = null;
+  let lastFrame: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; bitmap: ImageBitmap; w: number; h: number } | null = null;
   let rafScheduled = false;
+  function runPaintJob(job: NonNullable<typeof pendingPaint>): void {
+    if (job.canvas.width !== job.w || job.canvas.height !== job.h) { job.canvas.width = job.w; job.canvas.height = job.h; }
+    drawScaled(job.ctx, job.bitmap, job.bitmap.width, job.bitmap.height, job.w, job.h);
+    lastFrame = job; // kept for hidden-tab resume (bitmap stays open)
+    lastPaintAt = Date.now();
+    if (frameObservers.size > 0) for (const cb of frameObservers) cb(lastPaintAt);
+  }
   function schedulePaint(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, bitmap: ImageBitmap, w: number, h: number): void {
     if (pendingPaint) pendingPaint.bitmap.close(); // superseded before display
     pendingPaint = { canvas, ctx, bitmap, w, h };
@@ -141,13 +152,26 @@ export function useDeviceStream(): DeviceStream {
       const job = pendingPaint;
       pendingPaint = null;
       if (!job) return;
-      if (job.canvas.width !== job.w || job.canvas.height !== job.h) { job.canvas.width = job.w; job.canvas.height = job.h; }
-      drawScaled(job.ctx, job.bitmap, job.bitmap.width, job.bitmap.height, job.w, job.h);
-      job.bitmap.close();
-      lastPaintAt = Date.now();
-      if (frameObservers.size > 0) for (const cb of frameObservers) cb(lastPaintAt);
+      const prev = lastFrame;
+      runPaintJob(job);
+      if (prev && prev !== job) prev.bitmap.close(); // retire the previous frame's bitmap
     });
   }
+  document.addEventListener('visibilitychange', () => {
+    // tab visible again: rAF fires once more and paints the freshest frame
+    if (document.visibilityState === 'visible' && pendingPaint && !rafScheduled) {
+      rafScheduled = true;
+      requestAnimationFrame(() => {
+        rafScheduled = false;
+        const job = pendingPaint;
+        pendingPaint = null;
+        if (!job) return;
+        const prev = lastFrame;
+        runPaintJob(job);
+        if (prev && prev !== job) prev.bitmap.close();
+      });
+    }
+  });
 
   async function decodeLoop(): Promise<void> {
     if (decoding) return;
@@ -157,10 +181,23 @@ export function useDeviceStream(): DeviceStream {
         const buf = pendingBuf;
         pendingBuf = null; // newer frames land here while this one decodes
         let bitmap: ImageBitmap;
-        try {
-          bitmap = await createImageBitmap(new Blob([buf], { type: 'image/jpeg' }));
-        } catch { continue; /* corrupt frame — skip, keep the loop alive */ }
         const canvas = canvasRef.value;
+        try {
+          // decode DIRECTLY at display resolution when known: source frames are
+          // full-res (~1.3MB, 1284px) and a full decode costs 30-40ms; the
+          // resize-aware path decodes+downscales in one optimized GPU-friendly
+          // pass (~5ms), keeping the paint loop from falling behind on bursts.
+          const cssW0 = canvas?.clientWidth || canvas?.getBoundingClientRect().width || 0;
+          const dpr0 = window.devicePixelRatio || 1;
+          if (cssW0 > 0) {
+            const tw = Math.max(1, Math.round(cssW0 * dpr0));
+            // resizeWidth alone preserves the source aspect ratio per spec
+            bitmap = await createImageBitmap(new Blob([buf], { type: 'image/jpeg' }),
+              { resizeWidth: tw, resizeQuality: 'high' });
+          } else {
+            bitmap = await createImageBitmap(new Blob([buf], { type: 'image/jpeg' }));
+          }
+        } catch { continue; /* corrupt frame — skip, keep the loop alive */ }
         if (canvas) {
           // RENDER AT DISPLAY RESOLUTION. The engine frame is 1284px wide; a
           // 1284px backing store shown at ~300 CSS px (sidebar) makes the
