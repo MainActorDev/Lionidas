@@ -297,7 +297,12 @@ export function useDeviceStream(): DeviceStream {
       },
       (msg, isErr) => { if (isErr) failure.value = msg; },
     );
-    ws.onopen = () => { state.value = 'live'; };
+    ws.onopen = () => {
+      state.value = 'live';
+      // QA-grade sharpness: the 8Mbps default starves 1284×2778@60 UI text
+      // into mush. 20Mbps is nothing on loopback; text edges survive encode.
+      try { socket.send(JSON.stringify({ type: 'set_bitrate', bps: 20_000_000 })); } catch { /* socket gone */ }
+    };
     ws.onmessage = (ev: MessageEvent) => {
       if (gen !== generation) return;
       if (typeof ev.data === 'string') {

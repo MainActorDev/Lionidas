@@ -826,7 +826,7 @@ async function endSession(): Promise<void> {
   display: flex; flex-direction: column;
   z-index: 60;
 }
-.sidebar-wide { width: min(760px, 96vw); }
+.sidebar-wide { width: min(1100px, 96vw); }
 .sb-head {
   display: flex; justify-content: space-between; align-items: center;
   padding: 14px 16px 12px;
