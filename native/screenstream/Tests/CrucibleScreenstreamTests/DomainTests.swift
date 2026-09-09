@@ -196,17 +196,16 @@ import VideoToolbox
 
 @Suite struct NineSliceLayoutTests {
     @Test func phone5Canvas() {
+        // corner NATIVE 97 (phone5 art); insets are only the screen cutout
         let l = NineSliceLayout.compose(
             insets: Insets(top: 22, left: 22, bottom: 22, right: 22),
             inner: Size(width: 428, height: 926),
-            corner: Size(width: 22, height: 22),
-            edge: Size(width: 22, height: 22)
+            corner: Size(width: 97, height: 97)
         )
-        #expect(l.topLeft == Rect(origin: Point(x: 0, y: 0), size: Size(width: 22, height: 22)))
-        #expect(l.top.size == Size(width: 428, height: 22))
-        #expect(l.left.size == Size(width: 22, height: 926))
-        #expect(l.bottomRight.origin == Point(x: 450, y: 948))
-        // canvas from the top row + left column:
+        #expect(l.topLeft == Rect(origin: Point(x: 0, y: 0), size: Size(width: 97, height: 97)))
+        #expect(l.top.size == Size(width: 472 - 194, height: 97))   // mid region
+        #expect(l.left.size == Size(width: 97, height: 970 - 194))
+        #expect(l.bottomRight.origin == Point(x: 375, y: 873))
         let canvasW = l.topLeft.size.width + l.top.size.width + l.topRight.size.width
         let canvasH = l.topLeft.size.height + l.left.size.height + l.bottomLeft.size.height
         #expect(Size(width: canvasW, height: canvasH) == Size(width: 472, height: 970))

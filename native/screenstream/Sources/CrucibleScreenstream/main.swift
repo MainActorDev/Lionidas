@@ -18,6 +18,19 @@ if args.contains("--version") {
     exit(0)
 }
 
+// `dump-bezel <deviceName>` — debug: write bare+merged bezel PNGs to /tmp.
+if args.dropFirst().first == "dump-bezel", args.count > 2 {
+    let name = args[2]
+    guard let assets = Chromes().assets(deviceName: name) else {
+        FileHandle.standardError.write(Data("no chrome for \(name)\n".utf8))
+        exit(1)
+    }
+    try! assets.barePNG.write(to: URL(fileURLWithPath: "/tmp/my-bare.png"))
+    try! assets.bezelPNG.write(to: URL(fileURLWithPath: "/tmp/my-merged.png"))
+    print("bare=\(assets.barePNG.count)B merged=\(assets.bezelPNG.count)B composite=\(assets.compositeSize)")
+    exit(0)
+}
+
 // `devices` — debug subcommand: dump the discovery chain's view of the world.
 // Existence proof for the private-API chain on THIS machine/Xcode pair.
 // `device-name <udid>` — debug subcommand: resolve the device-type name

@@ -25,23 +25,28 @@ struct NineSliceLayout: Equatable, Sendable {
     ///   - inner: 1x screen size in points (from profile.plist).
     ///   - corner/topLeft natural size etc. — used only for sizes here;
     ///     the composer stretches edges, corners are natural.
+    /// baguette-exact: corners at NATIVE size (their art overlaps into the
+    /// screen area — the screen overlay covers it); edges span the mid
+    /// region between corner boxes. Insets are ONLY the screen cutout.
     static func compose(
         insets: Insets, inner: Size,
-        corner: Size, edge: Size
+        corner: Size, edge: Size = .zero
     ) -> NineSliceLayout {
-        _ = corner; _ = edge  // sizes derive from insets; params kept for clarity
+        _ = edge  // edge rects derive from the corner box
         let w = insets.left + inner.width + insets.right
         let h = insets.top + inner.height + insets.bottom
-        let t = insets.top, l = insets.left, b = insets.bottom, r = insets.right
+        let cw = corner.width, ch = corner.height
+        let midW = max(w - cw * 2, 0)
+        let midH = max(h - ch * 2, 0)
         return NineSliceLayout(
-            topLeft:     Rect(origin: Point(x: 0, y: 0), size: Size(width: l, height: t)),
-            top:         Rect(origin: Point(x: l, y: 0), size: Size(width: inner.width, height: t)),
-            topRight:    Rect(origin: Point(x: l + inner.width, y: 0), size: Size(width: r, height: t)),
-            right:       Rect(origin: Point(x: l + inner.width, y: t), size: Size(width: r, height: inner.height)),
-            bottomRight: Rect(origin: Point(x: l + inner.width, y: t + inner.height), size: Size(width: r, height: b)),
-            bottom:      Rect(origin: Point(x: l, y: t + inner.height), size: Size(width: inner.width, height: b)),
-            bottomLeft:  Rect(origin: Point(x: 0, y: t + inner.height), size: Size(width: l, height: b)),
-            left:        Rect(origin: Point(x: 0, y: t), size: Size(width: l, height: inner.height))
+            topLeft:     Rect(origin: Point(x: 0, y: 0), size: Size(width: cw, height: ch)),
+            top:         Rect(origin: Point(x: cw, y: 0), size: Size(width: midW, height: ch)),
+            topRight:    Rect(origin: Point(x: w - cw, y: 0), size: Size(width: cw, height: ch)),
+            right:       Rect(origin: Point(x: w - cw, y: ch), size: Size(width: cw, height: midH)),
+            bottomRight: Rect(origin: Point(x: w - cw, y: h - ch), size: Size(width: cw, height: ch)),
+            bottom:      Rect(origin: Point(x: cw, y: h - ch), size: Size(width: midW, height: ch)),
+            bottomLeft:  Rect(origin: Point(x: 0, y: h - ch), size: Size(width: cw, height: ch)),
+            left:        Rect(origin: Point(x: 0, y: ch), size: Size(width: cw, height: midH))
         )
     }
 }
@@ -97,6 +102,10 @@ final class PDFRasterizer: @unchecked Sendable {
     }
 
     /// Draw layers at EXPLICIT scale-1 sizes (edges stretch to layout rects).
+    /// baguette-exact: native CG user space (bottom-left origin), each layer's
+    /// rect computed as y = canvasH − topLeftY − height. No CTM flip — a
+    /// flipped context renders CGImage bitmaps upside down (the top/bottom
+    /// bezel-flip bug).
     func compose(
         canvasSize: Size, scale: CGFloat,
         sized: [(image: CGImage, topLeft: Point, size: Size)]
@@ -109,13 +118,12 @@ final class PDFRasterizer: @unchecked Sendable {
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else { throw PDFRasterizerError.invalidPDF }
-        // CG origin is bottom-left; chrome-px space is top-left. Flip once.
-        ctx.translateBy(x: 0, y: CGFloat(h))
-        ctx.scaleBy(x: 1, y: -1)
         for layer in sized {
             let rect = CGRect(
-                x: layer.topLeft.x * scale, y: layer.topLeft.y * scale,
-                width: layer.size.width * scale, height: layer.size.height * scale
+                x: layer.topLeft.x * scale,
+                y: CGFloat(h) - (layer.topLeft.y + layer.size.height) * scale,
+                width: layer.size.width * scale,
+                height: layer.size.height * scale
             )
             ctx.draw(layer.image, in: rect)
         }
@@ -153,6 +161,11 @@ final class PDFRasterizer: @unchecked Sendable {
             layer(lf, layout.left), layer(rt, layout.right),
             layer(bl, layout.bottomLeft), layer(bt, layout.bottom), layer(br, layout.bottomRight),
         ]
+        if ProcessInfo.processInfo.environment["BEZEL_DEBUG"] != nil {
+            for e in entries {
+                FileHandle.standardError.write(Data("[9slice] img \(e.image.width)x\(e.image.height) at (\(e.topLeft.x),\(e.topLeft.y)) size \(e.size.width)x\(e.size.height)\n".utf8))
+            }
+        }
         return try compose(canvasSize: canvas, scale: scale, sized: entries)
     }
 
