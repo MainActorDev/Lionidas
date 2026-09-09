@@ -5,6 +5,7 @@
  *  graceful degradation. Pages mount the returned canvas element and read state.
  */
 import { ref, type Ref } from 'vue';
+import { makeAvccDecoder, makeMjpegDecoder, hasAvccSupport, type Codec } from './stream/codecs.ts';
 
 export type StreamState = 'idle' | 'connecting' | 'live' | 'paused' | 'reconnecting' | 'failed';
 
@@ -49,7 +50,10 @@ export function useDeviceStream(): DeviceStream {
   }
 
   let ws: WebSocket | null = null;
+  let codec: Codec | null = null;
   let currentUdid = '';
+  /** requested upstream format (avcc opt-in / mjpeg fallback); null = server default */
+  let pendingFormat: 'avcc' | 'mjpeg' | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let autoRetryTimer: ReturnType<typeof setTimeout> | null = null;
   let autoRetried = false; // ONE automatic attempt per failure chain — no spin
@@ -68,6 +72,8 @@ export function useDeviceStream(): DeviceStream {
   //  - starving never happens: every completed decode paints (the previous
   //    drop-on-newer-arrival approach froze the canvas under motion).
   let pendingBuf: ArrayBuffer | null = null;
+  /** latest decoded VideoFrame/ImageBitmap from the AVCC codec (display-ready) */
+  let delivered: { value: ImageBitmap | VideoFrame | null } = { value: null };
   let decoding = false;
   let lastPaintAt = 0; // stream-frame paint time — gates the standalone fast-path
   // Reusable offscreen for stepped downscaling (mip-style halving) — created
@@ -173,6 +179,21 @@ export function useDeviceStream(): DeviceStream {
     }
   });
 
+  /** AVCC delivery: hand the decoded frame to the SAME rAF painter. VideoFrame
+   *  is display-ready (no resample needed); bitmap path identical to seeds. */
+  async function paintDelivered(): Promise<void> {
+    const src = delivered.value;
+    if (!src) return;
+    const canvas = canvasRef.value;
+    if (!canvas) return;
+    const vf = src as VideoFrame;
+    const w = vf.displayWidth ?? (src as ImageBitmap).width;
+    const h = vf.displayHeight ?? (src as ImageBitmap).height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    schedulePaint(canvas, ctx, src as unknown as ImageBitmap, w, h);
+  }
+
   async function decodeLoop(): Promise<void> {
     if (decoding) return;
     decoding = true;
@@ -242,18 +263,29 @@ export function useDeviceStream(): DeviceStream {
     const gen = generation;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     state.value = isRetry ? 'reconnecting' : 'connecting';
-    ws = new WebSocket(`${proto}://${location.host}/api/stream/${udid}`);
+    const fmtQ = pendingFormat ? `?format=${pendingFormat}` : '';
+    ws = new WebSocket(`${proto}://${location.host}/api/stream/${udid}${fmtQ}`);
     ws.binaryType = 'arraybuffer';
     ws.onmessage = (ev) => {
       if (gen !== generation) return;
       if (typeof ev.data === 'string') {
-        // typed messages from the relay — error (terminal, stop retrying) or
-        // status (mid-stream source loss, server keeps retrying underneath)
+        // typed messages from the relay — format handshake, error (terminal),
+        // or status (mid-stream source loss, server keeps retrying underneath)
         try {
-          const body = JSON.parse(ev.data) as { error?: string; retryable?: boolean; status?: string; paused?: boolean };
+          const body = JSON.parse(ev.data) as { error?: string; retryable?: boolean; status?: string; paused?: boolean; format?: string };
           if (body.error) fail(body.error, body.retryable ?? false);
           else if (body.status === 'source-lost') state.value = 'reconnecting';
           else if (body.status === 'run-active' && body.paused) state.value = 'paused';
+          else if (body.format === 'avcc' && !codec && hasAvccSupport()) {
+            codec = makeAvccDecoder(
+              (frame) => { delivered.value = frame; void paintDelivered(); },
+              (msg, isErr) => { if (isErr) failure.value = msg; },
+            );
+          } else if (body.format === 'avcc' && !codec && !hasAvccSupport()) {
+            // WebCodecs absent: surface honestly and drop to the failure overlay —
+            // the wall's pulse fast-path still carries a static frame
+            fail('this browser cannot decode H.264 streams (no WebCodecs) — ask the server for mjpeg', false);
+          }
         } catch { /* not JSON — ignore */ }
         return;
       }
@@ -262,6 +294,7 @@ export function useDeviceStream(): DeviceStream {
       retryable.value = false;
       autoRetried = false; // healthy again — a future outage gets its own auto-retry
       frames.value++;
+      if (codec) { codec.feed(ev.data as ArrayBuffer); return; }
       pendingBuf = ev.data as ArrayBuffer;
       void decodeLoop();
     };
@@ -318,6 +351,8 @@ export function useDeviceStream(): DeviceStream {
 
   function teardown(): void {
     generation++;
+    if (codec) { codec.dispose(); codec = null; }
+    if (delivered.value) { try { (delivered.value as VideoFrame).close?.(); } catch { /* ok */ } delivered.value = null; }
     if (ws) { ws.onclose = null; ws.onmessage = null; ws.close(); ws = null; }
     if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
     if (autoRetryTimer) { clearTimeout(autoRetryTimer); autoRetryTimer = null; }
@@ -331,10 +366,11 @@ export function useDeviceStream(): DeviceStream {
     frames,
     failure,
     retryable,
-    start(udid: string): void {
+    start(udid: string, opts?: { format?: 'avcc' | 'mjpeg' }): void {
       if (currentUdid === udid && (state.value === 'live' || state.value === 'connecting' || state.value === 'reconnecting')) return;
       teardown();
       currentUdid = udid;
+      pendingFormat = opts?.format ?? null;
       failure.value = '';
       retryable.value = false;
       connect(udid, false);

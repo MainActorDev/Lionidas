@@ -147,6 +147,7 @@ const FIRST_FRAME_TIMEOUT_MS = 10_000;
 const OUTAGE_CLOSE_MS = 5_000;
 
 async function pumpUpstream(url: string, sub: UpstreamSubscription, udid: string): Promise<void> {
+  if (url.startsWith('ws://') || url.startsWith('wss://')) return pumpWsUpstream(url, sub, udid);
   const boundary = Buffer.from('--NextFrame');
   let buf = Buffer.alloc(0);
 
@@ -314,6 +315,97 @@ async function drain(c: StreamClient): Promise<void> {
   if (c.latestFrame) void drain(c);
 }
 
+/** WS upstream (baguette avcc): connect, forward every binary message to the
+ *  same latest-wins fan-out the MJPEG pump uses. Text frames surface only as
+ *  error envelopes ({ok:false,error}) mapped onto the relay's error shape.
+ *  Close/outage rides the identical OUTAGE_CLOSE_MS recovery the HTTP pump
+ *  uses — re-resolve re-ensures the baguette process. */
+async function pumpWsUpstream(url: string, sub: UpstreamSubscription, udid: string): Promise<void> {
+  const WebSocket = (await import('ws')).default;
+  while (sub.refCount > 0) {
+    // run-pause: identical contract to the HTTP pump's — stop pulling frames
+    let pauseNotified = false;
+    while (sub.refCount > 0 && runActiveDevices.has(udid)) {
+      if (!pauseNotified) {
+        pauseNotified = true;
+        for (const c of sub.clients) {
+          try { c.socket.send(JSON.stringify({ status: 'run-active', paused: true })); } catch { /* gone */ }
+        }
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    if (sub.refCount === 0) return;
+    if (pauseNotified) {
+      // source likely dropped during the run — re-resolve a fresh sub (HTTP path shape)
+      sub.abortController.abort();
+      upstreams.delete(sub.url);
+      try {
+        const port = Number(process.env['CRUCIBLE_PORT'] ?? 9230);
+        const resp = await fetch(`http://127.0.0.1:${port}/api/devices/${udid}/stream`, {
+          method: 'POST',
+          headers: sub.cookie ? { cookie: sub.cookie } : internalAuthHeaders(),
+        });
+        if (resp.ok) {
+          const body = await resp.json() as { streamUrl: string };
+          if (body.streamUrl && body.streamUrl !== sub.url) {
+            const fresh = upstreams.get(body.streamUrl) ?? {
+              url: body.streamUrl, udid, cookie: sub.cookie, clients: new Set(), abortController: new AbortController(),
+              refCount: 0, everGotFrame: false, notifiedOutage: false, outageStartedAt: 0,
+            } as UpstreamSubscription;
+            upstreams.set(body.streamUrl, fresh);
+            for (const c of sub.clients) { fresh.clients.add(c); fresh.refCount++; }
+            sub.clients.clear(); sub.refCount = 0;
+            void pumpUpstream(body.streamUrl, fresh, udid);
+            return;
+          }
+        }
+      } catch { /* fall through to reconnect on the same url */ }
+      sub.abortController = new AbortController();
+    }
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const done = () => { if (!settled) { settled = true; resolve(); } };
+      let ws: import('ws').default;
+      try {
+        ws = new WebSocket(url, { handshakeTimeout: 5000 });
+      } catch { done(); return; }
+      const onMsg = (data: Buffer, isBinary: boolean): void => {
+        if (isBinary) {
+          sub.notifiedOutage = false;
+          sub.everGotFrame = true;
+          for (const c of sub.clients) { c.latestFrame = data; void drain(c); }
+        } else {
+          try {
+            const body = JSON.parse(data.toString()) as { ok?: boolean; error?: string };
+            if (body.ok === false && body.error) {
+              for (const c of sub.clients) {
+                try { c.socket.send(JSON.stringify({ error: `baguette: ${body.error}`, retryable: true })); } catch { /* gone */ }
+              }
+            }
+          } catch { /* non-JSON text — ignore */ }
+        }
+      };
+      ws.on('open', () => { sub.notifiedOutage = false; });
+      ws.on('message', (data, isBinary) => onMsg(data as Buffer, isBinary));
+      ws.on('error', () => { try { ws.terminate(); } catch { /* already dead */ } done(); });
+      ws.on('close', () => done());
+      sub.abortController.signal.addEventListener('abort', () => { try { ws.terminate(); } catch { /* already dead */ } }, { once: true });
+    });
+    if (sub.refCount === 0) return;
+    // outage handling: notify clients once, retry for the bounded window, else close
+    if (!sub.notifiedOutage) {
+      sub.notifiedOutage = true;
+      sub.outageStartedAt = Date.now();
+    }
+    if (Date.now() - sub.outageStartedAt > OUTAGE_CLOSE_MS) {
+      for (const c of [...sub.clients]) { try { c.socket.close(); } catch { /* gone */ } }
+      upstreams.delete(url);
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+}
+
 export async function registerStreamRelay(app: FastifyInstance, bus: TypedEventBus<AppEvents>): Promise<void> {
   // pause pumps while a run holds the device (see runActiveDevices above);
   // the still feed keeps every watcher's canvas painted through the pause
@@ -344,8 +436,10 @@ export async function registerStreamRelay(app: FastifyInstance, bus: TypedEventB
           socket.close();
           return;
         }
-        const body = await resp.json() as { streamUrl: string };
+        const body = await resp.json() as { streamUrl: string; format?: string };
         const url = body.streamUrl;
+        const upstreamFormat = body.format === 'avcc' ? 'avcc' : 'mjpeg';
+        try { socket.send(JSON.stringify({ format: upstreamFormat })); } catch { /* client gone */ }
         let sub = upstreams.get(url);
         if (!sub) {
           sub = { url, udid, cookie: watcherCookie, clients: new Set(), abortController: new AbortController(), refCount: 0, everGotFrame: false, notifiedOutage: false, outageStartedAt: 0 };

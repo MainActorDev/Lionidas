@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { ensureBaguette, baguetteStreamUrl } from '../stream/baguette.ts';
 import type Database from 'better-sqlite3';
 import { createReadStream, statSync } from 'node:fs';
 import { crucibleAlloy } from '../alloy/client.ts';
@@ -81,6 +82,21 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
   // so the UI gets an honest, typed reason instead of a generic engine failure.
   app.post('/api/devices/:udid/stream', async (req, reply) => {
     const { udid } = req.params as { udid: string };
+    // H.264 path (baguette): opt-in per-request (?format=avcc) or env default.
+    // Any baguette host problem degrades to the mjpeg resolve — never a stream error.
+    const qf = req.query as { format?: string };
+    const fmt = qf.format === 'avcc' || (process.env['CRUCIBLE_STREAM_FORMAT'] === 'avcc' && qf.format !== 'mjpeg') ? 'avcc' : 'mjpeg';
+    if (fmt === 'avcc') {
+      const b0 = db.prepare(`SELECT state, kind FROM devices WHERE udid = ?`).get(udid) as { state: string | null; kind: string | null } | undefined;
+      if (!b0 || b0.state !== 'Booted') return reply.code(409).send({ error: 'device not booted' });
+      if (b0.kind && b0.kind !== 'simulator') return reply.code(422).send({ error: 'live stream is simulator-only', code: 'SIM_ONLY' });
+      try {
+        await ensureBaguette();
+        return { streamUrl: baguetteStreamUrl(udid), format: 'avcc' };
+      } catch (err) {
+        req.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'baguette unavailable — falling back to mjpeg resolve');
+      }
+    }
     const booted = db.prepare(`SELECT state, platform, kind FROM devices WHERE udid = ?`).get(udid) as
       | { state: string | null; platform: string | null; kind: string | null }
       | undefined;
