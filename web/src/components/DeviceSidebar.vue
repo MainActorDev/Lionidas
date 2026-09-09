@@ -169,9 +169,18 @@ const phase = ref<'watching' | 'driving'>('watching');
 const leaseHeldElsewhere = computed(() => !!props.leaseDisplay && props.leaseDisplay !== meName.value && phase.value === 'watching');
 const takeControlBlocked = computed(() => !booted.value || props.runActive === true || leaseHeldElsewhere.value);
 const takeControlWhy = computed(() => !booted.value ? 'device not booted' : props.runActive === true ? 'run in progress' : leaseHeldElsewhere.value ? `held by ${props.leaseDisplay}` : '');
-// display name of the signed-in user (status line + audit surface)
+// display name of the signed-in user (status line + audit surface) + the
+// server's stream format default (avcc when baguette is enabled, else mjpeg)
 const meName = ref('');
-void (async () => { try { const r = await fetch('/api/auth/me'); const b = await r.json() as { user?: { name?: string } }; meName.value = b.user?.name ?? ''; } catch { /* offline */ } })();
+const streamFormat = ref<'avcc' | 'mjpeg' | null>(null);
+void (async () => {
+  try {
+    const r = await fetch('/api/auth/me');
+    const b = await r.json() as { user?: { name?: string }; streamFormat?: 'avcc' | 'mjpeg' };
+    meName.value = b.user?.name ?? '';
+    streamFormat.value = b.streamFormat ?? null;
+  } catch { /* offline — null lets the server default rule */ }
+})();
 const showSystemApps = ref(false);
 // app picker: which app the control session opens on (avoids the
 // foreground-hijack when the guess is wrong; snapshot still grounds the
@@ -421,7 +430,7 @@ async function reset(): Promise<void> {
   stream.stop();
   error.value = '';
   if (!props.device) return;
-  stream.start(props.device.udid); // every open streams; driving is an escalation
+  stream.start(props.device.udid, streamFormat.value ? { format: streamFormat.value } : undefined); // every open streams; driving is an escalation
 }
 
 async function teardownSession(): Promise<void> {
@@ -437,7 +446,7 @@ async function teardownSession(): Promise<void> {
 
 // ── watch mode ──
 watch(() => props.device?.udid, (udid) => {
-  if (udid && booted.value) stream.start(udid);
+  if (udid && booted.value) stream.start(udid, streamFormat.value ? { format: streamFormat.value } : undefined);
 }, { immediate: true });
 
 // ── control mode ──

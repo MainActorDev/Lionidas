@@ -52,7 +52,7 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
   });
 
   app.get('/api/auth/me', async (req) => {
-    return { user: req.user ? publicUser(req.user) : null, jiraConfigured: jiraConfigured() };
+    return { user: req.user ? publicUser(req.user) : null, jiraConfigured: jiraConfigured(), streamFormat: process.env['CRUCIBLE_STREAM_FORMAT'] === 'avcc' ? 'avcc' : 'mjpeg' };
   });
 
   // ── Jira SSO (env-gated; 503-honest when unconfigured) ──

@@ -20,7 +20,7 @@ export interface DeviceStream {
   failure: Ref<string>;
   /** server said a retry is likely to recover (stale-engine class) — show a retry button */
   retryable: Ref<boolean>;
-  start(udid: string): void;
+  start(udid: string, opts?: { format?: 'avcc' | 'mjpeg' }): void;
   stop(): void;
   /** re-connect after a failure (manual retry from the failed overlay) */
   retry(): void;
@@ -138,18 +138,23 @@ export function useDeviceStream(): DeviceStream {
    *  rAF is PAUSED in hidden tabs — the pending job (and the last painted
    *  bitmap, kept unclosed) survives until visibility returns, so a
    *  backgrounded stream resumes showing the freshest frame instantly. */
-  let pendingPaint: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; bitmap: ImageBitmap; w: number; h: number } | null = null;
-  let lastFrame: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; bitmap: ImageBitmap; w: number; h: number } | null = null;
+  type PaintSource = ImageBitmap | VideoFrame;
+  type PaintJob = { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; bitmap: PaintSource; w: number; h: number };
+  const srcW = (b: PaintSource): number => (b as VideoFrame).displayWidth ?? (b as ImageBitmap).width;
+  const srcH = (b: PaintSource): number => (b as VideoFrame).displayHeight ?? (b as ImageBitmap).height;
+  const closeSrc = (b: PaintSource | null | undefined): void => { try { (b as VideoFrame | ImageBitmap | undefined)?.close?.(); } catch { /* ok */ } };
+  let pendingPaint: PaintJob | null = null;
+  let lastFrame: PaintJob | null = null;
   let rafScheduled = false;
   function runPaintJob(job: NonNullable<typeof pendingPaint>): void {
     if (job.canvas.width !== job.w || job.canvas.height !== job.h) { job.canvas.width = job.w; job.canvas.height = job.h; }
-    drawScaled(job.ctx, job.bitmap, job.bitmap.width, job.bitmap.height, job.w, job.h);
-    lastFrame = job; // kept for hidden-tab resume (bitmap stays open)
+    drawScaled(job.ctx, job.bitmap, srcW(job.bitmap), srcH(job.bitmap), job.w, job.h);
+    lastFrame = job; // kept for hidden-tab resume (source stays open)
     lastPaintAt = Date.now();
     if (frameObservers.size > 0) for (const cb of frameObservers) cb(lastPaintAt);
   }
-  function schedulePaint(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, bitmap: ImageBitmap, w: number, h: number): void {
-    if (pendingPaint) pendingPaint.bitmap.close(); // superseded before display
+  function schedulePaint(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, bitmap: PaintSource, w: number, h: number): void {
+    if (pendingPaint) closeSrc(pendingPaint.bitmap); // superseded before display
     pendingPaint = { canvas, ctx, bitmap, w, h };
     if (rafScheduled) return;
     rafScheduled = true;
@@ -174,7 +179,7 @@ export function useDeviceStream(): DeviceStream {
         if (!job) return;
         const prev = lastFrame;
         runPaintJob(job);
-        if (prev && prev !== job) prev.bitmap.close();
+        if (prev && prev !== job) closeSrc(prev.bitmap);
       });
     }
   });
@@ -186,12 +191,18 @@ export function useDeviceStream(): DeviceStream {
     if (!src) return;
     const canvas = canvasRef.value;
     if (!canvas) return;
+    // display-resolution backing (same policy as the mjpeg path): the VideoFrame
+    // is full-res; painting it 1:1 into a 1284px backing on a ~230px CSS box makes
+    // the compositor do the downscale — do it here at high quality instead
+    const cssW = canvas.clientWidth || canvas.getBoundingClientRect().width;
+    if (cssW <= 0) return;
+    const dpr = window.devicePixelRatio || 1;
+    const targetW = Math.max(1, Math.round(cssW * dpr));
     const vf = src as VideoFrame;
-    const w = vf.displayWidth ?? (src as ImageBitmap).width;
-    const h = vf.displayHeight ?? (src as ImageBitmap).height;
+    const targetH = Math.max(1, Math.round(targetW * (vf.displayHeight ?? (src as ImageBitmap).height) / (vf.displayWidth ?? (src as ImageBitmap).width)));
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    schedulePaint(canvas, ctx, src as unknown as ImageBitmap, w, h);
+    schedulePaint(canvas, ctx, src, targetW, targetH);
   }
 
   async function decodeLoop(): Promise<void> {
