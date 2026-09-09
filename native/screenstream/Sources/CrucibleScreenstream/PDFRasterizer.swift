@@ -129,12 +129,13 @@ final class PDFRasterizer: @unchecked Sendable {
         layout: NineSliceLayout,
         scale: CGFloat
     ) throws -> CGImage {
+        // NATIVE-size rasterize (scale 1): corner art (e.g. 97×97) must keep
+        // its natural size — it overlaps into the screen area by design.
+        // Edges (1×97 / 97×1 strips) stretch via the compose draw rects.
         func img(_ name: String) throws -> CGImage {
             guard let data = pdfs[name] else { throw PDFRasterizerError.invalidPDF }
-            return try rasterize(pdfData: data, scale: scale)
+            return try rasterize(pdfData: data, scale: 1)
         }
-        // rasterize each piece once (corners reused sizes; edges rasterize at
-        // natural width but stretch horizontally — draw() scales for us)
         let tl = try img("topLeft"), tp = try img("top"), tr = try img("topRight")
         let rt = try img("right"), br = try img("bottomRight"), bt = try img("bottom")
         let bl = try img("bottomLeft"), lf = try img("left")

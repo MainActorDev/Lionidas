@@ -183,8 +183,10 @@ final class Chromes: @unchecked Sendable {
         let restY = 2 * button.normalOffset.y - button.rolloverOffset.y
         switch button.anchor {
         case .left:
-            let cx = compX + button.normalOffset.x
-            let topY = compY + button.normalOffset.y
+            // Merged image bakes the HOVER (rollover) state — baguette's
+            // convention: `offset` == rolloverOffset in their baked composite.
+            let cx = compX + button.rolloverOffset.x
+            let topY = compY + button.rolloverOffset.y
             return Point(x: cx - imageSize.width / 2, y: topY)
         case .right:
             let leftX = compX + compositeSize.width + restX
@@ -252,9 +254,12 @@ final class Chromes: @unchecked Sendable {
             }
             pdfs[role] = pdf
         }
+        guard let tlPDF = pdfs["topLeft"],
+              let tlSize = try? rasterizer.naturalSize(pdfData: tlPDF)
+        else { return nil }
         let layout = NineSliceLayout.compose(
             insets: chrome.screenInsets, inner: inner,
-            corner: .zero, edge: .zero
+            corner: tlSize, edge: .zero
         )
         do {
             return try rasterizer.compose9Slice(pdfs: pdfs, layout: layout, scale: scale)

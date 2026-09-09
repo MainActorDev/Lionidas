@@ -247,12 +247,13 @@ import VideoToolbox
         #expect(p == Point(x: 468, y: 262))
     }
 
-    @Test func leftAnchorCentresXTopEdgesY() {
-        // mute: x centre = 9 + 8 = 17; imgW 16 → leftX = 17 - 8 = 9
-        // y top edge = 0 + 160 (rollover collapse: 2(160)-160 = 160)
+    @Test func leftAnchorBakesHoverState() {
+        // merged image bakes HOVER (baguette convention): centre = 9 + ROLLOVER(3)
+        // = 12; imgW 16 → leftX = 12 - 8 = 4 (5 chrome-px cap protrusion at
+        // the left rail); y = top edge at rollover y (160)
         let p = Chromes.buttonTopLeft(button: Self.mute, imageSize: Size(width: 16, height: 32),
                                       compositeSize: Self.comp, margins: Self.phone5Padding)
-        #expect(p == Point(x: 9, y: 160))
+        #expect(p == Point(x: 4, y: 160))
     }
 
     @Test func topAnchorTrailingEdgeAligns() {
