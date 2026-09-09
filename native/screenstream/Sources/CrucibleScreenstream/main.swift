@@ -17,7 +17,19 @@ if args.contains("--version") {
 
 // `devices` — debug subcommand: dump the discovery chain's view of the world.
 // Existence proof for the private-API chain on THIS machine/Xcode pair.
-if args.dropFirst().first == "devices" {
+// `device-name <udid>` — debug subcommand: resolve the device-type name
+// (chrome lookup key). Used to verify bezel plumbing end-to-end.
+if args.dropFirst().first == "device-name", args.count > 2 {
+    let udid = args[2]
+    let discovery = SimDiscovery()
+    if let name = discovery.deviceTypeName(udid: udid) {
+        print(name)
+    } else {
+        FileHandle.standardError.write(Data("device not found: \(udid)\n".utf8))
+    }
+    exit(0)  // CoreSimulator keeps runloop sources alive; a successful debug
+             // resolve exits explicitly (same shape as the devices branch)
+} else if args.dropFirst().first == "devices" {
     let d = SimDiscovery()
     let booted = d.bootedUdids()
     print("frameworks: CoreSimulator=\(NSClassFromString("SimServiceContext") != nil) " +

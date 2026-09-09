@@ -77,6 +77,18 @@ final class SimDiscovery: SimulatorResolving {
         return nil
     }
 
+    /// deviceType.name → "iPhone 14 Plus" — the .simdevicetype bundle
+    /// filename, stable across simctl clone/rename (device.name is not).
+    /// Falls back to the user-given name for devices with no type handle.
+    func deviceTypeName(udid: String) -> String? {
+        guard let device = resolveDevice(udid: udid) else { return nil }
+        if let type = device.value(forKey: "deviceType") as? NSObject,
+           let name = type.value(forKey: "name") as? String {
+            return name
+        }
+        return device.value(forKey: "name") as? String
+    }
+
     func bootedUdids() -> [String] {
         guard let set = resolveSet() else {
             FileHandle.standardError.write(Data("[booted] no set\n".utf8))
