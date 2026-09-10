@@ -545,23 +545,28 @@ const typeArmed = computed(() => lastTap.value !== null);
 async function onTap(e: MouseEvent): Promise<void> {
   if (!sessionId.value || !(e.target instanceof HTMLCanvasElement)) return; // taps only dispatch while driving
   if (inspect.value) { onInspectClick(e); return; } // INSPECT: select, never dispatch
+  // pointer flow already dispatched this tap (down/up pair) — the click
+  // event that follows would double-fire the gesture. Click only carries
+  // the ripple + bookkeeping here.
   const canvas = e.target;
   const { x, y } = canvasPointToLogical(canvas, e.clientX, e.clientY, logicalW.value, logicalH.value);
-  ripple.value = { x: e.clientX - canvas.getBoundingClientRect().left, y: e.clientY - canvas.getBoundingClientRect().top, id: Date.now() };
+  // ripple position must account for the canvas's offset inside the
+  // stage-frame (bezel layout insets the canvas by the screen-rect) —
+  // canvas-relative coords painted against the frame land up-left of the
+  // cursor by exactly the bezel margin
+  const frame = canvas.closest('.stage-frame') as HTMLElement | null;
+  const frameRect = frame ? frame.getBoundingClientRect() : canvas.getBoundingClientRect();
+  const canvasRect = canvas.getBoundingClientRect();
+  ripple.value = {
+    x: canvasRect.left - frameRect.left + (e.clientX - canvasRect.left),
+    y: canvasRect.top - frameRect.top + (e.clientY - canvasRect.top),
+    id: Date.now(),
+  };
   if (rippleTimer) clearTimeout(rippleTimer);
   rippleTimer = setTimeout(() => { ripple.value = null; }, 600);
-  busy.value = true;
-  actionMsg.value = '';
-  try {
-    const r = await api(`${sessionId.value}/tap`, { x, y });
-    if (r['error']) {
-      error.value = String(r['error']);
-      if (String(r['code']) === 'LEASE_LOST' || String(r['code']) === 'SESSION_NOT_FOUND') void endSession();
-    } else {
-      lastTap.value = { x, y }; // arm typing at this field
-      await fastPathFrame();
-    }
-  } finally { busy.value = false; }
+  // the pointer flow (useDeviceInput.onPointerUp) dispatched the tap; keep
+  // the click-side bookkeeping only
+  lastTap.value = { x, y };
 }
 
 async function sendType(): Promise<void> {
