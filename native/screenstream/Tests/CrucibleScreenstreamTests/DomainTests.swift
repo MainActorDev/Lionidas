@@ -279,3 +279,27 @@ import VideoToolbox
         #expect(assets != nil)
     }
 }
+
+@Suite struct KeyboardTests {
+    @Test func wireCodes() {
+        #expect(KeyboardKey.from(wireCode: "KeyA")?.hidUsage.usage == 0x04)
+        #expect(KeyboardKey.from(wireCode: "KeyZ")?.hidUsage.usage == 0x1D)
+        #expect(KeyboardKey.from(wireCode: "Digit1")?.hidUsage.usage == 0x1E)
+        #expect(KeyboardKey.from(wireCode: "Digit0")?.hidUsage.usage == 0x27)
+        #expect(KeyboardKey.from(wireCode: "ArrowUp")?.hidUsage.usage == 0x52)
+        #expect(KeyboardKey.from(wireCode: "Numpad5")?.hidUsage.usage == 0x5D)
+        #expect(KeyboardKey.from(wireCode: "Nope") == nil)
+    }
+    @Test func decompose() {
+        #expect(KeyboardKey.decompose(character: "a")?.key.hidUsage.usage == 0x04)
+        #expect(KeyboardKey.decompose(character: "A")?.modifiers == [.shift])
+        #expect(KeyboardKey.decompose(character: "!")?.key.hidUsage.usage == KeyboardKey.decompose(character: "1")?.key.hidUsage.usage)
+        #expect(KeyboardKey.decompose(character: "é") == nil)   // non-US fails up front
+    }
+    @Test func deviceButtons() {
+        #expect(DeviceButton.from(wireName: "volume-up") == .volumeUp)
+        #expect(DeviceButton.power.standardHIDUsage != nil)
+        #expect(DeviceButton.home.standardHIDUsage == nil)      // legacy path
+        #expect(DeviceButton.from(wireName: "siri") == nil)     // rejected by absence
+    }
+}
