@@ -10,6 +10,15 @@ implementation while this engine was developed:
 - VideoToolbox low-latency H.264 tuning profile.
 - H.264 keyframe classification via the `NotSync` sample attachment.
 - WebSocket framing patterns for the AVCC tag protocol.
+- Input pipeline: `IndigoHIDInput` (Infrastructure/Input) — the 9-arg +
+  7-arg `IndigoHIDMessageForMouseNSEvent` ABI pair, `SimDeviceLegacyHIDClient`
+  alloc/init + fail-closed service warm-up, `IndigoHIDMessageForButton` /
+  `ForHIDArbitrary` / `ForScrollEvent` recipes, per-button routing table,
+  and the empirical edge-gesture timings (app-switcher dwell, swipe-to-home
+  step rates). `IOHIDDigitizerDispatch` — the digitizer parent+finger
+  IOHIDEvent construction, `IndigoHIDMessageForTrackpadEventFromHIDEventRef`
+  wrapper, and the 0x6c/0x10c/0x3a/0x3b patch offsets. Keyboard/DeviceButton
+  HID usage tables. All ported 1:1 and scoped to the phone plane.
 - DeviceKit chrome pipeline: profile.plist/chrome.json parsing (`DeviceProfile`,
   `DeviceChrome`), 9-slice bezel composition (`NineSliceLayout`,
   `PDFRasterizer.compose9Slice`), and the hardware-button anchor table

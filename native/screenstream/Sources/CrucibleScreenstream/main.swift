@@ -2,6 +2,13 @@
 // Routes: /healthz, /devices/<udid>/stream (WS), /devices/<udid>/bezel.png
 // (?buttons=false for bare), /devices/<udid>/definition.json (bezel layout),
 // /devices/<udid>/bezel-button/<name>.png (overlay sprites).
+//
+// WS control messages: set_fps / set_bitrate / set_scale / force_idr /
+// run_pause / run_resume, and input gestures —
+//   {"type":"input","seq":N,"kind":"tap"|"swipe"|"touch1"|"touch2"|"press"|
+//    "key"|"type"|"scroll", ...} in device POINTS; every message is acked
+//   {"type":"input_ack","seq":N,"ok":bool,"error":?}. siri is rejected
+//   (crashes backboardd).
 // Architecture follows baguette (Apache-2.0); see LICENSES/screenstream-ATTRIBUTION.md.
 import Foundation
 

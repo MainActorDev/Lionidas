@@ -380,7 +380,12 @@ final class HIDInput: InputSurface, @unchecked Sendable {
     private static func send(message: UnsafeMutableRawPointer, to client: AnyObject) {
         let sel = NSSelectorFromString("sendWithMessage:freeWhenDone:completionQueue:completion:")
         guard let cls = object_getClass(client),
-              let imp = class_getMethodImplementation(cls, sel) else { return }
+              let imp = class_getMethodImplementation(cls, sel) else {
+            if ProcessInfo.processInfo.environment["HID_DEBUG"] != nil {
+                FileHandle.standardError.write(Data("[hid] send selector missing on client\n".utf8))
+            }
+            return
+        }
         typealias Fn = @convention(c) (
             AnyObject, Selector, UnsafeMutableRawPointer, ObjCBool, AnyObject?, AnyObject?
         ) -> Void
@@ -429,6 +434,9 @@ final class HIDInput: InputSurface, @unchecked Sendable {
         }
         client = c
         warmed = true
+        if ProcessInfo.processInfo.environment["HID_DEBUG"] != nil {
+            FileHandle.standardError.write(Data("[hid] warm OK\n".utf8))
+        }
         return c
     }
 
