@@ -285,6 +285,12 @@ export function useDeviceStream(): DeviceStream {
   function attachDirect(socket: WebSocket, udid: string, gen: number): void {
     ws = socket;
     ws.binaryType = 'arraybuffer';
+    // input rides this socket too (fire-and-forget JSON frames; the engine
+    // gates on the server-granted input right)
+    directSend = (payload: object): boolean => {
+      if (socket.readyState !== 1) return false;
+      try { socket.send(JSON.stringify(payload)); return true; } catch { return false; }
+    };
     let pending: ImageBitmap | VideoFrame | null = null;
     let rafId = 0;
     let alive = true;
@@ -311,7 +317,14 @@ export function useDeviceStream(): DeviceStream {
       if (gen !== generation) return;
       if (typeof ev.data === 'string') {
         try {
-          const body = JSON.parse(ev.data) as { ok?: boolean; error?: string };
+          const body = JSON.parse(ev.data) as { type?: string; ok?: boolean; error?: string };
+          // input_ack: per-gesture results. Refusals (ungranted input,
+          // parse errors) surface on the input status line instead of
+          // killing the stream view.
+          if (body.type === 'input_ack') {
+            if (body.ok === false && body.error) lastInputError.value = body.error;
+            return;
+          }
           if (body.ok === false && body.error) fail(`screenstream: ${body.error}`, false);
         } catch { /* not JSON */ }
         return;
@@ -353,7 +366,7 @@ export function useDeviceStream(): DeviceStream {
     };
     rafId = requestAnimationFrame(paint);
     // route stop() through the same cleanup: track the raf loop for teardown
-    directRaf = () => { alive = false; if (rafId) cancelAnimationFrame(rafId); };
+    directRaf = () => { alive = false; if (rafId) cancelAnimationFrame(rafId); directSend = null; };
   }
 
   async function connect(udid: string, isRetry: boolean): Promise<void> {
@@ -534,6 +547,16 @@ export function useDeviceStream(): DeviceStream {
 /** Tap → device LOGICAL points. Canvas pixels are DEVICE pixels (e.g. 1284 wide
  *  for a 428pt screen); the engine expects logical coordinates, so scale through
  *  the session's logical dimensions. Falls back to raw canvas coords if unknown. */
+// Direct-socket send hook: set by attachDirect when the browser owns a
+// stream WS to the engine; the input composable binds it so gestures ride
+// the same socket (realtime, no HTTP hop). Cleared on teardown.
+/** last engine-side input refusal (surfaced by the sidebar status line) */
+const lastInputError = ref('');
+export function inputError(): Ref<string> { return lastInputError; }
+
+let directSend: ((payload: object) => boolean) | null = null;
+export function directInputSend(): ((payload: object) => boolean) | null { return directSend; }
+
 export function canvasPointToLogical(canvas: HTMLCanvasElement, clientX: number, clientY: number, logicalW?: number | null, logicalH?: number | null): { x: number; y: number } {
   const rect = canvas.getBoundingClientRect();
   const px = ((clientX - rect.left) / rect.width) * canvas.width;

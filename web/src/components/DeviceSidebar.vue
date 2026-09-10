@@ -168,6 +168,8 @@ const logicalW = ref<number | null>(null);
 
 // ── device control (engine-direct input) ──
 const devInput = useDeviceInput(sessionId, computed(() => ({ w: logicalW.value, h: logicalH.value })), api);
+// realtime input: gestures ride the stream's own WS when attached
+watch(() => stream.state.value, () => devInput.refreshDirectSend(), { immediate: true });
 const hoverBtn = ref('');
 interface BezelBtnDef { name: string; anchor: string; onTop: boolean; boxPct: { left: number; top: number; width: number; height: number }; normalOffset: { x: number; y: number }; rolloverOffset: { x: number; y: number }; imageUrl: string }
 async function pressBtn(b: BezelBtnDef): Promise<void> {

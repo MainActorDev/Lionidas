@@ -275,9 +275,17 @@ final class ScreenstreamServer: @unchecked Sendable {
         case "force_idr": stream.forceIDR()
         case "run_pause": stream.runPause()
         case "run_resume": stream.runResume()
+        case "grant_input":
+            // server-only control: a driving session owns this DEVICE —
+            // grant covers every socket (browser direct stream included)
+            stream.inputGranted = (msg["granted"] as? Bool) ?? false
         case "input":
             let kind = (msg["kind"] as? String) ?? "?"
             let seq = (msg["seq"] as? Int).map { ",\"seq\":\($0)" } ?? ""
+            guard stream.inputGranted else {
+                session.sendText("{\"type\":\"input_ack\",\"ok\":false,\"kind\":\"\(kind)\"\(seq),\"error\":\"input not granted (no driving session)\"}")
+                return
+            }
             do {
                 let gesture = try GestureJSON.parse(msg)
                 let ok = Self.dispatch(gesture, on: stream)

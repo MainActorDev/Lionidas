@@ -76,6 +76,12 @@ final class DeviceStream: ScreenDelegate, @unchecked Sendable {
     /// resolved through the same discovery).
     private(set) lazy var input: HIDInput = HIDInput(udid: udid, discovery: discovery)
 
+    /// Device-level input grant: the server grants while a driving session
+    /// owns the device. Per-DEVICE (not per-socket): the server's control
+    /// socket and the browser's direct stream socket are different
+    /// connections; the grant must cover whichever carries input.
+    var inputGranted = false
+
     nonisolated(unsafe) private static var sharedChromesForSize: Chromes? = Chromes()
 
     func setClientCount(_ n: Int) { screen.setClientCount(n) }

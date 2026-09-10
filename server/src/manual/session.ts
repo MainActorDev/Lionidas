@@ -13,7 +13,7 @@ import { dispatchWithHeal } from '../alloy/heal.ts';
 import { quietKeyboard } from './keyboard-quiet.ts';
 import { captureSelectorAt, countMatches } from './selector.ts';
 import type { StepSelector, SnapNode } from './selector.ts';
-import { engineInput } from './engine-input.ts';
+import { engineInput, grantInput } from './engine-input.ts';
 
 export interface ManualDeps {
   db: Database.Database;
@@ -144,6 +144,8 @@ export async function startManualSession(deps: ManualDeps, udid: string, operato
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(sessionId, runId, udid, operator, w, h, Date.now(), Date.now());
     deps.bus.emit('manual.session.open', { sessionId, udid, operator, runId });
+    // grant engine-side input for this device while the session owns it
+    void grantInput(udid, true).catch(() => undefined);
     return { sessionId, logicalW: w, logicalH: h };
   })();
 }
@@ -360,6 +362,8 @@ export async function finishManualSession(deps: ManualDeps, sessionId: string, n
   deps.db.prepare('UPDATE manual_sessions SET finished_at = ? WHERE id = ?').run(Date.now(), sessionId);
   deps.db.prepare(`UPDATE runs SET status = 'passed', finished_at = ?, note = ? WHERE id = ?`).run(Date.now(), note ?? `manual:${sessionId}`, s.run_id);
   deps.bus.emit('manual.session.finish', { sessionId });
+  // revoke engine-side input — the device is free again
+  void grantInput(s.udid, false).catch(() => undefined);
 }
 
 /** Boot + interval: finish sessions idle > 5min (crash safety). */

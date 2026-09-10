@@ -86,11 +86,39 @@ function socketFor(udid: string): Promise<EngineSocketExt> {
   });
 }
 
+/** Grant/refuse engine-side input for this device's sessions. The engine
+ *  refuses gestures from any socket without the grant — the direct-avcc
+ *  browser socket carries input only while a driving session owns the
+ *  device. Fire-and-forget to every live socket; the next socket to open
+ *  (e.g. the browser's direct stream) starts ungranted by default. */
+/** Devices whose driving session granted engine input. engineInput()
+ *  re-asserts the grant on the socket it's about to use — engine restarts
+ *  and socket churn can silently drop a one-shot grant, refusing every
+ *  wall gesture with no visible error (found live). */
+const grantedDevices = new Set<string>();
+
+export async function grantInput(udid: string, granted: boolean): Promise<void> {
+  if (granted) grantedDevices.add(udid);
+  else grantedDevices.delete(udid);
+  // push the device-level grant to the engine over a server-owned socket;
+  // the engine marks the DEVICE, so the browser's direct stream socket
+  // passes the gate too
+  try {
+    const ws = await socketFor(udid);
+    ws.send(JSON.stringify({ type: 'grant_input', granted }));
+  } catch { /* engine down; engineInput re-asserts on next gesture */ }
+}
+
 /** Send one input gesture to the engine; resolves true on ok-ack.
  *  Rejects with INPUT_TIMEOUT / connect errors — the caller decides
  *  whether to fall back. `seq` rides the message so acks correlate. */
 export async function engineInput(udid: string, gesture: Record<string, unknown>): Promise<void> {
   const ws = await socketFor(udid);
+  // re-assert the device grant on THIS socket before every gesture: the
+  // engine gates input per-socket, and sockets die/reopen invisibly
+  if (grantedDevices.has(udid)) {
+    try { ws.send(JSON.stringify({ type: 'grant_input', granted: true })); } catch { /* dead socket fails the send below */ }
+  }
   const seq = ws.__nextSeq = (ws.__nextSeq ?? 1) + 1;
   const payload = JSON.stringify({ type: 'input', seq, ...gesture });
   const acked = await new Promise<boolean>((resolve) => {
