@@ -39,6 +39,10 @@ final class SimDiscovery: SimulatorResolving {
         }
     }
 
+    /// Public for IOHIDDigitizerDispatch's SimulatorKit dlopen (same
+    /// candidate list, same first-win semantics).
+    static func simKitCandidatePaths() -> [String] { simKitCandidates() }
+
     private static func simKitCandidates() -> [String] {
         var out: [String] = []
         if let dev = self.developerDir() {
