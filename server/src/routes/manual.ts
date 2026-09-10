@@ -94,6 +94,21 @@ export function registerManualRoutes(
     }
   });
 
+  app.post('/api/manual/:id/touch1', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = req.body as { phase?: string; x?: number; y?: number; edge?: string };
+    if (!b.phase || !['down', 'move', 'up'].includes(b.phase)) return reply.code(400).send({ error: 'phase (down|move|up) required' });
+    if (typeof b.x !== 'number' || typeof b.y !== 'number') return reply.code(400).send({ error: 'x,y required' });
+    try {
+      await manualGesture({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id, { kind: 'touch1', phase: b.phase, x: b.x, y: b.y, ...(b.edge ? { edge: b.edge } : {}) });
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
+      const msg = err instanceof Error ? err.message : String(err);
+      return reply.code(503).send({ error: `input unavailable: ${msg}`, retryable: msg === 'INPUT_TIMEOUT' });
+    }
+  });
+
   app.post('/api/manual/:id/swipe', async (req, reply) => {
     const { id } = req.params as { id: string };
     const b = req.body as { startX?: number; startY?: number; endX?: number; endY?: number; duration?: number };

@@ -8,6 +8,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { useDeviceStream, canvasPointToLogical } from '../composables/deviceStream.ts';
 import { useDeviceBezel } from '../composables/useDeviceBezel.ts';
+import { useDeviceInput } from '../composables/useDeviceInput.ts';
 import { hitTestNodeAt, selectorPreview, type AxNode } from '@crucible/shared/ax-tree';
 import { useInspectTree, TreeFetchError } from '../composables/useInspectTree.ts';
 import InspectOverlay from './InspectOverlay.vue';
@@ -24,6 +25,7 @@ const emit = defineEmits<{ (e: 'close'): void }>();
 
 const stream = useDeviceStream();
 const bezel = useDeviceBezel(computed(() => props.device?.udid));
+
 
 // ── INSPECT MODE — element boxes over the live stream (control mode only) ──
 // Contract: while inspect is ON, a canvas CLICK selects an element and NEVER
@@ -163,6 +165,27 @@ async function copySelector(): Promise<void> {
 
 const sessionId = ref<string | null>(null);
 const logicalW = ref<number | null>(null);
+
+// ── device control (engine-direct input) ──
+const devInput = useDeviceInput(sessionId, computed(() => ({ w: logicalW.value, h: logicalH.value })), api);
+const hoverBtn = ref('');
+interface BezelBtnDef { name: string; anchor: string; onTop: boolean; boxPct: { left: number; top: number; width: number; height: number }; normalOffset: { x: number; y: number }; rolloverOffset: { x: number; y: number }; imageUrl: string }
+async function pressBtn(b: BezelBtnDef): Promise<void> {
+  if (!sessionId.value) return;
+  await api(`${sessionId.value}/button`, { button: b.name }).catch(() => undefined);
+}
+function buttonStyle(b: BezelBtnDef): Record<string, string> {
+  // hover translate = (rollover − normal) chrome-px as % of canvas —
+  // the pop-out the offsets encode; proportional to bezel width/height.
+  const dx = ((b.rolloverOffset.x - b.normalOffset.x) / 490) * 100;
+  const dy = ((b.rolloverOffset.y - b.normalOffset.y) / 970) * 100;
+  return {
+    left: `${b.boxPct.left}%`, top: `${b.boxPct.top}%`,
+    width: `${b.boxPct.width}%`, height: `${b.boxPct.height}%`,
+    transform: hoverBtn.value === b.name ? `translate(${dx}%, ${dy}%)` : 'translate(0, 0)',
+    transition: 'transform 120ms ease',
+  };
+}
 const logicalH = ref<number | null>(null);
 const busy = ref(false);
 const error = ref('');
@@ -599,14 +622,35 @@ async function endSession(): Promise<void> {
               <div v-if="bezel.def.value" class="bezel-wrap"
                 :style="{ aspectRatio: `${bezel.def.value.bezel.width} / ${bezel.def.value.bezel.height}` }">
                 <img class="bezel-img" :src="`/screenstream${bezel.def.value.bezel.url}`" alt="" draggable="false" />
-                <canvas :ref="stream.setCanvas" @click="onTap" @mousemove="onCanvasMove" class="bezel-screen"
+                <canvas :ref="stream.setCanvas" class="bezel-screen" tabindex="0"
+                  @click="onTap" @mousemove="onCanvasMove"
+                  @pointerdown="(e) => devInput.onPointerDown(e, e.target as HTMLCanvasElement)"
+                  @pointermove="(e) => devInput.onPointerMove(e, e.target as HTMLCanvasElement)"
+                  @pointerup="(e) => devInput.onPointerUp(e, e.target as HTMLCanvasElement)"
+                  @pointercancel="(e) => devInput.onPointerUp(e, e.target as HTMLCanvasElement)"
+                  @wheel.prevent="devInput.onWheel"
+                  @keydown="devInput.onKeyDown" @blur="devInput.onBlur"
                   :style="{ left: `${bezel.def.value.screen.xPct}%`, top: `${bezel.def.value.screen.yPct}%`,
                             width: `${bezel.def.value.screen.wPct}%`, height: `${bezel.def.value.screen.hPct}%`,
                             borderRadius: `${bezel.def.value.screenRadius.pctW}% / ${bezel.def.value.screenRadius.pctH}%`,
-                            cursor: inspect && sessionId ? 'default' : sessionId ? 'crosshair' : 'default', background: 'var(--color-void)' }"></canvas>
+                            cursor: inspect && sessionId ? 'default' : sessionId ? 'crosshair' : 'default', background: 'var(--color-void)', outline: 'none' }"></canvas>
+                <!-- bezel hardware buttons: hover pop-out + press dispatch -->
+                <img v-for="b in bezel.def.value.buttons" :key="b.name" class="bezel-btn"
+                  :src="`/screenstream${b.imageUrl}`" :alt="b.name" draggable="false"
+                  :style="buttonStyle(b)"
+                  :class="{ 'on-top': b.onTop, armed: !!sessionId }"
+                  @pointerenter="hoverBtn = b.name" @pointerleave="hoverBtn = ''"
+                  @pointerdown.prevent="pressBtn(b)" @pointerup.prevent="hoverBtn = ''" />
               </div>
-              <canvas v-else :ref="stream.setCanvas" @click="onTap" @mousemove="onCanvasMove"
-                :style="{ display: 'block', cursor: inspect && sessionId ? 'default' : sessionId ? 'crosshair' : 'default', background: 'var(--color-void)' }"></canvas>
+              <canvas v-else :ref="stream.setCanvas" tabindex="0"
+                @click="onTap" @mousemove="onCanvasMove"
+                @pointerdown="(e) => devInput.onPointerDown(e, e.target as HTMLCanvasElement)"
+                @pointermove="(e) => devInput.onPointerMove(e, e.target as HTMLCanvasElement)"
+                @pointerup="(e) => devInput.onPointerUp(e, e.target as HTMLCanvasElement)"
+                @pointercancel="(e) => devInput.onPointerUp(e, e.target as HTMLCanvasElement)"
+                @wheel.prevent="devInput.onWheel"
+                @keydown="devInput.onKeyDown" @blur="devInput.onBlur"
+                :style="{ display: 'block', cursor: inspect && sessionId ? 'default' : sessionId ? 'crosshair' : 'default', background: 'var(--color-void)', outline: 'none' }"></canvas>
               <InspectOverlay v-if="inspect && sessionId" :nodes="tree.nodes.value" :logical-w="tree.logicalW.value" :logical-h="tree.logicalH.value"
                 :hover="hoverNode" :selected="selNode" :visible="tree.state.value === 'aligned'" />
               <div v-if="inspect && hoverNode && tree.state.value === 'aligned' && sessionId" class="hover-chip"
@@ -892,6 +936,11 @@ async function endSession(): Promise<void> {
 .bezel-wrap { position: relative; height: 100%; max-width: 100%; }
 .bezel-img { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; user-select: none; -webkit-user-drag: none; }
 .bezel-screen { position: absolute; display: block; }
+/* hardware buttons: behind the bezel by default (only the cap past the rail
+ * shows); onTop buttons sit in front. Armed = clickable during a session. */
+.bezel-btn { position: absolute; z-index: 0; pointer-events: none; user-select: none; -webkit-user-drag: none; }
+.bezel-btn.on-top { z-index: 2; }
+.bezel-btn.armed { pointer-events: auto; cursor: pointer; }
 /* canvas: intrinsic aspect (like watch mode), height-capped by the stage;
  * width follows the aspect and can never exceed the stage either */
 .stage-frame canvas { height: 100%; width: auto; max-width: 100%; }

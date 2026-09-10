@@ -14,6 +14,8 @@ export interface BezelDefinition {
     anchor: string;
     onTop: boolean;
     boxPct: { left: number; top: number; width: number; height: number };
+    normalOffset: { x: number; y: number };
+    rolloverOffset: { x: number; y: number };
     imageUrl: string;
   }>;
 }

@@ -77,6 +77,8 @@ struct DeviceChromeAssets {
             return """
             {"name":"\(b.name)","anchor":"\(b.anchor.rawValue)","onTop":\(b.onTop),
              "boxPct":{\(box)},
+             "normalOffset":{"x":\(b.normalOffset.x),"y":\(b.normalOffset.y)},
+             "rolloverOffset":{"x":\(b.rolloverOffset.x),"y":\(b.rolloverOffset.y)},
              "imageUrl":"/devices/\(udid)/bezel-button/\(b.name).png"}
             """
         }.joined(separator: ",")
