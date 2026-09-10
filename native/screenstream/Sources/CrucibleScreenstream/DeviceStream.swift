@@ -143,6 +143,23 @@ final class DeviceStream: ScreenDelegate, @unchecked Sendable {
     }
 
     func screenDidDie(_ screen: Screen) {
+        // Reboot-invalidation: the HID client is bound to the dead instance.
+        // Drop it now so gestures after the sim returns re-warm fresh —
+        // otherwise acks go ok:true into closed service ports (dead taps).
+        // Watchdog queue → hop to main where invalidate() asserts.
+        DispatchQueue.main.async { [input] in
+            input.invalidate()
+        }
         onDeath?()
+    }
+
+    func screenDidRewire(_ screen: Screen) {
+        // Stall → rewire (reboot-in-place): capture is fresh, the warm HID
+        // client is not. Drop it; the next gesture re-warms against the
+        // current sim instance lazily. Runs on the screen queue — hop to
+        // main, where HID dispatch and invalidate() live.
+        DispatchQueue.main.async { [input] in
+            input.invalidate()
+        }
     }
 }

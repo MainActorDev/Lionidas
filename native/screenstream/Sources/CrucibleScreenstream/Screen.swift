@@ -17,6 +17,13 @@ protocol ScreenDelegate: AnyObject {
     /// a dead sim never composites again, so rewire loops only burn CPU and
     /// keep serving the frozen last frame as if it were live.
     func screenDidDie(_ screen: Screen)
+    /// Capture re-established after a composite stall (the reboot-in-place
+    /// signature: brief shutdown that the death branch never observes).
+    /// Capture works again, but the warm HID client still holds the OLD
+    /// instance's service ports — taps ack ok:true into the void. The
+    /// delegate must drop per-device input state; re-warm is lazy on the
+    /// next gesture, so invalidating on every rewire is cheap and safe.
+    func screenDidRewire(_ screen: Screen)
 }
 
 final class Screen: @unchecked Sendable {
@@ -46,6 +53,11 @@ final class Screen: @unchecked Sendable {
     private var callbackUUIDs: [ObjectIdentifier: NSUUID] = [:]
     private var pending = false
     private(set) var lastCompositeAt = Date.distantPast
+    /// Consecutive FAILED rewires. Instance-scoped: startWatchdog()'s timer is
+    /// torn down by stop() and rebuilt by start(), so a local counter reset to
+    /// #1 every cycle and the escalation below was unreachable (observed live:
+    /// "rewire #1" repeating forever after a sim reboot).
+    private var failedRewires = 0
     private var watchdog: DispatchSourceTimer?
     private var clientCount = 0  // set by the server; 0 = nobody watching, watchdog idles
 
@@ -101,6 +113,7 @@ final class Screen: @unchecked Sendable {
         pending = true
         defer { pending = false }
         lastCompositeAt = Date()
+        failedRewires = 0  // healthy composite — rewire failure streak is over
         guard let surface = largestSurface() else { return }
         delegate?.screen(self, didComposite: surface)
     }
@@ -171,7 +184,6 @@ final class Screen: @unchecked Sendable {
     private func startWatchdog() {
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 5, repeating: .seconds(5))
-        var rewires = 0
         timer.setEventHandler { [weak self] in
             guard let self, self.clientCount > 0 else { return }
             let quiet = Date().timeIntervalSince(self.lastCompositeAt)
@@ -188,11 +200,30 @@ final class Screen: @unchecked Sendable {
                 self.delegate?.screenDidDie(self)
                 return
             }
-            // wedged-but-booted: rewire once, escalate after repeated stalls
-            rewires += 1
-            FileHandle.standardError.write(Data("Screen: composite stall (\(Int(quiet))s, rewire #\(rewires)) — rewiring\n".utf8))
+            // wedged-but-booted: rewire with escalation. Each stop()/start()
+            // cycle rebuilds this timer, so the counter must live on self.
+            // After 3 consecutive failed rewires (~45s of silence with a live
+            // client) treat the stream as dead: the capture wedged against a
+            // sim instance that will never composite again (reboot-in-place is
+            // the observed case — HID client is equally stale by then).
+            // screenDidDie invalidates HID and tears sessions down honestly;
+            // the next client connect re-warms everything fresh.
+            if self.failedRewires >= 3 {
+                FileHandle.standardError.write(Data("Screen: \(self.failedRewires) consecutive failed rewires — declaring stream dead for \(self.udid)\n".utf8))
+                self.stop()
+                self.delegate?.screenDidDie(self)
+                return
+            }
+            self.failedRewires += 1
+            FileHandle.standardError.write(Data("Screen: composite stall (\(Int(quiet))s, rewire #\(self.failedRewires)) — rewiring\n".utf8))
             self.stop()
             try? self.start()
+            // Stall → rewire is the reboot-in-place signature (the brief
+            // shutdown fell between watchdog ticks, so the death branch never
+            // observed it). Capture now targets the fresh instance; anything
+            // holding per-device input state must drop it — ok:true acks into
+            // the old instance's ports are exactly the dead-tap bug.
+            self.delegate?.screenDidRewire(self)
         }
         timer.resume()
         watchdog = timer

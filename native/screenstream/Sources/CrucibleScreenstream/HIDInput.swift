@@ -83,6 +83,27 @@ final class HIDInput: InputSurface, @unchecked Sendable {
     private let lock = NSLock()
     private var identifiers = TouchIdentifiers()
 
+    /// Sim went away (shutdown/crash/reboot): the warm HID client is bound to
+    /// the DEAD device instance — SimDeviceLegacyHIDClient initWithDevice holds
+    /// a stale SimDevice whose service ports are closed. Acks still return
+    /// ok:true into the void. Drop the client so the next gesture re-warms
+    /// against the fresh instance. Must run on main (touchTarget read).
+    func invalidate() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        lock.lock()
+        // Release the pointer service (deinit parity); the digitizer stays
+        // registered — the host still uses the display after our teardown.
+        if warmed, let c = client {
+            if let remove = removePointerSvc, let msg = remove() {
+                Self.send(message: msg, to: c)
+            }
+        }
+        client = nil
+        warmed = false
+        identifiers = TouchIdentifiers()
+        lock.unlock()
+    }
+
     // IndigoHIDMessageForMouseNSEvent — 9-arg shape (Xcode 26 preview-kit).
     // Coords NORMALIZED 0-1; target=0x32 routes to the touch digitizer.
     // direction: 1=down, 0=move, 2=up. nsEventType: 1=down, 2=up, 6=dragged.
