@@ -303,3 +303,23 @@ import VideoToolbox
         #expect(DeviceButton.from(wireName: "siri") == nil)     // rejected by absence
     }
 }
+
+@Suite struct TouchIdentifiersTests {
+    @Test func downResetsAndStickiness() {
+        var ids = TouchIdentifiers()
+        let a = ids.current(for: .down)
+        #expect(a == 1)
+        #expect(ids.current(for: .move) == 1)   // sticky across the sequence
+        #expect(ids.current(for: .up) == 1)
+        let b = ids.current(for: .down)          // new touch → new id
+        #expect(b == 2)
+    }
+    @Test func interleavedSequences() {
+        var ids = TouchIdentifiers()
+        _ = ids.current(for: .down)              // touch 1
+        _ = ids.current(for: .up)
+        _ = ids.current(for: .down)              // touch 2
+        _ = ids.current(for: .move)
+        #expect(ids.current(for: .up) == 2)      // still touch 2 at lift
+    }
+}
