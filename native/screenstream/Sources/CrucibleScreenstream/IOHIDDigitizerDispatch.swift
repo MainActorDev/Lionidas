@@ -135,6 +135,30 @@ enum IOHIDDigitizerDispatch {
         return true
     }
 
+    /// Two-finger variant: parent + TWO finger children (pan/pinch).
+    /// The wrapper's two-record output and `patch`'s dual target slots
+    /// (0x6c/0x10c) exist for exactly this layout; baguette never wired
+    /// it, leaving touch2 on the iOS-26-regressed legacy mouse path
+    /// where wheel pans silently drop. Distinct identifiers so iOS
+    /// threads the two sequences independently.
+    static func send2(point1: CGPoint, id1: UInt32,
+                      point2: CGPoint, id2: UInt32,
+                      phase: Phase, edge: Edge,
+                      target: UInt32 = IndigoHIDTouchTarget.phone,
+                      on client: AnyObject) -> Bool {
+        guard ensureSymbols() else { return false }
+        guard let parent = makeDigitizerEvent2(point1: point1, id1: id1,
+                                               point2: point2, id2: id2,
+                                               phase: phase) else { return false }
+        let raw: UnsafeMutableRawPointer? = withExtendedLifetime(parent) {
+            wrapTrackpad(event: parent)
+        }
+        guard let raw else { return false }
+        patch(message: raw, edge: edge, target: target)
+        sendMessage(raw, to: client)
+        return true
+    }
+
     // MARK: - private — IOHIDEvent construction
 
     /// Build a digitizer parent event with a finger child appended.
@@ -174,6 +198,35 @@ enum IOHIDDigitizerDispatch {
         ) else { return parent }
         let finger = fingerUM.takeRetainedValue()
         appendFn(parent, finger, 0)
+        return parent
+    }
+
+    /// Two finger children under one parent, each with its own identifier.
+    private static func makeDigitizerEvent2(point1: CGPoint, id1: UInt32,
+                                            point2: CGPoint, id2: UInt32,
+                                            phase: Phase) -> CFTypeRef? {
+        guard let createParent = createDigitizerFn,
+              let createFinger = createFingerFn,
+              let appendFn      = appendEventFn else { return nil }
+        let mask = phase.eventMask, range = phase.range, touch = phase.touch
+        let now = mach_absolute_time()
+        let transducerFinger: UInt32 = 2
+        let mkFinger = { (id: UInt32, p: CGPoint) -> CFTypeRef? in
+            guard let um = createFinger(nil, now, 0, id, mask,
+                                        p.x, p.y, 0.0, 0.0, 0.0,
+                                        range, touch, 0) else { return nil }
+            return um.takeRetainedValue()
+        }
+        guard let parentUM = createParent(
+            nil, now, transducerFinger,
+            0, id1, mask, 0,
+            point1.x, point1.y, 0.0, 0.0, 0.0,
+            range, touch, 0
+        ) else { return nil }
+        let parent = parentUM.takeRetainedValue()
+        guard let f1 = mkFinger(id1, point1) else { return parent }
+        appendFn(parent, f1, 0)
+        if let f2 = mkFinger(id2, point2) { appendFn(parent, f2, 1) }
         return parent
     }
 

@@ -6,7 +6,7 @@ import { createReadStream, statSync, rm } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, manualProbeSelector, manualTree, finishManualSession, setRecording, getRecording, deleteRecordedStep, recordExpectStep, manualGesture, ManualSessionError } from '../manual/session.ts';
+import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, manualProbeSelector, manualTree, finishManualSession, setRecording, getRecording, deleteRecordedStep, recordExpectStep, manualGesture, touchSessionActivity, ManualSessionError } from '../manual/session.ts';
 import { listSimulatorApps } from '../manual/apps.ts';
 import { installApp } from '../manual/app-install.ts';
 import { findArtifacts, importArtifact, appsStoreDir } from '../manual/artifacts.ts';
@@ -226,6 +226,16 @@ export function registerManualRoutes(
 
   // Inspect mode: full AX tree for the overlay (boxes + drawer). Dumb pipe —
   // nodes verbatim; interpretation lives in @crucible/shared/ax-tree.
+  app.post('/api/manual/:id/heartbeat', async (req, reply) => {
+    // direct-WS input bypasses the HTTP routes that refresh last_activity —
+    // the wall pings this while driving so the 5-min idle watchdog doesn't
+    // reap a session mid-use (input then dies with 'not granted' while the
+    // stream keeps playing — the 'silent unresponsive' bug).
+    const { id } = req.params as { id: string };
+    touchSessionActivity({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id);
+    return { ok: true };
+  });
+
   app.post('/api/manual/:id/tree', async (req, reply) => {
     const { id } = req.params as { id: string };
     try {

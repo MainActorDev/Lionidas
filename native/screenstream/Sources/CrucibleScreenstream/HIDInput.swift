@@ -34,7 +34,7 @@ enum DeviceEdge: String, Sendable {
 /// sequence (down resets, move reuses, up keeps; overflow resets to 1).
 /// iOS threads a touch sequence through the HID stack by identifier —
 /// reusing one across distinct touches confuses the recogniser.
-struct TouchIdentifiers: Equatable, Sendable {
+struct TouchIdentifiers: Sendable {
     private var counter: UInt32 = 0
     private var sticky: UInt32?
 
@@ -49,6 +49,27 @@ struct TouchIdentifiers: Equatable, Sendable {
         if counter == 0 { counter = 1 }
         sticky = counter
         return counter
+    }
+
+    /// Paired identifiers for two-finger (pan/pinch) sequences: both
+    /// assigned on `down`, both sticky through `up`.
+    private var pairSticky: (UInt32, UInt32)?
+    mutating func pair(for phase: TouchPhase) -> (UInt32, UInt32) {
+        if phase == .down {
+            counter &+= 1; if counter == 0 { counter = 1 }
+            let a = counter
+            counter &+= 1; if counter == 0 { counter = 1 }
+            let b = counter
+            pairSticky = (a, b)
+        }
+        if let pairSticky {
+            if phase == .up { self.pairSticky = nil }
+            return pairSticky
+        }
+        counter &+= 1; if counter == 0 { counter = 1 }
+        let a = counter
+        counter &+= 1; if counter == 0 { counter = 1 }
+        return (a, counter)
     }
 }
 
@@ -180,12 +201,27 @@ final class HIDInput: InputSurface, @unchecked Sendable {
     }
 
     func touch2(phase: TouchPhase, first: Point, second: Point, size: Size) -> Bool {
-        // Two-finger streaming stays on the legacy 9-arg mouse path —
-        // coincident-finger streaming the digitizer recipe doesn't model.
+        // Digitizer path (parent + two finger children). The legacy 9-arg
+        // mouse path silently drops on iOS 26 / Xcode 26 — the same
+        // regression baguette's tap/swipe comment documents; wheel pans
+        // acked ok but never landed. Sticky distinct ids per sequence.
         dispatchPrecondition(condition: .onQueue(.main))
         guard let c = ensureWarm() else { return false }
-        let (et, dir) = mouseEvent(for: phase)
-        return sendMouse(client: c, p1: first, p2: second, eventType: et, direction: dir, size: size)
+        let dp: IOHIDDigitizerDispatch.Phase
+        switch phase {
+        case .down: dp = .down
+        case .move: dp = .move
+        case .up:   dp = .up
+        }
+        let (id1, id2) = identifiers.pair(for: phase)
+        let n1 = CGPoint(x: clamp01(first.x / size.width),
+                         y: clamp01(first.y / size.height))
+        let n2 = CGPoint(x: clamp01(second.x / size.width),
+                         y: clamp01(second.y / size.height))
+        return IOHIDDigitizerDispatch.send2(point1: n1, id1: id1,
+                                            point2: n2, id2: id2,
+                                            phase: dp, edge: .none,
+                                            target: touchTarget, on: c)
     }
 
     func button(_ button: DeviceButton, duration: Double) -> Bool {

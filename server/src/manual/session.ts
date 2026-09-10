@@ -158,6 +158,10 @@ function liveSession(deps: ManualDeps, sessionId: string): { id: string; run_id:
   return s;
 }
 
+export function touchSessionActivity(deps: ManualDeps, sessionId: string): void {
+  deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ? AND finished_at IS NULL').run(Date.now(), sessionId);
+}
+
 export async function manualTap(deps: ManualDeps, sessionId: string, x: number, y: number): Promise<void> {
   const s = liveSession(deps, sessionId);
   const alloy = crucibleAlloy();

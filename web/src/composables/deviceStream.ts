@@ -322,7 +322,12 @@ export function useDeviceStream(): DeviceStream {
           // parse errors) surface on the input status line instead of
           // killing the stream view.
           if (body.type === 'input_ack') {
-            if (body.ok === false && body.error) lastInputError.value = body.error;
+            if (body.ok === false && body.error) {
+              lastInputError.value = body.error;
+              // grant refusal = the driving session is gone server-side.
+              // Loud, not silent: flag control-lost so the UI demotes itself.
+              if (/not granted|no driving session/i.test(body.error)) controlLost.value = true;
+            }
             return;
           }
           // sim died mid-stream (shutdown/crash): the engine already tore the
@@ -379,6 +384,7 @@ export function useDeviceStream(): DeviceStream {
     const gen = generation;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     state.value = isRetry ? 'reconnecting' : 'connecting';
+    controlLost.value = false;   // fresh attach: previous refusal is stale
     // avcc: browser talks DIRECTLY to crucible-screenstream (our engine —
     // the relay hop exists for the legacy mjpeg path). Resolve the URL via our
     // API (auth + spawn supervision), then connect through the same-origin
@@ -559,6 +565,13 @@ export function useDeviceStream(): DeviceStream {
 /** last engine-side input refusal (surfaced by the sidebar status line) */
 const lastInputError = ref('');
 export function inputError(): Ref<string> { return lastInputError; }
+
+/** control-lost signal: the engine refused input with 'not granted' — the
+ *  driving session was reaped/revoked server-side (idle watchdog, restart).
+ *  The stream keeps playing, so without this the wall looks live while every
+ *  gesture silently dies. The sidebar drops to watching + banner on it. */
+const controlLost = ref(false);
+export function isControlLost(): Ref<boolean> { return controlLost; }
 
 let directSend: ((payload: object) => boolean) | null = null;
 export function directInputSend(): ((payload: object) => boolean) | null { return directSend; }

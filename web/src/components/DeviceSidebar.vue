@@ -6,7 +6,7 @@
  *  The sidebar is the single mount point for the stream on the wall page —
  *  tiles never embed streams inline anymore. */
 import { ref, computed, watch, onUnmounted } from 'vue';
-import { useDeviceStream, canvasPointToLogical } from '../composables/deviceStream.ts';
+import { useDeviceStream, canvasPointToLogical, isControlLost } from '../composables/deviceStream.ts';
 import { useDeviceBezel } from '../composables/useDeviceBezel.ts';
 import { useDeviceInput } from '../composables/useDeviceInput.ts';
 import { hitTestNodeAt, selectorPreview, type AxNode } from '@crucible/shared/ax-tree';
@@ -503,6 +503,7 @@ async function startSession(): Promise<void> {
       phase.value = 'driving'; // same canvas, no stream restart
       void loadSteps();
       recordPoll = setInterval(() => void loadSteps(), 1200);
+      startHeartbeat();
     } else error.value = body.error ?? 'failed to start';
   } finally { busy.value = false; }
 }
@@ -601,9 +602,38 @@ async function scroll(direction: string): Promise<void> {
 
 async function endSession(): Promise<void> {
   await teardownSession();
+  stopHeartbeat();
   if (inspect.value) toggleInspect(); // session-bound tree dies with the session
   phase.value = 'watching';           // release-to-watch: stream keeps flowing
 }
+
+// ── driving heartbeat ──
+// Direct-WS input bypasses every HTTP route that refreshes last_activity, so
+// the server's 5-min idle watchdog would reap the session mid-drive: the
+// stream keeps playing while every gesture dies with 'input not granted'.
+// One ping a minute keeps the session marked active. 410 = already reaped.
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+function startHeartbeat(): void {
+  stopHeartbeat();
+  heartbeatTimer = setInterval(() => {
+    const id = sessionId.value;
+    if (!id || phase.value !== 'driving') return;
+    void api(`${id}/heartbeat`).catch(() => undefined);
+  }, 60_000);
+}
+function stopHeartbeat(): void {
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+}
+
+// control-lost: the engine refused input with 'not granted' — the driving
+// session died server-side while the stream kept playing. Demote to watching
+// (input is inert anyway) and say WHY; silent dead input is the bug this kills.
+const controlLostMsg = ref('');
+watch(isControlLost(), (lost) => {
+  if (!lost || phase.value !== 'driving') return;
+  controlLostMsg.value = 'control lost — session ended server-side (idle or restart). take control again to keep driving';
+  void endSession();
+});
 </script>
 <template>
   <transition name="sidebar">
@@ -619,6 +649,10 @@ async function endSession(): Promise<void> {
         </div>
         <button class="btn btn-sm sb-x" @click="emit('close')">✕</button>
       </header>
+      <div v-if="controlLostMsg" class="sb-banner" role="alert">
+        ⚠ {{ controlLostMsg }}
+        <button class="btn btn-sm" @click="controlLostMsg = ''">dismiss</button>
+      </div>
 
       <!-- ONE cockpit: stream column is persistent across phases (same canvas,
            no teardown flash); only the work column swaps watching vs driving -->
@@ -899,6 +933,12 @@ async function endSession(): Promise<void> {
 .sb-title { font-size: 13px; font-weight: 700; letter-spacing: 0.02em; }
 .sb-sub { font-size: 10px; color: var(--color-steel); margin-top: 3px; }
 .lease-on { color: var(--color-ember); }
+.sb-banner {
+  display: flex; align-items: center; gap: 8px; justify-content: space-between;
+  padding: 7px 16px; font-size: 11px;
+  color: var(--color-ember); background: color-mix(in srgb, var(--color-ember) 12%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-ember) 30%, transparent);
+}
 .sb-body { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; padding: 12px; }
 .sb-foot {
   flex: 0 0 auto;
