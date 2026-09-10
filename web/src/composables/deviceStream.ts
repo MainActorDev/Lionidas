@@ -305,12 +305,13 @@ export function useDeviceStream(): DeviceStream {
     );
     ws.onopen = () => {
       state.value = 'live';
-      // 60fps matches baguette's tuning (its client math assumes 60); idle
-      // screens still encode ~0 frames so the sharpness budget only spends
-      // during motion. 24Mbps keeps text edges holdable. Both live-retunable.
+      // 60fps @ baguette's "Balanced" bitrate (2Mbps at scale=2 — their
+      // recommended preset). 24Mbps overwhelmed the HW decoder per-frame at
+      // 60fps (stutter during motion); idle screens encode ~0 frames anyway,
+      // so sharpness on stills is unaffected. All live-retunable.
       try {
         socket.send(JSON.stringify({ type: 'set_fps', fps: 60 }));
-        socket.send(JSON.stringify({ type: 'set_bitrate', bps: 24_000_000 }));
+        socket.send(JSON.stringify({ type: 'set_bitrate', bps: 2_000_000 }));
       } catch { /* socket gone */ }
     };
     ws.onmessage = (ev: MessageEvent) => {
@@ -394,12 +395,34 @@ export function useDeviceStream(): DeviceStream {
         const r = await fetch(`/api/devices/${udid}/stream?format=avcc`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
         const b = await r.json() as { streamUrl?: string; error?: string };
         if (!r.ok || !b.streamUrl) throw new Error(b.error ?? `resolve ${r.status}`);
-        // same-origin via the vite proxy (/screenstream → 127.0.0.1:8440):
-        // the browser tags the WS sec-fetch-site: same-origin, which the
-        // engine's loopback trust check accepts
-        const engine = `/screenstream${new URL(b.streamUrl).pathname}${new URL(b.streamUrl).search}`;
         state.value = isRetry ? 'reconnecting' : 'connecting';
-        attachDirect(new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${engine}`), udid, gen);
+        // baguette 1:1 topology: browser → ENGINE directly (no relay, no
+        // proxy hop — the engine accepts any WS; the old "loopback trust
+        // check" comment was stale). Same-machine walls reach 127.0.0.1:8440.
+        // Remote browsers (loopback unreachable) fall back to the same-origin
+        // proxy path — detected by the direct socket erroring before open.
+        const u = new URL(b.streamUrl);
+        const direct = new WebSocket(b.streamUrl);
+        const proxied = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/screenstream${u.pathname}${u.search}`);
+        // race: whichever opens first wins; the loser is closed.
+        let winner: WebSocket | null = null;
+        const pick = (s: WebSocket) => () => {
+          if (winner) { try { s.close(); } catch { /* gone */ } return; }
+          winner = s;
+          if (direct === s) { try { proxied.close(); } catch { /* gone */ } }
+          else { try { direct.close(); } catch { /* gone */ } }
+          attachDirect(s, udid, gen);
+        };
+        direct.onopen = pick(direct);
+        proxied.onopen = pick(proxied);
+        // fail only when BOTH paths errored and neither opened
+        const errored = new Set<WebSocket>();
+        const onErr = (s: WebSocket) => () => {
+          errored.add(s);
+          if (!winner && errored.size >= 2) fail('engine unreachable (direct and proxy)', true);
+        };
+        direct.onerror = onErr(direct);
+        proxied.onerror = onErr(proxied);
         return;
       } catch (err) {
         fail(err instanceof Error ? err.message : String(err), true);
