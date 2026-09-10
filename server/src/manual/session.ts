@@ -161,7 +161,7 @@ export async function manualTap(deps: ManualDeps, sessionId: string, x: number, 
   const alloy = crucibleAlloy();
   // A6: capture WHAT was tapped from the pre-action hierarchy (recording only)
   const recordingOn = readRecording(deps, sessionId).on;
-  const selector = recordingOn ? await captureSelector(deps, s.udid, x, y) : null;
+  const selector = recordingOn && x != null && y != null ? await captureSelector(deps, s.udid, x, y) : null;
   // fast path: engine-direct dispatch; alloy fallback on ack-timeout only
   // (selector capture above stays alloy regardless — recording's job)
   const sent = await engineInputWithFallback(deps, s.udid, { kind: 'tap', x, y }, async () => {
@@ -230,21 +230,25 @@ export async function manualScroll(deps: ManualDeps, sessionId: string, directio
   deps.bus.emit('manual.session.scroll', { sessionId, direction });
 }
 
-export async function manualType(deps: ManualDeps, sessionId: string, x: number, y: number, text: string): Promise<void> {
+export async function manualType(deps: ManualDeps, sessionId: string, x: number | null, y: number | null, text: string): Promise<void> {
   const s = liveSession(deps, sessionId);
   const alloy = crucibleAlloy();
   // A6: capture the field identity pre-action (recording only)
   const recordingOn = readRecording(deps, sessionId).on;
-  const selector = recordingOn ? await captureSelector(deps, s.udid, x, y) : null;
-  // engine `fill`: targets the field at (x,y) and replaces its text — same
-  // coordinate space as tap (logical points from the session dims)
-  const r = (await dispatchWithHeal('alloy_act', { udid: s.udid, action: 'fill', target: { x, y }, text, settle: true }, deps.dispatchDeps)) as
-    | { ok: true }
-    | { ok: false; error: { code: string; message: string } };
-  if (!r.ok) throw new ManualSessionError('LEASE_LOST', `type failed: ${'message' in r.error ? r.error.message : 'engine error'}`);
+  const selector = recordingOn && x != null && y != null ? await captureSelector(deps, s.udid, x, y) : null;
+  // engine fast path: keystrokes into the device's FOCUSED field (real
+  // typing — no coordinates). alloy fill-by-coordinates is the fallback
+  // for the nothing-focused case.
+  const sent = await engineInputWithFallback(deps, s.udid, { kind: 'type', text }, async () => {
+    const r = (await dispatchWithHeal('alloy_act', { udid: s.udid, action: 'fill', target: { x: x ?? 0, y: y ?? 0 }, text, settle: true }, deps.dispatchDeps)) as
+      | { ok: true }
+      | { ok: false; error: { code: string; message: string } };
+    return r.ok;
+  }, 'type');
+  if (!sent) throw new ManualSessionError('LEASE_LOST', 'type failed: engine + alloy both refused');
   deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
-  await recordStep(deps, sessionId, { action: 'type', x, y, text, selector });
-  deps.bus.emit('manual.session.type', { sessionId, x, y, len: text.length });
+  await recordStep(deps, sessionId, { action: 'type', x: x ?? 0, y: y ?? 0, text, selector });
+  deps.bus.emit('manual.session.type', { sessionId, x: x ?? 0, y: y ?? 0, len: text.length });
 }
 
 // ── recorder controls ────────────────────────────────────────────────────────

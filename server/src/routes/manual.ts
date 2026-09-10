@@ -109,6 +109,23 @@ export function registerManualRoutes(
     }
   });
 
+  app.post('/api/manual/:id/touch2', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = req.body as { phase?: string; x1?: number; y1?: number; x2?: number; y2?: number };
+    if (!b.phase || !['down', 'move', 'up'].includes(b.phase)) return reply.code(400).send({ error: 'phase (down|move|up) required' });
+    for (const k of ['x1', 'y1', 'x2', 'y2'] as const) {
+      if (typeof b[k] !== 'number') return reply.code(400).send({ error: `${k} required` });
+    }
+    try {
+      await manualGesture({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id, { kind: 'touch2', phase: b.phase, x1: b.x1, y1: b.y1, x2: b.x2, y2: b.y2 });
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
+      const msg = err instanceof Error ? err.message : String(err);
+      return reply.code(503).send({ error: `input unavailable: ${msg}`, retryable: msg === 'INPUT_TIMEOUT' });
+    }
+  });
+
   app.post('/api/manual/:id/swipe', async (req, reply) => {
     const { id } = req.params as { id: string };
     const b = req.body as { startX?: number; startY?: number; endX?: number; endY?: number; duration?: number };
@@ -182,9 +199,11 @@ export function registerManualRoutes(
   app.post('/api/manual/:id/type', async (req, reply) => {
     const { id } = req.params as { id: string };
     const b = req.body as { x?: number; y?: number; text?: string };
-    if (typeof b.x !== 'number' || typeof b.y !== 'number' || typeof b.text !== 'string') return reply.code(400).send({ error: 'x,y,text required' });
+    // text is required; x,y optional — engine typing goes to the focused
+    // field, coordinates only feed the alloy fill fallback
+    if (typeof b.text !== 'string' || b.text.length === 0) return reply.code(400).send({ error: 'text required' });
     try {
-      await manualType({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id, b.x, b.y, b.text);
+      await manualType({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id, b.x ?? null, b.y ?? null, b.text);
       return { ok: true };
     } catch (err) {
       if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });

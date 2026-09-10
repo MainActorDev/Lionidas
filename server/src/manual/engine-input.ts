@@ -17,6 +17,7 @@ type AckWaiter = { resolve: (ok: boolean, error?: string) => void; timer: NodeJS
 interface EngineSocketExt extends WebSocket {
   __ackWaiters?: Map<number, AckWaiter>;
   __nextSeq?: number;
+  __ackWired?: boolean;
 }
 
 /** registry shared with stream-relay via module-level injection (avoids a
@@ -27,31 +28,39 @@ export function __bindEngineSockets(map: unknown): void {
   socketsByUdid = map as SocketsByUdid;
 }
 
+function ensureAckListener(ws: EngineSocketExt): void {
+  // The relay's sockets join the same registry without this module's
+  // listener; attach idempotently so acks correlate on every socket.
+  if (ws.__ackWired) return;
+  ws.__ackWired = true;
+  if (!ws.__ackWaiters) ws.__ackWaiters = new Map();
+  ws.on('message', (data: Buffer, isBinary: boolean) => {
+    if (isBinary) return;
+    try {
+      const msg = JSON.parse(data.toString()) as { type?: string; ok?: boolean; error?: string; seq?: number };
+      if (msg.type === 'input_ack' && typeof msg.seq === 'number') {
+        const w = ws.__ackWaiters?.get(msg.seq);
+        if (w) {
+          ws.__ackWaiters?.delete(msg.seq);
+          clearTimeout(w.timer);
+          w.resolve(msg.ok !== false, msg.error);
+        }
+      }
+    } catch { /* not JSON */ }
+  });
+}
+
 function socketFor(udid: string): Promise<EngineSocketExt> {
   const existing = socketsByUdid?.get(udid);
   const live = existing ? [...existing].find((ws) => ws.readyState === 1 /* OPEN */) : undefined;
-  if (live) return Promise.resolve(live);
+  if (live) { ensureAckListener(live); return Promise.resolve(live); }
   return new Promise((resolve, reject) => {
     // lazy import keeps ws out of modules that never drive
     void (async () => {
       const WS = (await import('ws')).default as unknown as new (url: string) => EngineSocketExt;
       const ws = new WS(`ws://127.0.0.1:${ENGINE_PORT}/devices/${udid}/stream`);
-      ws.__ackWaiters = new Map();
       ws.__nextSeq = 1;
-      ws.on('message', (data: Buffer, isBinary: boolean) => {
-        if (isBinary) return; // stream frames — input socket ignores them
-        try {
-          const msg = JSON.parse(data.toString()) as { type?: string; ok?: boolean; error?: string; seq?: number };
-          if (msg.type === 'input_ack' && typeof msg.seq === 'number') {
-            const w = ws.__ackWaiters?.get(msg.seq);
-            if (w) {
-              ws.__ackWaiters?.delete(msg.seq);
-              clearTimeout(w.timer);
-              w.resolve(msg.ok !== false, msg.error);
-            }
-          }
-        } catch { /* not JSON */ }
-      });
+      ensureAckListener(ws);
       const register = (): void => {
         if (!socketsByUdid) return;
         let set = socketsByUdid.get(udid);

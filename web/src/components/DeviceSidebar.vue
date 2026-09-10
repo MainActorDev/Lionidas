@@ -628,7 +628,7 @@ async function endSession(): Promise<void> {
                   @pointermove="(e) => devInput.onPointerMove(e, e.target as HTMLCanvasElement)"
                   @pointerup="(e) => devInput.onPointerUp(e, e.target as HTMLCanvasElement)"
                   @pointercancel="(e) => devInput.onPointerUp(e, e.target as HTMLCanvasElement)"
-                  @wheel.prevent="devInput.onWheel"
+                  @wheel.prevent="(e) => devInput.onWheel(e, e.target as HTMLCanvasElement)"
                   @keydown="devInput.onKeyDown" @blur="devInput.onBlur"
                   :style="{ left: `${bezel.def.value.screen.xPct}%`, top: `${bezel.def.value.screen.yPct}%`,
                             width: `${bezel.def.value.screen.wPct}%`, height: `${bezel.def.value.screen.hPct}%`,
@@ -648,7 +648,7 @@ async function endSession(): Promise<void> {
                 @pointermove="(e) => devInput.onPointerMove(e, e.target as HTMLCanvasElement)"
                 @pointerup="(e) => devInput.onPointerUp(e, e.target as HTMLCanvasElement)"
                 @pointercancel="(e) => devInput.onPointerUp(e, e.target as HTMLCanvasElement)"
-                @wheel.prevent="devInput.onWheel"
+                @wheel.prevent="(e) => devInput.onWheel(e, e.target as HTMLCanvasElement)"
                 @keydown="devInput.onKeyDown" @blur="devInput.onBlur"
                 :style="{ display: 'block', cursor: inspect && sessionId ? 'default' : sessionId ? 'crosshair' : 'default', background: 'var(--color-void)', outline: 'none' }"></canvas>
               <InspectOverlay v-if="inspect && sessionId" :nodes="tree.nodes.value" :logical-w="tree.logicalW.value" :logical-h="tree.logicalH.value"

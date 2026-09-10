@@ -43,6 +43,10 @@ export function useDeviceInput(
   function onPointerDown(e: PointerEvent, canvas: HTMLCanvasElement): void {
     if (!sessionId.value || e.button !== 0) return;
     active = true; moved = false; downAt = Date.now();
+    // capture: the drag continues even when the pointer leaves the canvas —
+    // without it, moving past the rail silently ends the move stream (the
+    // "fragile swipe" bug)
+    try { canvas.setPointerCapture(e.pointerId); } catch { /* older engines */ }
     lastPt = canvasPointToLogical(canvas, e.clientX, e.clientY);
     void post('touch1', { kind: 'touch1', phase: 'down', x: lastPt.x, y: lastPt.y }).catch(() => undefined);
   }
@@ -52,6 +56,8 @@ export function useDeviceInput(
     const p = canvasPointToLogical(canvas, e.clientX, e.clientY);
     if (!moved && Math.hypot(p.x - lastPt.x, p.y - lastPt.y) > 6) moved = true;
     if (!moved) return;
+    lastPt = p;   // update FIRST so the throttled send always carries the
+                  // newest point (stale-point sends made drags laggy/jumpy)
     // rAF throttle: one in-flight move at a time
     if (moveRaf) return;
     moveRaf = requestAnimationFrame(() => {
@@ -59,7 +65,6 @@ export function useDeviceInput(
       if (!active) return;
       void post('touch1', { kind: 'touch1', phase: 'move', x: lastPt.x, y: lastPt.y }).catch(() => undefined);
     });
-    lastPt = p;
   }
 
   function onPointerUp(e: PointerEvent, canvas: HTMLCanvasElement): void {
@@ -76,11 +81,67 @@ export function useDeviceInput(
     }
   }
 
-  function onWheel(e: WheelEvent): void {
+  // ── wheel: baguette's WheelGestureSource recipe 1:1 ──
+  // NO scroll-HID messages: raw wheel deltas through
+  // IndigoHIDMessageForScrollEvent are the backboardd-crash class (found
+  // live: the sim rebooted on wheel use). Instead the wheel synthesizes a
+  // 2-finger touch pan (plain) or pinch (ctrl), auto-closing after a short
+  // idle window because wheel events have no natural "finger up".
+  const BASE_SPREAD_PT = 80;   // sim-pt for the synthesized finger pair
+  const WHEEL_IDLE_MS = 120;   // wheel idle → close 2-finger
+  interface WheelState {
+    kind: 'pinch' | 'pan';
+    f1: { x: number; y: number };
+    f2: { x: number; y: number };
+    scale: number;
+    idleTimer: ReturnType<typeof setTimeout> | null;
+  }
+  let wheelState: WheelState | null = null;
+
+  function wheelClose(): void {
+    if (!wheelState) return;
+    void post('touch2', { kind: 'touch2', phase: 'up', x1: wheelState.f1.x, y1: wheelState.f1.y, x2: wheelState.f2.x, y2: wheelState.f2.y }).catch(() => undefined);
+    wheelState = null;
+  }
+
+  function onWheel(e: WheelEvent, canvas: HTMLCanvasElement): void {
     if (!sessionId.value) return;
     e.preventDefault();
-    // browser deltas are inverted vs. iOS content scroll
-    void post('scroll-delta', { deltaX: -e.deltaX, deltaY: -e.deltaY }).catch(() => undefined);
+    const w = logical.value.w ?? canvas.width;
+    const h = logical.value.h ?? canvas.height;
+    if (!w || !h) return;
+    const r = canvas.getBoundingClientRect();
+    const vx = e.clientX - r.left, vy = e.clientY - r.top;
+    const centre = { x: (vx / r.width) * w, y: (vy / r.height) * h };
+    const wantKind = e.ctrlKey ? 'pinch' : 'pan';
+
+    if (!wheelState || wheelState.kind !== wantKind) {
+      if (wheelState) wheelClose();
+      wheelState = {
+        kind: wantKind,
+        f1: { x: centre.x + BASE_SPREAD_PT, y: centre.y },
+        f2: { x: centre.x - BASE_SPREAD_PT, y: centre.y },
+        scale: 1, idleTimer: null,
+      };
+      void post('touch2', { kind: 'touch2', phase: 'down', x1: wheelState.f1.x, y1: wheelState.f1.y, x2: wheelState.f2.x, y2: wheelState.f2.y }).catch(() => undefined);
+    }
+
+    if (wheelState.kind === 'pinch') {
+      wheelState.scale = Math.max(0.25, Math.min(6, wheelState.scale * Math.exp(-e.deltaY / 200)));
+      const rr = BASE_SPREAD_PT * wheelState.scale;
+      wheelState.f1 = { x: centre.x + rr, y: centre.y };
+      wheelState.f2 = { x: centre.x - rr, y: centre.y };
+    } else {
+      const shiftX = (-e.deltaX / r.width) * w;
+      const shiftY = (-e.deltaY / r.height) * h;
+      wheelState.f1.x += shiftX; wheelState.f1.y += shiftY;
+      wheelState.f2.x += shiftX; wheelState.f2.y += shiftY;
+    }
+
+    void post('touch2', { kind: 'touch2', phase: 'move', x1: wheelState.f1.x, y1: wheelState.f1.y, x2: wheelState.f2.x, y2: wheelState.f2.y }).catch(() => undefined);
+
+    if (wheelState.idleTimer) clearTimeout(wheelState.idleTimer);
+    wheelState.idleTimer = setTimeout(wheelClose, WHEEL_IDLE_MS);
   }
 
   // ── keyboard: focus-gated capture on the canvas ──

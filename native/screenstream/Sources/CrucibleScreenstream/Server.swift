@@ -277,13 +277,14 @@ final class ScreenstreamServer: @unchecked Sendable {
         case "run_resume": stream.runResume()
         case "input":
             let kind = (msg["kind"] as? String) ?? "?"
+            let seq = (msg["seq"] as? Int).map { ",\"seq\":\($0)" } ?? ""
             do {
                 let gesture = try GestureJSON.parse(msg)
                 let ok = Self.dispatch(gesture, on: stream)
-                session.sendText("{\"type\":\"input_ack\",\"ok\":\(ok),\"kind\":\"\(kind)\"}")
+                session.sendText("{\"type\":\"input_ack\",\"ok\":\(ok),\"kind\":\"\(kind)\"\(seq)}")
             } catch {
                 let reason = Self.jsonEscape(String(describing: error))
-                session.sendText("{\"type\":\"input_ack\",\"ok\":false,\"kind\":\"\(kind)\",\"error\":\"\(reason)\"}")
+                session.sendText("{\"type\":\"input_ack\",\"ok\":false,\"kind\":\"\(kind)\"\(seq),\"error\":\"\(reason)\"}")
             }
         default: break
         }
