@@ -34,6 +34,10 @@ final class DeviceStream: ScreenDelegate, @unchecked Sendable {
     /// sessions enqueue tagged frames through this sink (set by the server)
     var onFrame: (@Sendable (Data) -> Void)?
 
+    /// sim died mid-stream (shutdown/crash while clients attached). Set by the
+    /// server; DeviceStream is already stopped when this fires.
+    var onDeath: (@Sendable () -> Void)?
+
     private let discovery: SimulatorResolving
 
     init(udid: String, discovery: SimulatorResolving, config: Config = .default) throws {
@@ -136,5 +140,9 @@ final class DeviceStream: ScreenDelegate, @unchecked Sendable {
             self.pendingForceKeyframe = false
             self.encoder.encode(pb, forceKeyframe: force)
         }
+    }
+
+    func screenDidDie(_ screen: Screen) {
+        onDeath?()
     }
 }

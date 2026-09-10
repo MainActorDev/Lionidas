@@ -94,8 +94,17 @@ final class Session: @unchecked Sendable {
         })
     }
 
-    func sendText(_ json: String) {
-        conn.send(content: Self.wsTextFrame(Data(json.utf8)), completion: .contentProcessed { _ in })
+    func sendText(_ json: String, then closeAfter: Bool = false) {
+        let frame = Self.wsTextFrame(Data(json.utf8))
+        if closeAfter {
+            // flush-then-close: the reason frame must reach the peer before
+            // the FIN — close() from the completion, never inline before it
+            conn.send(content: frame, completion: .contentProcessed { [weak self] _ in
+                self?.close()
+            })
+        } else {
+            conn.send(content: frame, completion: .contentProcessed { _ in })
+        }
     }
 
     func close() {

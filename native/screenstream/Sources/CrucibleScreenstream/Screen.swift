@@ -12,6 +12,11 @@ import ObjectiveC
 
 protocol ScreenDelegate: AnyObject {
     func screen(_ screen: Screen, didComposite surface: IOSurface)
+    /// The sim vanished (shutdown/crash) while clients were attached.
+    /// Called once; the stream is stopped and must not be restarted blindly —
+    /// a dead sim never composites again, so rewire loops only burn CPU and
+    /// keep serving the frozen last frame as if it were live.
+    func screenDidDie(_ screen: Screen)
 }
 
 final class Screen: @unchecked Sendable {
@@ -166,16 +171,28 @@ final class Screen: @unchecked Sendable {
     private func startWatchdog() {
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 5, repeating: .seconds(5))
+        var rewires = 0
         timer.setEventHandler { [weak self] in
             guard let self, self.clientCount > 0 else { return }
             let quiet = Date().timeIntervalSince(self.lastCompositeAt)
-            if quiet > 10 {
-                // composites stalled with a live client — rewire the callbacks
-                // (the wedged-instance class dies here, not in a supervisor)
-                FileHandle.standardError.write(Data("Screen: composite stall (\(Int(quiet))s) — rewiring\n".utf8))
+            guard quiet > 10 else { return }
+            // Composite stall with a live client. Before rewiring, ask the sim
+            // itself: a shut-down/crashed device reports state != Booted and
+            // will NEVER composite again — rewire loops would just serve the
+            // frozen last frame as "live". Report death, stop, let the server
+            // tear sessions down honestly.
+            if let dev = self.discovery.resolveDevice(udid: self.udid),
+               let state = dev.value(forKey: "state") as? Int, state != 3 {  // 3 = SimDeviceStateBooted
+                FileHandle.standardError.write(Data("Screen: sim died (state=\(state)) — stopping stream for \(self.udid)\n".utf8))
                 self.stop()
-                try? self.start()
+                self.delegate?.screenDidDie(self)
+                return
             }
+            // wedged-but-booted: rewire once, escalate after repeated stalls
+            rewires += 1
+            FileHandle.standardError.write(Data("Screen: composite stall (\(Int(quiet))s, rewire #\(rewires)) — rewiring\n".utf8))
+            self.stop()
+            try? self.start()
         }
         timer.resume()
         watchdog = timer

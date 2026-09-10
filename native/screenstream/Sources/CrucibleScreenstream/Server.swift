@@ -194,6 +194,21 @@ final class ScreenstreamServer: @unchecked Sendable {
         stateLock.unlock()
         s.setClientCount(count)
 
+        // sim death mid-stream: tell every attached client honestly, then tear
+        // the shared stream down. Without this, a dead sim's frozen last frame
+        // keeps serving as "live" — taps/wheel/typing all silently go nowhere.
+        s.onDeath = { [weak self, weak s] in
+            guard let self else { return }
+            stateLock.lock()
+            let targets = sessions.values.filter { $0.udid == udid }
+            for t in targets { sessions.removeValue(forKey: ObjectIdentifier(t)) }
+            streams.removeValue(forKey: udid)
+            stateLock.unlock()
+            for t in targets { t.sendText("{\"type\":\"stream_died\"}", then: true) }
+            s?.setClientCount(0)
+            FileHandle.standardError.write(Data("Server: stream_died → closed \(targets.count) session(s) for \(udid)\n".utf8))
+        }
+
         // wire the shared encode into this session (delta-drop backpressure lives in Session)
         session.onSubscribe = { [weak self, weak s] in
             guard let self, let s else { return }

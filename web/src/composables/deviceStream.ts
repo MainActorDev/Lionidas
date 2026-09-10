@@ -325,6 +325,12 @@ export function useDeviceStream(): DeviceStream {
             if (body.ok === false && body.error) lastInputError.value = body.error;
             return;
           }
+          // sim died mid-stream (shutdown/crash): the engine already tore the
+          // stream down; surface it honestly instead of a frozen "live" canvas.
+          if (body.type === 'stream_died') {
+            fail('device shut down or crashed — stream ended', false);
+            return;
+          }
           if (body.ok === false && body.error) fail(`screenstream: ${body.error}`, false);
         } catch { /* not JSON */ }
         return;
