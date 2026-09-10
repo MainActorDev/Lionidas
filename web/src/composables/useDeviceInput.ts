@@ -145,44 +145,41 @@ export function useDeviceInput(
   }
 
   // ── keyboard: focus-gated capture on the canvas ──
+  // REALTIME: one keystroke = one `key` dispatch, no buffering. A batched
+  // `type` makes the engine usleep-hold every character on its main queue,
+  // freezing the stream until the whole batch lands (the 10s-delay bug).
+  // Per-key dispatch matches a physical keyboard: ~40ms of wire time each,
+  // interleaved with frame delivery.
   const namedKeys = new Set(['Enter', 'Escape', 'Backspace', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space']);
-  let typeBuffer = '';
-  let typeTimer: ReturnType<typeof setTimeout> | null = null;
-
-  function flushType(): void {
-    if (typeTimer) { clearTimeout(typeTimer); typeTimer = null; }
-    if (!typeBuffer) return;
-    const text = typeBuffer;
-    typeBuffer = '';
-    void post('type', { kind: 'type', text }).catch(() => undefined);
-  }
 
   function onKeyDown(e: KeyboardEvent): void {
     if (!sessionId.value) return;
     if (e.key === 'Escape') { (e.target as HTMLElement)?.blur(); return; }
     if (e.metaKey || e.ctrlKey) return;   // app shortcuts stay app shortcuts
+    if (e.repeat && e.key.length !== 1 && !namedKeys.has(e.code)) return;
+
+    const modifiers: string[] = [];
+    if (e.shiftKey) modifiers.push('shift');
+    if (e.altKey) modifiers.push('option');
+
     if (namedKeys.has(e.code)) {
-      flushType();
-      const modifiers: string[] = [];
-      if (e.shiftKey) modifiers.push('shift');
-      if (e.altKey) modifiers.push('option');
-      void post('key', { kind: 'key', code: e.code, modifiers }).catch(() => undefined);
+      void post('key', { kind: 'key', code: e.code, modifiers, duration: 0.04 }).catch(() => undefined);
       e.preventDefault();
       return;
     }
-    if (e.key.length === 1) {
-      typeBuffer += e.key;
-      if (typeTimer) clearTimeout(typeTimer);
-      typeTimer = setTimeout(flushType, 250);
+    if (e.key.length === 1 && e.code) {
+      // printable: dispatch the PHYSICAL key + modifiers (US layout —
+      // shift+Digit1 types '!'). matches how a real keyboard feeds iOS.
+      void post('key', { kind: 'key', code: e.code, modifiers, duration: 0.04 }).catch(() => undefined);
       e.preventDefault();
     }
   }
 
-  function onBlur(): void { flushType(); }
+  function onBlur(): void { /* per-key flow has no buffer to flush */ }
 
   return {
     failed,
     onPointerDown, onPointerMove, onPointerUp,
-    onWheel, onKeyDown, onBlur, flushType,
+    onWheel, onKeyDown, onBlur,
   };
 }
