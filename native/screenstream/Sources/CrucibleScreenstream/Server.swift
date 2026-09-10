@@ -199,9 +199,9 @@ final class ScreenstreamServer: @unchecked Sendable {
                 for t in targets { t.enqueue(frame) }
             }
         }
-        session.onControl = { [weak self, weak s] msg in
-            guard let self, let s else { return }
-            self.handleControl(msg, stream: s)
+        session.onControl = { [weak self, weak s, weak session] msg in
+            guard let self, let s, let session else { return }
+            self.handleControl(msg, stream: s, session: session)
         }
         session.onEnded = { [weak self, weak s] in
             guard let self else { return }
@@ -263,7 +263,7 @@ final class ScreenstreamServer: @unchecked Sendable {
         return chromes.assets(deviceName: name)
     }
 
-    private func handleControl(_ msg: [String: Any], stream: DeviceStream) {
+    private func handleControl(_ msg: [String: Any], stream: DeviceStream, session: Session) {
         switch msg["type"] as? String {
         case "set_fps": stream.apply(.init(fps: msg["fps"] as? Int ?? stream.config.fps,
                                            bitrateBps: stream.config.bitrateBps, scale: stream.config.scale))
@@ -275,7 +275,50 @@ final class ScreenstreamServer: @unchecked Sendable {
         case "force_idr": stream.forceIDR()
         case "run_pause": stream.runPause()
         case "run_resume": stream.runResume()
+        case "input":
+            let kind = (msg["kind"] as? String) ?? "?"
+            do {
+                let gesture = try GestureJSON.parse(msg)
+                let ok = Self.dispatch(gesture, on: stream)
+                session.sendText("{\"type\":\"input_ack\",\"ok\":\(ok),\"kind\":\"\(kind)\"}")
+            } catch {
+                let reason = Self.jsonEscape(String(describing: error))
+                session.sendText("{\"type\":\"input_ack\",\"ok\":false,\"kind\":\"\(kind)\",\"error\":\"\(reason)\"}")
+            }
         default: break
+        }
+    }
+
+    /// One gesture → one InputSurface call. Coordinates arrive in device
+    /// POINTS (wire contract); the adapter normalises by logicalSize.
+    /// Runs on the main queue (WS receive loop) — the thread the mouse
+    /// path requires (asserted inside HIDInput).
+    private static func dispatch(_ gesture: Gesture, on stream: DeviceStream) -> Bool {
+        let input = stream.input
+        let size = stream.logicalSize
+        switch gesture {
+        case .tap(let x, let y, let d):
+            return input.tap(at: Point(x: x, y: y), size: size, duration: d)
+        case .swipe(let sx, let sy, let ex, let ey, let d):
+            return input.swipe(from: Point(x: sx, y: sy), to: Point(x: ex, y: ey), size: size, duration: d)
+        case .touch1(let phase, let x, let y, let edge):
+            return input.touch1(phase: phase, at: Point(x: x, y: y), size: size, edge: edge)
+        case .touch2(let phase, let x1, let y1, let x2, let y2):
+            return input.touch2(phase: phase, first: Point(x: x1, y: y1), second: Point(x: x2, y: y2), size: size)
+        case .press(let button, let d):
+            return input.button(button, duration: d)
+        case .key(let code, let mods, let d):
+            guard let key = KeyboardKey.from(wireCode: code) else { return false }
+            return input.key(key, modifiers: mods, duration: d)
+        case .type(let text):
+            var ok = true
+            for c in text {
+                guard let (key, mods) = KeyboardKey.decompose(character: c) else { ok = false; continue }
+                if !input.key(key, modifiers: mods, duration: 0.05) { ok = false }
+            }
+            return ok
+        case .scroll(let dx, let dy):
+            return input.scroll(deltaX: dx, deltaY: dy)
         }
     }
 

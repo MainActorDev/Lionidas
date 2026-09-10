@@ -7,6 +7,11 @@ import ObjectiveC
 
 protocol SimulatorResolving: AnyObject {
     func resolveDevice(udid: String) -> NSObject?
+    func deviceTypeName(udid: String) -> String?
+}
+
+extension SimulatorResolving {
+    func deviceTypeName(udid: String) -> String? { nil }
 }
 
 final class SimDiscovery: SimulatorResolving {

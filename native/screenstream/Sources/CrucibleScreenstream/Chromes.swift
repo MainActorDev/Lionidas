@@ -126,6 +126,13 @@ final class Chromes: @unchecked Sendable {
         self.scale = scale
     }
 
+    /// Profile lookup for callers that only need the screen size.
+    func profileFor(deviceName: String) throws -> Size? {
+        let plist = try store.profilePlistData(deviceName: deviceName)
+        let caps = try? store.capabilitiesPlistData(deviceName: deviceName)
+        return try DeviceProfile.parsing(plistData: plist, capabilitiesData: caps).screenSize
+    }
+
     func assets(deviceName: String) -> DeviceChromeAssets? {
         let profile: DeviceProfile
         do {

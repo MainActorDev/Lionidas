@@ -323,3 +323,43 @@ import VideoToolbox
         #expect(ids.current(for: .up) == 2)      // still touch 2 at lift
     }
 }
+
+@Suite struct GestureJSONTests {
+    @Test func parsesAllKinds() throws {
+        #expect(try GestureJSON.parse(["kind": "tap", "x": 10.0, "y": 20.0]) == .tap(x: 10, y: 20, duration: 0.05))
+        #expect(try GestureJSON.parse(["kind": "swipe", "startX": 1.0, "startY": 2.0, "endX": 3.0, "endY": 4.0]) ==
+                .swipe(startX: 1, startY: 2, endX: 3, endY: 4, duration: 0.25))
+        #expect(try GestureJSON.parse(["kind": "touch1", "phase": "down", "x": 5.0, "y": 5.0, "edge": "bottom"]) ==
+                .touch1(phase: .down, x: 5, y: 5, edge: .bottom))
+        #expect(try GestureJSON.parse(["kind": "press", "button": "volume-up", "duration": 0.5]) ==
+                .press(button: .volumeUp, duration: 0.5))
+        #expect(try GestureJSON.parse(["kind": "key", "code": "Enter", "modifiers": ["shift"]]) ==
+                .key(code: "Enter", modifiers: [.shift], duration: 0.1))
+        #expect(try GestureJSON.parse(["kind": "type", "text": "hi"]) == .type(text: "hi"))
+        #expect(try GestureJSON.parse(["kind": "scroll", "deltaY": -120.0]) == .scroll(deltaX: 0, deltaY: -120))
+    }
+
+    @Test func rejections() {
+        #expect(throws: GestureJSONError.missingField("x")) {
+            _ = try GestureJSON.parse(["kind": "tap", "y": 1.0])
+        }
+        #expect(throws: GestureJSONError.unknownKind("fling")) {
+            _ = try GestureJSON.parse(["kind": "fling"])
+        }
+        #expect(throws: GestureJSONError.badPhase("sideways")) {
+            _ = try GestureJSON.parse(["kind": "touch1", "phase": "sideways", "x": 1.0, "y": 1.0])
+        }
+        #expect(throws: GestureJSONError.unknownButton("fire")) {
+            _ = try GestureJSON.parse(["kind": "press", "button": "fire"])
+        }
+        #expect(throws: GestureJSONError.rejectedButton("siri")) {
+            _ = try GestureJSON.parse(["kind": "press", "button": "siri"])
+        }
+        #expect(throws: GestureJSONError.badKey("Nope")) {
+            _ = try GestureJSON.parse(["kind": "key", "code": "Nope"])
+        }
+        #expect(throws: GestureJSONError.unsupportedText("é")) {
+            _ = try GestureJSON.parse(["kind": "type", "text": "café"])
+        }
+    }
+}

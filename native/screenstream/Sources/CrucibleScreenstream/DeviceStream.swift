@@ -34,8 +34,11 @@ final class DeviceStream: ScreenDelegate, @unchecked Sendable {
     /// sessions enqueue tagged frames through this sink (set by the server)
     var onFrame: (@Sendable (Data) -> Void)?
 
+    private let discovery: SimulatorResolving
+
     init(udid: String, discovery: SimulatorResolving, config: Config = .default) throws {
         self.udid = udid
+        self.discovery = discovery
         self.config = config
         self.encoder = H264(fps: config.fps, bitrate: config.bitrateBps)
         self.screen = Screen(udid: udid, discovery: discovery)
@@ -57,6 +60,23 @@ final class DeviceStream: ScreenDelegate, @unchecked Sendable {
         screen.stop()
         encoder.invalidate()
     }
+
+    /// Logical screen size in POINTS for input normalisation. Derived from
+    /// the device type's profile.plist (mainScreen{Width,Height}/Scale) —
+    /// the framebuffer's pixel dims vary with scale; HID wants points.
+    var logicalSize: Size {
+        guard let name = discovery.deviceTypeName(udid: udid),
+              let chromes = Self.sharedChromesForSize,
+              let profile = try? chromes.profileFor(deviceName: name)
+        else { return Size(width: 428, height: 926) }   // iPhone-default fallback
+        return profile
+    }
+
+    /// Input surface — lazily warmed on first gesture (device already
+    /// resolved through the same discovery).
+    private(set) lazy var input: HIDInput = HIDInput(udid: udid, discovery: discovery)
+
+    nonisolated(unsafe) private static var sharedChromesForSize: Chromes? = Chromes()
 
     func setClientCount(_ n: Int) { screen.setClientCount(n) }
 
