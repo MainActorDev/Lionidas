@@ -86,9 +86,9 @@ export function makeAvccDecoder(onFrame: OnFrame, onLog?: OnLog): Codec {
       } else if (type === 0x03 && decoder.state === 'configured') {
         // gate: never decode deltas without an armed GOP — that is the smear
         if (!gopArmed || decoderDead) return;
-        // decoder backpressure: a backed-up queue decodes STALE deltas into
-        // smear — shed deltas past a small depth; the next keyframe resyncs
-        if (decoder.decodeQueueSize > 4) return;
+        // baguette 1:1: decode EVERY delta — no queue-depth shed. HW decode +
+        // optimizeForLatency drains fast; shedding deltas during bursts
+        // (keyboard slide-in, caret blink) showed as visible frame jumps.
         try {
           decoder.decode(new EncodedVideoChunk({ type: 'delta', timestamp: ts, data: payload.buffer }));
           ts += 16667;

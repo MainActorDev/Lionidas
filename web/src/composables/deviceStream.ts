@@ -151,7 +151,12 @@ export function useDeviceStream(): DeviceStream {
   let rafScheduled = false;
   function runPaintJob(job: NonNullable<typeof pendingPaint>): void {
     if (job.canvas.width !== job.w || job.canvas.height !== job.h) { job.canvas.width = job.w; job.canvas.height = job.h; }
-    drawScaled(job.ctx, job.bitmap, srcW(job.bitmap), srcH(job.bitmap), job.w, job.h);
+    if (srcW(job.bitmap) === job.w && srcH(job.bitmap) === job.h) {
+      // baguette 1:1: sizes already match — plain blit, no resample
+      job.ctx.drawImage(job.bitmap, 0, 0);
+    } else {
+      drawScaled(job.ctx, job.bitmap, srcW(job.bitmap), srcH(job.bitmap), job.w, job.h);
+    }
     lastFrame = job; // kept for hidden-tab resume (source stays open)
     lastPaintAt = Date.now();
     if (frameObservers.size > 0) for (const cb of frameObservers) cb(lastPaintAt);
@@ -187,26 +192,21 @@ export function useDeviceStream(): DeviceStream {
     }
   });
 
-  /** AVCC delivery: hand the video element (current frame) to the SAME rAF
-   *  painter; the JPEG seed bitmap rides the identical path. */
+  /** AVCC delivery: hand the frame to the SAME rAF painter; the JPEG seed
+   *  bitmap rides the identical path.
+   *  baguette 1:1: canvas backing = NATIVE FRAME SIZE, single drawImage blit,
+   *  CSS/GPU compositor downscales to the display box. No per-frame software
+   *  resample — that cost multiplied by 60fps was the motion stutter. */
   async function paintDelivered(): Promise<void> {
     const src = delivered.value;
     if (!src) return;
     const canvas = canvasRef.value;
     if (!canvas) return;
-    // display-resolution backing (same policy as the mjpeg path): the source is
-    // full-res; painting 1:1 into a 1284px backing on a ~230px CSS box makes the
-    // compositor downscale — do it here at high quality instead
-    const cssW = canvas.clientWidth || canvas.getBoundingClientRect().width;
-    if (cssW <= 0) return;
     const w = srcW(src), h = srcH(src);
     if (!w || !h) return;
-    const dpr = window.devicePixelRatio || 1;
-    const targetW = Math.max(1, Math.round(cssW * dpr));
-    const targetH = Math.max(1, Math.round(targetW * h / w));
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    schedulePaint(canvas, ctx, src, targetW, targetH);
+    schedulePaint(canvas, ctx, src, w, h);
   }
 
   async function decodeLoop(): Promise<void> {
@@ -305,11 +305,11 @@ export function useDeviceStream(): DeviceStream {
     );
     ws.onopen = () => {
       state.value = 'live';
-      // QA-grade sharpness: 4:2:0 H.264 at 60fps starves per-frame bits for
-      // text edges. 30fps doubles the per-frame budget (UI verification never
-      // needs 60), 24Mbps makes edges hold. Both live-retunable.
+      // 60fps matches baguette's tuning (its client math assumes 60); idle
+      // screens still encode ~0 frames so the sharpness budget only spends
+      // during motion. 24Mbps keeps text edges holdable. Both live-retunable.
       try {
-        socket.send(JSON.stringify({ type: 'set_fps', fps: 30 }));
+        socket.send(JSON.stringify({ type: 'set_fps', fps: 60 }));
         socket.send(JSON.stringify({ type: 'set_bitrate', bps: 24_000_000 }));
       } catch { /* socket gone */ }
     };
