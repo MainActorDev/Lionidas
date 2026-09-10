@@ -13,6 +13,7 @@ import { dispatchWithHeal } from '../alloy/heal.ts';
 import { quietKeyboard } from './keyboard-quiet.ts';
 import { captureSelectorAt, countMatches } from './selector.ts';
 import type { StepSelector, SnapNode } from './selector.ts';
+import { engineInput } from './engine-input.ts';
 
 export interface ManualDeps {
   db: Database.Database;
@@ -48,6 +49,7 @@ function writeRecording(deps: ManualDeps, sessionId: string, state: RecordingSta
 export type StepInput =
   | { action: 'tap'; x: number; y: number; selector?: StepSelector | null }
   | { action: 'scroll'; direction: 'up' | 'down' | 'left' | 'right'; selector?: StepSelector | null }
+  | { action: 'swipe'; startX: number; startY: number; endX: number; endY: number; selector?: StepSelector | null }
   | { action: 'type'; x: number; y: number; text: string; selector?: StepSelector | null };
 
 async function recordStep(deps: ManualDeps, sessionId: string, step: StepInput): Promise<RecordedStep | null> {
@@ -160,22 +162,69 @@ export async function manualTap(deps: ManualDeps, sessionId: string, x: number, 
   // A6: capture WHAT was tapped from the pre-action hierarchy (recording only)
   const recordingOn = readRecording(deps, sessionId).on;
   const selector = recordingOn ? await captureSelector(deps, s.udid, x, y) : null;
-  const r = (await dispatchWithHeal('alloy_act', { udid: s.udid, action: 'press', target: { x, y }, settle: false }, deps.dispatchDeps)) as
-    | { ok: true }
-    | { ok: false; error: { code: string; message: string } };
-  if (!r.ok) throw new ManualSessionError('LEASE_LOST', `tap failed: ${r.error.message}`);
+  // fast path: engine-direct dispatch; alloy fallback on ack-timeout only
+  // (selector capture above stays alloy regardless — recording's job)
+  const sent = await engineInputWithFallback(deps, s.udid, { kind: 'tap', x, y }, async () => {
+    const r = (await dispatchWithHeal('alloy_act', { udid: s.udid, action: 'press', target: { x, y }, settle: false }, deps.dispatchDeps)) as
+      | { ok: true }
+      | { ok: false; error: { code: string; message: string } };
+    return r.ok;
+  }, 'tap');
+  if (!sent) throw new ManualSessionError('LEASE_LOST', 'tap failed (engine + alloy both refused)');
   deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
   await recordStep(deps, sessionId, { action: 'tap', x, y, selector });
   deps.bus.emit('manual.session.tap', { sessionId, x, y });
 }
 
+/** Engine-direct input with alloy escape hatch: one gesture, logged
+ *  fallback on ack-timeout/connect failure. Input is the engine's job;
+ *  alloy stays for selector capture (see manualTap). */
+async function engineInputWithFallback(
+  deps: ManualDeps, udid: string, gesture: Record<string, unknown>,
+  fallback: () => Promise<boolean>, logTag: string,
+): Promise<boolean> {
+  try {
+    await engineInput(udid, gesture);
+    return true;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // eslint-disable-next-line no-console
+    console.warn(`[engine-input] ${logTag} fell back to alloy (${msg})`);
+    return fallback();
+  }
+}
+
+/** Generic engine gesture — no alloy fallback exists for new kinds
+ *  (swipe/key/button/deltas): the failure surfaces honestly. */
+export async function manualGesture(deps: ManualDeps, sessionId: string, gesture: Record<string, unknown>): Promise<void> {
+  const s = liveSession(deps, sessionId);
+  await engineInput(s.udid, gesture);
+  deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
+  const kind = String(gesture['kind'] ?? 'gesture');
+  if (kind === 'tap') {
+    await recordStep(deps, sessionId, { action: 'tap', x: Number(gesture['x'] ?? 0), y: Number(gesture['y'] ?? 0) });
+    deps.bus.emit('manual.session.tap', { sessionId, x: Number(gesture['x'] ?? 0), y: Number(gesture['y'] ?? 0) });
+  } else if (kind === 'swipe') {
+    await recordStep(deps, sessionId, { action: 'swipe', startX: Number(gesture['startX'] ?? 0), startY: Number(gesture['startY'] ?? 0), endX: Number(gesture['endX'] ?? 0), endY: Number(gesture['endY'] ?? 0) });
+    deps.bus.emit('manual.session.swipe', { sessionId, gesture });
+  }
+}
+
 export async function manualScroll(deps: ManualDeps, sessionId: string, direction: 'up' | 'down' | 'left' | 'right'): Promise<void> {
   const s = liveSession(deps, sessionId);
   const alloy = crucibleAlloy();
-  const r = (await dispatchWithHeal('alloy_act', { udid: s.udid, action: 'scroll', direction, settle: false }, deps.dispatchDeps)) as
-    | { ok: true }
-    | { ok: false };
-  if (!r.ok) throw new ManualSessionError('LEASE_LOST', 'scroll failed');
+  // engine deltas: fixed 240pt per direction tick keeps the old route's
+  // semantics on the new fast path
+  const delta = 240;
+  const deltas: Record<string, [number, number]> = { up: [0, delta], down: [0, -delta], left: [delta, 0], right: [-delta, 0] };
+  const [dx, dy] = deltas[direction] ?? [0, 0];
+  const sent = await engineInputWithFallback(deps, s.udid, { kind: 'scroll', deltaX: dx, deltaY: dy }, async () => {
+    const r = (await dispatchWithHeal('alloy_act', { udid: s.udid, action: 'scroll', direction, settle: false }, deps.dispatchDeps)) as
+      | { ok: true }
+      | { ok: false };
+    return r.ok;
+  }, 'scroll');
+  if (!sent) throw new ManualSessionError('LEASE_LOST', 'scroll failed');
   deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
   await recordStep(deps, sessionId, { action: 'scroll', direction });
   deps.bus.emit('manual.session.scroll', { sessionId, direction });

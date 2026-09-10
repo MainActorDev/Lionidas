@@ -6,7 +6,7 @@ import { createReadStream, statSync, rm } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, manualProbeSelector, manualTree, finishManualSession, setRecording, getRecording, deleteRecordedStep, recordExpectStep, ManualSessionError } from '../manual/session.ts';
+import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, manualProbeSelector, manualTree, finishManualSession, setRecording, getRecording, deleteRecordedStep, recordExpectStep, manualGesture, ManualSessionError } from '../manual/session.ts';
 import { listSimulatorApps } from '../manual/apps.ts';
 import { installApp } from '../manual/app-install.ts';
 import { findArtifacts, importArtifact, appsStoreDir } from '../manual/artifacts.ts';
@@ -91,6 +91,63 @@ export function registerManualRoutes(
     } catch (err) {
       if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
       throw err;
+    }
+  });
+
+  app.post('/api/manual/:id/swipe', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = req.body as { startX?: number; startY?: number; endX?: number; endY?: number; duration?: number };
+    for (const [k, v] of Object.entries(b)) if (k !== 'duration' && typeof v !== 'number') return reply.code(400).send({ error: `${k} required (number)` });
+    try {
+      await manualGesture({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id, { kind: 'swipe', startX: b.startX, startY: b.startY, endX: b.endX, endY: b.endY, duration: b.duration ?? 0.25 });
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
+      const msg = err instanceof Error ? err.message : String(err);
+      return reply.code(503).send({ error: `input unavailable: ${msg}`, retryable: msg === 'INPUT_TIMEOUT' });
+    }
+  });
+
+  app.post('/api/manual/:id/key', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = req.body as { code?: string; modifiers?: string[]; duration?: number };
+    if (!b.code) return reply.code(400).send({ error: 'code required' });
+    try {
+      await manualGesture({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id, { kind: 'key', code: b.code, modifiers: b.modifiers ?? [], duration: b.duration ?? 0.1 });
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
+      const msg = err instanceof Error ? err.message : String(err);
+      return reply.code(400).send({ error: `input rejected: ${msg}` });   // parse errors are 400-class (bad key/text)
+    }
+  });
+
+  app.post('/api/manual/:id/button', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = req.body as { button?: string; duration?: number };
+    if (!b.button) return reply.code(400).send({ error: 'button required' });
+    if (b.button === 'siri') return reply.code(400).send({ error: 'siri rejected: crashes backboardd on every known path' });
+    try {
+      await manualGesture({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id, { kind: 'press', button: b.button, duration: b.duration ?? 0 });
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
+      const msg = err instanceof Error ? err.message : String(err);
+      return reply.code(400).send({ error: `input rejected: ${msg}` });
+    }
+  });
+
+  app.post('/api/manual/:id/scroll-delta', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = req.body as { deltaX?: number; deltaY?: number };
+    if (typeof b.deltaX !== 'number' && typeof b.deltaY !== 'number') return reply.code(400).send({ error: 'deltaX or deltaY required' });
+    try {
+      await manualGesture({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id, { kind: 'scroll', deltaX: b.deltaX ?? 0, deltaY: b.deltaY ?? 0 });
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
+      const msg = err instanceof Error ? err.message : String(err);
+      return reply.code(503).send({ error: `input unavailable: ${msg}`, retryable: msg === 'INPUT_TIMEOUT' });
     }
   });
 
