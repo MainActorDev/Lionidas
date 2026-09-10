@@ -18,6 +18,15 @@ final class ScreenstreamServer: @unchecked Sendable {
     private var sessions: [ObjectIdentifier: Session] = [:]
     private var startedAt = Date()
     private let encoderQueue = DispatchQueue(label: "crucible.server.encode", qos: .userInteractive)
+    /// Network I/O queue: ALL connections (listener + every NWConnection)
+    /// run here — NOT .main. The main queue is reserved for HID dispatch
+    /// (IndigoHIDMessageForMouseNSEvent reads AppKit thread-local state and
+    /// its gestures usleep between down/up). With connections on .main, every
+    /// 100ms input hold stalled frame-send completions (.contentProcessed)
+    /// and WS receives — the stream froze exactly when input landed (worst
+    /// during keyboard focus, the heaviest encode burst). Baguette's NIO
+    /// stack never touches main; this is the same shape.
+    private let wsQueue = DispatchQueue(label: "crucible.server.ws", qos: .userInteractive)
 
     init(port: UInt16) {
         self.port = port
@@ -29,13 +38,13 @@ final class ScreenstreamServer: @unchecked Sendable {
     func run() {
         listener.newConnectionHandler = { [weak self] conn in
             guard let self else { return }
-            DispatchQueue.main.async { self.accept(conn) }
+            self.wsQueue.async { self.accept(conn) }
         }
         listener.stateUpdateHandler = { [weak self] state in
             if case .ready = state {
                 // startup contract: one JSON line on stdout when listening
                 guard let self else { return }
-                DispatchQueue.main.async {
+                self.wsQueue.async {
                     // fflush (not fsync-variants: stdout is a pipe, and
                     // synchronizeFile throws on non-seekable handles)
                     print("{\"ready\":true,\"port\":\(self.port)}")
@@ -44,14 +53,14 @@ final class ScreenstreamServer: @unchecked Sendable {
             }
         }
         signal(SIGTERM) { _ in exit(0) }  // graceful-enough: clients reconnect + seed
-        listener.start(queue: .main)
+        listener.start(queue: wsQueue)
         dispatchMain()
     }
 
     // MARK: - connections
 
     private func accept(_ conn: NWConnection) {
-        conn.start(queue: .main)
+        conn.start(queue: wsQueue)
         receiveHTTP(conn)
     }
 
@@ -288,8 +297,16 @@ final class ScreenstreamServer: @unchecked Sendable {
             }
             do {
                 let gesture = try GestureJSON.parse(msg)
-                let ok = Self.dispatch(gesture, on: stream)
-                session.sendText("{\"type\":\"input_ack\",\"ok\":\(ok),\"kind\":\"\(kind)\"\(seq)}")
+                // HID dispatch MUST run on main (IndigoHIDMessageForMouseNSEvent
+                // reads AppKit thread-local state; raw event-loop dispatch builds
+                // messages the simulator silently drops — baguette ships the same
+                // hop). We are on wsQueue here: hop asynchronously so the HID
+                // hold-usleeps never block network I/O. Acks go out from main
+                // through Session's send (thread-safe by design).
+                DispatchQueue.main.async {
+                    let ok = Self.dispatch(gesture, on: stream)
+                    session.sendText("{\"type\":\"input_ack\",\"ok\":\(ok),\"kind\":\"\(kind)\"\(seq)}")
+                }
             } catch {
                 let reason = Self.jsonEscape(String(describing: error))
                 session.sendText("{\"type\":\"input_ack\",\"ok\":false,\"kind\":\"\(kind)\"\(seq),\"error\":\"\(reason)\"}")
