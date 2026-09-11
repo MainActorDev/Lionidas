@@ -53,6 +53,21 @@ export function __simdeckLegs(): Array<{ udid: string; mode: string }> {
   return [...legs].map((l) => ({ udid: l.udid, mode: l.mode }));
 }
 
+/** Push a still frame (JPEG) to every live leg for a udid as the child's
+ *  JPEG-seed envelope (0x04 tag + jpeg) — the run-still feed keeps run-panel
+ *  watchers painted while a run holds the device (see stream-relay's feed).
+ *  Returns the number of legs painted. */
+export function paintStillToLegs(udid: string, jpeg: Buffer): number {
+  let n = 0;
+  const payload = Buffer.concat([Buffer.from([0x04]), jpeg]);
+  const snapshot = Array.from(legs); // legs mutate via kill() on send failure
+  for (const l of snapshot) {
+    if (l.udid !== udid || l.closed) continue;
+    try { l.client.send(payload, { binary: true }); n++; } catch { /* leg dies via its own kill */ }
+  }
+  return n;
+}
+
 /** Close every client leg for a udid (run hold). Upstream stays; the wall
  *  shows its own run overlay. */
 export function detachUdid(udid: string): void {

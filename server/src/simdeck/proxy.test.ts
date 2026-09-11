@@ -139,6 +139,23 @@ describe('simdeck gated proxy', () => {
     ws.close();
   });
 
+  it('paintStillToLegs pushes a JPEG-seed frame to live legs only', async () => {
+    const { paintStillToLegs } = await import('./proxy.ts');
+    driving.add('UDID-S');
+    const ws = await clientWs(app, '/simdeck/simulators/UDID-S/stream?format=avcc');
+    const got: Array<{ data: string; isBinary: boolean }> = [];
+    ws.on('message', (data, isBinary) => got.push({ data: data.toString('latin1'), isBinary }));
+    await new Promise((r) => setTimeout(r, 150));
+    const n = paintStillToLegs('UDID-S', Buffer.from([0xff, 0xd8, 0xff, 0xd9])); // SOI+EOI jpeg stub
+    await new Promise((r) => setTimeout(r, 150));
+    expect(n).toBe(1);
+    const seed = got.find((g) => g.isBinary && g.data.charCodeAt(0) === 0x04);
+    expect(seed).toBeDefined(); // tag 0x04 + jpeg
+    const other = paintStillToLegs('UDID-NONE', Buffer.from('x'));
+    expect(other).toBe(0);
+    ws.close();
+  });
+
   it('run-start detaches (closes) all legs for the udid', async () => {
     driving.add('UDID-D');
     const ws = await clientWs(app, '/simdeck/simulators/UDID-D/stream?format=avcc');

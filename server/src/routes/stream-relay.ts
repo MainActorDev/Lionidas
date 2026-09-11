@@ -66,6 +66,16 @@ const RUN_STILL_INTERVAL_MS = Number(process.env['CRUCIBLE_RUN_STILL_MS'] ?? 1_0
  *  same tmp file */
 const stillFeeds = new Set<string>();
 
+/** Cached painter from the simdeck proxy (lazy: avoids the import cycle at
+ *  module load; crash-safe under both vitest CJS and tsx ESM). */
+let deckPaintPromise: Promise<(u: string, b: Buffer) => number> | null = null;
+function deckPaint(): Promise<(u: string, b: Buffer) => number> {
+  if (!deckPaintPromise) {
+    deckPaintPromise = import('../simdeck/proxy.ts').then((m) => m.paintStillToLegs);
+  }
+  return deckPaintPromise;
+}
+
 function runStillFeed(udid: string): void {
   if (RUN_STILL_INTERVAL_MS <= 0) return; // disabled (tests)
   if (stillFeeds.has(udid)) return;
@@ -99,12 +109,17 @@ function runStillFeed(udid: string): void {
           await execFileAsync('xcrun', ['simctl', 'io', udid, 'screenshot', tmp]);
           const frame = readFileSync(tmp);
           if (frame.length > 500) {
+            // simdeck legs paint regardless of relay-subscription presence —
+            // the wrapped-surface watchers are not relay clients. Cached
+            // dynamic import (sync require crashes under tsx ESM; lazy avoids
+            // the import cycle).
+            const deck = await deckPaint().then((f) => f(udid, frame)).catch(() => 0);
             for (const c of target.clients) {
               c.latestFrame = frame;
               void drain(c);
             }
             painted++;
-            if (painted === 1) console.log(`[run-still] painting ${target.clients.size} client(s): ${udid}`);
+            if (painted === 1) console.log(`[run-still] painting ${target.clients.size}+${deck} client(s): ${udid}`);
             failCount = 0;
           } else if (++failCount === 1) {
             console.warn(`[run-still] suspiciously small frame (${frame.length}B), discarded: ${udid}`);
