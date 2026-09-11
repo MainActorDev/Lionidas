@@ -11,3 +11,5 @@ preset-bodies/
 # crucible artifact store (APFS-cloned .app bundles)
 server/apps/
 server/.env
+.hermes/
+__pycache__/
