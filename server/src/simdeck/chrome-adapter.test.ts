@@ -39,6 +39,18 @@ describe('adaptChromeDefinition', () => {
     expect(d.screenRadius.pctH).toBeCloseTo((62 / 872) * 100);
   });
 
+  it('threads child transform strings verbatim (hover pop-out + pressed)', () => {
+    const d = adaptChromeDefinition('835', CHILD_DEF);
+    const action = d.buttons[0]!;
+    const vol = d.buttons[1]!;
+    expect(action.transform.hover).toBe('translate(-31.25%, 0%)');
+    expect(action.transform.pressed).toBe('translate(31.25%, 0%)');
+    expect(action.transform.rest).toBe('none');
+    // empty child strings degrade to 'none' — never a broken CSS transform
+    expect(vol.transform.hover).toBe('none');
+    expect(vol.transform.pressed).toBe('none');
+  });
+
   it('buttons: envelope name, box% passthrough, rest image, z→onTop', () => {
     expect(d.buttons).toHaveLength(2);
     const b0 = d.buttons[0]!;

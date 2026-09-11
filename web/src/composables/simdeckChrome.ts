@@ -14,9 +14,9 @@ export interface BezelDefinition {
     anchor: string;
     onTop: boolean;
     boxPct: { left: number; top: number; width: number; height: number };
-    normalOffset: { x: number; y: number };
-    rolloverOffset: { x: number; y: number };
+    transform: { rest: string; hover: string; pressed: string };
     imageUrl: string;
+    pressedImageUrl: string;
   }>;
 }
 
@@ -63,11 +63,16 @@ export function adaptChromeDefinition(udid: string, c: ChildDefinition): BezelDe
       anchor: 'left',
       onTop: b.z === 'above',
       boxPct: { left: b.box.leftPct, top: b.box.topPct, width: b.box.widthPct, height: b.box.heightPct },
-      // hover pop-out deferred (v1 static); the child's transform strings
-      // are kept in the child payload if motion is wanted later
-      normalOffset: { x: 0, y: 0 },
-      rolloverOffset: { x: 0, y: 0 },
+      // child's transform strings verbatim — hover pop-out + pressed nudge
+      // follow the child's chrome exactly (right-side buttons pop the other
+      // way); empty strings degrade to 'none', never broken CSS
+      transform: {
+        rest: b.transform.rest || 'none',
+        hover: b.transform.hover || 'none',
+        pressed: b.transform.pressed || 'none',
+      },
       imageUrl: b.images.rest,
+      pressedImageUrl: b.images.pressed || b.images.rest,
     })),
   };
 }

@@ -34,21 +34,31 @@ watch(() => props.device?.udid, async (udid) => {
   bezelDef.value = await loadBezelDefinition(udid);
 }, { immediate: true });
 
-// ── bezel hardware buttons: hover + press dispatch (restored from pre-wrap) ──
+// ── bezel hardware buttons: hover pop-out + press dispatch, driven by the
+// child's own transform strings (hover pops toward the outside edge) ──
 const hoverBtn = ref('');
+const pressedBtn = ref('');
 async function pressBtn(b: BezelBtnDef): Promise<void> {
   if (!sessionId.value) return;
   await api(`${sessionId.value}/button`, { button: b.name }).catch(() => undefined);
+}
+function buttonState(b: BezelBtnDef): 'rest' | 'hover' | 'pressed' {
+  if (pressedBtn.value === b.name) return 'pressed';
+  if (hoverBtn.value === b.name) return 'hover';
+  return 'rest';
 }
 function buttonStyle(b: BezelBtnDef): Record<string, string> {
   return {
     left: `${b.boxPct.left}%`, top: `${b.boxPct.top}%`,
     width: `${b.boxPct.width}%`, height: `${b.boxPct.height}%`,
-    transform: hoverBtn.value === b.name ? 'translate(-31.25%, 0%)' : 'translate(0, 0)',
+    transform: b.transform[buttonState(b)],
     transition: 'transform 120ms ease',
   };
 }
-interface BezelBtnDef { name: string; onTop: boolean; boxPct: { left: number; top: number; width: number; height: number }; imageUrl: string }
+function buttonSrc(b: BezelBtnDef): string {
+  return buttonState(b) === 'pressed' ? b.pressedImageUrl : b.imageUrl;
+}
+interface BezelBtnDef { name: string; onTop: boolean; boxPct: { left: number; top: number; width: number; height: number }; transform: { rest: string; hover: string; pressed: string }; imageUrl: string; pressedImageUrl: string }
 
 // ── INSPECT MODE — element boxes over the live stream (control mode only) ──
 // Contract: while inspect is ON, a canvas CLICK selects an element and NEVER
@@ -680,11 +690,13 @@ watch(isControlLost(), (lost) => {
                             cursor: inspect && sessionId ? 'default' : sessionId ? 'crosshair' : 'default', background: 'var(--color-void)', outline: 'none' }"></canvas>
                 <!-- bezel hardware buttons: hover pop-out + press dispatch -->
                 <img v-for="b in bezelDef.buttons" :key="b.name" class="bezel-btn"
-                  :src="b.imageUrl" :alt="b.name" draggable="false"
+                  :src="buttonSrc(b as BezelBtnDef)" :alt="b.name" draggable="false"
                   :style="buttonStyle(b as BezelBtnDef)"
                   :class="{ 'on-top': b.onTop, armed: !!sessionId }"
                   @pointerenter="hoverBtn = b.name" @pointerleave="hoverBtn = ''"
-                  @pointerdown.prevent="pressBtn(b as BezelBtnDef)" @pointerup.prevent="hoverBtn = ''" />
+                  @pointerdown.prevent="pressedBtn = b.name; pressBtn(b as BezelBtnDef)"
+                  @pointerup.prevent="pressedBtn = ''; hoverBtn = ''"
+                  @pointercancel.prevent="pressedBtn = ''" />
               </div>
               <canvas v-else :ref="stream.setCanvas" tabindex="0"
                 @click="onTap" @mousemove="onCanvasMove"
