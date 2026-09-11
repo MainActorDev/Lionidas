@@ -282,7 +282,8 @@ export function useDeviceStream(): DeviceStream {
 /** Engine session shape (baguette lineage, stream-session.js): decoder fed by the WS,
  *  one pending frame max, rAF paints it at FRAME-NATIVE canvas dims and closes
  *  it. No relay frames, no resampling, no dpr math — their pipeline as-is. */
-  function attachDirect(socket: WebSocket, udid: string, gen: number): void {
+  function attachDirect(socket: WebSocket, udid: string, gen: number, opts?: { tolerantAcks?: boolean }): void {
+    const tolerantAcks = opts?.tolerantAcks === true;
     ws = socket;
     ws.binaryType = 'arraybuffer';
     // input rides this socket too (fire-and-forget JSON frames; the engine
@@ -337,7 +338,11 @@ export function useDeviceStream(): DeviceStream {
             fail('device shut down or crashed — stream ended', false);
             return;
           }
-          if (body.ok === false && body.error) fail(`screenstream: ${body.error}`, false);
+          // tolerant (wrapped-surface socket): its control protocol acks
+          // every JSON it parses — including our set_* tuning frames it treats
+          // as gestures — with {ok:false}. Those are NOISE here, not stream
+          // failures; only the engine's explicit error shape kills the view.
+          if (body.ok === false && body.error && !tolerantAcks) fail(`screenstream: ${body.error}`, false);
         } catch { /* not JSON */ }
         return;
       }
@@ -391,6 +396,22 @@ export function useDeviceStream(): DeviceStream {
     // API (auth + spawn supervision), then connect through the same-origin
     // vite proxy.
     if (pendingFormat === 'avcc') {
+      // simdeck path first: the wrapped device surface's own stream, through
+      // the authed gated proxy (watch mode enforced server-side — client→
+      // upstream gestures dropped). Same wire tags as the legacy engine, so
+      // the decode path below is unchanged. Falls through to the legacy
+      // resolve when the surface isn't available.
+      try {
+        const rd = await fetch(`/api/devices/${encodeURIComponent(udid)}/stream`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+        if (rd.ok) {
+          const bd = await rd.json() as { simdeckUrl?: string };
+          if (bd.simdeckUrl) {
+            const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${bd.simdeckUrl}/stream?format=avcc&version=v2`;
+            attachDirect(new WebSocket(wsUrl), udid, gen, { tolerantAcks: true });
+            return;
+          }
+        }
+      } catch { /* fall through to the legacy resolve */ }
       try {
         const r = await fetch(`/api/devices/${udid}/stream?format=avcc`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
         const b = await r.json() as { streamUrl?: string; error?: string };
