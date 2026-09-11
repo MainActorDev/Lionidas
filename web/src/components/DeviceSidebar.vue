@@ -8,6 +8,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue';
 import { useDeviceStream, canvasPointToLogical, isControlLost } from '../composables/deviceStream.ts';
 import { useDeviceInput } from '../composables/useDeviceInput.ts';
+import { loadBezelDefinition, type BezelDefinition } from '../composables/simdeckChrome.ts';
 import { hitTestNodeAt, selectorPreview, type AxNode } from '@crucible/shared/ax-tree';
 import { useInspectTree, TreeFetchError } from '../composables/useInspectTree.ts';
 import InspectOverlay from './InspectOverlay.vue';
@@ -24,40 +25,30 @@ const emit = defineEmits<{ (e: 'close'): void }>();
 
 const stream = useDeviceStream();
 
-// ── simdeck embed (wrapped device surface) ──────────────────────────────
-// While a driving session is live, the stream stage can render the wrapped
-// surface's own page in an iframe through the crucible proxy (authed, CSP
-// stripped, watch/drive gated server-side). Feature-flagged off by default
-// until Phase 1 drills complete; the legacy canvas remains the default.
-// feature flag: only readable via Vite's define at build/dev time
-const simdeckEnabled = typeof __SIMDECK_EMBED__ !== 'undefined' && __SIMDECK_EMBED__ === '1';
-const simdeckUrl = ref<string | null>(null);
-const iframeEl = ref<HTMLIFrameElement | null>(null);
+// ── bezel chrome (backend wrap: the child's definition.json adapted to our
+//    markup; absent chrome degrades to the bare canvas below) ─────────────
+const bezelDef = ref<BezelDefinition | null>(null);
 watch(() => props.device?.udid, async (udid) => {
-  simdeckUrl.value = null;
-  if (!simdeckEnabled || !udid) return;
-  try {
-    const r = await fetch(`/api/devices/${encodeURIComponent(udid)}/stream`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-    await r.json();
-    // Embed at the child's NATIVE url (/simulators/<udid>): every absolute-path
-    // asset its JS fetches (/target.js, /sim-native.html, /simulators.json…)
-    // then resolves through the vite→server proxy chain unchanged — no HTML
-    // rewriting needed and no prefix the child's router rejects.
-    simdeckUrl.value = '/simulators/' + encodeURIComponent(udid);
-  } catch { /* legacy canvas stays */ }
+  bezelDef.value = null;
+  if (!udid) return;
+  bezelDef.value = await loadBezelDefinition(udid);
 }, { immediate: true });
-// sim reboot resilience (Phase 0 finding: their page's input goes silently
-// stale after a sim reboot while video keeps playing): on device state
-// transitions to Shutdown→Booted while embedded, force ONE iframe reload.
-watch(() => props.device?.state, (now, was) => {
-  if (!simdeckUrl.value || !iframeEl.value) return;
-  if (was === 'Shutdown' && now === 'Booted') {
-    // reload = fresh input session (Phase 0: their page's input goes stale
-    // across sim reboots while video keeps playing)
-    iframeEl.value.contentWindow?.location.reload();
-  }
-});
 
+// ── bezel hardware buttons: hover + press dispatch (restored from pre-wrap) ──
+const hoverBtn = ref('');
+async function pressBtn(b: BezelBtnDef): Promise<void> {
+  if (!sessionId.value) return;
+  await api(`${sessionId.value}/button`, { button: b.name }).catch(() => undefined);
+}
+function buttonStyle(b: BezelBtnDef): Record<string, string> {
+  return {
+    left: `${b.boxPct.left}%`, top: `${b.boxPct.top}%`,
+    width: `${b.boxPct.width}%`, height: `${b.boxPct.height}%`,
+    transform: hoverBtn.value === b.name ? 'translate(-31.25%, 0%)' : 'translate(0, 0)',
+    transition: 'transform 120ms ease',
+  };
+}
+interface BezelBtnDef { name: string; onTop: boolean; boxPct: { left: number; top: number; width: number; height: number }; imageUrl: string }
 
 // ── INSPECT MODE — element boxes over the live stream (control mode only) ──
 // Contract: while inspect is ON, a canvas CLICK selects an element and NEVER
@@ -673,17 +664,30 @@ watch(isControlLost(), (lost) => {
         <div class="devcol">
           <div class="stream-box stream-stage">
             <div class="stage-frame">
-              <!-- simdeck embed: the wrapped surface's own page (auth'd proxy,
-                   gated watch/drive server-side). Rendered INSTEAD of the canvas
-                   while enabled + resolved; the legacy path below is untouched. -->
-              <iframe v-if="simdeckUrl && sessionId" ref="iframeEl" class="simdeck-frame"
-                :src="simdeckUrl" title="device surface"
-                allow="clipboard-read; clipboard-write"></iframe>
-              <template v-else>
-              <!-- legacy fallback surface: bare canvas (no first-party bezels —
-                   the wrapped surface carries its own chrome; kept for the
-                   simdeck-unavailable window and watch-before-drive) -->
-              <canvas :ref="stream.setCanvas" tabindex="0"
+              <div v-if="bezelDef" class="bezel-wrap"
+                :style="{ aspectRatio: `${bezelDef.bezel.width} / ${bezelDef.bezel.height}` }">
+                <img class="bezel-img" :src="bezelDef.bezel.url" alt="" draggable="false" />
+                <canvas :ref="stream.setCanvas" class="bezel-screen" tabindex="0"
+                  @click="onTap" @mousemove="onCanvasMove"
+                  @pointerdown="(e) => devInput.onPointerDown(e, e.target as HTMLCanvasElement)"
+                  @pointermove="(e) => devInput.onPointerMove(e, e.target as HTMLCanvasElement)"
+                  @pointerup="(e) => devInput.onPointerUp(e, e.target as HTMLCanvasElement)"
+                  @pointercancel="(e) => devInput.onPointerUp(e, e.target as HTMLCanvasElement)"
+                  @wheel.prevent="(e) => devInput.onWheel(e, e.target as HTMLCanvasElement)"
+                  @keydown="devInput.onKeyDown" @blur="devInput.onBlur"
+                  :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
+                            width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%`,
+                            borderRadius: `${bezelDef.screenRadius.pctW}% / ${bezelDef.screenRadius.pctH}%`,
+                            cursor: inspect && sessionId ? 'default' : sessionId ? 'crosshair' : 'default', background: 'var(--color-void)', outline: 'none' }"></canvas>
+                <!-- bezel hardware buttons: hover pop-out + press dispatch -->
+                <img v-for="b in bezelDef.buttons" :key="b.name" class="bezel-btn"
+                  :src="b.imageUrl" :alt="b.name" draggable="false"
+                  :style="buttonStyle(b as BezelBtnDef)"
+                  :class="{ 'on-top': b.onTop, armed: !!sessionId }"
+                  @pointerenter="hoverBtn = b.name" @pointerleave="hoverBtn = ''"
+                  @pointerdown.prevent="pressBtn(b as BezelBtnDef)" @pointerup.prevent="hoverBtn = ''" />
+              </div>
+              <canvas v-else :ref="stream.setCanvas" tabindex="0"
                 @click="onTap" @mousemove="onCanvasMove"
                 @pointerdown="(e) => devInput.onPointerDown(e, e.target as HTMLCanvasElement)"
                 @pointermove="(e) => devInput.onPointerMove(e, e.target as HTMLCanvasElement)"
@@ -706,7 +710,6 @@ watch(isControlLost(), (lost) => {
                   <button v-if="stream.retryable.value" class="btn btn-sm stream-retry" @click="stream.retry()">retry stream</button>
                 </template>
               </div>
-              </template><!-- /simdeck v-else: bare canvas fallback -->
             </div>
           </div>
           <div class="stream-meta">
@@ -978,9 +981,12 @@ watch(isControlLost(), (lost) => {
 }
 .stream-stage { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .stage-frame { position: relative; flex: 0 0 auto; height: 100%; max-width: 100%; line-height: 0; }
-/* simdeck embed: their page carries its own bezel+chrome — the frame fills
- * the stage directly, sized by the iframe's own content; borderless. */
-.simdeck-frame { width: 100%; height: 100%; border: 0; display: block; background: var(--color-void); }
+.bezel-wrap { position: relative; height: 100%; max-width: 100%; }
+.bezel-img { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; user-select: none; -webkit-user-drag: none; }
+.bezel-screen { position: absolute; display: block; }
+.bezel-btn { position: absolute; z-index: 0; pointer-events: none; user-select: none; -webkit-user-drag: none; }
+.bezel-btn.on-top { z-index: 2; }
+.bezel-btn.armed { pointer-events: auto; cursor: pointer; }
 /* hardware buttons: behind the bezel by default (only the cap past the rail
  * shows); onTop buttons sit in front. Armed = clickable during a session. */
 /* canvas: intrinsic aspect (like watch mode), height-capped by the stage;
