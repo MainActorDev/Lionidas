@@ -62,6 +62,41 @@ describe('simdeck input', () => {
     server.unref();
   });
 
+  it('maps press→button (child wire type)', async () => {
+    mod = await loadMod();
+    const out = mod.toSimdeckGesture({ kind: 'press', button: 'home', duration: 0 }, 0, 0);
+    expect(out['type']).toBe('button');
+    expect(out['button']).toBe('home');
+    expect(out['kind']).toBeUndefined();
+  });
+
+  it('adds width/height to ALL positional kinds', async () => {
+    mod = await loadMod();
+    const cases = [
+      { kind: 'touch1', phase: 'down', x: 1, y: 2 },
+      { kind: 'touch2', phase: 'down', x1: 1, y1: 2, x2: 3, y2: 4 },
+      { kind: 'swipe', startX: 1, startY: 2, endX: 3, endY: 4 },
+      { kind: 'pan', x1: 1, y1: 2, x2: 3, y2: 4, dx: 5, dy: 6 },
+    ];
+    for (const g of cases) {
+      const out = mod.toSimdeckGesture(g, 402, 874);
+      expect(out['width']).toBe(402);
+      expect(out['height']).toBe(874);
+    }
+  });
+
+  it('non-positional kinds get no dims (scroll/key/button/type)', async () => {
+    mod = await loadMod();
+    for (const g of [
+      { kind: 'scroll', deltaX: 0, deltaY: 5 },
+      { kind: 'key', code: 'KeyH', modifiers: ['shift'] },
+      { kind: 'type', text: 'hi' },
+    ]) {
+      const out = mod.toSimdeckGesture(g, 402, 874);
+      expect(out['width']).toBeUndefined();
+    }
+  });
+
   it('interpretation: ok:false ack = INPUT_TIMEOUT (pure)', async () => {
     mod = await loadMod();
     expect(() => mod.assertAck({ ok: false })).toThrow('INPUT_TIMEOUT');

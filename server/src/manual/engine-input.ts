@@ -31,18 +31,23 @@ function base(): string {
 /** our gesture dialect → the child's. ONE translation table (plan Task 1.5):
  *  tap/swipe carry width/height (device points) for normalization; `kind`
  *  renames to `type`; everything else passes through. */
+const POSITIONAL_KINDS = new Set(['tap', 'swipe', 'touch1', 'touch2', 'pan']);
+/** Crucible kinds whose child wire type differs (verified: 'press' -> "unknown kind: press"). */
+const KIND_TO_WIRE: Record<string, string> = { press: 'button' };
+
 export function toSimdeckGesture(gesture: Record<string, unknown>, logicalW: number, logicalH: number): Record<string, unknown> {
   const out: Record<string, unknown> = { ...gesture };
   if ('kind' in out) {
-    out['type'] = out['kind'];
+    const k = String(out['kind']);
+    out['type'] = KIND_TO_WIRE[k] ?? k;
     delete out['kind'];
   }
   const t = out['type'] as string | undefined;
-  if (t === 'tap' || t === 'swipe') {
-    if (logicalW > 0 && logicalH > 0) {
-      out['width'] = logicalW;
-      out['height'] = logicalH;
-    }
+  // the child requires width/height on EVERY positional gesture (verified:
+  // touch1 without dims -> "missing field: width")
+  if (t && POSITIONAL_KINDS.has(t) && logicalW > 0 && logicalH > 0) {
+    out['width'] = logicalW;
+    out['height'] = logicalH;
   }
   return out;
 }
