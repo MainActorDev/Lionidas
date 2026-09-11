@@ -9,7 +9,7 @@
  *  rewrites Origin to the child's own authority anyway (same-origin from the
  *  child's perspective); the flag is belt-and-braces for direct loopback
  *  probes (tests, drills). */
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -70,6 +70,11 @@ export function ensureSimdeck(): Promise<number> {
     // stdio ignore: the child logs volume on stdout (plugin scan etc.) — a
     // piped stdio nobody drains fills the OS pipe buffer and BLOCKS the child
     // (found live: manual spawn with file redirect worked, server spawn hung)
+    // version pin visibility: one log line per spawn so a drifted checkout
+    // is visible in server logs immediately (pin of record: see the plan doc)
+    void execFile(BIN, ['--version'], (err, out) => {
+      if (!err) console.log(`[simdeck] child version: ${String(out).trim()}`);
+    });
     const p = spawn(BIN, ['serve', '--port', String(PORT), '--allowed-hosts', 'localhost'], {
       stdio: 'ignore',
       detached: false,

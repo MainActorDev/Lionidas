@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import NewRunModal from '../components/NewRunModal.vue';
 import DeviceSidebar, { type SidebarDevice } from '../components/DeviceSidebar.vue';
+import DeviceMiniPreview from '../components/DeviceMiniPreview.vue';
 import { useLiveEvents } from '../stores/live.ts';
 
 interface DeviceRow { udid: string; name: string | null; state: string | null; platform: string | null; kind: string | null; os_version: string | null; resolution: string | null; lease_holder: string | null; lease_engine: string | null; lease_display?: string | null }
@@ -161,6 +162,7 @@ onUnmounted(() => { if (poll) clearInterval(poll); closeSidebar(); unwatchEvents
         <table>
           <thead>
             <tr>
+              <th style="width: 52px;">live</th>
               <th style="width: 26%;">device</th>
               <th>os</th>
               <th>lease</th>
@@ -170,6 +172,7 @@ onUnmounted(() => { if (poll) clearInterval(poll); closeSidebar(); unwatchEvents
           </thead>
           <tbody>
             <tr v-for="d in booted" :key="d.udid" :class="{ 'row-booted': true, 'row-active': sidebar?.device.udid === d.udid }" @click="openSidebar(d)">
+              <td @click.stop><DeviceMiniPreview :udid="d.udid" /></td>
               <td>
                 <div style="color: var(--color-paper);">{{ d.name ?? d.udid.slice(0, 8) }}</div>
                 <div style="font-size: 10px; color: var(--color-steel); user-select: text;">{{ d.udid }}</div>
