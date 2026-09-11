@@ -41,7 +41,7 @@ const runActiveDevices = new Set<string>();
 const engineSockets = new Map<string, Set<import('ws').default>>();
 // share the registry with the engine-input channel (input sockets join the
 // same set so run-hold reaches them) — late bind avoids a circular import
-void import('../manual/engine-input.ts').then((m) => m.__bindEngineSockets(engineSockets));
+// input dispatch moved to simdeck HTTP (engine-input.ts); the WS registry binding is retired
 function engineHold(udid: string, type: 'run_pause' | 'run_resume'): void {
   const socks = engineSockets.get(udid);
   if (!socks) return;

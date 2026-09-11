@@ -26,6 +26,40 @@ const emit = defineEmits<{ (e: 'close'): void }>();
 const stream = useDeviceStream();
 const bezel = useDeviceBezel(computed(() => props.device?.udid));
 
+// ── simdeck embed (wrapped device surface) ──────────────────────────────
+// While a driving session is live, the stream stage can render the wrapped
+// surface's own page in an iframe through the crucible proxy (authed, CSP
+// stripped, watch/drive gated server-side). Feature-flagged off by default
+// until Phase 1 drills complete; the legacy canvas remains the default.
+// feature flag: only readable via Vite's define at build/dev time
+const simdeckEnabled = typeof __SIMDECK_EMBED__ !== 'undefined' && __SIMDECK_EMBED__ === '1';
+const simdeckUrl = ref<string | null>(null);
+const iframeEl = ref<HTMLIFrameElement | null>(null);
+watch(() => props.device?.udid, async (udid) => {
+  simdeckUrl.value = null;
+  if (!simdeckEnabled || !udid) return;
+  try {
+    const r = await fetch(`/api/devices/${encodeURIComponent(udid)}/stream`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    await r.json();
+    // Embed at the child's NATIVE url (/simulators/<udid>): every absolute-path
+    // asset its JS fetches (/target.js, /sim-native.html, /simulators.json…)
+    // then resolves through the vite→server proxy chain unchanged — no HTML
+    // rewriting needed and no prefix the child's router rejects.
+    simdeckUrl.value = '/simulators/' + encodeURIComponent(udid);
+  } catch { /* legacy canvas stays */ }
+}, { immediate: true });
+// sim reboot resilience (Phase 0 finding: their page's input goes silently
+// stale after a sim reboot while video keeps playing): on device state
+// transitions to Shutdown→Booted while embedded, force ONE iframe reload.
+watch(() => props.device?.state, (now, was) => {
+  if (!simdeckUrl.value || !iframeEl.value) return;
+  if (was === 'Shutdown' && now === 'Booted') {
+    // reload = fresh input session (Phase 0: their page's input goes stale
+    // across sim reboots while video keeps playing)
+    iframeEl.value.contentWindow?.location.reload();
+  }
+});
+
 
 // ── INSPECT MODE — element boxes over the live stream (control mode only) ──
 // Contract: while inspect is ON, a canvas CLICK selects an element and NEVER
@@ -660,6 +694,13 @@ watch(isControlLost(), (lost) => {
         <div class="devcol">
           <div class="stream-box stream-stage">
             <div class="stage-frame">
+              <!-- simdeck embed: the wrapped surface's own page (auth'd proxy,
+                   gated watch/drive server-side). Rendered INSTEAD of the canvas
+                   while enabled + resolved; the legacy path below is untouched. -->
+              <iframe v-if="simdeckUrl && sessionId" ref="iframeEl" class="simdeck-frame"
+                :src="simdeckUrl" title="device surface"
+                allow="clipboard-read; clipboard-write"></iframe>
+              <template v-else>
               <div v-if="bezel.def.value" class="bezel-wrap"
                 :style="{ aspectRatio: `${bezel.def.value.bezel.width} / ${bezel.def.value.bezel.height}` }">
                 <img class="bezel-img" :src="`/screenstream${bezel.def.value.bezel.url}`" alt="" draggable="false" />
@@ -706,13 +747,14 @@ watch(isControlLost(), (lost) => {
                   <button v-if="stream.retryable.value" class="btn btn-sm stream-retry" @click="stream.retry()">retry stream</button>
                 </template>
               </div>
+              </template><!-- /simdeck v-else: legacy canvas path -->
             </div>
           </div>
           <div class="stream-meta">
             <span v-if="stream.state.value === 'live'">{{ stream.fps.value > 0 ? `live · ${stream.fps.value}fps` : 'live · idle (screen unchanged)' }}</span>
             <span v-else>{{ stream.state.value }}</span>
             <span v-if="sessionId && logicalW">{{ logicalW }}pt logical · taps map 1:1</span>
-            <span v-else>watching · read-only · does not hold the device</span>
+            <span v-else-if="sessionId">connecting dimensions…</span>
           </div>
         </div>
 
@@ -977,6 +1019,9 @@ watch(isControlLost(), (lost) => {
 }
 .stream-stage { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .stage-frame { position: relative; flex: 0 0 auto; height: 100%; max-width: 100%; line-height: 0; }
+/* simdeck embed: their page carries its own bezel+chrome — the frame fills
+ * the stage directly, sized by the iframe's own content; borderless. */
+.simdeck-frame { width: 100%; height: 100%; border: 0; display: block; background: var(--color-void); }
 /* device bezel: engine chrome PNG behind the canvas; canvas sits at the
  * screen cutout rect in percent space. Canvas keeps intrinsic aspect sizing
  * (bezel aspect == screen aspect by construction). */

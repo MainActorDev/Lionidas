@@ -72,7 +72,8 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   // to return to the open-read transition mode.
   if ((env['CRUCIBLE_REQUIRE_AUTH'] ?? '1') === '1') { // env param wins (buildApp contract)
     app.addHook('onRequest', async (req, reply) => {
-      const open = req.url.startsWith('/api/auth') || req.url.startsWith('/api/health') || req.url === '/' || !req.url.startsWith('/api/');
+      const open = req.url.startsWith('/api/auth') || req.url.startsWith('/api/health') || req.url === '/'
+        || (!req.url.startsWith('/api/') && !req.url.startsWith('/simdeck/')); // simdeck = authed device surface
       if (open || req.user) return;
       await reply.code(401).send({ error: 'sign in required' });
     });
@@ -103,6 +104,36 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   if (process.env['VITEST'] !== 'true') {
     const { registerStreamRelay } = await import('./routes/stream-relay.ts');
     await registerStreamRelay(app, bus);
+    // simdeck gated proxy (wrapped device surface): auth'd proxy with the
+    // drive/watch mode gate. isDriving = live manual session row for the udid;
+    // session finish demotes, run start detaches (see simdeck/proxy.ts).
+    const { registerSimdeckProxy } = await import('./simdeck/proxy.ts');
+    const { ensureSimdeck } = await import('./simdeck/supervisor.ts');
+    const drivingUdids = new Set<string>();
+    bus.on('manual.session.open', ((p: { udid?: string }) => {
+      if (p?.udid) drivingUdids.add(p.udid);
+    }) as never);
+    registerSimdeckProxy(app, {
+      base: () => {
+        // supervisor spawn is lazy-failed-soft: a down child surfaces as the
+        // proxy's own 502, not a boot-time crash
+        void ensureSimdeck().catch(() => undefined);
+        const port = Number(process.env['CRUCIBLE_SIMDECK_PORT'] ?? 8422);
+        return `http://127.0.0.1:${port}`;
+      },
+      isDriving: (udid) => drivingUdids.has(udid),
+      onSessionEvent: (cb) => {
+        const offFinish = bus.on('manual.session.finish', ((p: { udid?: string }) => {
+          const u = p?.udid ?? '';
+          if (u) drivingUdids.delete(u);
+          if (u) cb({ udid: u, kind: 'finished' });
+        }) as never);
+        const offRun = bus.on('run.started', ((p: { udid?: string }) => {
+          if (p?.udid) cb({ udid: p.udid, kind: 'run-start' });
+        }) as never);
+        return () => { offFinish(); offRun(); };
+      },
+    });
   }
 
   let stopPoller: (() => void) | null = null;

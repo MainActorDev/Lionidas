@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { ensureScreenstream, screenstreamUrl } from '../stream/screenstream.ts';
+import { ensureSimdeck } from '../simdeck/supervisor.ts';
 import type Database from 'better-sqlite3';
 import { createReadStream, statSync } from 'node:fs';
 import { crucibleAlloy } from '../alloy/client.ts';
-import { dispatchWithHeal } from '../alloy/heal.ts';
 import { alloyDispatchDepsSync } from '../alloy/runtime.ts';
 
 export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database): void {
@@ -91,7 +91,14 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
     }
     try {
       await ensureScreenstream();
-      return { streamUrl: screenstreamUrl(udid), format: 'avcc' };
+      // simdeck embed (fail-soft): the wrapped device surface rides its own
+      // supervisor; its failure must not break the legacy stream resolve
+      let simdeckUrl: string | undefined;
+      try {
+        await ensureSimdeck();
+        simdeckUrl = `/simdeck/simulators/${encodeURIComponent(udid)}`;
+      } catch { /* surfaced by the proxy's own 502 when used */ }
+      return { streamUrl: screenstreamUrl(udid), format: 'avcc', simdeckUrl };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       req.log.warn({ err: msg }, 'crucible-screenstream unavailable');

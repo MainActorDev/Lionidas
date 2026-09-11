@@ -13,7 +13,7 @@ import { dispatchWithHeal } from '../alloy/heal.ts';
 import { quietKeyboard } from './keyboard-quiet.ts';
 import { captureSelectorAt, countMatches } from './selector.ts';
 import type { StepSelector, SnapNode } from './selector.ts';
-import { engineInput, grantInput } from './engine-input.ts';
+import { engineInput } from './engine-input.ts';
 
 export interface ManualDeps {
   db: Database.Database;
@@ -144,8 +144,6 @@ export async function startManualSession(deps: ManualDeps, udid: string, operato
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(sessionId, runId, udid, operator, w, h, Date.now(), Date.now());
     deps.bus.emit('manual.session.open', { sessionId, udid, operator, runId });
-    // grant engine-side input for this device while the session owns it
-    void grantInput(udid, true).catch(() => undefined);
     return { sessionId, logicalW: w, logicalH: h };
   })();
 }
@@ -175,7 +173,7 @@ export async function manualTap(deps: ManualDeps, sessionId: string, x: number, 
       | { ok: true }
       | { ok: false; error: { code: string; message: string } };
     return r.ok;
-  }, 'tap');
+  }, 'tap', { logicalW: s.logical_w ?? 0, logicalH: s.logical_h ?? 0 });
   if (!sent) throw new ManualSessionError('LEASE_LOST', 'tap failed (engine + alloy both refused)');
   deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
   await recordStep(deps, sessionId, { action: 'tap', x, y, selector });
@@ -188,9 +186,10 @@ export async function manualTap(deps: ManualDeps, sessionId: string, x: number, 
 async function engineInputWithFallback(
   deps: ManualDeps, udid: string, gesture: Record<string, unknown>,
   fallback: () => Promise<boolean>, logTag: string,
+  dims?: { logicalW: number; logicalH: number },
 ): Promise<boolean> {
   try {
-    await engineInput(udid, gesture);
+    await engineInput(udid, gesture, dims);
     return true;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -204,7 +203,7 @@ async function engineInputWithFallback(
  *  (swipe/key/button/deltas): the failure surfaces honestly. */
 export async function manualGesture(deps: ManualDeps, sessionId: string, gesture: Record<string, unknown>): Promise<void> {
   const s = liveSession(deps, sessionId);
-  await engineInput(s.udid, gesture);
+  await engineInput(s.udid, gesture, { logicalW: s.logical_w ?? 0, logicalH: s.logical_h ?? 0 });
   deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
   const kind = String(gesture['kind'] ?? 'gesture');
   if (kind === 'tap') {
@@ -229,7 +228,7 @@ export async function manualScroll(deps: ManualDeps, sessionId: string, directio
       | { ok: true }
       | { ok: false };
     return r.ok;
-  }, 'scroll');
+  }, 'scroll', { logicalW: s.logical_w ?? 0, logicalH: s.logical_h ?? 0 });
   if (!sent) throw new ManualSessionError('LEASE_LOST', 'scroll failed');
   deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
   await recordStep(deps, sessionId, { action: 'scroll', direction });
@@ -250,7 +249,7 @@ export async function manualType(deps: ManualDeps, sessionId: string, x: number 
       | { ok: true }
       | { ok: false; error: { code: string; message: string } };
     return r.ok;
-  }, 'type');
+  }, 'type', { logicalW: s.logical_w ?? 0, logicalH: s.logical_h ?? 0 });
   if (!sent) throw new ManualSessionError('LEASE_LOST', 'type failed: engine + alloy both refused');
   deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
   await recordStep(deps, sessionId, { action: 'type', x: x ?? 0, y: y ?? 0, text, selector });
@@ -367,7 +366,6 @@ export async function finishManualSession(deps: ManualDeps, sessionId: string, n
   deps.db.prepare(`UPDATE runs SET status = 'passed', finished_at = ?, note = ? WHERE id = ?`).run(Date.now(), note ?? `manual:${sessionId}`, s.run_id);
   deps.bus.emit('manual.session.finish', { sessionId });
   // revoke engine-side input — the device is free again
-  void grantInput(s.udid, false).catch(() => undefined);
 }
 
 /** Boot + interval: finish sessions idle > 5min (crash safety). */
