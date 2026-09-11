@@ -6,7 +6,6 @@
  *  CSS → logical points through the canvas rect, same math as taps
  *  before this composable existed. */
 import { ref, type Ref } from 'vue';
-import { directInputSend } from './deviceStream.ts';
 
 interface LogicalDims { w?: number | null; h?: number | null }
 
@@ -27,21 +26,14 @@ export function useDeviceInput(
     };
   }
 
-  // ── direct-WS input transport (baguette's shape): gestures ride the same
-  // WebSocket the stream uses — zero HTTP per keystroke. The engine enforces
-  // the input grant (server grants while a driving session owns the device),
-  // so a bare socket is inert in watch mode. HTTP routes remain as fallback
-  // when the direct socket isn't attached (e.g. relay path).
-  let wsSend: ((payload: object) => boolean) | null = null;
-
   async function post(path: string, body: unknown): Promise<void> {
     if (!sessionId.value) return;
     failed.value = '';
-    // fast path: one JSON frame over the live stream socket — no request
-    // round-trip, no per-key await (the ack arrives async and is ignored;
-    // failures surface via the stream's own error path)
-    if (!wsSend) wsSend = directInputSend();
-    if (wsSend && wsSend({ type: 'input', ...(body as Record<string, unknown>) })) return;
+    // HTTP through crucible's session routes — the server owns the child
+    // dialect translation (kind→type, press→button, dims). The old engine-WS
+    // fast path is gone with the engine: it wrapped gestures in a
+    // {type:'input'} envelope the child parses as "unknown kind: input" and
+    // silently dropped (every wall tap vanished with no error).
     const r = await api(`${sessionId.value}/${path}`, body);
     if (r['error']) failed.value = String(r['error']);
   }
@@ -194,8 +186,5 @@ export function useDeviceInput(
     failed,
     onPointerDown, onPointerMove, onPointerUp,
     onWheel, onKeyDown, onBlur,
-    /** deviceStream.attachDirect rebinds the module-level hook; pull it
-     *  into the local transport on each post (survives reconnects). */
-    refreshDirectSend(): void { wsSend = directInputSend(); },
   };
 }

@@ -192,7 +192,6 @@ const logicalW = ref<number | null>(null);
 // ── device control (engine-direct input) ──
 const devInput = useDeviceInput(sessionId, computed(() => ({ w: logicalW.value, h: logicalH.value })), api);
 // realtime input: gestures ride the stream's own WS when attached
-watch(() => stream.state.value, () => devInput.refreshDirectSend(), { immediate: true });
 const logicalH = ref<number | null>(null);
 const busy = ref(false);
 const error = ref('');

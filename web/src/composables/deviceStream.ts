@@ -201,10 +201,6 @@ export function useDeviceStream(): DeviceStream {
     ws.binaryType = 'arraybuffer';
     // input rides this socket too (fire-and-forget JSON frames; the engine
     // gates on the server-granted input right)
-    directSend = (payload: object): boolean => {
-      if (socket.readyState !== 1) return false;
-      try { socket.send(JSON.stringify(payload)); return true; } catch { return false; }
-    };
     let pending: ImageBitmap | VideoFrame | null = null;
     let rafId = 0;
     let alive = true;
@@ -296,7 +292,7 @@ export function useDeviceStream(): DeviceStream {
     };
     rafId = requestAnimationFrame(paint);
     // route stop() through the same cleanup: track the raf loop for teardown
-    directRaf = () => { alive = false; if (rafId) cancelAnimationFrame(rafId); directSend = null; };
+    directRaf = () => { alive = false; if (rafId) cancelAnimationFrame(rafId); };
   }
 
   async function connect(udid: string, isRetry: boolean): Promise<void> {
@@ -426,8 +422,6 @@ export function inputError(): Ref<string> { return lastInputError; }
 const controlLost = ref(false);
 export function isControlLost(): Ref<boolean> { return controlLost; }
 
-let directSend: ((payload: object) => boolean) | null = null;
-export function directInputSend(): ((payload: object) => boolean) | null { return directSend; }
 
 export function canvasPointToLogical(canvas: HTMLCanvasElement, clientX: number, clientY: number, logicalW?: number | null, logicalH?: number | null): { x: number; y: number } {
   const rect = canvas.getBoundingClientRect();
