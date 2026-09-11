@@ -4,7 +4,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { migrateM1 } from '../src/db/schema.ts';
 import { registerDeviceRoutes } from '../src/routes/devices.ts';
 import { __setAlloyForTest, type AlloyExports } from '../src/alloy/client.ts';
-import { __setScreenstreamEnsureForTest } from '../src/stream/screenstream.ts';
+import { __setSimdeckEnsureForTest } from '../src/simdeck/supervisor.ts';
 
 const U = 'SIM-HEAL-1';
 
@@ -57,15 +57,15 @@ afterEach(async () => {
   db.close();
 });
 
-describe('stream route (crucible-screenstream contract — no fallback)', () => {
+describe('stream route (simdeck contract — no fallback)', () => {
   it('engine healthy → 200 + engine WS URL', async () => {
-    __setScreenstreamEnsureForTest(async () => 8440);
+    __setSimdeckEnsureForTest(async () => 8422);
     try {
       const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/stream` });
       expect(r.statusCode).toBe(200);
-      expect((r.json() as { streamUrl: string }).streamUrl).toContain(`/devices/${U}/stream`);
+      expect((r.json() as { simdeckUrl: string }).simdeckUrl).toBe(`/simdeck/simulators/${U}`);
     } finally {
-      __setScreenstreamEnsureForTest(null);
+      __setSimdeckEnsureForTest(null);
     }
   });
 
@@ -78,25 +78,25 @@ describe('stream route (crucible-screenstream contract — no fallback)', () => 
         return { ok: true, result: {} };
       },
     } as unknown as AlloyExports);
-    __setScreenstreamEnsureForTest(() => Promise.reject(new Error('crucible-screenstream did not become healthy in 15s')));
+    __setSimdeckEnsureForTest(() => Promise.reject(new Error('simdeck did not become healthy in 15s')));
     try {
       const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/stream` });
       expect(r.statusCode).toBe(503);
       expect((r.json() as { retryable?: boolean }).retryable).toBe(true);
       expect(releaseAttempted).toBe(false);
     } finally {
-      __setScreenstreamEnsureForTest(null);
+      __setSimdeckEnsureForTest(null);
     }
   });
 
   it('binary missing → 503 permanent (retryable=false)', async () => {
-    __setScreenstreamEnsureForTest(() => Promise.reject(new Error('crucible-screenstream binary not found: /x (build it)')));
+    __setSimdeckEnsureForTest(() => Promise.reject(new Error('simdeck binary not found: /x (build the sibling project)')));
     try {
       const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/stream` });
       expect(r.statusCode).toBe(503);
       expect((r.json() as { retryable?: boolean }).retryable).toBe(false);
     } finally {
-      __setScreenstreamEnsureForTest(null);
+      __setSimdeckEnsureForTest(null);
     }
   });
 });

@@ -102,8 +102,8 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   // stream relay needs sharp (native module) — register only in production,
   // not under vitest (its native binding hangs the test runner)
   if (process.env['VITEST'] !== 'true') {
-    const { registerStreamRelay } = await import('./routes/stream-relay.ts');
-    await registerStreamRelay(app, bus);
+    const { registerSimdeckHolds } = await import('./simdeck/holds.ts');
+    await registerSimdeckHolds(app, bus);
     // simdeck gated proxy (wrapped device surface): auth'd proxy with the
     // drive/watch mode gate. isDriving = live manual session row for the udid;
     // session finish demotes, run start detaches (see simdeck/proxy.ts).

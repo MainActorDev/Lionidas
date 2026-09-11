@@ -1,5 +1,4 @@
 import type { FastifyInstance } from 'fastify';
-import { ensureScreenstream, screenstreamUrl } from '../stream/screenstream.ts';
 import { ensureSimdeck } from '../simdeck/supervisor.ts';
 import type Database from 'better-sqlite3';
 import { createReadStream, statSync } from 'node:fs';
@@ -78,7 +77,7 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
   });
 
   // S1: live stream URL (watch = read-only, no lease). Fails soft → wall falls back to pulse.
-  // crucible-screenstream is the ONLY engine (no MJPEG fallback): gate early,
+  // the wrapped device surface is the ONLY engine: gate early,
   // surface engine failures honestly with a retry hint.
   app.post('/api/devices/:udid/stream', async (req, reply) => {
     const { udid } = req.params as { udid: string };
@@ -90,18 +89,11 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
       return reply.code(422).send({ error: 'live stream is simulator-only (no framebuffer source for physical devices)', code: 'SIM_ONLY' });
     }
     try {
-      await ensureScreenstream();
-      // simdeck embed (fail-soft): the wrapped device surface rides its own
-      // supervisor; its failure must not break the legacy stream resolve
-      let simdeckUrl: string | undefined;
-      try {
-        await ensureSimdeck();
-        simdeckUrl = `/simdeck/simulators/${encodeURIComponent(udid)}`;
-      } catch { /* surfaced by the proxy's own 502 when used */ }
-      return { streamUrl: screenstreamUrl(udid), format: 'avcc', simdeckUrl };
+      await ensureSimdeck();
+      return { simdeckUrl: `/simdeck/simulators/${encodeURIComponent(udid)}` };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      req.log.warn({ err: msg }, 'crucible-screenstream unavailable');
+      req.log.warn({ err: msg }, 'simdeck unavailable');
       // A spawn/health failure is transient by construction (binary missing is
       // the one permanent class) — the UI offers a retry.
       const permanent = msg.includes('binary not found');

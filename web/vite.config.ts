@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [vue()],
   // feature flags (read via `typeof __X__ !== 'undefined'` in src)
   define: {
-    __SIMDECK_EMBED__: JSON.stringify(process.env['VITE_SIMDECK_EMBED'] ?? '0'),
+    __SIMDECK_EMBED__: JSON.stringify(process.env['VITE_SIMDECK_EMBED'] ?? '1'), // embed ON by default (Phase 3)
   },
   server: {
     port: 5230,
@@ -49,10 +49,6 @@ export default defineConfig({
       '/target.js': { target: 'http://127.0.0.1:9230', ws: true },
       '/toolbar': { target: 'http://127.0.0.1:9230', ws: true },
       '/vendor': { target: 'http://127.0.0.1:9230', ws: true },
-      // crucible-screenstream (our first-party engine): same-origin WS via the
-      // vite proxy. The engine is loopback-only; the browser connects through
-      // the app origin, so no allow-list flags or trust hatches are needed.
-      '/screenstream': { target: 'http://127.0.0.1:8440', ws: true, rewrite: (path) => path.replace(/^\/screenstream/, '') },
     },
   },
 });

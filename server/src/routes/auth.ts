@@ -52,7 +52,7 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
   });
 
   app.get('/api/auth/me', async (req) => {
-    return { user: req.user ? publicUser(req.user) : null, jiraConfigured: jiraConfigured(), streamFormat: 'avcc' as const }; // crucible-screenstream is the only engine
+    return { user: req.user ? publicUser(req.user) : null, jiraConfigured: jiraConfigured(), streamFormat: 'avcc' as const }; // single engine, avcc wire
   });
 
   // ── Jira SSO (env-gated; 503-honest when unconfigured) ──

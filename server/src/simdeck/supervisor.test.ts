@@ -1,5 +1,5 @@
 /** simdeck supervisor tests — fake binary pattern (a node script serving
- *  /simulators.json 200), mirroring the screenstream supervisor contract.
+ *  /simulators.json 200).
  *  Env is read at module load, so each test resets the module registry and
  *  re-imports with fresh env. */
 import { afterEach, describe, expect, it, vi } from 'vitest';

@@ -5,7 +5,7 @@
  *  graceful degradation. Pages mount the returned canvas element and read state.
  */
 import { ref, type Ref } from 'vue';
-import { makeAvccDecoder, hasAvccSupport, type Codec } from './stream/codecs.ts';
+import { makeAvccDecoder, type Codec } from './stream/codecs.ts';
 
 export type StreamState = 'idle' | 'connecting' | 'live' | 'paused' | 'reconnecting' | 'failed';
 
@@ -51,7 +51,6 @@ export function useDeviceStream(): DeviceStream {
 
   let ws: WebSocket | null = null;
   let codec: Codec | null = null;
-  let lastFrameAt = 0;
   let livenessTimer: ReturnType<typeof setInterval> | null = null;
   let directRaf: (() => void) | null = null;
   let currentUdid = '';
@@ -74,10 +73,8 @@ export function useDeviceStream(): DeviceStream {
   //    fps caps at decode speed);
   //  - starving never happens: every completed decode paints (the previous
   //    drop-on-newer-arrival approach froze the canvas under motion).
-  let pendingBuf: ArrayBuffer | null = null;
   /** latest delivered source from the AVCC codec (playing <video> or seed bitmap) */
   let delivered: { value: ImageBitmap | VideoFrame | null } = { value: null };
-  let decoding = false;
   let lastPaintAt = 0; // stream-frame paint time — gates the standalone fast-path
   // Reusable offscreen for stepped downscaling (mip-style halving) — created
   // lazily, sized to the largest halving step, reused across frames.
@@ -161,21 +158,6 @@ export function useDeviceStream(): DeviceStream {
     lastPaintAt = Date.now();
     if (frameObservers.size > 0) for (const cb of frameObservers) cb(lastPaintAt);
   }
-  function schedulePaint(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, bitmap: PaintSource, w: number, h: number): void {
-    if (pendingPaint) closeSrc(pendingPaint.bitmap); // superseded before display
-    pendingPaint = { canvas, ctx, bitmap, w, h };
-    if (rafScheduled) return;
-    rafScheduled = true;
-    requestAnimationFrame(() => {
-      rafScheduled = false;
-      const job = pendingPaint;
-      pendingPaint = null;
-      if (!job) return;
-      const prev = lastFrame;
-      runPaintJob(job);
-      if (prev && prev !== job) closeSrc(prev.bitmap); // retire the previous source
-    });
-  }
   document.addEventListener('visibilitychange', () => {
     // tab visible again: rAF fires once more and paints the freshest frame
     if (document.visibilityState === 'visible' && pendingPaint && !rafScheduled) {
@@ -197,76 +179,7 @@ export function useDeviceStream(): DeviceStream {
    *  baguette 1:1: canvas backing = NATIVE FRAME SIZE, single drawImage blit,
    *  CSS/GPU compositor downscales to the display box. No per-frame software
    *  resample — that cost multiplied by 60fps was the motion stutter. */
-  async function paintDelivered(): Promise<void> {
-    const src = delivered.value;
-    if (!src) return;
-    const canvas = canvasRef.value;
-    if (!canvas) return;
-    const w = srcW(src), h = srcH(src);
-    if (!w || !h) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    schedulePaint(canvas, ctx, src, w, h);
-  }
 
-  async function decodeLoop(): Promise<void> {
-    if (decoding) return;
-    decoding = true;
-    try {
-      while (pendingBuf !== null) {
-        const buf = pendingBuf;
-        pendingBuf = null; // newer frames land here while this one decodes
-        let bitmap: ImageBitmap;
-        const canvas = canvasRef.value;
-        try {
-          // decode DIRECTLY at display resolution when known: source frames are
-          // full-res (~1.3MB, 1284px) and a full decode costs 30-40ms; the
-          // resize-aware path decodes+downscales in one optimized GPU-friendly
-          // pass (~5ms), keeping the paint loop from falling behind on bursts.
-          const cssW0 = canvas?.clientWidth || canvas?.getBoundingClientRect().width || 0;
-          const dpr0 = window.devicePixelRatio || 1;
-          if (cssW0 > 0) {
-            const tw = Math.max(1, Math.round(cssW0 * dpr0));
-            // resizeWidth alone preserves the source aspect ratio per spec
-            bitmap = await createImageBitmap(new Blob([buf], { type: 'image/jpeg' }),
-              { resizeWidth: tw, resizeQuality: 'high' });
-          } else {
-            bitmap = await createImageBitmap(new Blob([buf], { type: 'image/jpeg' }));
-          }
-        } catch { continue; /* corrupt frame — skip, keep the loop alive */ }
-        if (canvas) {
-          // RENDER AT DISPLAY RESOLUTION. The engine frame is 1284px wide; a
-          // 1284px backing store shown at ~300 CSS px (sidebar) makes the
-          // COMPOSITOR downscale ~4x with bilinear sampling and no mipmaps —
-          // thin animated text (typewriter placeholders) lands between sample
-          // points and shimmers. Doing the downscale HERE via drawImage uses
-          // the 2D context's high-quality resampler; the compositor then
-          // blits ~1:1. Tap mapping is unaffected — it scales through
-          // canvas.width, whatever the backing size is.
-          const cssW = canvas.clientWidth || canvas.getBoundingClientRect().width;
-          if (cssW > 0) {
-            const dpr = window.devicePixelRatio || 1;
-            const targetW = Math.max(1, Math.round(cssW * dpr));
-            const targetH = Math.max(1, Math.round(targetW * bitmap.height / bitmap.width));
-            // (resize happens inside the rAF paint job — an eager resize here
-            //  clears the canvas and opens a black-frame window mid-burst)
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-              // rAF-paced paint (latest-wins): decode immediately, but draw on
-              // the display's cadence. The source emits ~8fps in bursts with
-              // 30-110ms gaps — painting on arrival makes the canvas strobe;
-              // pacing to rAF coalesces bursts and fills gaps with steady
-              // presentation. Latest bitmap wins; older ones close at paint time.
-              schedulePaint(canvas, ctx, bitmap, targetW, targetH);
-            }
-          }
-        }
-        countFps();
-      }
-    } finally {
-      decoding = false;
-    }
-  }
 
   /** fps accounting shared by the mjpeg decode loop and the AVCC codec path */
   function countFps(): void {
@@ -342,7 +255,7 @@ export function useDeviceStream(): DeviceStream {
           // every JSON it parses — including our set_* tuning frames it treats
           // as gestures — with {ok:false}. Those are NOISE here, not stream
           // failures; only the engine's explicit error shape kills the view.
-          if (body.ok === false && body.error && !tolerantAcks) fail(`screenstream: ${body.error}`, false);
+          if (body.ok === false && body.error && !tolerantAcks) fail(`stream: ${body.error}`, false);
         } catch { /* not JSON */ }
         return;
       }
@@ -388,132 +301,28 @@ export function useDeviceStream(): DeviceStream {
 
   async function connect(udid: string, isRetry: boolean): Promise<void> {
     const gen = generation;
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     state.value = isRetry ? 'reconnecting' : 'connecting';
     controlLost.value = false;   // fresh attach: previous refusal is stale
-    // avcc: browser talks DIRECTLY to crucible-screenstream (our engine —
-    // the relay hop exists for the legacy mjpeg path). Resolve the URL via our
-    // API (auth + spawn supervision), then connect through the same-origin
-    // vite proxy.
     if (pendingFormat === 'avcc') {
-      // simdeck path first: the wrapped device surface's own stream, through
-      // the authed gated proxy (watch mode enforced server-side — client→
-      // upstream gestures dropped). Same wire tags as the legacy engine, so
-      // the decode path below is unchanged. Falls through to the legacy
-      // resolve when the surface isn't available.
+      // The wrapped device surface's stream through the authed gated proxy
+      // (watch mode enforced server-side). Same wire tags the codec expects.
       try {
         const rd = await fetch(`/api/devices/${encodeURIComponent(udid)}/stream`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-        if (rd.ok) {
-          const bd = await rd.json() as { simdeckUrl?: string };
-          if (bd.simdeckUrl) {
-            const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${bd.simdeckUrl}/stream?format=avcc&version=v2`;
-            attachDirect(new WebSocket(wsUrl), udid, gen, { tolerantAcks: true });
-            return;
-          }
+        if (!rd.ok) {
+          const eb = await rd.json().catch(() => ({})) as { error?: string; retryable?: boolean };
+          throw new Error(eb.error ?? `resolve ${rd.status}`);
         }
-      } catch { /* fall through to the legacy resolve */ }
-      try {
-        const r = await fetch(`/api/devices/${udid}/stream?format=avcc`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-        const b = await r.json() as { streamUrl?: string; error?: string };
-        if (!r.ok || !b.streamUrl) throw new Error(b.error ?? `resolve ${r.status}`);
-        state.value = isRetry ? 'reconnecting' : 'connecting';
-        // baguette 1:1 topology: browser → ENGINE directly (no relay, no
-        // proxy hop — the engine accepts any WS; the old "loopback trust
-        // check" comment was stale). Same-machine walls reach 127.0.0.1:8440.
-        // Remote browsers (loopback unreachable) fall back to the same-origin
-        // proxy path — detected by the direct socket erroring before open.
-        const u = new URL(b.streamUrl);
-        const direct = new WebSocket(b.streamUrl);
-        const proxied = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/screenstream${u.pathname}${u.search}`);
-        // race: whichever opens first wins; the loser is closed.
-        let winner: WebSocket | null = null;
-        const pick = (s: WebSocket) => () => {
-          if (winner) { try { s.close(); } catch { /* gone */ } return; }
-          winner = s;
-          if (direct === s) { try { proxied.close(); } catch { /* gone */ } }
-          else { try { direct.close(); } catch { /* gone */ } }
-          attachDirect(s, udid, gen);
-        };
-        direct.onopen = pick(direct);
-        proxied.onopen = pick(proxied);
-        // fail only when BOTH paths errored and neither opened
-        const errored = new Set<WebSocket>();
-        const onErr = (s: WebSocket) => () => {
-          errored.add(s);
-          if (!winner && errored.size >= 2) fail('engine unreachable (direct and proxy)', true);
-        };
-        direct.onerror = onErr(direct);
-        proxied.onerror = onErr(proxied);
+        const bd = await rd.json() as { simdeckUrl?: string };
+        if (!bd.simdeckUrl) throw new Error('no device surface url in resolve');
+        const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${bd.simdeckUrl}/stream?format=avcc&version=v2`;
+        attachDirect(new WebSocket(wsUrl), udid, gen, { tolerantAcks: true });
         return;
       } catch (err) {
         fail(err instanceof Error ? err.message : String(err), true);
         return;
       }
     }
-    ws = new WebSocket(`${proto}://${location.host}/api/stream/${udid}`);
-    ws.binaryType = 'arraybuffer';
-    ws.onmessage = (ev) => {
-      if (gen !== generation) return;
-      if (typeof ev.data === 'string') {
-        // typed messages from the relay — format handshake, error (terminal),
-        // or status (mid-stream source loss, server keeps retrying underneath)
-        try {
-          const body = JSON.parse(ev.data) as { error?: string; retryable?: boolean; status?: string; paused?: boolean; format?: string };
-          if (body.error) fail(body.error, body.retryable ?? false);
-          else if (body.status === 'source-lost') state.value = 'reconnecting';
-          else if (body.status === 'run-active' && body.paused) state.value = 'paused';
-          else if (body.format === 'avcc' && !codec && hasAvccSupport()) {
-            codec = makeAvccDecoder(
-              (frame) => {
-                frames.value++; countFps();
-                delivered.value = frame;
-                void paintDelivered();
-              },
-              (msg, isErr) => { if (isErr) failure.value = msg; },
-            );
-          } else if (body.format === 'avcc' && !codec && !hasAvccSupport()) {
-            // WebCodecs absent: surface honestly and drop to the failure overlay —
-            // the wall's pulse fast-path still carries a static frame
-            fail('this browser cannot decode H.264 streams (no WebCodecs) — ask the server for mjpeg', false);
-          }
-        } catch { /* not JSON — ignore */ }
-        return;
-      }
-      state.value = 'live';
-      failure.value = '';
-      retryable.value = false;
-      autoRetried = false; // healthy again — a future outage gets its own auto-retry
-      frames.value++;
-      lastFrameAt = Date.now();
-      if (codec) { codec.feed(ev.data as ArrayBuffer); return; }
-      pendingBuf = ev.data as ArrayBuffer;
-      void decodeLoop();
-    };
-    // zombie watchdog: emit-on-change streams send NOTHING while idle, so
-    // 'no frames' alone is not death — but the meta line stays honest only if
-    // we distinguish. A relay/upstream that dies WITHOUT closing our socket
-    // (wedged server instance) leaves 'live' lying forever. Force one reconnect
-    // if NO message of any kind arrives for 30s AND we've seen frames before
-    // (first-frame timeout is the server's job; this is the after-first gap).
-    if (livenessTimer) clearInterval(livenessTimer);
-    livenessTimer = setInterval(() => {
-      if (gen !== generation || state.value !== 'live') return;
-      if (frames.value === 0) return; // pre-first-frame: server's timeout owns it
-      if (Date.now() - lastFrameAt > 30_000) {
-        state.value = 'reconnecting';
-        teardown();
-        void connect(currentUdid, true);
-      }
-    }, 5_000);
-    ws.onclose = () => {
-      if (gen !== generation) return;
-      // auto-reconnect while started (server restart, engine respawn)
-      state.value = 'reconnecting';
-      retryTimer = setTimeout(() => {
-        if (gen === generation && currentUdid) connect(currentUdid, true);
-      }, 1500);
-    };
-    ws.onerror = () => { /* onclose fires */ };
+    // (mjpeg relay path removed — the wrapped surface is the only engine)
   }
 
   function fail(reason: string, canRetry: boolean): void {
