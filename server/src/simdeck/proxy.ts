@@ -57,6 +57,13 @@ export function __simdeckLegs(): Array<{ udid: string; mode: string }> {
  *  JPEG-seed envelope (0x04 tag + jpeg) — the run-still feed keeps run-panel
  *  watchers painted while a run holds the device (see stream-relay's feed).
  *  Returns the number of legs painted. */
+/** Live (non-closed) leg count for a udid — the still feed's audience probe. */
+export function simdeckLegCount(udid: string): number {
+  let n = 0;
+  for (const l of legs) if (l.udid === udid && !l.closed) n++;
+  return n;
+}
+
 export function paintStillToLegs(udid: string, jpeg: Buffer): number {
   let n = 0;
   const payload = Buffer.concat([Buffer.from([0x04]), jpeg]);

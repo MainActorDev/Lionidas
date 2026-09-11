@@ -76,6 +76,14 @@ function deckPaint(): Promise<(u: string, b: Buffer) => number> {
   return deckPaintPromise;
 }
 
+let deckLegsPromise: Promise<(u: string) => number> | null = null;
+function deckLegsFor(udid: string): Promise<number> {
+  if (!deckLegsPromise) {
+    deckLegsPromise = import('../simdeck/proxy.ts').then((m) => m.simdeckLegCount);
+  }
+  return deckLegsPromise.then((f) => f(udid));
+}
+
 function runStillFeed(udid: string): void {
   if (RUN_STILL_INTERVAL_MS <= 0) return; // disabled (tests)
   if (stillFeeds.has(udid)) return;
@@ -89,10 +97,13 @@ function runStillFeed(udid: string): void {
     try {
       while (runActiveDevices.has(udid)) {
         // clients live on whatever subscription is current for this device
-        // (the pause may re-resolve a fresh URL mid-run; follow the clients)
+        // (the pause may re-resolve a fresh URL mid-run; follow the clients).
+        // Simdeck proxy legs count as an audience too — the wall's watch canvas
+        // rides them now, and they are NOT relay clients.
+        const deckLegCount = await deckLegsFor(udid).catch(() => 0);
         const target = [...upstreams.values()].find((s) => s.udid === udid && s.clients.size > 0)
           ?? null;
-        if (!target) {
+        if (!target && deckLegCount === 0) {
           // no watchers for a full minute → exit (a run that never emits
           // run.finished must not leave a capture loop running forever;
           // a later run.started restarts the feed on demand)
@@ -114,12 +125,12 @@ function runStillFeed(udid: string): void {
             // dynamic import (sync require crashes under tsx ESM; lazy avoids
             // the import cycle).
             const deck = await deckPaint().then((f) => f(udid, frame)).catch(() => 0);
-            for (const c of target.clients) {
+            for (const c of target?.clients ?? []) {
               c.latestFrame = frame;
               void drain(c);
             }
             painted++;
-            if (painted === 1) console.log(`[run-still] painting ${target.clients.size}+${deck} client(s): ${udid}`);
+            if (painted === 1) console.log(`[run-still] painting ${(target?.clients.size ?? 0)}+${deck} client(s): ${udid}`);
             failCount = 0;
           } else if (++failCount === 1) {
             console.warn(`[run-still] suspiciously small frame (${frame.length}B), discarded: ${udid}`);
