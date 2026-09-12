@@ -9,9 +9,13 @@ import { ref, computed, watch, onUnmounted, onMounted, onBeforeUnmount } from 'v
 import { useDeviceStream, canvasPointToLogical, isControlLost } from '../composables/deviceStream.ts';
 import { useDeviceInput } from '../composables/useDeviceInput.ts';
 import { loadBezelDefinition, type BezelDefinition } from '../composables/simdeckChrome.ts';
-import { hitTestNodeAt, selectorPreview, sameNodeIn, type AxNode } from '@crucible/shared/ax-tree';
+import { hitTestNodeAt, selectorPreview, sameNodeIn, parentOf, siblingsOf, type AxNode } from '@crucible/shared/ax-tree';
 import { useInspectTree, TreeFetchError } from '../composables/useInspectTree.ts';
+import { useInspectSample } from '../composables/useInspectSample.ts';
 import InspectOverlay from './InspectOverlay.vue';
+import InspectRedlines from './InspectRedlines.vue';
+import InspectTools from './InspectTools.vue';
+import InspectProps from './InspectProps.vue';
 
 export interface SidebarDevice { udid: string; name: string | null; os_version: string | null; state: string | null }
 
@@ -143,8 +147,50 @@ function onKey(e: KeyboardEvent): void {
     if (selNode.value) selNode.value = null;
     else if (inspect.value) toggleInspect();
   }
+  // A2 tool shortcuts — only meaningful while inspecting
+  else if (inspect.value && (e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'c') {
+    e.preventDefault(); copySpec();
+  }
+  else if (inspect.value && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    const k = e.key.toLowerCase();
+    if (k === 'm') { e.preventDefault(); toolMode.value = toolMode.value === 'measure' ? 'inspect' : 'measure'; }
+    else if (k === 't') { e.preventDefault(); showTree.value = !showTree.value; }
+    else if (k === 'e') { e.preventDefault(); showEst.value = !showEst.value; }
+    else if (k === 's') { e.preventDefault(); void captureShot(); }
+  }
 }
 window.addEventListener('keydown', onKey);
+
+/** Copy the node spec (JSON): identifiers + geometry + sampled values. */
+async function copySpec(): Promise<void> {
+  if (!selNode.value) { actionMsg.value = 'select an element first'; return; }
+  const n = selNode.value;
+  const spec = {
+    type: n.type ?? null, identifier: n.identifier ?? null, label: n.label ?? null,
+    rect: n.rect ? { x: Math.round(n.rect.x), y: Math.round(n.rect.y), w: Math.round(n.rect.width), h: Math.round(n.rect.height) } : null,
+    padding: selParent.value?.rect && n.rect ? {
+      top: Math.round(n.rect.y - selParent.value.rect.y),
+      left: Math.round(n.rect.x - selParent.value.rect.x),
+    } : null,
+    text: sample.value?.text ?? null, fill: sample.value?.fill ?? null, radius: sample.value?.radius ?? null,
+  };
+  try { await navigator.clipboard.writeText(JSON.stringify(spec, null, 2)); actionMsg.value = 'spec copied'; }
+  catch { actionMsg.value = 'copy blocked — select the text manually'; }
+}
+
+/** Lossless screenshot of the canvas → download (uses the stream's own frame). */
+async function captureShot(): Promise<void> {
+  const c = stream.canvasRef.value;
+  if (!c) { actionMsg.value = 'no canvas'; return; }
+  try {
+    const url = c.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `inspect-${selNode.value?.identifier ?? 'screen'}-${Date.now()}.png`;
+    a.click();
+    actionMsg.value = 'screenshot saved';
+  } catch { actionMsg.value = 'capture failed'; }
+}
 
 function onCanvasMove(e: MouseEvent): void {
   if (!inspect.value) return;
@@ -249,6 +295,18 @@ async function copySelector(): Promise<void> {
 
 const sessionId = ref<string | null>(null);
 const logicalW = ref<number | null>(null);
+const logicalH = ref<number | null>(null);
+
+// A2 inspector tool state: mode drives redlines; tree/estimates are view toggles.
+const toolMode = ref<'inspect' | 'measure'>('inspect');
+const showTree = ref(false);
+const showEst = ref(true);
+const selParent = computed<AxNode | null>(() => (selNode.value ? parentOf(tree.nodes.value, selNode.value) : null));
+const selSiblings = computed<AxNode[]>(() => (selNode.value ? siblingsOf(tree.nodes.value, selNode.value) : []));
+const sampleOn = computed(() => inspect.value && !!selNode.value && tree.state.value === 'aligned');
+const { sample, loading: sampleLoading, failed: sampleFailed } = useInspectSample(
+  sessionId, selNode, tree.logicalW, sampleOn,
+);
 
 // ── device control (engine-direct input) ──
 const devInput = useDeviceInput(sessionId, computed(() => ({ w: logicalW.value, h: logicalH.value })), api,
@@ -257,7 +315,6 @@ const devInput = useDeviceInput(sessionId, computed(() => ({ w: logicalW.value, 
   // shift content, and the tree fetch itself is a couple hundred ms anyway.
   (kind) => { if (kind === 'tap') tree.markInteraction(); else tree.markScroll(); });
 // realtime input: gestures ride the stream's own WS when attached
-const logicalH = ref<number | null>(null);
 const busy = ref(false);
 const error = ref('');
 // phase machine: watching (read-only stream) → driving (lease + dispatch)
@@ -750,6 +807,11 @@ watch(isControlLost(), (lost) => {
                   :hover="hoverNode" :selected="selNode" :visible="tree.state.value === 'aligned'"
                   :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
                             width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%` }" />
+                <InspectRedlines v-if="inspect && sessionId && selNode" :selected="selNode" :parent="selParent"
+                  :siblings="selSiblings" :mode="toolMode" :visible="tree.state.value === 'aligned'"
+                  :logical-w="tree.logicalW.value" :logical-h="tree.logicalH.value"
+                  :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
+                            width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%` }" />
                 <!-- bezel hardware buttons: hover pop-out + press dispatch -->
                 <img v-for="b in bezelDef.buttons" :key="b.name" class="bezel-btn"
                   :src="buttonSrc(b as BezelBtnDef)" :alt="b.name" draggable="false"
@@ -917,7 +979,17 @@ watch(isControlLost(), (lost) => {
             <div v-if="!selNode" class="sect-hint" style="line-height: 1.8;">
               {{ inspect ? 'click any boxed element on the screen — its card appears here.' : 'toggle inspect, then click any element on the screen.' }}
             </div>
-            <div v-else class="el-card">
+            <template v-else>
+              <!-- A2 tool rail (44px, icons) + props rail (compact 196px) -->
+              <div class="inspect-cluster">
+                <InspectTools :mode="toolMode" :tree="showTree" :estimates="showEst"
+                  @mode="(m) => { toolMode = m; }" @tree="(on) => { showTree = on; }"
+                  @estimates="(on) => { showEst = on; }"
+                  @screenshot="captureShot" @copy="copySpec" />
+                <InspectProps compact :node="selNode" :parent="selParent" :siblings="selSiblings"
+                  :sample="sample" :loading="sampleLoading" :failed="sampleFailed" :show-estimates="showEst" />
+              </div>
+              <div class="el-card">
               <div class="el-name">{{ selNode.identifier || selNode.label || selNode.type || 'element' }}</div>
               <div class="krow"><span class="k">identifier</span><span class="v mono">{{ selNode.identifier ?? '—' }}</span></div>
               <div class="krow"><span class="k">type</span><span class="v">{{ selNode.type ?? '—' }}</span></div>
@@ -932,7 +1004,8 @@ watch(isControlLost(), (lost) => {
                 <span class="spacer"></span>
                 <span v-if="actionMsg" class="sect-hint">{{ actionMsg }}</span>
               </div>
-            </div>
+              </div>
+            </template>
           </div>
 
           <!-- record -->
@@ -1189,4 +1262,7 @@ watch(isControlLost(), (lost) => {
 .app-build { display: flex; justify-content: space-between; gap: 8px; padding: 3px 4px; cursor: pointer; font-size: 11px; }
 .app-build:hover { background: var(--color-iron); }
 .app-build.picked { color: var(--color-paper); background: var(--color-iron); }
+/* A2 inspector cluster: tool rail beside props, inside the sidebar sect */
+.inspect-cluster { display: flex; align-items: stretch; margin-bottom: var(--s-2); border: 1px solid var(--color-iron); border-radius: var(--r-sm); overflow: hidden; }
+.inspect-cluster > :first-child { border-left: none; }
 </style>

@@ -2,9 +2,13 @@
 import { ref, computed, watch, onUnmounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useDeviceStream, canvasPointToLogical } from '../composables/deviceStream.ts';
-import { hitTestNodeAt, selectorPreview, sameNodeIn, type AxNode } from '@crucible/shared/ax-tree';
+import { hitTestNodeAt, selectorPreview, sameNodeIn, parentOf, siblingsOf, type AxNode } from '@crucible/shared/ax-tree';
 import { useInspectTree, TreeFetchError } from '../composables/useInspectTree.ts';
+import { useInspectSample } from '../composables/useInspectSample.ts';
 import InspectOverlay from '../components/InspectOverlay.vue';
+import InspectRedlines from '../components/InspectRedlines.vue';
+import InspectTools from '../components/InspectTools.vue';
+import InspectProps from '../components/InspectProps.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -24,6 +28,11 @@ const stream = useDeviceStream();
 // device — it selects an element. Scroll (wheel/arrows) stays enabled in BOTH
 // modes: scroll is navigation, not interaction.
 const inspect = ref(false);
+
+// A2 inspector tool state (full-size rail on this surface)
+const toolMode = ref<'inspect' | 'measure'>('inspect');
+const showTree = ref(false);
+const showEst = ref(true);
 const hoverNode = ref<AxNode | null>(null);
 const selNode = ref<AxNode | null>(null);
 const hoverXY = ref<{ x: number; y: number } | null>(null); // CSS px, chip position
@@ -42,6 +51,14 @@ const tree = useInspectTree(async (sid, signal) => {
   }
   return await res.json() as { nodes: AxNode[]; logicalW: number | null; logicalH: number | null };
 });
+
+// A2 helpers: parent/siblings for redlines + props; sample = pixel estimates
+const selParent = computed<AxNode | null>(() => (selNode.value ? parentOf(tree.nodes.value, selNode.value) : null));
+const selSiblings = computed<AxNode[]>(() => (selNode.value ? siblingsOf(tree.nodes.value, selNode.value) : []));
+const sampleOn = computed(() => inspect.value && !!selNode.value && tree.state.value === 'aligned');
+const { sample, loading: sampleLoading, failed: sampleFailed } = useInspectSample(
+  sessionId, selNode, tree.logicalW, sampleOn,
+);
 
 // Selection/hover snapshots go STALE on every tree refetch (scroll →
 // realign) — re-resolve against the fresh array so the orange ring tracks
@@ -70,8 +87,44 @@ function onKey(e: KeyboardEvent): void {
     if (selNode.value) { selNode.value = null; }
     else if (inspect.value) toggleInspect();
   }
+  else if (inspect.value && (e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'c') {
+    e.preventDefault(); void copySpec();
+  }
+  else if (inspect.value && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    const k = e.key.toLowerCase();
+    if (k === 'm') { e.preventDefault(); toolMode.value = toolMode.value === 'measure' ? 'inspect' : 'measure'; }
+    else if (k === 't') { e.preventDefault(); showTree.value = !showTree.value; }
+    else if (k === 'e') { e.preventDefault(); showEst.value = !showEst.value; }
+    else if (k === 's') { e.preventDefault(); void captureShot(); }
+  }
 }
 window.addEventListener('keydown', onKey);
+
+/** Copy the node spec (JSON): identifiers + geometry + sampled values. */
+async function copySpec(): Promise<void> {
+  if (!selNode.value) { actionMsg.value = 'select an element first'; return; }
+  const n = selNode.value;
+  const spec = {
+    type: n.type ?? null, identifier: n.identifier ?? null, label: n.label ?? null,
+    rect: n.rect ? { x: Math.round(n.rect.x), y: Math.round(n.rect.y), w: Math.round(n.rect.width), h: Math.round(n.rect.height) } : null,
+    text: sample.value?.text ?? null, fill: sample.value?.fill ?? null, radius: sample.value?.radius ?? null,
+  };
+  try { await navigator.clipboard.writeText(JSON.stringify(spec, null, 2)); actionMsg.value = 'spec copied'; }
+  catch { actionMsg.value = 'copy blocked'; }
+}
+
+/** Lossless PNG of the canvas → download. */
+async function captureShot(): Promise<void> {
+  const c = stream.canvasRef.value;
+  if (!c) { actionMsg.value = 'no canvas'; return; }
+  try {
+    const a = document.createElement('a');
+    a.href = c.toDataURL('image/png');
+    a.download = `inspect-${selNode.value?.identifier ?? 'screen'}-${Date.now()}.png`;
+    a.click();
+    actionMsg.value = 'screenshot saved';
+  } catch { actionMsg.value = 'capture failed'; }
+}
 
 // hover = MATH on the current tree (rAF-throttled), never DOM events on rects
 function onCanvasMove(e: MouseEvent): void {
@@ -332,6 +385,9 @@ onUnmounted(() => {
         />
         <InspectOverlay v-if="inspect" :nodes="tree.nodes.value" :logical-w="tree.logicalW.value" :logical-h="tree.logicalH.value"
           :hover="hoverNode" :selected="selNode" :visible="tree.state.value === 'aligned'" />
+        <InspectRedlines v-if="inspect && selNode" :selected="selNode" :parent="selParent" :siblings="selSiblings"
+          :mode="toolMode" :visible="tree.state.value === 'aligned'"
+          :logical-w="tree.logicalW.value" :logical-h="tree.logicalH.value" />
         <div v-if="inspect && hoverNode && tree.state.value === 'aligned'" class="hover-chip"
           :style="{ left: `${chipXY.x}px`, top: `${chipXY.y}px` }">{{ chipName }}</div>
         </div>
@@ -370,6 +426,14 @@ onUnmounted(() => {
       </div>
       <div v-if="busy" class="meta-row" style="margin-top: var(--s-2); color: var(--color-ash);">sending…</div>
 
+      <div v-if="inspect && selNode" class="inspect-cluster">
+        <InspectTools :mode="toolMode" :tree="showTree" :estimates="showEst"
+          @mode="(m) => { toolMode = m; }" @tree="(on) => { showTree = on; }"
+          @estimates="(on) => { showEst = on; }"
+          @screenshot="captureShot" @copy="copySpec" />
+        <InspectProps :node="selNode" :parent="selParent" :siblings="selSiblings"
+          :sample="sample" :loading="sampleLoading" :failed="sampleFailed" :show-estimates="showEst" />
+      </div>
       <div v-if="inspect && selNode" class="card inspect-drawer">
         <div class="page-title" style="font-size: 13px;">{{ selNode.identifier || selNode.label || selNode.type || 'element' }}</div>
         <div class="meta-row"><span class="k">type</span><span>{{ selNode.type ?? '—' }}</span></div>
@@ -404,6 +468,8 @@ onUnmounted(() => {
   z-index: 2;
 }
 .inspect-drawer { margin-top: var(--s-2); padding: var(--s-2); }
+/* A2 inspector cluster: tool rail + props rail side by side */
+.inspect-cluster { display: flex; align-items: stretch; margin-top: var(--s-2); border: 1px solid var(--color-iron); border-radius: var(--r-sm); overflow: hidden; }
 .tap-ripple {
   position: absolute;
   width: 28px; height: 28px;

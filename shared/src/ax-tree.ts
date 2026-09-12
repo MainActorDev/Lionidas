@@ -106,3 +106,15 @@ export function sameNodeIn(nodes: AxNode[], stale: AxNode | null | undefined): A
   };
   return candidates.reduce((best, n) => (dist(n) < dist(best) ? n : best));
 }
+
+/** Direct parent of n (via parentIndex) — null for roots/orphans. */
+export function parentOf(nodes: AxNode[], n: AxNode): AxNode | null {
+  if (n.parentIndex === undefined || n.parentIndex < 0) return null;
+  return nodes.find((m) => m.index === n.parentIndex) ?? null;
+}
+
+/** In-flow siblings of n (same parent, not n itself) — for gap redlines. */
+export function siblingsOf(nodes: AxNode[], n: AxNode): AxNode[] {
+  if (n.parentIndex === undefined || n.parentIndex < 0) return [];
+  return nodes.filter((m) => m !== n && m.parentIndex === n.parentIndex);
+}
