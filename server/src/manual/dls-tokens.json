@@ -1,0 +1,9 @@
+[
+  { "token": "backgroundPrimary/white", "hex": "#FFFFFF" },
+  { "token": "backgroundSecondary/gray50", "hex": "#F0F3F7" },
+  { "token": "backgroundBrand/brand500", "hex": "#FF0000" },
+  { "token": "textPrimary/gray900", "hex": "#1E1E1E" },
+  { "token": "textSecondary/gray500", "hex": "#808080" },
+  { "token": "textOnBrand/white", "hex": "#FFFFFF" },
+  { "token": "borderDefault/gray200", "hex": "#EEEEEE" }
+]
