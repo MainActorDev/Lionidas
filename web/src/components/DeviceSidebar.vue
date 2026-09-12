@@ -201,9 +201,16 @@ const chipXY = computed(() => {
   const canvas = stream.canvasRef.value;
   if (!canvas || !hoverXY.value) return { x: 0, y: 0 };
   const r = canvas.getBoundingClientRect();
+  // bezel layout insets the canvas inside .stage-frame — chip (absolute in
+  // the frame) needs the canvas's frame-space offset added (same class of
+  // fix as the tap ripple in onTap)
+  const frame = canvas.closest('.stage-frame') as HTMLElement | null;
+  const fr = frame ? frame.getBoundingClientRect() : r;
+  const ox = r.left - fr.left;
+  const oy = r.top - fr.top;
   return {
-    x: Math.min(Math.max(hoverXY.value.x - r.left + 10, 4), Math.max(r.width - 150, 4)),
-    y: Math.min(Math.max(hoverXY.value.y - r.top - 26, 4), Math.max(r.height - 22, 4)),
+    x: Math.min(Math.max(ox + hoverXY.value.x - r.left + 10, 4), Math.max(fr.width - 150, 4)),
+    y: Math.min(Math.max(oy + hoverXY.value.y - r.top - 26, 4), Math.max(fr.height - 22, 4)),
   };
 });
 const treeLabel = computed(() => {
@@ -719,6 +726,13 @@ watch(isControlLost(), (lost) => {
                             width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%`,
                             borderRadius: `${bezelDef.screenRadius.pctW}% / ${bezelDef.screenRadius.pctH}%`,
                             cursor: inspect && sessionId ? 'default' : sessionId ? 'crosshair' : 'default', background: 'var(--color-void)', outline: 'none' }"></canvas>
+                <!-- overlay rides the SAME pct rect as the canvas, inside the
+                     same wrap — aligned by construction (stage-frame-level
+                     anchoring spans the bezel image: boxes land on the rails) -->
+                <InspectOverlay v-if="inspect && sessionId" :nodes="tree.nodes.value" :logical-w="tree.logicalW.value" :logical-h="tree.logicalH.value"
+                  :hover="hoverNode" :selected="selNode" :visible="tree.state.value === 'aligned'"
+                  :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
+                            width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%` }" />
                 <!-- bezel hardware buttons: hover pop-out + press dispatch -->
                 <img v-for="b in bezelDef.buttons" :key="b.name" class="bezel-btn"
                   :src="buttonSrc(b as BezelBtnDef)" :alt="b.name" draggable="false"
@@ -738,8 +752,9 @@ watch(isControlLost(), (lost) => {
                 @wheel.prevent="(e) => devInput.onWheel(e, e.target as HTMLCanvasElement)"
                 @keydown="devInput.onKeyDown" @blur="devInput.onBlur"
                 :style="{ display: 'block', cursor: inspect && sessionId ? 'default' : sessionId ? 'crosshair' : 'default', background: 'var(--color-void)', outline: 'none' }"></canvas>
-              <InspectOverlay v-if="inspect && sessionId" :nodes="tree.nodes.value" :logical-w="tree.logicalW.value" :logical-h="tree.logicalH.value"
-                :hover="hoverNode" :selected="selNode" :visible="tree.state.value === 'aligned'" />
+              <!-- chip + ripple: absolutely positioned within .stage-frame —
+                   canvas-relative coords need the bezel screen-inset offset
+                   (see chipXY / onTap) -->
               <div v-if="inspect && hoverNode && tree.state.value === 'aligned' && sessionId" class="hover-chip"
                 :style="{ left: `${chipXY.x}px`, top: `${chipXY.y}px` }">{{ chipName }}</div>
               <div v-if="ripple" class="tap-ripple" :style="{ left: `${ripple.x}px`, top: `${ripple.y}px` }" />
