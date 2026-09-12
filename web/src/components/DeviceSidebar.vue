@@ -5,7 +5,7 @@
  *  control — full manual session (lease-held; reuses DrivePage interaction model)
  *  The sidebar is the single mount point for the stream on the wall page —
  *  tiles never embed streams inline anymore. */
-import { ref, computed, watch, onUnmounted } from 'vue';
+import { ref, computed, watch, onUnmounted, onMounted, onBeforeUnmount } from 'vue';
 import { useDeviceStream, canvasPointToLogical, isControlLost } from '../composables/deviceStream.ts';
 import { useDeviceInput } from '../composables/useDeviceInput.ts';
 import { loadBezelDefinition, type BezelDefinition } from '../composables/simdeckChrome.ts';
@@ -33,6 +33,37 @@ watch(() => props.device?.udid, async (udid) => {
   if (!udid) return;
   bezelDef.value = await loadBezelDefinition(udid);
 }, { immediate: true });
+
+// WebKit (Safari 26) collapses the bezel wrap to 0 width: it ignores
+// aspect-ratio-derived width for height-capped blocks AND auto-width for
+// block images inside zero-width flex content — both Chrome paths fail
+// there. Size it explicitly: fit the bezel's aspect into the stage box,
+// width first (height-capped) — height = w / ar so a width-clamped stage
+// (tall narrow column) shrinks the box instead of distorting it and
+// misaligning the percent-positioned canvas.
+const bezelWrapEl = ref<HTMLElement | null>(null);
+let wrapObs: ResizeObserver | null = null;
+function sizeBezelWrap(): void {
+  const wrap = bezelWrapEl.value;
+  const def = bezelDef.value;
+  if (!wrap || !def) return;
+  // constraint box = .stream-stage (the flex stage), NOT stage-frame —
+  // stage-frame sizes itself from this wrap, so clamping against it is
+  // circular and always yields 0 (the Safari black-stream bug's second act)
+  const stage = wrap.closest('.stream-stage') ?? wrap.parentElement;
+  if (!stage) return;
+  const ar = def.bezel.width / def.bezel.height;
+  const w = Math.min(stage.clientHeight * ar, stage.clientWidth);
+  wrap.style.width = `${Math.max(0, Math.round(w))}px`;
+  wrap.style.height = `${Math.max(0, Math.round(w / ar))}px`;
+}
+onMounted(() => {
+  wrapObs = new ResizeObserver(sizeBezelWrap);
+  const stage = bezelWrapEl.value?.closest('.stream-stage') ?? bezelWrapEl.value?.parentElement;
+  if (stage) wrapObs.observe(stage);
+});
+onBeforeUnmount(() => { wrapObs?.disconnect(); wrapObs = null; });
+watch([bezelDef, bezelWrapEl], () => sizeBezelWrap(), { flush: 'post' });
 
 // ── bezel hardware buttons: hover pop-out + press dispatch, driven by the
 // child's own transform strings (hover pops toward the outside edge) ──
@@ -673,9 +704,9 @@ watch(isControlLost(), (lost) => {
         <div class="devcol">
           <div class="stream-box stream-stage">
             <div class="stage-frame">
-              <div v-if="bezelDef" class="bezel-wrap"
+              <div v-if="bezelDef" ref="bezelWrapEl" class="bezel-wrap"
                 :style="{ aspectRatio: `${bezelDef.bezel.width} / ${bezelDef.bezel.height}` }">
-                <img class="bezel-img" :src="bezelDef.bezel.url" alt="" draggable="false" />
+                <img class="bezel-img" :src="bezelDef.bezel.url" :width="bezelDef.bezel.width" :height="bezelDef.bezel.height" alt="" draggable="false" />
                 <canvas :ref="stream.setCanvas" class="bezel-screen" tabindex="0"
                   @click="onTap" @mousemove="onCanvasMove"
                   @pointerdown="(e) => devInput.onPointerDown(e, e.target as HTMLCanvasElement)"
@@ -991,9 +1022,12 @@ watch(isControlLost(), (lost) => {
   border-right: 1px solid var(--color-iron);
 }
 .stream-stage { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-.stage-frame { position: relative; flex: 0 0 auto; height: 100%; max-width: 100%; line-height: 0; }
-.bezel-wrap { position: relative; height: 100%; max-width: 100%; }
-.bezel-img { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; user-select: none; -webkit-user-drag: none; }
+.stage-frame { position: relative; flex: 0 0 auto; height: 100%; max-width: 100%; line-height: 0; display: flex; align-items: center; justify-content: center; }
+/* the bezel IMAGE drives the wrap's box (height-capped, width from its
+ * intrinsic aspect) — works in WebKit too, where a bare aspect-ratio on a
+ * height:100% block collapses width to 0 (Safari black-stream bug) */
+.bezel-wrap { position: relative; height: 100%; max-width: 100%; flex: 0 0 auto; font-size: 0; }
+.bezel-img { display: block; height: 100%; width: auto; max-width: 100%; pointer-events: none; user-select: none; -webkit-user-drag: none; }
 .bezel-screen { position: absolute; display: block; }
 .bezel-btn { position: absolute; z-index: 0; pointer-events: none; user-select: none; -webkit-user-drag: none; }
 .bezel-btn.on-top { z-index: 2; }

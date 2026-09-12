@@ -43,8 +43,21 @@ export function useDeviceStream(): DeviceStream {
   const frames = ref(0); // total received — distinguishes "connected, idle screen" from "nothing ever"
 
   // Vue assigns template refs inside v-for as ARRAYS — normalize to one element.
+  // Unmount (null) is DEFERRED: during a v-if/v-else canvas branch swap the
+  // incoming canvas's ref call can land BEFORE the outgoing branch's teardown
+  // null, leaving canvasRef null forever — the paint loop then spins on a
+  // detached/no canvas and the sidebar shows a frozen 300x150 default while
+  // fps keeps counting (observed intermittently in Safari 26; Chrome's patch
+  // order happened to tear down first). Cancelling the pending null on every
+  // real bind makes the live canvas survive the race.
+  let nullTimer: ReturnType<typeof setTimeout> | null = null;
   function setCanvas(el: unknown): void {
-    if (el === null || el === undefined) { canvasRef.value = null; return; }
+    if (el === null || el === undefined) {
+      if (nullTimer) clearTimeout(nullTimer);
+      nullTimer = setTimeout(() => { canvasRef.value = null; }, 50);
+      return;
+    }
+    if (nullTimer) { clearTimeout(nullTimer); nullTimer = null; }
     if (Array.isArray(el)) { canvasRef.value = (el[0] as HTMLCanvasElement | undefined) ?? null; return; }
     canvasRef.value = el as HTMLCanvasElement;
   }
