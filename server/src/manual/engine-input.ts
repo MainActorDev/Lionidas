@@ -12,6 +12,17 @@
  *  Acks: HTTP `{ok:boolean}` — no seq correlation needed. Timeouts reject
  *  with INPUT_TIMEOUT so callers' alloy fallbacks keep working. */
 const ACK_TIMEOUT_MS = 2_000;
+/** `type` is the one kind whose ack latency scales with payload: the child
+ *  holds the route until every keystroke lands (~105ms/char measured, live).
+ *  A flat 2s budget aborts mid-type at ~19 chars, forcing the alloy fill
+ *  fallback to re-run the whole string (or hang forever on a never-idle
+ *  screen — settle starvation). Budget = base + per-char headroom. */
+const TYPE_ACK_PER_CHAR_MS = 300;
+export function ackTimeoutMsFor(gesture: Record<string, unknown>): number {
+  const text = gesture['text'];
+  const chars = typeof text === 'string' ? text.length : 0;
+  return ACK_TIMEOUT_MS + chars * TYPE_ACK_PER_CHAR_MS;
+}
 export const INPUT_TIMEOUT = 'INPUT_TIMEOUT';
 
 /** test seam: replace the base URL entirely. */
@@ -58,7 +69,7 @@ export async function engineInput(udid: string, gesture: Record<string, unknown>
   const body = toSimdeckGesture(gesture, dims?.logicalW ?? 0, dims?.logicalH ?? 0);
   let r: Response;
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), ACK_TIMEOUT_MS);
+  const timer = setTimeout(() => ac.abort(), ackTimeoutMsFor(gesture));
   try {
     r = await fetch(`${base()}/simulators/${encodeURIComponent(udid)}/input`, {
       method: 'POST',

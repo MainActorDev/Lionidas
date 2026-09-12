@@ -97,6 +97,20 @@ describe('simdeck input', () => {
     }
   });
 
+  it('type ack budget scales with text length (base for short, headroom for long)', async () => {
+    mod = await loadMod();
+    // flat budget for everything except type
+    expect(mod.ackTimeoutMsFor({ kind: 'tap', x: 1, y: 2 })).toBe(2_000);
+    expect(mod.ackTimeoutMsFor({ kind: 'swipe', startX: 1, startY: 2, endX: 3, endY: 4 })).toBe(2_000);
+    expect(mod.ackTimeoutMsFor({ kind: 'type' })).toBe(2_000); // no text key
+    // ~105ms/char measured on the child: 3x headroom keeps 30 chars (~3.2s
+    // real) inside a 11s budget while a genuinely-wedged child still aborts
+    expect(mod.ackTimeoutMsFor({ kind: 'type', text: 'hi' })).toBe(2_000 + 2 * 300);
+    expect(mod.ackTimeoutMsFor({ kind: 'type', text: 'nasi goreng spesial enak sekali' })).toBe(2_000 + 31 * 300);
+    // non-string text is ignored, not coerced
+    expect(mod.ackTimeoutMsFor({ kind: 'type', text: 42 })).toBe(2_000);
+  });
+
   it('interpretation: ok:false ack = INPUT_TIMEOUT (pure)', async () => {
     mod = await loadMod();
     expect(() => mod.assertAck({ ok: false })).toThrow('INPUT_TIMEOUT');

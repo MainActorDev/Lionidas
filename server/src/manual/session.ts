@@ -238,7 +238,11 @@ export async function manualType(deps: ManualDeps, sessionId: string, x: number 
   // typing — no coordinates). alloy fill-by-coordinates is the fallback
   // for the nothing-focused case.
   const sent = await engineInputWithFallback(deps, s.udid, { kind: 'type', text }, async () => {
-    const r = (await dispatchWithHeal('alloy_act', { udid: s.udid, action: 'fill', target: { x: x ?? 0, y: y ?? 0 }, text, settle: true }, deps.dispatchDeps)) as
+    // settle:false — a fill into a focused field needs no app-idle settle; a
+    // settle:true fill starves when the screen never idles (search spinner,
+    // blinking caret) and hangs the route (found live: 40s+ on the food
+    // picker). manualScroll's fallback already follows this contract.
+    const r = (await dispatchWithHeal('alloy_act', { udid: s.udid, action: 'fill', target: { x: x ?? 0, y: y ?? 0 }, text, settle: false }, deps.dispatchDeps)) as
       | { ok: true }
       | { ok: false; error: { code: string; message: string } };
     return r.ok;
