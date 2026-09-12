@@ -384,15 +384,24 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
         try {
           const resp = await fetch(`http://127.0.0.1:${Number(process.env['CRUCIBLE_PORT'] ?? 9230)}/api/devices/${gateUdid}/stream`, { method: 'POST', headers: internalAuthHeaders() });
           if (resp.ok) {
-            const { streamUrl } = await resp.json() as { streamUrl: string };
+            const body = await resp.json() as { streamUrl?: string; simdeckUrl?: string };
+            // Wrapped device surface (current engine): the resolve route only
+            // answers 200 after its own child health probe (ensureSimdeck),
+            // so a simdeckUrl in the body IS the stream-live proof. The legacy
+            // field (streamUrl, MJPEG multipart) keeps the JPEG-SOI probe.
+            if (typeof body.simdeckUrl === 'string' && body.simdeckUrl.length > 0) return;
+            const streamUrl = body.streamUrl;
+            if (!streamUrl) {
+              lastErr = 'resolve route returned neither simdeckUrl nor streamUrl';
+            } else {
             // probe the upstream directly: a JPEG SOI in the first bytes
             // proves frames flow (emit-on-change MJPEG: even a static screen
             // emits the first full frame)
             const ctrl = new AbortController();
             const kill = setTimeout(() => ctrl.abort(), 4000);
             try {
-              const body = await fetch(streamUrl, { signal: ctrl.signal });
-              const reader = body.body!.getReader();
+              const up = await fetch(streamUrl, { signal: ctrl.signal });
+              const reader = up.body!.getReader();
               // first chunk = multipart boundary text + headers + JPEG start.
               // scan for the SOI marker ANYWHERE in the chunk (also handles a
               // source that leads with raw JPEG bytes)
@@ -410,6 +419,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               }
               lastErr = value ? `stream source sent no JPEG frame (${value.length}B first chunk)` : 'stream source sent nothing';
             } finally { clearTimeout(kill); }
+            }
           } else { lastErr = `resolve route ${resp.status}`; }
         } catch (err) { lastErr = err instanceof Error ? err.message : String(err); }
         await new Promise((r) => setTimeout(r, 1500));

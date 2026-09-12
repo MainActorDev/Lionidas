@@ -104,7 +104,7 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   if (process.env['VITEST'] !== 'true') {
     const { registerSimdeckHolds } = await import('./simdeck/holds.ts');
     await registerSimdeckHolds(app, bus);
-    // simdeck gated proxy (wrapped device surface): auth'd proxy with the
+    // simdeck gated proxy (wrapped device surface): authed proxy with the
     // drive/watch mode gate. isDriving = live manual session row for the udid;
     // session finish demotes, run start detaches (see simdeck/proxy.ts).
     const { registerSimdeckProxy } = await import('./simdeck/proxy.ts');
@@ -121,6 +121,13 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
         const port = Number(process.env['CRUCIBLE_SIMDECK_PORT'] ?? 8422);
         return `http://127.0.0.1:${port}`;
       },
+      // The WS leg MUST NOT dial upstream while the child is still spawning —
+      // ECONNREFUSED kills the leg in milliseconds and the client reconnect
+      // loop (1.5s) races the spawn forever. Await readiness, THEN dial.
+      baseReady: () => ensureSimdeck().then(() => {
+        const port = Number(process.env['CRUCIBLE_SIMDECK_PORT'] ?? 8422);
+        return `http://127.0.0.1:${port}`;
+      }),
       isDriving: (udid) => drivingUdids.has(udid),
       onSessionEvent: (cb) => {
         const offFinish = bus.on('manual.session.finish', ((p: { udid?: string }) => {

@@ -62,9 +62,18 @@ export function ensureSimdeck(): Promise<number> {
     return Promise.reject(new Error(`simdeck binary not found: ${BIN} (build the sibling project, or set CRUCIBLE_SIMDECK_BIN)`));
   }
   ready = (async () => {
-    // reuse an already-healthy instance, UNLESS past max age
+    // reuse an already-healthy instance, UNLESS past max age. An adopted
+    // child (spawned by an earlier API process — spawnedAt=0 here) is
+    // treated as FRESH: we can't know its true age, and recycling it only
+    // port-wars the holder (newcomer exits code 1 on a busy port, forever).
     if (await probe()) {
       if (Date.now() - spawnedAt < MAX_AGE_MS) return PORT;
+      // max-age recycle ONLY applies to a child THIS supervisor spawned;
+      // an adopted healthy child is left alone and adopted as-is.
+      if (!proc) {
+        spawnedAt = Date.now();
+        return PORT;
+      }
       stop();
     }
     // stdio ignore: the child logs volume on stdout (plugin scan etc.) — a

@@ -112,14 +112,14 @@ describe('isContainerNode', () => {
 describe('sameNodeIn — selection re-resolution across refetches', () => {
   it('re-finds by identifier and ADOPTS the fresh rect (scroll case)', () => {
     // btn after a scroll: same identifier, rect moved 80pt down
-    const scrolled = node({ ...btn, rect: { x: 300, y: 210, width: 100, height: 44 } });
+    const scrolled = node({ ...btn, index: btn.index!, rect: { x: 300, y: 210, width: 100, height: 44 } });
     const fresh = sameNodeIn([screen, card, scrolled], btn);
     expect(fresh?.identifier).toBe('home_login_bar_login_button');
     expect(fresh?.rect?.y).toBe(210); // the NEW position, not the stale 130
   });
 
   it('label+type fallback when no identifier', () => {
-    const scrolledText = node({ ...text, rect: { x: 32, y: 220, width: 80, height: 20 } });
+    const scrolledText = node({ ...text, index: text.index!, rect: { x: 32, y: 220, width: 80, height: 20 } });
     expect(sameNodeIn([screen, scrolledText], text)?.rect?.y).toBe(220);
   });
 

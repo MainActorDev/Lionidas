@@ -21,6 +21,11 @@ import type { FastifyInstance } from 'fastify';
 interface SimdeckProxyDeps {
   /** child base URL, e.g. http://127.0.0.1:8422 */
   base: () => string;
+  /** Awaited by the WS leg before dialing upstream — resolves the child base
+   *  URL only once the supervisor confirms the child is listening (kills the
+   *  ECONNREFUSED leg war when a leg lands mid-spawn). Falls back to base()
+   *  when absent (tests inject base only). */
+  baseReady?: () => Promise<string>;
   /** Is a live manual (driving) session held for this udid right now? */
   isDriving: (udid: string) => boolean;
   /** Register a callback for mode changes: 'finished' | 'run-start' per udid. */
@@ -158,10 +163,14 @@ export function registerSimdeckProxy(app: FastifyInstance, deps: SimdeckProxyDep
     const mode: 'drive' | 'watch' = udid && deps.isDriving(udid) ? 'drive' : 'watch';
 
     const WsMod = await wsCtor(); // cached dynamic import — `require` is undefined under tsx ESM (crashed every upgrade silently)
-    const u = new URL(deps.base());
+    // Await child readiness BEFORE dialing upstream: base() only fire-and-forgets
+    // the spawn, so a leg landing mid-spawn got instant ECONNREFUSED and died
+    // in milliseconds (client reconnects at 1.5s, racing the spawn forever).
+    const base = await (deps.baseReady?.() ?? Promise.resolve(deps.base()));
+    const u = new URL(base);
     const upHeaders: Record<string, string> = {
       host: u.host,
-      origin: deps.base(),
+      origin: base,
     };
     const upPath = path.split('/simulators/').length > 1 ? path : path; // already child-shaped
     const upstream = new WsMod(`ws://${u.host}${upPath}`, { headers: upHeaders });
