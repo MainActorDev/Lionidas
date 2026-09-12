@@ -110,7 +110,11 @@ export function useInspectTree(fetchTree: (sessionId: string, signal: AbortSigna
         busyCompletes = 0;
         detector = new SettleDetector();
       } else {
-        state.value = 'realigning'; // keep waiting; cooldown paces the next try
+        state.value = 'realigning';
+        // A fetch that landed busy must actually re-arm — only tick()→quiet or
+        // enable() can otherwise start one, so a never-quiet stream (idle-pump
+        // frames every 1/fps, video playback) deadlocks here after ONE fetch.
+        scheduleRefetch(REFETCH_COOLDOWN_MS + 50);
       }
     } catch (e) {
       if (ac.signal.aborted || v !== version) return;
