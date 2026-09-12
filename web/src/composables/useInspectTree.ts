@@ -153,7 +153,7 @@ export function useInspectTree(fetchTree: (sessionId: string, signal: AbortSigna
         // screen is moving — boxes no longer provably match reality.
         // EXCEPT while labeled animating (never-quiet screen): that label IS
         // the honesty; demoting every frame would flap aligned↔realigning
-        // forever and boxes would never render. Scroll/refresh still exits.
+        // forever and boxes would never render.
         if (state.value === 'aligned' && !animating.value) state.value = 'realigning';
       }
     },
@@ -164,16 +164,28 @@ export function useInspectTree(fetchTree: (sessionId: string, signal: AbortSigna
     },
     refresh(): void { void doFetch(true); }, // force: bypass cooldown + quiet gate
     markScroll(): void {
+      // A scroll is a REAL interaction, not frame noise: demote even when
+      // labeled animating (the sticky label exists to ride out background
+      // animation, not to survive a scroll), reset the busy-strike count,
+      // and arm the settle loop so the refetch actually happens.
       detector = new SettleDetector();
       busyCompletes = 0;
       animating.value = false;
-      if (state.value === 'aligned') state.value = 'realigning';
+      if (state.value === 'aligned' || state.value === 'realigning') {
+        state.value = 'realigning';
+        scheduleRefetch();
+      }
     },
     markInteraction(): void {
+      // tap-this/keyboard: same as scroll — an interaction invalidates the
+      // tree regardless of the animating label, and must re-arm a refetch.
       detector = new SettleDetector();
       busyCompletes = 0;
       animating.value = false;
-      if (state.value === 'aligned') state.value = 'realigning';
+      if (state.value === 'aligned' || state.value === 'realigning') {
+        state.value = 'realigning';
+        scheduleRefetch();
+      }
     },
   };
 }

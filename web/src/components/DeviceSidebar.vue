@@ -112,12 +112,16 @@ const tree = useInspectTree(async (sid, signal) => {
   return await res.json() as { nodes: AxNode[]; logicalW: number | null; logicalH: number | null };
 });
 
+let unsubFrames: (() => void) | null = null;
 function toggleInspect(): void {
   inspect.value = !inspect.value;
+  devInput.setSuspended(inspect.value); // inspect: clicks select, screen must not move
   if (inspect.value && sessionId.value) {
     tree.enable(sessionId.value);
-    stream.onFrame(tree.feedFrame);
+    if (unsubFrames) unsubFrames();
+    unsubFrames = stream.onFrame(tree.feedFrame);
   } else {
+    if (unsubFrames) { unsubFrames(); unsubFrames = null; }
     tree.disable();
     hoverNode.value = null; selNode.value = null;
   }
@@ -238,7 +242,11 @@ const sessionId = ref<string | null>(null);
 const logicalW = ref<number | null>(null);
 
 // ── device control (engine-direct input) ──
-const devInput = useDeviceInput(sessionId, computed(() => ({ w: logicalW.value, h: logicalH.value })), api);
+const devInput = useDeviceInput(sessionId, computed(() => ({ w: logicalW.value, h: logicalH.value })), api,
+  // any dispatched gesture means the screen may move → the tree must not
+  // survive it. 'tap' included: taps that open menus/popovers scroll or
+  // shift content, and the tree fetch itself is a couple hundred ms anyway.
+  (kind) => { if (kind === 'tap') tree.markInteraction(); else tree.markScroll(); });
 // realtime input: gestures ride the stream's own WS when attached
 const logicalH = ref<number | null>(null);
 const busy = ref(false);

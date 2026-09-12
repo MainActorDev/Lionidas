@@ -13,8 +13,20 @@ export function useDeviceInput(
   sessionId: Ref<string | null>,
   logical: Ref<LogicalDims>,
   api: (path: string, body?: unknown) => Promise<Record<string, unknown>>,
+  /** optional: notified when an input is dispatched to the device (tap,
+   *  drag, wheel-pan/pinch, key). Lets inspect mode invalidate its AX tree
+   *  and lets a surface block dispatch entirely while inspecting. */
+  onGesture?: (kind: 'tap' | 'scroll' | 'drag' | 'pinch' | 'key') => void,
 ) {
   const failed = ref('');
+
+  /** set by the owning surface: while true, pointer taps/drags are NOT
+   *  dispatched to the device (inspect mode: clicks select, screen must
+   *  not move). Wheel + keys stay live: they're navigation per the
+   *  inspect contract, and their dispatch notifies onGesture so the tree
+   *  invalidates anyway. */
+  let inputSuspended = false;
+  function setSuspended(v: boolean): void { inputSuspended = v; }
 
   function canvasPointToLogical(canvas: HTMLCanvasElement, clientX: number, clientY: number): { x: number; y: number } {
     const rect = canvas.getBoundingClientRect();
@@ -52,6 +64,7 @@ export function useDeviceInput(
 
   function onPointerDown(e: PointerEvent, canvas: HTMLCanvasElement): void {
     if (!sessionId.value || e.button !== 0) return;
+    if (inputSuspended) return; // inspect: clicks select on the surface, never dispatch
     pState = 'pending';
     startClient = { x: e.clientX, y: e.clientY };
     // capture: the drag continues even when the pointer leaves the canvas
@@ -65,6 +78,7 @@ export function useDeviceInput(
       // promote → drag: down at the drag START point, then stream moves
       const start = canvasPointToLogical(canvas, startClient.x, startClient.y);
       pState = 'drag-stream';
+      onGesture?.('drag');
       void post('touch1', { kind: 'touch1', phase: 'down', x: start.x, y: start.y }).catch(() => undefined);
     }
     // rAF throttle: one in-flight move at a time, always the newest point
@@ -83,6 +97,7 @@ export function useDeviceInput(
     if (pState === 'pending') {
       // never promoted → one atomic tap (engine: down → hold → up)
       const p = canvasPointToLogical(canvas, e.clientX, e.clientY);
+      onGesture?.('tap');
       void post('tap', { kind: 'tap', x: p.x, y: p.y }).catch(() => undefined);
     } else {
       const p = canvasPointToLogical(canvas, e.clientX, e.clientY);
@@ -111,7 +126,7 @@ export function useDeviceInput(
 
   function onWheel(e: WheelEvent, canvas: HTMLCanvasElement): void {
     if (!sessionId.value) return;
-    e.preventDefault();
+    e.preventDefault(); // navigation scrolls the device even while inspecting
     const w = logical.value.w ?? canvas.width;
     const h = logical.value.h ?? canvas.height;
     if (!w || !h) return;
@@ -136,11 +151,13 @@ export function useDeviceInput(
       const rr = BASE_SPREAD_PT * wheelState.scale;
       wheelState.f1 = { x: centre.x + rr, y: centre.y };
       wheelState.f2 = { x: centre.x - rr, y: centre.y };
+      onGesture?.('pinch'); // zoom reflows content — tree must not survive it
     } else {
       const shiftX = (-e.deltaX / r.width) * w;
       const shiftY = (-e.deltaY / r.height) * h;
       wheelState.f1.x += shiftX; wheelState.f1.y += shiftY;
       wheelState.f2.x += shiftX; wheelState.f2.y += shiftY;
+      onGesture?.('scroll');
     }
 
     void post('touch2', { kind: 'touch2', phase: 'move', x1: wheelState.f1.x, y1: wheelState.f1.y, x2: wheelState.f2.x, y2: wheelState.f2.y }).catch(() => undefined);
@@ -168,6 +185,7 @@ export function useDeviceInput(
     if (e.altKey) modifiers.push('option');
 
     if (namedKeys.has(e.code)) {
+      onGesture?.('key');
       void post('key', { kind: 'key', code: e.code, modifiers, duration: 0.04 }).catch(() => undefined);
       e.preventDefault();
       return;
@@ -175,6 +193,7 @@ export function useDeviceInput(
     if (e.key.length === 1 && e.code) {
       // printable: dispatch the PHYSICAL key + modifiers (US layout —
       // shift+Digit1 types '!'). matches how a real keyboard feeds iOS.
+      onGesture?.('key');
       void post('key', { kind: 'key', code: e.code, modifiers, duration: 0.04 }).catch(() => undefined);
       e.preventDefault();
     }
@@ -184,6 +203,7 @@ export function useDeviceInput(
 
   return {
     failed,
+    setSuspended,
     onPointerDown, onPointerMove, onPointerUp,
     onWheel, onKeyDown, onBlur,
   };
