@@ -1027,6 +1027,7 @@ watch(isControlLost(), (lost) => {
   background: rgba(0, 0, 0, 0.55);
   color: var(--color-fog);
   font-size: var(--text-caption);
+  line-height: var(--leading-normal); /* stage-frame's line-height:0 inherits here too */
   pointer-events: none;
   flex-direction: column; gap: var(--s-2); padding: var(--s-2); text-align: center;
 }
@@ -1137,6 +1138,8 @@ watch(isControlLost(), (lost) => {
   background: var(--color-void);
   color: var(--color-fog);
   font-size: 10px;
+  line-height: 1.4; /* stage-frame sets line-height:0 (inline-canvas kill);
+    inherited, it collapses the chip's line box → text paints outside a ~6px box */
   font-family: monospace;
   border: 1px solid var(--color-steel);
   pointer-events: none;

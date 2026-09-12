@@ -388,6 +388,7 @@ onUnmounted(() => {
   background: var(--color-void);
   color: var(--color-fog);
   font-size: 10px;
+  line-height: 1.4; /* keep in sync with DeviceSidebar's chip (same defect class) */
   font-family: monospace;
   border: 1px solid var(--color-steel);
   pointer-events: none;
