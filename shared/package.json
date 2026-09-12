@@ -13,6 +13,7 @@
     "./alert-policy": "./src/alert-policy.ts",
     "./tap-overlay": "./src/tap-overlay.ts",
     "./ax-tree": "./src/ax-tree.ts",
+    "./inspect-geometry": "./src/inspect-geometry.ts",
     "./frame-settle": "./src/frame-settle.ts"
   },
   "dependencies": {
