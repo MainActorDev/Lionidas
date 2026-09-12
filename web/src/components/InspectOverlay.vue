@@ -24,8 +24,10 @@ const selRect = computed(() => props.selected?.rect ?? null);
 
 <template>
   <svg v-if="logicalW && logicalH" class="inspect-overlay" :viewBox="`0 0 ${logicalW} ${logicalH}`" preserveAspectRatio="none" aria-hidden="true">
-    <!-- selection ring under hover so hover never hides the active selection -->
-    <rect v-if="selRect" class="sel-ring" :x="selRect.x" :y="selRect.y" :width="selRect.width" :height="selRect.height" />
+    <!-- selection ring under hover so hover never hides the active selection;
+         gated on visible like el-boxes — a stale rect must never paint while
+         the tree is realigning (it gets re-resolved on the fresh array) -->
+    <rect v-if="visible && selRect" class="sel-ring" :x="selRect.x" :y="selRect.y" :width="selRect.width" :height="selRect.height" />
     <rect v-for="n in boxes" :key="n.index" class="el-box"
       :x="n.rect!.x" :y="n.rect!.y" :width="n.rect!.width" :height="n.rect!.height" />
     <rect v-if="hoverRect && hoverRect !== selRect" class="hover-ring"

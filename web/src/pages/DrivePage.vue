@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, onUnmounted, onBeforeUnmount } from 'vue';
+import { ref, computed, watch, onUnmounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useDeviceStream, canvasPointToLogical } from '../composables/deviceStream.ts';
-import { hitTestNodeAt, selectorPreview, type AxNode } from '@crucible/shared/ax-tree';
+import { hitTestNodeAt, selectorPreview, sameNodeIn, type AxNode } from '@crucible/shared/ax-tree';
 import { useInspectTree, TreeFetchError } from '../composables/useInspectTree.ts';
 import InspectOverlay from '../components/InspectOverlay.vue';
 
@@ -41,6 +41,14 @@ const tree = useInspectTree(async (sid, signal) => {
     throw new TreeFetchError(`tree ${res.status}`, res.status, code);
   }
   return await res.json() as { nodes: AxNode[]; logicalW: number | null; logicalH: number | null };
+});
+
+// Selection/hover snapshots go STALE on every tree refetch (scroll →
+// realign) — re-resolve against the fresh array so the orange ring tracks
+// the ELEMENT, not the clicked-time rect (null = element left the screen).
+watch(tree.nodes, (nodes) => {
+  if (selNode.value) selNode.value = sameNodeIn(nodes, selNode.value);
+  if (hoverNode.value) hoverNode.value = sameNodeIn(nodes, hoverNode.value);
 });
 
 function toggleInspect(): void {

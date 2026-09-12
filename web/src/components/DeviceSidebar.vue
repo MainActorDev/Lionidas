@@ -9,7 +9,7 @@ import { ref, computed, watch, onUnmounted, onMounted, onBeforeUnmount } from 'v
 import { useDeviceStream, canvasPointToLogical, isControlLost } from '../composables/deviceStream.ts';
 import { useDeviceInput } from '../composables/useDeviceInput.ts';
 import { loadBezelDefinition, type BezelDefinition } from '../composables/simdeckChrome.ts';
-import { hitTestNodeAt, selectorPreview, type AxNode } from '@crucible/shared/ax-tree';
+import { hitTestNodeAt, selectorPreview, sameNodeIn, type AxNode } from '@crucible/shared/ax-tree';
 import { useInspectTree, TreeFetchError } from '../composables/useInspectTree.ts';
 import InspectOverlay from './InspectOverlay.vue';
 
@@ -110,6 +110,15 @@ const tree = useInspectTree(async (sid, signal) => {
     throw new TreeFetchError(`tree ${res.status}`, res.status, code);
   }
   return await res.json() as { nodes: AxNode[]; logicalW: number | null; logicalH: number | null };
+});
+
+// Selection/hover snapshots go STALE on every tree refetch (scroll →
+// realign). Re-resolve against the fresh array so the orange ring tracks
+// the ELEMENT, not the rect it had when clicked (null = element left the
+// screen — honest deselect, keeps ring and card consistent).
+watch(tree.nodes, (nodes) => {
+  if (selNode.value) selNode.value = sameNodeIn(nodes, selNode.value);
+  if (hoverNode.value) hoverNode.value = sameNodeIn(nodes, hoverNode.value);
 });
 
 let unsubFrames: (() => void) | null = null;

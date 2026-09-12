@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   hitTestAt, hitTestNodeAt, isContainerNode, selectorPreview,
-  renderableNodes, IDENTIFIER_RE, type AxNode,
+  renderableNodes, sameNodeIn, IDENTIFIER_RE, type AxNode,
 } from '@crucible/shared/ax-tree';
 // the engine's historical names — MUST be the same objects/functions (ONE predicate)
 import { captureSelectorAt, type SnapNode } from '../src/manual/selector.ts';
@@ -106,5 +106,38 @@ describe('isContainerNode', () => {
     expect(isContainerNode(node({ index: 11, type: 'Other', rect: { x: 0, y: 0, width: 428, height: 650 } }))).toBe(true);
     expect(isContainerNode(btn)).toBe(false);
     expect(isContainerNode(node({ index: 12 }))).toBe(false); // no rect
+  });
+});
+
+describe('sameNodeIn — selection re-resolution across refetches', () => {
+  it('re-finds by identifier and ADOPTS the fresh rect (scroll case)', () => {
+    // btn after a scroll: same identifier, rect moved 80pt down
+    const scrolled = node({ ...btn, rect: { x: 300, y: 210, width: 100, height: 44 } });
+    const fresh = sameNodeIn([screen, card, scrolled], btn);
+    expect(fresh?.identifier).toBe('home_login_bar_login_button');
+    expect(fresh?.rect?.y).toBe(210); // the NEW position, not the stale 130
+  });
+
+  it('label+type fallback when no identifier', () => {
+    const scrolledText = node({ ...text, rect: { x: 32, y: 220, width: 80, height: 20 } });
+    expect(sameNodeIn([screen, scrolledText], text)?.rect?.y).toBe(220);
+  });
+
+  it('element gone from the fresh tree → null (honest deselect)', () => {
+    expect(sameNodeIn([screen, card], btn)).toBeNull();
+  });
+
+  it('duplicate label+type (SwiftUI double-exposure twins) → nearest rect wins', () => {
+    const twinA = node({ ...text, index: 20, rect: { x: 32, y: 140, width: 80, height: 17 } });
+    const twinB = node({ ...text, index: 21, rect: { x: 32, y: 900, width: 80, height: 17 } });
+    // stale text sits at y=140 → twinA is nearest
+    expect(sameNodeIn([twinA, twinB], text)?.rect?.y).toBe(140);
+    const staleFar = { ...text, rect: { x: 32, y: 880, width: 80, height: 20 } };
+    expect(sameNodeIn([twinA, twinB], staleFar)?.rect?.y).toBe(900);
+  });
+
+  it('null/undefined stale → null (no-op guard)', () => {
+    expect(sameNodeIn([screen, card], null)).toBeNull();
+    expect(sameNodeIn([screen, card], undefined)).toBeNull();
   });
 });

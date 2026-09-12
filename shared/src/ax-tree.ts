@@ -81,3 +81,28 @@ export function renderableNodes(nodes: AxNode[], limit = 600): AxNode[] {
     .sort((a, b) => (a.rect!.width * a.rect!.height) - (b.rect!.width * b.rect!.height))
     .slice(0, limit);
 }
+
+/** Node identity for RE-RESOLVING a selection (or hover) across tree refetches:
+ *  the snapshot a surface keeps becomes stale the moment the tree realigns
+ *  (scroll refetch) — re-locate the same element in the fresh array so the
+ *  selection ring tracks the element, not the old rect.
+ *  Match key: identifier > label+type. Rect proximity is a TIEBREAK only
+ *  (SwiftUI same-rect double-exposure twins share label+type), never the
+ *  primary key (screens legitimately repeat labels at distinct rects). */
+export function sameNodeIn(nodes: AxNode[], stale: AxNode | null | undefined): AxNode | null {
+  if (!stale) return null;
+  const candidates = nodes.filter((n) =>
+    stale.identifier
+      ? n.identifier === stale.identifier
+      : n.label !== undefined && n.label === stale.label && n.type === stale.type);
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0] ?? null;
+  // ambiguous (duplicate label/type): keep the node nearest the stale rect
+  const r = stale.rect ?? { x: 0, y: 0, width: 0, height: 0 };
+  const dist = (n: AxNode): number => {
+    const a = n.rect, b = r;
+    if (!a) return Infinity;
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  };
+  return candidates.reduce((best, n) => (dist(n) < dist(best) ? n : best));
+}
