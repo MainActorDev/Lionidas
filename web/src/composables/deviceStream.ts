@@ -67,6 +67,73 @@ export function useDeviceStream(): DeviceStream {
   let livenessTimer: ReturnType<typeof setInterval> | null = null;
   let directRaf: (() => void) | null = null;
   let currentUdid = '';
+  // ── lossless still on quiet ─────────────────────────────────────────
+  // Video can't beat information theory: a 5.4× downscale eats thin-glyph
+  // detail, and H.264 adds 4:2:0 chroma loss on top. But a STATIC screen
+  // can be served pixel-exact: when frames stop flowing (seed-gated quiet),
+  // fetch a lossless PNG (simctl screenshot) and paint it over the video's
+  // last frame. Motion instantly cancels and re-arms. Net effect: the
+  // stream "develops" into simulator quality whenever it stops moving —
+  // which is exactly when you're reading it.
+  let stillTimer: ReturnType<typeof setTimeout> | null = null;
+  let stillStale = false; // a video frame painted after the PNG → cancel
+  let stillBusy = false; // capture in flight (don't stack requests)
+  const armStill = (udid: string, gen: number): void => {
+    if (stillTimer) clearTimeout(stillTimer);
+    stillTimer = setTimeout(async () => {
+      stillTimer = null;
+      if (gen !== generation || stillBusy || stillStale) return;
+      const canvas = canvasRef.value;
+      if (!canvas || state.value !== 'live') return;
+      stillBusy = true;
+      try {
+        // lossless still straight from the simdeck child (simctl-grade PNG,
+        // no app session needed — the alloy watch-frame route requires one).
+        // Uses the same /simdeck proxy prefix as the stream WS itself.
+        const rd = await fetch(`/simdeck/simulators/${encodeURIComponent(udid)}/screenshot.png`, { credentials: 'include' });
+        if (!rd.ok) return; // engine busy: keep the video frame, retry later
+        const blob = await rd.blob();
+        // gen check AFTER the await: a reconnect/restart may have happened
+        if (gen !== generation || stillStale) return;
+        const img = new Image();
+        await new Promise<void>((res, rej) => {
+          img.onload = () => res();
+          img.onerror = () => rej(new Error('still decode failed'));
+          img.src = URL.createObjectURL(blob);
+        });
+        if (gen !== generation || stillStale) return;
+        const c = canvasRef.value;
+        if (!c || state.value !== 'live') return;
+        // paint through the SAME stepped-resample path as live frames —
+        // native backing would hand the lossless PNG back to the GPU's
+        // mipmap-less downscale and reintroduce the aliasing we're killing
+        const r = c.getBoundingClientRect();
+        const dpr = Math.max(1, window.devicePixelRatio || 1);
+        const tw = r.width >= 2 ? Math.max(1, Math.round(r.width * dpr)) : img.naturalWidth;
+        const th = r.height >= 2 ? Math.max(1, Math.round(r.height * dpr)) : img.naturalHeight;
+        if (c.width !== tw || c.height !== th) { c.width = tw; c.height = th; }
+        const ctx = c.getContext('2d');
+        if (ctx) {
+          if (tw < img.naturalWidth && th < img.naturalHeight) {
+            drawScaled(ctx, img, img.naturalWidth, img.naturalHeight, tw, th);
+          } else {
+            ctx.drawImage(img, 0, 0);
+          }
+          lastPaintAt = Date.now(); // counts as a paint: keeps quiet detectable
+          if (frameObservers.size > 0) for (const cb of frameObservers) cb(lastPaintAt);
+        }
+        URL.revokeObjectURL(img.src);
+      } catch {
+        // network/decode failure: video last frame stays — silent is fine
+      } finally {
+        stillBusy = false;
+        // NO unconditional re-arm: every real pixel change ships a video
+        // frame (seed-gated diff), and each WS frame re-arms the still.
+        // Re-fetching a 3.5MB PNG every 400ms while idle would be pure
+        // waste — the still is only stale when motion says so.
+      }
+    }, 400);
+  };
   /** requested upstream format (avcc opt-in / mjpeg fallback); null = server default */
   let pendingFormat: 'avcc' | 'mjpeg' | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -217,6 +284,48 @@ export function useDeviceStream(): DeviceStream {
     let pending: ImageBitmap | VideoFrame | null = null;
     let rafId = 0;
     let alive = true;
+    // ── quiet-path polish ──────────────────────────────────────────────
+    // The native-res blit leaves downscaling to the GPU compositor, which
+    // samples bilinearly WITHOUT mipmaps — at 4–5× reduction it skips
+    // pixels and thin text aliases ("still looks pixelated" report). On a
+    // QUIET screen (seed-gated: no frames flow when pixels don't change)
+    // we re-render the last painted frame into a DISPLAY-SIZED backing
+    // (CSS × DPR = one canvas px per physical px) via the stepped-halving
+    // drawScaled — proper area averaging, so the compositor maps 1:1.
+    // Motion NEVER pays this cost (the per-frame software resample was the
+    // motion-stutter regression); the next real frame resizes the backing
+    // back to native and blits as before.
+    let polishSrc: ImageBitmap | VideoFrame | null = null; // last PAINTED source, kept open
+    let polishTimer: ReturnType<typeof setInterval> | null = null;
+    let lastRealPaint = 0;
+    const polish = (): void => {
+      if (!alive || gen !== generation) {
+        if (polishTimer) { clearInterval(polishTimer); polishTimer = null; }
+        closeSrc(polishSrc); polishSrc = null;
+        return;
+      }
+      // quiet = no real paint for 300ms AND nothing waiting to paint —
+      // during 60fps motion lastRealPaint is <17ms old, so this never fires
+      if (pending || !polishSrc || Date.now() - lastRealPaint < 300) return;
+      const canvas = canvasRef.value;
+      if (!canvas) return;
+      const r = canvas.getBoundingClientRect();
+      if (r.width < 2 || r.height < 2) return; // hidden/unlaid-out
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      const tw = Math.max(1, Math.round(r.width * dpr));
+      const th = Math.max(1, Math.round(r.height * dpr));
+      const sw = (polishSrc as VideoFrame).displayWidth || (polishSrc as ImageBitmap).width;
+      const sh = (polishSrc as VideoFrame).displayHeight || (polishSrc as ImageBitmap).height;
+      if (tw === canvas.width && th === canvas.height) return; // already polished
+      if (tw >= sw || th >= sh) return; // display ≥ source — nothing to resample
+      canvas.width = tw; canvas.height = th;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      drawScaled(ctx, polishSrc, sw, sh, tw, th);
+      // deliberately NOT touching lastPaintAt / frameObservers: polish is a
+      // repaint of identical content — observing it would break quiet
+      // detection (inspect settle) and block the snapshot fast-path.
+    };
     codec = makeAvccDecoder(
       (frame) => {
         if (pending && typeof (pending as VideoFrame).close === 'function') {
@@ -275,7 +384,14 @@ export function useDeviceStream(): DeviceStream {
       failure.value = '';
       frames.value++;
       countFps();
+      // motion = a frame arrived: the PNG still is stale the moment pixels
+      // move, so cancel any pending still capture — it would paint OLD
+      // content over LIVE motion (user watching a scroll would see it snap
+      // back). Re-armed after quiet by the still timer.
+      if (stillTimer) { clearTimeout(stillTimer); stillTimer = null; }
+      stillStale = false;
       codec?.feed(ev.data as ArrayBuffer);
+      armStill(udid, gen);
     };
     ws.onclose = () => {
       if (gen !== generation) return;
@@ -295,20 +411,54 @@ export function useDeviceStream(): DeviceStream {
         pending = null;
         const w = (f as VideoFrame).displayWidth || (f as ImageBitmap).width;
         const h = (f as VideoFrame).displayHeight || (f as ImageBitmap).height;
-        if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(f, 0, 0);
-          lastPaintAt = Date.now();
-          if (frameObservers.size > 0) for (const cb of frameObservers) cb(lastPaintAt);
+        // Stepped-resample EVERY frame into a display-sized backing
+        // (CSS × DPR). Kills the GPU's mipmap-less downscale aliasing
+        // during motion — the last visible gap to "looks like the
+        // simulator". Measured 60.25fps on this hardware (2026-09-12);
+        // ~3 blits of decreasing size ≈ 4MP/frame is nothing to the GPU
+        // canvas. If this ever regresses on weaker machines, gate it
+        // behind a quality toggle — do NOT revert to native blit for
+        // all sizes.
+        const r = canvas.getBoundingClientRect();
+        const dpr = Math.max(1, window.devicePixelRatio || 1);
+        const tw = r.width >= 2 ? Math.max(1, Math.round(r.width * dpr)) : w;
+        const th = r.height >= 2 ? Math.max(1, Math.round(r.height * dpr)) : h;
+        if (tw < w && th < h) {
+          if (canvas.width !== tw || canvas.height !== th) { canvas.width = tw; canvas.height = th; }
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            drawScaled(ctx, f, w, h, tw, th);
+            lastPaintAt = Date.now();
+            lastRealPaint = Date.now();
+            if (frameObservers.size > 0) for (const cb of frameObservers) cb(lastPaintAt);
+          }
+        } else {
+          if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(f, 0, 0);
+            lastPaintAt = Date.now();
+            lastRealPaint = Date.now();
+            if (frameObservers.size > 0) for (const cb of frameObservers) cb(lastPaintAt);
+          }
         }
-        if (typeof (f as VideoFrame).close === 'function') { try { (f as VideoFrame).close(); } catch { /* ok */ } }
+        // keep the painted source OPEN for the quiet-path polish, closing
+        // the previous kept one (a closed VideoFrame draws transparent)
+        if (polishSrc && polishSrc !== f) closeSrc(polishSrc);
+        polishSrc = f;
       }
       rafId = requestAnimationFrame(paint);
     };
     rafId = requestAnimationFrame(paint);
+    // quiet-path polish: cheap 500ms tick, gated internally by 300ms-quiet
+    polishTimer = setInterval(polish, 500);
     // route stop() through the same cleanup: track the raf loop for teardown
-    directRaf = () => { alive = false; if (rafId) cancelAnimationFrame(rafId); };
+    directRaf = () => {
+      alive = false;
+      if (rafId) cancelAnimationFrame(rafId);
+      if (polishTimer) { clearInterval(polishTimer); polishTimer = null; }
+      closeSrc(polishSrc); polishSrc = null;
+    };
   }
 
   async function connect(udid: string, isRetry: boolean): Promise<void> {
@@ -387,6 +537,8 @@ export function useDeviceStream(): DeviceStream {
     if (ws) { ws.onclose = null; ws.onmessage = null; ws.close(); ws = null; }
     if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
     if (livenessTimer) { clearInterval(livenessTimer); livenessTimer = null; }
+    if (stillTimer) { clearTimeout(stillTimer); stillTimer = null; }
+    stillStale = true; // any in-flight PNG capture aborts on its gen check
     if (directRaf) { directRaf(); directRaf = null; }
     if (autoRetryTimer) { clearTimeout(autoRetryTimer); autoRetryTimer = null; }
   }
