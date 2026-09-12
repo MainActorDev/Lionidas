@@ -3,7 +3,7 @@ import { paddingToParent, siblingGaps, dedupeExposures } from '@crucible/shared/
 import type { AxNode } from '@crucible/shared/ax-tree';
 
 const node = (i: number, x: number, y: number, w: number, h: number, p?: number, type = 'Other'): AxNode =>
-  ({ index: i, parentIndex: p, type, rect: { x, y, width: w, height: h } });
+  ({ index: i, ...(p === undefined ? {} : { parentIndex: p }), type, rect: { x, y, width: w, height: h } });
 
 describe('paddingToParent', () => {
   it('four sides from exact rects', () => {

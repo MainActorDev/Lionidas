@@ -4,7 +4,7 @@
  *  Tuning table (all thresholds named — change here, not at call sites):
  *    FILL_SPREAD_MAX 48  — 90th-pct distance from median for a solid fill (px RGB)
  *    INK_DIST_MIN    60  — min distance from bg for a pixel to count as ink
- *    INK_DOMINANCE  0.5  — dominant ink bucket must hold ≥50% of ink pixels
+ *    INK_SHARE_MIN   0.02 — ink must cover ≥2% of the rect to count as glyphs
  *    RADIUS_RMSE_MAX 2.5 — corner contour fit RMSE for a circular arc (px)
  *    RADIUS_SCAN    200  — corner scan window in native px (per side)
  *    SIZE_BAND_FILL 0.95 — band filling the rect = clipped glyph box → null
@@ -18,7 +18,7 @@ import tokens from './dls-tokens.json' with { type: 'json' };
 
 export const FILL_SPREAD_MAX = 48;
 export const INK_DIST_MIN = 60;
-export const INK_DOMINANCE = 0.5;
+export const INK_SHARE_MIN = 0.02;
 export const RADIUS_RMSE_MAX = 2.5;
 export const RADIUS_SCAN = 200;
 export const SIZE_BAND_FILL = 0.95;
@@ -47,7 +47,7 @@ export function bgOf(r: Raster): RGB {
   const ring: RGB[] = [];
   for (let x = 0; x < r.width; x += 2) { ring.push(px(r, x, 0), px(r, x, r.height - 1)); }
   for (let y = 0; y < r.height; y += 2) { ring.push(px(r, 0, y), px(r, r.width - 1, y)); }
-  return [0, 1, 2].map((ch) => quantile(ring.map((s) => s[ch]), 0.5)) as RGB;
+  return [0, 1, 2].map((ch) => quantile(ring.map((s) => s[ch] ?? 0), 0.5)) as RGB;
 }
 
 /** Fill (est.): median color of the center 50% region. Null when the region is
@@ -58,33 +58,34 @@ export async function fillOf(r: Raster): Promise<{ hex: string } | null> {
   const samples: RGB[] = [];
   for (let y = y0; y < y1; y += 2) for (let x = x0; x < x1; x += 2) samples.push(px(r, x, y));
   if (samples.length < 4) return null;
-  const med = [0, 1, 2].map((ch) => quantile(samples.map((s) => s[ch]), 0.5)) as RGB;
+  const med = [0, 1, 2].map((ch) => quantile(samples.map((s) => s[ch] ?? 0), 0.5)) as RGB;
   const spread = quantile(samples.map((s) => dist(s, med)), 0.9);
   if (spread > FILL_SPREAD_MAX) return null;
   return { hex: hex(med) };
 }
 
-/** Dominant ink color (est., text nodes only): bucket pixels far from bg,
- *  dominant bucket's mean. Null when no bucket holds INK_DOMINANCE of ink px. */
+/** Dominant ink color (est., text nodes only). Antialiased text is a CONTINUUM
+ *  of blends, not exact RGB repeats — so: rank all non-bg pixels by contrast to
+ *  bg, take the top-contrast decile (the glyph CORES), answer their median.
+ *  Gates: ink must cover ≥ INK_SHARE_MIN of the rect (else it's an edge-halo or
+ *  a solid fill, not glyphs) and ink pixels must exist at all. */
 export async function textColorsOf(r: Raster, opts: { isTextNode: boolean }): Promise<{ hex: string } | null> {
   if (!opts.isTextNode) return null;
   const bg = bgOf(r);
-  const counts = new Map<number, { n: number; sum: RGB }>();
-  let total = 0;
+  const inked: Array<{ d: number; c: RGB }> = [];
   for (let y = 1; y < r.height - 1; y += 2) {
     for (let x = 1; x < r.width - 1; x += 2) {
       const c = px(r, x, y);
-      if (dist(c, bg) < INK_DIST_MIN) continue;
-      const k = ((c[0] >> 5) << 6) | ((c[1] >> 5) << 3) | (c[2] >> 5); // 8-level/channel buckets
-      const e = counts.get(k) ?? { n: 0, sum: [0, 0, 0] };
-      e.n++; e.sum[0] += c[0]; e.sum[1] += c[1]; e.sum[2] += c[2];
-      counts.set(k, e); total++;
+      const d = dist(c, bg);
+      if (d >= INK_DIST_MIN) inked.push({ d, c });
     }
   }
-  if (!total) return null;
-  const best = [...counts.values()].sort((a, b) => b.n - a.n)[0]!;
-  if (best.n / total < INK_DOMINANCE) return null;
-  return { hex: hex([best.sum[0] / best.n, best.sum[1] / best.n, best.sum[2] / best.n]) };
+  const sampled = Math.max(1, ((r.width - 2) * (r.height - 2)) / 4);
+  if (inked.length / sampled < INK_SHARE_MIN) return null; // too little ink → not glyphs
+  inked.sort((a, b) => b.d - a.d); // darkest/highest-contrast cores first
+  const core = inked.slice(0, Math.max(1, Math.floor(inked.length / 10))); // top decile
+  const med = [0, 1, 2].map((ch) => quantile(core.map((s) => s.c[ch]!), 0.5)) as RGB;
+  return { hex: hex(med) };
 }
 
 /** Font size (est., pt): ink-band height ÷ 0.72 (SF/Helvetica cap+descender
@@ -207,12 +208,12 @@ function srgbToLab(rgb: RGB): [number, number, number] {
     v /= 255;
     return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
   };
-  const [R, G, B] = rgb.map(f);
+  const [R = 0, G = 0, B = 0] = rgb.map(f);
   const X = (R * 0.4124 + G * 0.3576 + B * 0.1805) / 0.95047;
   const Y = R * 0.2126 + G * 0.7152 + B * 0.0722;
   const Z = (R * 0.0193 + G * 0.1192 + B * 0.9505) / 1.08883;
   const g = (t: number) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
-  const [fx, fy, fz] = [X, Y, Z].map(g);
+  const [fx = 0, fy = 0, fz = 0] = [X, Y, Z].map(g);
   return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
 }
 

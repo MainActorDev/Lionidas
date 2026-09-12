@@ -90,7 +90,7 @@ async function captureSelector(deps: ManualDeps, udid: string, x: number, y: num
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 
 export class ManualSessionError extends Error {
-  constructor(public code: 'QUEUE_ACTIVE' | 'SESSION_NOT_FOUND' | 'SESSION_FINISHED' | 'LEASE_LOST', message: string) {
+  constructor(public code: 'QUEUE_ACTIVE' | 'SESSION_NOT_FOUND' | 'SESSION_FINISHED' | 'LEASE_LOST' | 'BAD_RECT' | 'BAD_SAMPLE', message: string) {
     super(message);
   }
 }

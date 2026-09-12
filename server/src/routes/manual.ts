@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, manualProbeSelector, manualTree, finishManualSession, setRecording, getRecording, deleteRecordedStep, recordExpectStep, manualGesture, touchSessionActivity, ManualSessionError } from '../manual/session.ts';
+import { inspectSample } from '../manual/inspect-route-fns.ts';
 import { listSimulatorApps } from '../manual/apps.ts';
 import { installApp } from '../manual/app-install.ts';
 import { findArtifacts, importArtifact, appsStoreDir } from '../manual/artifacts.ts';
@@ -242,6 +243,30 @@ export function registerManualRoutes(
       return await manualTree({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id);
     } catch (err) {
       if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
+      throw err;
+    }
+  });
+
+  app.post('/api/manual/:id/inspect-sample', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as {
+      rect?: { x: number; y: number; width: number; height: number };
+      logicalW?: number;
+      nodeType?: string | null;
+    };
+    try {
+      return await inspectSample(
+        { db, bus: deps.bus, dispatchDeps: deps.dispatchDeps },
+        id,
+        body.rect as { x: number; y: number; width: number; height: number },
+        body.logicalW as number,
+        body.nodeType ?? null,
+      );
+    } catch (err) {
+      if (err instanceof ManualSessionError) {
+        const code = err.code === 'BAD_RECT' ? 400 : 410;
+        return reply.code(code).send({ error: err.message, code: err.code });
+      }
       throw err;
     }
   });
