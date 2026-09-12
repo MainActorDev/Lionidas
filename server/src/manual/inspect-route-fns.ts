@@ -11,7 +11,7 @@ import {
 } from './inspect-sample.ts';
 
 export interface InspectSample {
-  text: { color: string; token: string | null; sizePt: number | null } | null;
+  text: { color: string | null; token: string | null; sizePt: number | null } | null;
   fill: { color: string; token: string | null } | null;
   radius: { pt: number } | null;
   scale: number;
@@ -67,7 +67,13 @@ export async function inspectSample(
   deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
   deps.bus.emit('manual.session.inspect-sample', { sessionId });
   return {
-    text: text ? { color: text.hex, token: nearestToken(text.hex)?.token ?? null, sizePt } : null,
+    // size and color are INDEPENDENT estimates: a null color (phantom-ink
+    // guard, honesty) must not discard an estimable size, and vice versa.
+    text: isText ? {
+      color: text?.hex ?? null,
+      token: text ? nearestToken(text.hex)?.token ?? null : null,
+      sizePt,
+    } : null,
     fill: fill ? { color: fill.hex, token: nearestToken(fill.hex)?.token ?? null } : null,
     radius: radiusPt !== null ? { pt: radiusPt } : null,
     scale: Math.round(scale * 10) / 10,

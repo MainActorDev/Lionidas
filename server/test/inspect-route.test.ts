@@ -80,7 +80,7 @@ describe('inspectSample — pixel-estimate endpoint fns', () => {
     expect(r.fill!.token).toBe('backgroundBrand/brand500');
     expect(r.radius).not.toBeNull();
     expect(Math.abs(r.radius!.pt - 12)).toBeLessThanOrEqual(1.5);
-    expect(r.text).toBeNull(); // fill dominant → no ink layer extracted
+    expect(r.text).toEqual({ color: null, token: null, sizePt: null }); // non-text node: all text fields null (independent)
     expect(r.scale).toBe(3);
   });
 

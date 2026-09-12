@@ -11,7 +11,7 @@ const props = defineProps({
   siblings: { type: Array as PropType<AxNode[]>, default: () => [] },
   sample: {
     type: Object as PropType<{
-      text: { color: string; token: string | null; sizePt: number | null } | null;
+      text: { color: string | null; token: string | null; sizePt: number | null } | null;
       fill: { color: string; token: string | null } | null;
       radius: { pt: number } | null;
       scale: number;
@@ -29,6 +29,8 @@ const dash = (v: number | null | undefined): string =>
   v === null || v === undefined ? '—' : String(Math.round(v));
 
 const rect = computed(() => props.node?.rect ?? null);
+/** estimates OFF → sampled rows render "—" (values withheld, geometry stays) */
+const shown = computed(() => (props.showEstimates ? props.sample : null));
 const est = (on: boolean): string => (on && props.showEstimates ? ' (est.)' : '');
 const hexDot = (c: string | null | undefined): string | null =>
   c && /^#[0-9a-fA-F]{6}$/.test(c) ? c : null;
@@ -63,24 +65,24 @@ const tokenLabel = (t: string | null | undefined): string | null =>
       </section>
 
       <!-- TYPE — mixed: size/color sampled; weight/family honest "—" -->
-      <section v-if="sample?.text || node.label !== undefined">
+      <section v-if="shown?.text || node.label !== undefined">
         <h4>Type <span class="src">◌ sampled</span></h4>
         <div class="grid">
           <span class="k">size</span>
           <span class="v">
-            <template v-if="sample?.text?.sizePt != null">{{ sample.text.sizePt }}{{ est(true) }}</template>
+            <template v-if="shown?.text?.sizePt != null">{{ shown!.text!.sizePt }}{{ est(true) }}</template>
             <template v-else>—</template>
           </span>
           <span class="k">color</span>
           <span class="v">
-            <template v-if="sample?.text?.color">
-              <i v-if="hexDot(sample.text.color)" class="dot" :style="{ background: hexDot(sample.text.color)! }" />
-              {{ sample.text.color }}{{ est(true) }}
+            <template v-if="shown?.text?.color">
+              <i v-if="hexDot(shown!.text!.color)" class="dot" :style="{ background: hexDot(shown!.text!.color)! }" />
+              {{ shown!.text!.color }}{{ est(true) }}
             </template>
             <template v-else>—</template>
           </span>
-          <template v-if="tokenLabel(sample?.text?.token)">
-            <span class="k">token</span><span class="v tok">{{ tokenLabel(sample?.text?.token) }}</span>
+          <template v-if="tokenLabel(shown?.text?.token)">
+            <span class="k">token</span><span class="v tok">{{ tokenLabel(shown?.text?.token) }}</span>
           </template>
           <span class="k">weight</span><span class="v">—</span>
           <span class="k">family</span><span class="v">—</span>
@@ -93,18 +95,18 @@ const tokenLabel = (t: string | null | undefined): string | null =>
         <div class="grid">
           <span class="k">fill</span>
           <span class="v">
-            <template v-if="sample?.fill?.color">
-              <i v-if="hexDot(sample.fill.color)" class="dot" :style="{ background: hexDot(sample.fill.color)! }" />
-              {{ sample.fill.color }}{{ est(true) }}
+            <template v-if="shown?.fill?.color">
+              <i v-if="hexDot(shown!.fill!.color)" class="dot" :style="{ background: hexDot(shown!.fill!.color)! }" />
+              {{ shown!.fill!.color }}{{ est(true) }}
             </template>
             <template v-else>—</template>
           </span>
-          <template v-if="tokenLabel(sample?.fill?.token)">
-            <span class="k">token</span><span class="v tok">{{ tokenLabel(sample?.fill?.token) }}</span>
+          <template v-if="tokenLabel(shown?.fill?.token)">
+            <span class="k">token</span><span class="v tok">{{ tokenLabel(shown?.fill?.token) }}</span>
           </template>
           <span class="k">radius</span>
           <span class="v">
-            <template v-if="sample?.radius">{{ sample.radius.pt }}{{ est(true) }}</template>
+            <template v-if="shown?.radius">{{ shown!.radius!.pt }}{{ est(true) }}</template>
             <template v-else>—</template>
           </span>
         </div>

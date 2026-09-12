@@ -64,27 +64,69 @@ export async function fillOf(r: Raster): Promise<{ hex: string } | null> {
   return { hex: hex(med) };
 }
 
+/** Per-segment median background (24px windows per row) — gradient immune.
+ *  Gradients vary SMOOTHLY: within any 24px window the spread is tiny, so the
+ *  segment median is that segment's true bg, however much the gradient moves
+ *  across the full row (observed: teal→navy gradient spread ≈70 across a row
+ *  flips whole gradient tails into phantom "ink" against a single row median).
+ *  Glyph-majority segments (strokes ≥ window — bold 68pt digits ARE wider than
+ *  24px) flip the local median onto the glyph: those segments are REPLACED by
+ *  the smooth-gradient prediction from their neighbors (avg of prev/next seg
+ *  medians) when they deviate ≥ SEG_FLIP_MIN from it. */
+const SEG_W = 24;
+const SEG_FLIP_MIN = 40;
+export function segBgOf(r: Raster): RGB[][] {
+  const medOf = (s: RGB[]): RGB => [0, 1, 2].map((ch) => quantile(s.map((c) => c[ch] ?? 0), 0.5)) as RGB;
+  const rows: RGB[][] = [];
+  for (let y = 0; y < r.height; y++) {
+    const segs: RGB[] = [];
+    for (let x0 = 0; x0 < r.width; x0 += SEG_W) {
+      const s: RGB[] = [];
+      for (let x = x0; x < Math.min(x0 + SEG_W, r.width); x += 2) s.push(px(r, x, y));
+      segs.push(medOf(s));
+    }
+    // neighbor-interpolate glyph-majority segments back to smooth bg
+    const fixed: RGB[] = segs.map((m, i) => {
+      const prev = segs[i - 1], next = segs[i + 1];
+      if (!prev || !next) return m; // edges: no prediction possible
+      const pred = [(prev[0] + next[0]) / 2, (prev[1] + next[1]) / 2, (prev[2] + next[2]) / 2] as RGB;
+      return dist(m, pred) >= SEG_FLIP_MIN ? pred : m;
+    });
+    rows.push(fixed);
+  }
+  return rows;
+}
+
 /** Dominant ink color (est., text nodes only). Antialiased text is a CONTINUUM
  *  of blends, not exact RGB repeats — so: rank all non-bg pixels by contrast to
- *  bg, take the top-contrast decile (the glyph CORES), answer their median.
+ *  their OWN row's bg, take the top-contrast decile (the glyph CORES), answer
+ *  their median.
  *  Gates: ink must cover ≥ INK_SHARE_MIN of the rect (else it's an edge-halo or
  *  a solid fill, not glyphs) and ink pixels must exist at all. */
 export async function textColorsOf(r: Raster, opts: { isTextNode: boolean }): Promise<{ hex: string } | null> {
   if (!opts.isTextNode) return null;
-  const bg = bgOf(r);
+  const segBg = segBgOf(r);
   const inked: Array<{ d: number; c: RGB }> = [];
   for (let y = 1; y < r.height - 1; y += 2) {
     for (let x = 1; x < r.width - 1; x += 2) {
       const c = px(r, x, y);
-      const d = dist(c, bg);
+      const d = dist(c, segBg[y][Math.min(Math.floor(x / SEG_W), segBg[y].length - 1)]);
       if (d >= INK_DIST_MIN) inked.push({ d, c });
     }
   }
   const sampled = Math.max(1, ((r.width - 2) * (r.height - 2)) / 4);
   if (inked.length / sampled < INK_SHARE_MIN) return null; // too little ink → not glyphs
-  inked.sort((a, b) => b.d - a.d); // darkest/highest-contrast cores first
+  inked.sort((a, b) => b.d - a.d); // highest-contrast cores first
   const core = inked.slice(0, Math.max(1, Math.floor(inked.length / 10))); // top decile
   const med = [0, 1, 2].map((ch) => quantile(core.map((s) => s.c[ch]!), 0.5)) as RGB;
+  // PHANTOM-INK GUARD: glyph-majority segment runs (bold text wider than a
+  // segment) invert the local bg — the "ink" found is then the actual bg
+  // (e.g. the gradient between digit gaps) and the glyph became "bg". Detect:
+  // the ring (region border) is bg-dominated and never contains glyph cores,
+  // so REAL ink contrasts with the ring; phantom "ink" IS bg and matches it.
+  // Honest null beats a confident wrong color.
+  const ring = bgOf(r);
+  if (dist(med, ring) < INK_DIST_MIN) return null;
   return { hex: hex(med) };
 }
 
@@ -93,13 +135,13 @@ export async function textColorsOf(r: Raster, opts: { isTextNode: boolean }): Pr
  *  band); the 3 column strips then verify their ink rows fall inside the band
  *  (±tol) — guards icons/gradient patches faking a text band. */
 export async function estimateFontSizePt(r: Raster): Promise<number | null> {
-  const bg = bgOf(r);
+  const segBg = segBgOf(r);
   const bandScan = (x0: number, x1: number): Array<[number, number]> => {
     const bands: Array<[number, number]> = [];
     let s = -1;
     for (let y = 0; y < r.height; y++) {
       let ink = 0;
-      for (let x = x0; x < x1; x++) if (dist(px(r, x, y), bg) > INK_DIST_MIN) ink++;
+      for (let x = x0; x < x1; x++) if (dist(px(r, x, y), segBg[y][Math.min(Math.floor(x / SEG_W), segBg[y].length - 1)]) > INK_DIST_MIN) ink++;
       const on = ink > Math.max(2, (x1 - x0) * 0.02);
       if (on && s < 0) s = y;
       if (!on && s >= 0) { bands.push([s, y - 1]); s = -1; }

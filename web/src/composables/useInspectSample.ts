@@ -6,7 +6,7 @@ import { ref, watch, type Ref } from 'vue';
 import type { AxNode } from '@crucible/shared/ax-tree';
 
 export interface InspectSampleData {
-  text: { color: string; token: string | null; sizePt: number | null } | null;
+  text: { color: string | null; token: string | null; sizePt: number | null } | null;
   fill: { color: string; token: string | null } | null;
   radius: { pt: number } | null;
   scale: number;

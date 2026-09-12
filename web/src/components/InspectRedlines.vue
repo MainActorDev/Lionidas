@@ -43,7 +43,7 @@ const gaps = computed(() =>
         <line class="cap" :x1="selected.rect.x" :y1="selected.rect.y + selected.rect.height / 2 - CAP"
               :x2="selected.rect.x" :y2="selected.rect.y + selected.rect.height / 2 + CAP" />
         <text class="val" :x="(parent.rect.x + selected.rect.x) / 2"
-              :y="selected.rect.y + selected.rect.height / 2 - 4">{{ pad.left }}</text>
+              :y="selected.rect.y + selected.rect.height / 2 - 4">{{ Math.round(pad.left) }}</text>
       </g>
       <!-- right -->
       <g v-if="pad.right !== null && parent && parent.rect">
@@ -52,7 +52,7 @@ const gaps = computed(() =>
         <line class="cap" :x1="parent.rect.x + parent.rect.width" :y1="selected.rect.y + selected.rect.height / 2 - CAP"
               :x2="parent.rect.x + parent.rect.width" :y2="selected.rect.y + selected.rect.height / 2 + CAP" />
         <text class="val" :x="(selected.rect.x + selected.rect.width + parent.rect.x + parent.rect.width) / 2"
-              :y="selected.rect.y + selected.rect.height / 2 - 4">{{ pad.right }}</text>
+              :y="selected.rect.y + selected.rect.height / 2 - 4">{{ Math.round(pad.right) }}</text>
       </g>
       <!-- top -->
       <g v-if="pad.top !== null && parent && parent.rect">
@@ -63,7 +63,7 @@ const gaps = computed(() =>
         <line class="cap" :x1="selected.rect.x + selected.rect.width / 2 - CAP" :y1="selected.rect.y"
               :x2="selected.rect.x + selected.rect.width / 2 + CAP" :y2="selected.rect.y" />
         <text class="val" :y="(parent.rect.y + selected.rect.y) / 2"
-              :x="selected.rect.x + selected.rect.width / 2">{{ pad.top }}</text>
+              :x="selected.rect.x + selected.rect.width / 2">{{ Math.round(pad.top) }}</text>
       </g>
       <!-- bottom -->
       <g v-if="pad.bottom !== null && parent && parent.rect">
@@ -72,7 +72,7 @@ const gaps = computed(() =>
         <line class="cap" :x1="selected.rect.x + selected.rect.width / 2 - CAP" :y1="parent.rect.y + parent.rect.height"
               :x2="selected.rect.x + selected.rect.width / 2 + CAP" :y2="parent.rect.y + parent.rect.height" />
         <text class="val" :y="(selected.rect.y + selected.rect.height + parent.rect.y + parent.rect.height) / 2"
-              :x="selected.rect.x + selected.rect.width / 2">{{ pad.bottom }}</text>
+              :x="selected.rect.x + selected.rect.width / 2">{{ Math.round(pad.bottom) }}</text>
       </g>
     </template>
 
@@ -84,7 +84,7 @@ const gaps = computed(() =>
                 :x2="selected.rect.x" :y2="selected.rect.y + selected.rect.height / 2" />
           <line class="cap" :x1="selected.rect.x - gaps.prev" :y1="selected.rect.y + selected.rect.height / 2 - CAP"
                 :x2="selected.rect.x - gaps.prev" :y2="selected.rect.y + selected.rect.height / 2 + CAP" />
-          <text class="val" :x="selected.rect.x - gaps.prev / 2" :y="selected.rect.y + selected.rect.height / 2 - 4">{{ gaps.prev }}</text>
+          <text class="val" :x="selected.rect.x - gaps.prev / 2" :y="selected.rect.y + selected.rect.height / 2 - 4">{{ Math.round(gaps.prev) }}</text>
         </g>
         <g v-if="gaps.next !== null">
           <line class="measure" :x1="selected.rect.x + selected.rect.width" :y1="selected.rect.y + selected.rect.height / 2"
@@ -92,7 +92,7 @@ const gaps = computed(() =>
           <line class="cap" :x1="selected.rect.x + selected.rect.width + gaps.next" :y1="selected.rect.y + selected.rect.height / 2 - CAP"
                 :x2="selected.rect.x + selected.rect.width + gaps.next" :y2="selected.rect.y + selected.rect.height / 2 + CAP" />
           <text class="val" :x="selected.rect.x + selected.rect.width + gaps.next / 2"
-                :y="selected.rect.y + selected.rect.height / 2 - 4">{{ gaps.next }}</text>
+                :y="selected.rect.y + selected.rect.height / 2 - 4">{{ Math.round(gaps.next) }}</text>
         </g>
       </g>
       <g v-else>
@@ -101,14 +101,14 @@ const gaps = computed(() =>
                 :x2="selected.rect.x + selected.rect.width / 2" :y2="selected.rect.y" />
           <line class="cap" :x1="selected.rect.x + selected.rect.width / 2 - CAP" :y1="selected.rect.y - gaps.prev"
                 :x2="selected.rect.x + selected.rect.width / 2 + CAP" :y2="selected.rect.y - gaps.prev" />
-          <text class="val" :y="selected.rect.y - gaps.prev / 2" :x="selected.rect.x + selected.rect.width / 2">{{ gaps.prev }}</text>
+          <text class="val" :y="selected.rect.y - gaps.prev / 2" :x="selected.rect.x + selected.rect.width / 2">{{ Math.round(gaps.prev) }}</text>
         </g>
         <g v-if="gaps.next !== null">
           <line class="measure" :x1="selected.rect.x + selected.rect.width / 2" :y1="selected.rect.y + selected.rect.height"
                 :x2="selected.rect.x + selected.rect.width / 2" :y2="selected.rect.y + selected.rect.height + gaps.next" />
           <line class="cap" :x1="selected.rect.x + selected.rect.width / 2 - CAP" :y1="selected.rect.y + selected.rect.height + gaps.next"
                 :x2="selected.rect.x + selected.rect.width / 2 + CAP" :y2="selected.rect.y + selected.rect.height + gaps.next" />
-          <text class="val" :y="selected.rect.y + selected.rect.height + gaps.next / 2" :x="selected.rect.x + selected.rect.width / 2">{{ gaps.next }}</text>
+          <text class="val" :y="selected.rect.y + selected.rect.height + gaps.next / 2" :x="selected.rect.x + selected.rect.width / 2">{{ Math.round(gaps.next) }}</text>
         </g>
       </g>
     </template>
