@@ -228,13 +228,16 @@ export function useDeviceStream(): DeviceStream {
     );
     ws.onopen = () => {
       state.value = 'live';
-      // 60fps @ baguette's "Balanced" bitrate (2Mbps at scale=2 — their
-      // recommended preset). 24Mbps overwhelmed the HW decoder per-frame at
-      // 60fps (stutter during motion); idle screens encode ~0 frames anyway,
-      // so sharpness on stills is unaffected. All live-retunable.
+      // 60fps @ 8Mbps — the fork's documented pairing for NATIVE-resolution
+      // H.264 (StreamConfig.default). 2Mbps was baguette's "Balanced" preset
+      // paired with scale=2 (half-res); at native 1206×2622 it visibly
+      // macroblocks (user report 2026-09-12). The earlier "24Mbps stuttered"
+      // observation was HW-decode saturation at 60fps — if motion ever
+      // stutters again, tune fps down before bitrate. Idle screens encode
+      // ~0 frames anyway (seed-gated), so stills ride full IDR quality.
       try {
         socket.send(JSON.stringify({ type: 'set_fps', fps: 60 }));
-        socket.send(JSON.stringify({ type: 'set_bitrate', bps: 2_000_000 }));
+        socket.send(JSON.stringify({ type: 'set_bitrate', bps: 8_000_000 }));
       } catch { /* socket gone */ }
     };
     ws.onmessage = (ev: MessageEvent) => {
@@ -312,26 +315,29 @@ export function useDeviceStream(): DeviceStream {
     const gen = generation;
     state.value = isRetry ? 'reconnecting' : 'connecting';
     controlLost.value = false;   // fresh attach: previous refusal is stale
-    if (pendingFormat === 'avcc') {
-      // The wrapped device surface's stream through the authed gated proxy
-      // (watch mode enforced server-side). Same wire tags the codec expects.
-      try {
-        const rd = await fetch(`/api/devices/${encodeURIComponent(udid)}/stream`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-        if (!rd.ok) {
-          const eb = await rd.json().catch(() => ({})) as { error?: string; retryable?: boolean };
-          throw new Error(eb.error ?? `resolve ${rd.status}`);
-        }
-        const bd = await rd.json() as { simdeckUrl?: string };
-        if (!bd.simdeckUrl) throw new Error('no device surface url in resolve');
-        const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${bd.simdeckUrl}/stream?format=avcc&version=v2`;
-        attachDirect(new WebSocket(wsUrl), udid, gen, { tolerantAcks: true });
-        return;
-      } catch (err) {
-        fail(err instanceof Error ? err.message : String(err), true);
-        return;
-      }
+    if (pendingFormat === 'mjpeg') {
+      // The mjpeg relay path is deleted (Phase 3) — the wrapped surface's
+      // AVCC stream is the only engine. An explicit mjpeg request fails
+      // LOUDLY instead of silently wedging at 'connecting'.
+      fail('mjpeg stream format is no longer supported', false);
+      return;
     }
-    // (mjpeg relay path removed — the wrapped surface is the only engine)
+    // H.264 by default: bare start(udid) (RunPanel, DrivePage, sidebar
+    // before /me resolves) must ride the AVCC path, not fall through the
+    // removed mjpeg branch and wedge.
+    try {
+      const rd = await fetch(`/api/devices/${encodeURIComponent(udid)}/stream`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+      if (!rd.ok) {
+        const eb = await rd.json().catch(() => ({})) as { error?: string; retryable?: boolean };
+        throw new Error(eb.error ?? `resolve ${rd.status}`);
+      }
+      const bd = await rd.json() as { simdeckUrl?: string };
+      if (!bd.simdeckUrl) throw new Error('no device surface url in resolve');
+      const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${bd.simdeckUrl}/stream?format=avcc&version=v2`;
+      attachDirect(new WebSocket(wsUrl), udid, gen, { tolerantAcks: true });
+    } catch (err) {
+      fail(err instanceof Error ? err.message : String(err), true);
+    }
   }
 
   function fail(reason: string, canRetry: boolean): void {
