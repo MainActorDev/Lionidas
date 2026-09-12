@@ -8,7 +8,6 @@
 import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
-import { crucibleAlloy } from '../alloy/client.ts';
 import { dispatchWithHeal } from '../alloy/heal.ts';
 import { quietKeyboard } from './keyboard-quiet.ts';
 import { captureSelectorAt, countMatches } from './selector.ts';
@@ -57,7 +56,6 @@ async function recordStep(deps: ManualDeps, sessionId: string, step: StepInput):
   if (!state.on) return null;
   let thumb: string | null = null;
   try {
-    const alloy = crucibleAlloy();
     const r = (await dispatchWithHeal('alloy_screenshot', { udid: sessionUdid(deps, sessionId) }, deps.dispatchDeps)) as
       | { ok: true; result: { path: string } }
       | { ok: false };
@@ -81,7 +79,6 @@ function sessionUdid(deps: ManualDeps, sessionId: string): string {
  *  not fail the interaction; step just records selector: null. */
 async function captureSelector(deps: ManualDeps, udid: string, x: number, y: number): Promise<StepSelector | null> {
   try {
-    const alloy = crucibleAlloy();
     const snap = (await dispatchWithHeal('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
       | { ok: true; result: { nodes?: SnapNode[] } }
       | { ok: false };
@@ -100,7 +97,6 @@ export class ManualSessionError extends Error {
 
 export async function startManualSession(deps: ManualDeps, udid: string, operator: string, appBundleId?: string): Promise<{ sessionId: string; logicalW: number | null; logicalH: number | null }> {
   return (async () => {
-    const alloy = crucibleAlloy();
     const busy = deps.db
       .prepare(`SELECT 1 FROM runs WHERE device_udid = ? AND status IN ('queued','running') AND kind != 'manual' LIMIT 1`)
       .get(udid);
@@ -162,7 +158,6 @@ export function touchSessionActivity(deps: ManualDeps, sessionId: string): void 
 
 export async function manualTap(deps: ManualDeps, sessionId: string, x: number, y: number): Promise<void> {
   const s = liveSession(deps, sessionId);
-  const alloy = crucibleAlloy();
   // A6: capture WHAT was tapped from the pre-action hierarchy (recording only)
   const recordingOn = readRecording(deps, sessionId).on;
   const selector = recordingOn && x != null && y != null ? await captureSelector(deps, s.udid, x, y) : null;
@@ -217,7 +212,6 @@ export async function manualGesture(deps: ManualDeps, sessionId: string, gesture
 
 export async function manualScroll(deps: ManualDeps, sessionId: string, direction: 'up' | 'down' | 'left' | 'right'): Promise<void> {
   const s = liveSession(deps, sessionId);
-  const alloy = crucibleAlloy();
   // engine deltas: fixed 240pt per direction tick keeps the old route's
   // semantics on the new fast path
   const delta = 240;
@@ -237,7 +231,6 @@ export async function manualScroll(deps: ManualDeps, sessionId: string, directio
 
 export async function manualType(deps: ManualDeps, sessionId: string, x: number | null, y: number | null, text: string): Promise<void> {
   const s = liveSession(deps, sessionId);
-  const alloy = crucibleAlloy();
   // A6: capture the field identity pre-action (recording only)
   const recordingOn = readRecording(deps, sessionId).on;
   const selector = recordingOn && x != null && y != null ? await captureSelector(deps, s.udid, x, y) : null;
@@ -283,7 +276,6 @@ export function deleteRecordedStep(deps: ManualDeps, sessionId: string, idx: num
 
 export async function manualSnapshot(deps: ManualDeps, sessionId: string): Promise<{ path: string }> {
   const s = liveSession(deps, sessionId);
-  const alloy = crucibleAlloy();
   const r = (await dispatchWithHeal('alloy_screenshot', { udid: s.udid }, deps.dispatchDeps)) as
     | { ok: true; result: { path: string } }
     | { ok: false; error: { message: string } };
@@ -298,7 +290,6 @@ export async function manualSnapshot(deps: ManualDeps, sessionId: string): Promi
  *  returns the screen's addressable labels so the UI can offer a picker. */
 export async function manualProbeSelector(deps: ManualDeps, sessionId: string, sel: { identifier?: string; label?: string; type?: string }): Promise<{ matched: number; labels: string[] }> {
   const s = liveSession(deps, sessionId);
-  const alloy = crucibleAlloy();
   const snap = (await dispatchWithHeal('alloy_snapshot', { udid: s.udid, interactiveOnly: false }, deps.dispatchDeps)) as
     | { ok: true; result: { nodes?: SnapNode[] } }
     | { ok: false };
@@ -315,7 +306,6 @@ export async function manualProbeSelector(deps: ManualDeps, sessionId: string, s
  *  @crucible/shared/ax-tree, one predicate for engine and overlay). */
 export async function manualTree(deps: ManualDeps, sessionId: string): Promise<{ nodes: SnapNode[]; logicalW: number | null; logicalH: number | null; capturedAt: number }> {
   const s = liveSession(deps, sessionId);
-  const alloy = crucibleAlloy();
   const snap = (await dispatchWithHeal('alloy_snapshot', { udid: s.udid, interactiveOnly: false }, deps.dispatchDeps)) as
     | { ok: true; result: { nodes?: SnapNode[] } }
     | { ok: false; error?: { message?: string } };
@@ -337,7 +327,6 @@ export function recordExpectStep(deps: ManualDeps, sessionId: string, selector: 
   const state = readRecording(deps, sessionId);
   let thumb: string | null = null;
   try {
-    const alloy = crucibleAlloy();
     const r = (() => dispatchWithHeal('alloy_screenshot', { udid: sessionUdid(deps, sessionId) }, deps.dispatchDeps)) as unknown as Promise<{ ok: true; result: { path: string } } | { ok: false }>;
     void r.then((res) => {
       if (res.ok) {
@@ -360,7 +349,6 @@ export async function finishManualSession(deps: ManualDeps, sessionId: string, n
     | undefined;
   if (!s) throw new ManualSessionError('SESSION_NOT_FOUND', `no session ${sessionId}`);
   if (s.finished_at) return; // idempotent
-  const alloy = crucibleAlloy();
   await dispatchWithHeal('alloy_release', { udid: s.udid }, deps.dispatchDeps).catch(() => undefined);
   deps.db.prepare('UPDATE manual_sessions SET finished_at = ? WHERE id = ?').run(Date.now(), sessionId);
   deps.db.prepare(`UPDATE runs SET status = 'passed', finished_at = ?, note = ? WHERE id = ?`).run(Date.now(), note ?? `manual:${sessionId}`, s.run_id);

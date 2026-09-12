@@ -16,7 +16,6 @@ describe('EvidenceRecorder video_started_at', () => {
   let dir: string;
   const RUN = 'run_va';
   const UDID = 'u1';
-  const now = () => 1770000000000;
 
   function makeRecorder(dispatch: (tool: string, input: unknown) => Promise<unknown>) {
     return new EvidenceRecorder(

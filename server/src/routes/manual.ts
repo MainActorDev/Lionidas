@@ -226,7 +226,7 @@ export function registerManualRoutes(
 
   // Inspect mode: full AX tree for the overlay (boxes + drawer). Dumb pipe —
   // nodes verbatim; interpretation lives in @crucible/shared/ax-tree.
-  app.post('/api/manual/:id/heartbeat', async (req, reply) => {
+  app.post('/api/manual/:id/heartbeat', async (req, _reply) => {
     // direct-WS input bypasses the HTTP routes that refresh last_activity —
     // the wall pings this while driving so the 5-min idle watchdog doesn't
     // reap a session mid-use (input then dies with 'not granted' while the
@@ -423,7 +423,7 @@ export function registerManualRoutes(
   async function runBatch(b: { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string> }, reqUser?: { name: string } | null):
     Promise<{ ok: true; runIds: string[]; count: number; batchId?: string; lanes?: Array<{ device: { udid: string; name: string | null }; runIds: string[]; skipped: string[]; haltedAt?: string; haltedReason?: string }> } | { ok: false; code: 400 | 409; error: string; runIds: string[]; appBundleId?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null }> {
     const { selectTemplates } = await import('./templates.ts');
-    const { planLanes, DEFAULT_COST_MS } = await import('../manual/batch/plan.ts');
+    const { planLanes } = await import('../manual/batch/plan.ts');
     const { runParallelBatch, ParallelScenarioError } = await import('../manual/batch/pool.ts');
     const rows = db.prepare('SELECT * FROM templates ORDER BY updated_at DESC').all() as Array<{ id: string; app_bundle_id: string | null; tags_json: string | null }>;
     const sel = selectTemplates(rows as never, { tags: b.tags, app: b.app });

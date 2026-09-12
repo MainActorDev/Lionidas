@@ -15,7 +15,6 @@ import type { AlloyExports } from '../../alloy/client.ts';
 
 let db: Database.Database;
 let tmp: string;
-const forgeWrites: string[] = [];
 
 function fakeAlloy(): AlloyExports {
   return {

@@ -18,10 +18,8 @@ function crucibleAlloySafe(): { resetEngineBCache?: () => void } | null {
 }
 import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { join } from 'node:path';
 const execFileAsync = promisify(execFile);
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { crucibleAlloy } from '../alloy/client.ts';

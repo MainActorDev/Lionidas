@@ -7,7 +7,7 @@
  *  by the shared /api/events WS window: run.started adds, run.finished /
  *  run.aborted removes, queue.changed triggers a reseed (queued rows may
  *  dispatch or vanish without per-template events). */
-import { reactive, readonly } from 'vue';
+import { reactive } from 'vue';
 import { useLiveEvents, type LiveEvent } from '../stores/live.ts';
 
 export interface ActiveRun {

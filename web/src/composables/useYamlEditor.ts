@@ -23,7 +23,6 @@ export interface YamlEditorHandle {
 export function useYamlEditor(): YamlEditorHandle {
   const ready = ref(false);
   let view: EditorView | null = null;
-  let CM: typeof import('@codemirror/view') | null = null;
   let setDeco: ((lines: number[]) => void) | null = null;
   let saveCb: (() => void) | null = null;
 
@@ -42,7 +41,7 @@ export function useYamlEditor(): YamlEditorHandle {
       import('@crucible/shared/yaml-slots'),
       import('@crucible/shared/yaml-completions'),
     ]);
-    const { StateField, StateEffect } = stateMod;
+    const { StateField } = stateMod;
     const { Decoration } = viewMod;
     const { tags } = highlightMod;
     const { HighlightStyle } = languageMod;
@@ -160,7 +159,6 @@ export function useYamlEditor(): YamlEditorHandle {
         ]),
       ],
     });
-    CM = viewMod;
     ready.value = true;
   }
 
@@ -170,7 +168,7 @@ export function useYamlEditor(): YamlEditorHandle {
     view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v } });
   }
   function setErrors(lines: number[]): void { setDeco?.(lines); }
-  function destroy(): void { view?.destroy(); view = null; CM = null; ready.value = false; }
+  function destroy(): void { view?.destroy(); view = null; ready.value = false; }
 
   onBeforeUnmount(destroy);
   return { ready, mount, getValue, setValue, setErrors, destroy };

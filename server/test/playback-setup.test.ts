@@ -228,7 +228,7 @@ describe('Task 4 — alert step playback', () => {
     await r.done;
     const rs = rows(r.runId);
     expect(rs[0]!.status).toBe('pass');
-    dismissals;
+    void dismissals;
   });
 
   it('alert: dismiss with NO dialog → skip (no alert up)', async () => {
@@ -337,7 +337,7 @@ describe('Task 5 — alert policy enforcement', () => {
       { entries: [['default', 'dismiss']] });
     const r = await runTemplatePlayback({ db, bus, dispatchDeps: null, artifactsDir: tmp, forgeState: { activeRunId: null }, awaitStreamLive: async () => undefined, listApps: async () => [{ bundleId: 'com.x' }] } as never, 'tpl_p5', {});
     await r.done;
-    actCalls;
+    void actCalls;
     expect(db.prepare('SELECT status FROM runs WHERE id = ?').get(r.runId)).toMatchObject({ status: 'passed' });
   });
 
@@ -365,7 +365,7 @@ describe('stability gate (settle poll requires two identical reads)', () => {
     const rs = rows(r.runId);
     // the tap MUST have dispatched (after waiting out the animation) and passed
     expect(rs[0]!.status).toBe('pass');
-    acts;
+    void acts;
     // and it polled more than the animation window (gate kept polling)
     expect(snapCount).toBeGreaterThan(3);
   });

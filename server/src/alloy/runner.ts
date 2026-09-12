@@ -6,8 +6,7 @@
 import { prunePreviousRunArtifacts } from '../evidence/retention.ts';
 import { ingestEvidence } from '../evidence/ingest.ts';
 import { createHash } from 'node:crypto';
-import { statSync, existsSync, mkdirSync, copyFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { statSync, existsSync } from 'node:fs';
 import type Database from 'better-sqlite3';
 import { crucibleAlloy } from '../alloy/client.ts';
 import { initAlloyRuntime } from './runtime.ts';

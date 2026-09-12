@@ -54,7 +54,7 @@ function outlineFromSteps(steps: Array<Record<string, unknown>>, group: '' | 'se
     const kind = String(s['action'] ?? '?');
     const sel = s['selector'] as { label?: string; identifier?: string; labelContains?: string } | undefined;
     let detail = '';
-    if (kind === 'tap' || kind === 'type') detail = sel?.label ?? sel?.identifier ?? `${s['x']}, ${s['y']}`;
+    if (kind === 'tap') detail = sel?.label ?? sel?.identifier ?? `${s['x']}, ${s['y']}`;
     else if (kind === 'scroll') detail = String(s['direction'] ?? '');
     else if (kind === 'alert') detail = String(s['alertAction'] ?? '');
     else if (kind === 'type') detail = String(s['text'] ?? '');
