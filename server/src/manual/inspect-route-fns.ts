@@ -3,7 +3,7 @@
  *  policy: colors+size on ≤512-wide downscale, radius on native-res crops.
  *  Honesty: every null below reaches the UI as "—" (not knowable), never 0. */
 import sharp from 'sharp';
-import { ManualSessionError, type ManualDeps } from './session.ts';
+import { ManualSessionError, dispatchWithAppHeal, type ManualDeps } from './session.ts';
 import { dispatchWithHeal } from '../alloy/heal.ts';
 import {
   fillOf, textColorsOf, estimateFontSizePt, estimateRadiusPt, nearestToken,
@@ -43,7 +43,7 @@ export async function inspectSample(
   if (!logicalW || logicalW < 100) throw new ManualSessionError('BAD_RECT', 'logicalW must be a real screen width');
   const udid = (deps.db.prepare('SELECT udid FROM manual_sessions WHERE id = ? AND finished_at IS NULL').get(sessionId) as { udid: string } | undefined)?.udid;
   if (!udid) throw new ManualSessionError('SESSION_NOT_FOUND', 'session not found or finished');
-  const shot = (await dispatchWithHeal('alloy_screenshot', { udid }, deps.dispatchDeps)) as
+  const shot = (await dispatchWithAppHeal('alloy_screenshot', { udid }, sessionId, deps)) as
     | { ok: true; result: { path: string } }
     | { ok: false; error?: { message?: string } };
   if (!shot.ok) throw new ManualSessionError('LEASE_LOST', `sample failed: ${shot.error?.message ?? 'screenshot dispatch failed'}`);

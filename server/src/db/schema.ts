@@ -216,6 +216,8 @@ export function migrateM1(db: Database.Database): void {
     'ALTER TABLE devices ADD COLUMN resolution TEXT',
     // manual sessions gain the recorder steps store (QA records flows for templates)
     'ALTER TABLE manual_sessions ADD COLUMN recording_json TEXT',
+    // app session heal: the bundle the session opened, so staleness can re-open it
+    'ALTER TABLE manual_sessions ADD COLUMN app_bundle_id TEXT',
     // templates bind to the app they were recorded in — playback launches it first
     'ALTER TABLE templates ADD COLUMN app_bundle_id TEXT',
     'ALTER TABLE templates ADD COLUMN setup_json TEXT',

@@ -75,6 +75,31 @@ function sessionUdid(deps: ManualDeps, sessionId: string): string {
   return s.udid;
 }
 
+/** Alloy app sessions go stale under churn (device reboot, app relaunch, engine
+ *  recycle): screenshot/snapshot then fail "No active session" while the
+ *  OS-level stream still looks fine. Only alloy_apps open can bring the app
+ *  session back — dispatchWithHeal's client reset cannot. Re-open using the
+ *  bundle recorded at session start, once per call site. */
+export async function ensureAppSession(deps: ManualDeps, sessionId: string): Promise<void> {
+  const row = deps.db.prepare('SELECT udid, app_bundle_id FROM manual_sessions WHERE id = ? AND finished_at IS NULL').get(sessionId) as
+    { udid: string; app_bundle_id: string | null } | undefined;
+  if (!row) return; // dead session: the caller's own error path handles it
+  const open = (await dispatchWithHeal('alloy_apps', { action: 'open', app: row.app_bundle_id ?? 'com.apple.Preferences', udid: row.udid, hold: false }, deps.dispatchDeps)) as
+    | { ok: true }
+    | { ok: false; error?: { message?: string } };
+  if (!open.ok) console.warn(`[manual] app-session re-open failed for ${sessionId.slice(0, 12)}: ${open.error?.message ?? 'unknown'}`);
+}
+
+/** Run a dispatch, re-opening the app session once when the failure is the
+ *  "No active session" staleness signature. */
+export async function dispatchWithAppHeal(tool: string, input: { udid: string }, sessionId: string, deps: ManualDeps): Promise<unknown> {
+  const first = (await dispatchWithHeal(tool, input, deps.dispatchDeps)) as { ok: boolean; error?: { message?: string } };
+  if (first.ok || !/No active session|requires an active app session/i.test(first.error?.message ?? '')) return first;
+  console.warn(`[manual] app session stale (${tool}) — re-opening and retrying once`);
+  await ensureAppSession(deps, sessionId);
+  return dispatchWithHeal(tool, input, deps.dispatchDeps);
+}
+
 /** Pre-action hierarchy hit-test (A6): best-effort — a snapshot failure must
  *  not fail the interaction; step just records selector: null. */
 async function captureSelector(deps: ManualDeps, udid: string, x: number, y: number): Promise<StepSelector | null> {
@@ -136,9 +161,9 @@ export async function startManualSession(deps: ManualDeps, udid: string, operato
       if (root) { w = root.width; h = root.height; }
     }
     deps.db
-      .prepare(`INSERT INTO manual_sessions(id, run_id, udid, operator, logical_w, logical_h, started_at, last_activity)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(sessionId, runId, udid, operator, w, h, Date.now(), Date.now());
+      .prepare(`INSERT INTO manual_sessions(id, run_id, udid, operator, logical_w, logical_h, started_at, last_activity, app_bundle_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(sessionId, runId, udid, operator, w, h, Date.now(), Date.now(), appBundleId ?? 'com.apple.Preferences');
     deps.bus.emit('manual.session.open', { sessionId, udid, operator, runId });
     return { sessionId, logicalW: w, logicalH: h };
   })();
