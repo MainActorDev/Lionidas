@@ -166,6 +166,29 @@ this section (see `docs/plans/2026-09-05-location-spoofing.md`).*
 (`docs/plans/2026-09-06-parallel-batches.md`, commits 9f554b5/d7378d3).
 Both items are honest v1 limits of the shipped pool, not unbuilt core.*
 
+### E0. AX-depth adoption — wiring pending (spike verdict: ADOPT, 2026-09-13)
+- **What:** consume the wrapped engine's deeper accessibility tree
+  (`describe_ui`) as the PRIMARY source for selector resolution + counting,
+  alloy tree stays fallback. Fixes proven live: SwiftUI label-propagation
+  ambiguity (MINGGU 4-match → 1-match resolve) and status-bar invisibility
+  (0 → 6 items on Foodiary). One measured regression (LP tab buttons
+  missing in engine full tree) is covered by the existing point-probe seam.
+- **Why parked:** spike produced evidence + verdict only — by design it
+  wired nothing. Adoption needs a normal implementation plan: server-side
+  engine-tree client (serve/WS or subprocess; NOT the iframe surface),
+  factory graduating to `@crucible/shared` (exports-map step), playback
+  wiring behind the dispatch seam, and a fork-side check for the LP
+  full-tree gap.
+- **Evidence (all committed):** plan `docs/plans/2026-09-13-ax-depth-spike.md`
+  (P0–P3 results + verdict table) · research
+  `docs/research/2026-09-13-ax-depth-coverage.md` · fixtures + 13 corpus
+  tests `server/test/ax-depth-*.test.ts`, `server/test/fixtures/ax-depth/`,
+  factory `server/test/utils/engine-tree.ts`.
+- **Trigger:** user gate on the implementation plan. Corpus RED tests flip
+  GREEN at wiring time — that flip is the negative-control receipt.
+- **Companion (independent):** P2.5 inspector spacing re-parent (padding
+  bug) — ships on its own 2×2 evidence, not coupled to this verdict.
+
 ### E1. Per-device traffic attribution for parallel batches
 - **What:** parallel (multi-lane) batches run with forge attribution OFF —
   proxy traffic rows land with `runId: null` because the host-level mitm
