@@ -359,7 +359,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div style="max-width: 480px;">
+  <div style="max-width: 900px;">
     <div class="page-header">
       <div>
         <div class="page-title">drive · {{ udid.slice(0, 8) }}…</div>
@@ -378,7 +378,10 @@ onUnmounted(() => {
     </div>
 
     <template v-else>
-      <div class="card" style="padding: var(--s-2); position: relative;">
+      <div class="drive-split">
+        <!-- LEFT: canvas + controls (the drive column, unchanged behavior) -->
+        <div class="drive-main">
+          <div class="card" style="padding: var(--s-2); position: relative;">
         <div style="position: relative;">
         <canvas :ref="stream.setCanvas" @click="onTap" @wheel.prevent="onCanvasWheel" @mousemove="onCanvasMove"
           :style="{ width: '100%', display: 'block', cursor: inspect ? 'default' : 'crosshair', borderRadius: 'var(--r-sm)', background: 'var(--color-void)', minHeight: '200px' }"
@@ -425,29 +428,32 @@ onUnmounted(() => {
         <button class="btn btn-sm btn-danger" :disabled="busy" @click="finish">finish</button>
       </div>
       <div v-if="busy" class="meta-row" style="margin-top: var(--s-2); color: var(--color-ash);">sending…</div>
+        </div><!-- /drive-main -->
 
-      <div v-if="inspect && selNode" class="inspect-cluster">
-        <InspectTools :mode="toolMode" :tree="showTree" :estimates="showEst"
-          @mode="(m) => { toolMode = m; }" @tree="(on) => { showTree = on; }"
-          @estimates="(on) => { showEst = on; }"
-          @screenshot="captureShot" @copy="copySpec" />
-        <InspectProps :node="selNode" :parent="selParent" :siblings="selSiblings"
-          :sample="sample" :loading="sampleLoading" :failed="sampleFailed" :show-estimates="showEst" />
-      </div>
-      <div v-if="inspect && selNode" class="card inspect-drawer">
-        <div class="page-title" style="font-size: 13px;">{{ selNode.identifier || selNode.label || selNode.type || 'element' }}</div>
-        <div class="meta-row"><span class="k">type</span><span>{{ selNode.type ?? '—' }}</span></div>
-        <div class="meta-row"><span class="k">identifier</span><span style="font-family: monospace;">{{ selNode.identifier ?? '—' }}</span></div>
-        <div class="meta-row"><span class="k">label</span><span>{{ selNode.label ?? '—' }}</span></div>
-        <div class="meta-row" v-if="selNode.rect"><span class="k">rect</span><span style="font-family: monospace;">x{{ selNode.rect.x }} y{{ selNode.rect.y }} · {{ selNode.rect.width }}×{{ selNode.rect.height }}pt</span></div>
-        <div class="meta-row"><span class="k">hittable</span><span>{{ selNode.hittable ? 'yes' : 'no' }}</span></div>
-        <div class="meta-row" v-if="parentChain(selNode).length"><span class="k">path</span><span style="font-family: monospace; font-size: 10px;">{{ parentChain(selNode).join(' › ') }}</span></div>
-        <div class="meta-row"><span class="k">selector</span><span style="font-family: monospace; color: var(--color-accent); ">on: {{ selPreview?.text }}</span></div>
-        <div style="display: flex; gap: var(--s-2); margin-top: var(--s-2);">
-          <button class="btn btn-sm" @click="copySelector">copy selector</button>
-          <button class="btn btn-sm btn-primary" :disabled="busy || tree.state.value !== 'aligned' || !selNode.hittable" @click="tapThis">tap this</button>
+        <!-- RIGHT: A2 inspector panel — REPLACES the old details drawer whenever
+             inspect is on; empty state invites selection (no hidden UI) -->
+        <div v-if="inspect" class="inspect-panel">
+          <template v-if="selNode">
+            <div class="ipanel-head">
+              <InspectTools :mode="toolMode" :tree="showTree" :estimates="showEst"
+                @mode="(m) => { toolMode = m; }" @tree="(on) => { showTree = on; }"
+                @estimates="(on) => { showEst = on; }"
+                @screenshot="captureShot" @copy="copySpec" />
+              <InspectProps :node="selNode" :parent="selParent" :siblings="selSiblings"
+                :sample="sample" :loading="sampleLoading" :failed="sampleFailed" :show-estimates="showEst"
+                :hittable="selNode.hittable ?? false" :path="parentChain(selNode).join(' › ')"
+                :selector-text="selPreview?.text ?? ''" show-actions
+                :tap-disabled="busy || tree.state.value !== 'aligned' || !selNode.hittable"
+                @tap="tapThis" @copy-selector="copySelector" />
+            </div>
+          </template>
+          <div v-else class="ipanel-empty">
+            <span class="iico">◎</span>
+            <p>inspect is on</p>
+            <p class="sub">click any element on the screen — its properties appear here</p>
+          </div>
         </div>
-      </div>
+      </div><!-- /drive-split -->
     </template>
   </div>
 </template>
@@ -468,8 +474,31 @@ onUnmounted(() => {
   z-index: 2;
 }
 .inspect-drawer { margin-top: var(--s-2); padding: var(--s-2); }
-/* A2 inspector cluster: tool rail + props rail side by side */
-.inspect-cluster { display: flex; align-items: stretch; margin-top: var(--s-2); border: 1px solid var(--color-iron); border-radius: var(--r-sm); overflow: hidden; }
+/* A2 drive split: canvas left, inspector panel right (replaces old drawer) */
+.drive-split { display: flex; gap: var(--s-3); align-items: flex-start; margin-top: 0; }
+.drive-main { flex: 1 1 auto; min-width: 0; max-width: 480px; }
+.inspect-panel {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--color-iron);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  position: sticky;
+  top: var(--s-3);
+  max-height: calc(100vh - 140px);
+  background: var(--color-carbon, #111);
+}
+.ipanel-head { display: flex; align-items: stretch; }
+.ipanel-empty {
+  width: 272px;
+  padding: 28px 18px;
+  text-align: center;
+  color: var(--color-steel);
+  font-size: 12px;
+}
+.ipanel-empty .iico { font-size: 26px; display: block; margin-bottom: 8px; color: var(--color-ash); }
+.ipanel-empty .sub { margin-top: 6px; font-size: 10px; color: var(--color-ash); }
 .tap-ripple {
   position: absolute;
   width: 28px; height: 28px;

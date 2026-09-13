@@ -23,7 +23,15 @@ const props = defineProps({
   failed: { type: Boolean, default: false },
   showEstimates: { type: Boolean, default: true },
   compact: { type: Boolean, default: false },
+  /** exact node facts + actions (drive surface folds the old drawer in here;
+   *  absent props keep the sections hidden — sidebar surface unchanged) */
+  hittable: { type: Boolean, default: undefined as unknown as boolean },
+  path: { type: String, default: '' },
+  selectorText: { type: String, default: '' },
+  showActions: { type: Boolean, default: false },
+  tapDisabled: { type: Boolean, default: false },
 });
+const emit = defineEmits<{ (e: 'tap'): void; (e: 'copy-selector'): void }>();
 
 const dash = (v: number | null | undefined): string =>
   v === null || v === undefined ? '—' : String(Math.round(v));
@@ -115,6 +123,23 @@ const tokenLabel = (t: string | null | undefined): string | null =>
       <p v-if="loading" class="state">sampling…</p>
       <p v-else-if="failed" class="state err">sampling failed — values above are geometry only</p>
       <p v-if="!showEstimates" class="state">estimates hidden — "—" = not sampled</p>
+
+      <!-- EXACT extras folded from the old drive drawer (only when provided) -->
+      <section v-if="hittable !== undefined || path || selectorText">
+        <h4>Element <span class="src">◆ exact</span></h4>
+        <div class="grid" v-if="hittable !== undefined">
+          <span class="k">hittable</span><span class="v">{{ hittable ? 'yes' : 'no' }}</span>
+        </div>
+        <div v-if="path" class="path">{{ path }}</div>
+        <div v-if="selectorText" class="grid">
+          <span class="k">selector</span><span class="v tok">{{ selectorText }}</span>
+        </div>
+      </section>
+
+      <div v-if="showActions" class="actions">
+        <button class="abtn" @click="emit('copy-selector')">copy selector</button>
+        <button class="abtn primary" :disabled="tapDisabled" @click="emit('tap')">tap this</button>
+      </div>
     </template>
     <p v-else class="state empty">select an element to inspect</p>
   </aside>
@@ -165,4 +190,19 @@ h4 {
 .state { margin-top: 12px; font-size: 10px; color: var(--color-ash, #6b7686); }
 .state.err { color: #ff7a7a; }
 .state.empty { margin-top: 24px; text-align: center; }
+.path { margin: 4px 0 6px; font: 400 10px var(--font-mono, ui-monospace); color: var(--color-ash, #6b7686); word-break: break-all; }
+.actions { display: flex; gap: 6px; margin-top: 14px; }
+.abtn {
+  flex: 1;
+  padding: 5px 8px;
+  font: 500 11px var(--font-ui, ui-sans-serif);
+  color: var(--color-snow, #c9d3e0);
+  background: var(--color-iron, #222);
+  border: 1px solid var(--color-iron, #333);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.abtn:hover { border-color: var(--color-ash, #555); }
+.abtn.primary { color: #0b0d10; background: var(--color-fog, #e8edf4); border-color: transparent; }
+.abtn:disabled { opacity: 0.4; cursor: not-allowed; }
 </style>
