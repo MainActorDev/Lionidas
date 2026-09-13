@@ -4,11 +4,11 @@
  *  radius, ember on-state = border + 12% mix, CSS tooltips with kbd hints). */
 <script setup lang="ts">
 defineProps<{
-  active: string;                       // 'session' | 'install' | 'inspect' | 'measure' | 'record' | 'shot' | 'copy'
+  active: string;                       // 'session' | 'install' | 'inspect' | 'record' | 'shot' | 'copy'
   canInstall: boolean;                  // watching phase only
   hasSession: boolean;                  // driving-phase tools unlocked
 }>();
-const emit = defineEmits<{ (e: 'select', tool: 'session' | 'install' | 'inspect' | 'measure' | 'record' | 'shot' | 'copy'): void }>();
+const emit = defineEmits<{ (e: 'select', tool: 'session' | 'install' | 'inspect' | 'record' | 'shot' | 'copy'): void }>();
 </script>
 
 <template>
@@ -27,10 +27,6 @@ const emit = defineEmits<{ (e: 'select', tool: 'session' | 'install' | 'inspect'
       <button class="dtool" :class="{ on: active === 'inspect' }" :disabled="!hasSession" @click="emit('select', 'inspect')">
         <svg viewBox="0 0 20 20"><path d="M3 3h6v2H5v4H3V3zm8 0h6v6h-2V5h-4V3zM3 11h2v4h4v2H3v-6zm14 0v6h-6v-2h4v-4h2z" fill="currentColor"/></svg>
         <span class="tip">inspect <kbd>i</kbd> · {{ hasSession ? '' : 'take control first' }}</span>
-      </button>
-      <button class="dtool" :class="{ on: active === 'measure' }" :disabled="!hasSession" @click="emit('select', 'measure')">
-        <svg viewBox="0 0 20 20"><path d="M2 14L14 2l4 4L6 18l-4-4zm3.2.4l1.4 1.4 8.4-8.4-1.4-1.4-8.4 8.4z" fill="currentColor"/></svg>
-        <span class="tip">measure <kbd>m</kbd> · {{ hasSession ? '' : 'take control first' }}</span>
       </button>
     </div>
     <div class="dgroup">

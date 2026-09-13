@@ -142,7 +142,13 @@ function toggleInspect(): void {
 
 function onKey(e: KeyboardEvent): void {
   if ((e.target as HTMLElement)?.matches?.('input, textarea, select')) return;
-  if (e.key === 'i' && sessionId.value) { e.preventDefault(); toggleInspect(); if (inspect.value) activeTool.value = 'inspect'; }
+  if (e.key === 'i' && sessionId.value) {
+    e.preventDefault();
+    // i = the inspect menu: on when entering the pane, off when leaving it.
+    // Pressing i while the pane is open acts as the explicit off.
+    if (activeTool.value === 'inspect' && inspect.value) { toggleInspect(); }
+    else selectTool('inspect');
+  }
   else if (e.key === 'Escape') {
     if (selNode.value) selNode.value = null;
     else if (inspect.value) toggleInspect();
@@ -160,7 +166,7 @@ function onKey(e: KeyboardEvent): void {
   }
   else if (inspect.value && !e.metaKey && !e.ctrlKey && !e.altKey) {
     const k = e.key.toLowerCase();
-    if (k === 'm') { e.preventDefault(); toolMode.value = toolMode.value === 'measure' ? 'inspect' : 'measure'; activeTool.value = toolMode.value; }
+    if (k === 'm') { e.preventDefault(); toolMode.value = toolMode.value === 'measure' ? 'inspect' : 'measure'; }
     else if (k === 't') { e.preventDefault(); showTree.value = !showTree.value; }
     else if (k === 'e') { e.preventDefault(); showEst.value = !showEst.value; }
     else if (k === 's') { e.preventDefault(); void captureShot(); activeTool.value = 'shot'; }
@@ -305,7 +311,7 @@ const logicalW = ref<number | null>(null);
 const logicalH = ref<number | null>(null);
 
 // 007-A rail-swap: which tool panel is shown beside the rail
-type DeviceTool = 'session' | 'install' | 'inspect' | 'measure' | 'record' | 'shot' | 'copy';
+type DeviceTool = 'session' | 'install' | 'inspect' | 'record' | 'shot' | 'copy';
 const activeTool = ref<DeviceTool>('session');
 const canInstall = computed(() => phase.value === 'watching');
 // A2 inspector tool state: mode drives redlines; tree/estimates are view toggles.
@@ -313,11 +319,14 @@ const toolMode = ref<'inspect' | 'measure'>('inspect');
 const showTree = ref(false);
 const showEst = ref(true);
 function selectTool(t: DeviceTool): void {
+  // leaving the inspect pane (to any other tool) turns inspect mode OFF —
+  // the menu IS the toggle now; entering it (below) is what turns it on
+  if (t !== 'inspect' && inspect.value) toggleInspect();
   activeTool.value = t;
-  // inspect/measure need the tree; entering those tools turns inspect ON
-  if ((t === 'inspect' || t === 'measure') && sessionId.value) {
+  // the inspect pane owns the tree; entering it turns inspect ON
+  if (t === 'inspect' && sessionId.value) {
     if (!inspect.value) toggleInspect();
-    toolMode.value = t === 'measure' ? 'measure' : 'inspect';
+    toolMode.value = 'inspect';       // always land on the inspect section
   }
   // shot/copy are instant actions: run once, the pane shows the outcome
   if (t === 'shot' && sessionId.value) void captureShot();
@@ -977,19 +986,20 @@ watch(isControlLost(), (lost) => {
               <div v-if="installErr" class="form-err" style="margin-top: var(--s-2);">{{ installErr }}</div>
             </div>
 
-            <!-- INSPECT / MEASURE pane (shares body; toolMode differs) -->
-            <div v-else-if="activeTool === 'inspect' || activeTool === 'measure'" class="tpane">
+            <!-- INSPECT pane — the menu IS the inspect toggle; measure lives
+                 here as a section, not a separate rail tool -->
+            <div v-else-if="activeTool === 'inspect'" class="tpane">
               <div class="sect-label">
-                <span>{{ activeTool }}</span>
+                <span>inspect</span>
                 <span v-if="inspect" class="sect-state" :class="{ 'sect-state-warn': tree.state.value !== 'aligned' }">{{ treeLabel }}</span>
               </div>
               <div class="row" style="margin-bottom: var(--s-2);">
-                <button class="btn btn-sm" :class="{ 'btn-accent': inspect }" @click="toggleInspect"
-                  :title="'inspect (i) — ' + (inspect ? 'clicks select, never tap' : 'show element boxes')">
-                  {{ inspect ? '◎ inspecting — clicks select' : '◎ inspect mode' }}
-                </button>
+                <button class="btn btn-sm" :class="{ 'btn-accent': toolMode === 'inspect' }" :disabled="!inspect"
+                  title="inspect — click any element on the screen to select it" @click="toolMode = 'inspect'">select</button>
+                <button class="btn btn-sm" :class="{ 'btn-accent': toolMode === 'measure' }" :disabled="!inspect"
+                  title="measure (m) — spacing redlines: padding to parent, gaps to siblings" @click="toolMode = 'measure'">measure <span class="kbd-hint">m</span></button>
                 <span class="spacer"></span>
-                <span class="kbd-hint">i / esc</span>
+                <span v-if="inspect" class="sect-state">clicks select, never tap</span>
               </div>
               <div v-if="tree.state.value === 'failed' && (tree.lastError.value as TreeFetchError | null)?.code !== 'SESSION_NOT_FOUND'"
                 class="row" style="margin-bottom: var(--s-2);">
