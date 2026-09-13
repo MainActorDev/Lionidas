@@ -441,7 +441,7 @@ onUnmounted(() => {
                 @screenshot="captureShot" @copy="copySpec" />
               <InspectProps :node="selNode" :parent="selParent" :siblings="selSiblings"
                 :sample="sample" :loading="sampleLoading" :failed="sampleFailed" :show-estimates="showEst"
-                :hittable="selNode.hittable ?? false" :path="parentChain(selNode).join(' › ')"
+                :hittable="selNode.hittable ?? false"
                 :selector-text="selPreview?.text ?? ''" show-actions
                 :tap-disabled="busy || tree.state.value !== 'aligned' || !selNode.hittable"
                 @tap="tapThis" @copy-selector="copySelector" />

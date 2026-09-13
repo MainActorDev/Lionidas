@@ -26,7 +26,6 @@ const props = defineProps({
   /** exact node facts + actions (drive surface folds the old drawer in here;
    *  absent props keep the sections hidden — sidebar surface unchanged) */
   hittable: { type: Boolean, default: undefined as unknown as boolean },
-  path: { type: String, default: '' },
   selectorText: { type: String, default: '' },
   showActions: { type: Boolean, default: false },
   tapDisabled: { type: Boolean, default: false },
@@ -125,12 +124,11 @@ const tokenLabel = (t: string | null | undefined): string | null =>
       <p v-if="!showEstimates" class="state">estimates hidden — "—" = not sampled</p>
 
       <!-- EXACT extras folded from the old drive drawer (only when provided) -->
-      <section v-if="hittable !== undefined || path || selectorText">
+      <section v-if="hittable !== undefined || selectorText">
         <h4>Element <span class="src">◆ exact</span></h4>
         <div class="grid" v-if="hittable !== undefined">
           <span class="k">hittable</span><span class="v">{{ hittable ? 'yes' : 'no' }}</span>
         </div>
-        <div v-if="path" class="path">{{ path }}</div>
         <div v-if="selectorText" class="grid">
           <span class="k">selector</span><span class="v tok">{{ selectorText }}</span>
         </div>
@@ -210,7 +208,6 @@ h4 {
 .state { margin-top: var(--s-3); font-size: 10px; color: var(--color-ash); }
 .state.err { color: var(--color-ember); }
 .state.empty { margin-top: var(--s-5); text-align: center; }
-.path { margin: 4px 0 6px; font-size: 10px; color: var(--color-ash); word-break: break-all; }
 .actions { display: flex; gap: var(--s-2); margin-top: var(--s-3); }
 .actions .btn { flex: 1; }
 </style>
