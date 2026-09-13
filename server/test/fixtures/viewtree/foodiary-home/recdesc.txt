@@ -1,0 +1,26 @@
+(lldb) attach --pid 95510
+Process 95510 stopped
+* thread #1, queue = 'com.apple.main-thread', stop reason = signal SIGSTOP
+    frame #0: 0x00000001045ecb70 libsystem_kernel.dylib`mach_msg2_trap + 8
+libsystem_kernel.dylib`mach_msg2_trap:
+->  0x1045ecb70 <+8>: ret    
+
+libsystem_kernel.dylib`macx_swapon:
+    0x1045ecb74 <+0>: mov    x16, #-0x30               ; =-48 
+    0x1045ecb78 <+4>: svc    #0x80
+    0x1045ecb7c <+8>: ret    
+Target 0: (Foodiary) stopped.
+Executable binary set to "/Volumes/berkakyo/Users/berkamain/Library/Developer/CoreSimulator/Devices/835EE2B0-311F-4A79-B377-A0C0FE8C9FD9/data/Containers/Bundle/Application/E3F26626-4E4C-4864-8482-C5990E550798/Foodiary.app/Foodiary".
+Architecture set to: arm64-apple-ios-simulator.
+(lldb) expr -O -lobjc++ -- (NSString *)[[[(id)[[UIApplication sharedApplication] valueForKey:@"connectedScenes"] anyObject] valueForKey:@"keyWindow"] recursiveDescription]
+<UIWindow: 0x104b301d0; frame = (0 0; 402 874); gestureRecognizers = <NSArray: 0x600000c3edf0>; layer = <UIWindowLayer: 0x600001744e40>>
+   | <UITransitionView: 0x104f288c0; frame = (0 0; 402 874); autoresize = W+H; layer = <CALayer: 0x600000c55d70>>
+   |    | <UIDropShadowView: 0x104f294c0; frame = (0 0; 402 874); autoresize = W+H; layer = <CALayer: 0x600000c57690>>
+   |    |    | <_TtGC7SwiftUI14_UIHostingViewGVS_15ModifiedContentVS_7AnyViewVS_12RootModifier__: 0x104f270c0; frame = (0 0; 402 874); autoresize = W+H; gestureRecognizers = <NSArray: 0x6000000122a0>; backgroundColor = <UIDynamicSystemColor: 0x600001719200; name = systemBackgroundColor>; layer = <CALayer: 0x600000c3b2d0>>
+   |    |    |    | <CALayer: 0x600000c39bc0> (layer)
+   |    |    |    | <_TtC7SwiftUIP33_E19F490D25D5E0EC8A24903AF958E34115ColorShapeLayer: 0x600000c3bcf0> (layer)
+   |    |    |    | <_TtC7SwiftUIP33_E19F490D25D5E0EC8A24903AF958E34115PaintShapeLayer: 0x60000330f7a0> (layer)
+   |    |    |    | <_TtC7SwiftUIP33_E19F490D25D5E0EC8A24903AF958E34115ColorShapeLayer: 0x600000c14930> (layer)
+
+(lldb) detach
+Process 95510 detached

@@ -113,6 +113,21 @@ fork (`ai/Baguette`), SPM release build, binary-swap ritual.
    `docs/research/2026-09-13-viewtree-reachability.md`. **No viable attach →
    honest reject, stop here.**
 
+**P0 RESULT (2026-09-13, executed live): VIABLE — P1 cleared to start.**
+- Recipe pinned (KVC `connectedScenes→anyObject→keyWindow` +
+  `recursiveDescription`); `keyWindow` direct and `_printHierarchy` both
+  FAIL headless (documented — VC hierarchy needs a different route or
+  stays out).
+- Cost: cold 17–23s, **warm 6.6s** — on-demand inspection class, never
+  polling, never during playback.
+- LP home: 338 framed views, real UITabBar+buttons (frame-exact), **41
+  hidden/alpha-0 views incl. app-class reused cells** — the forensics
+  payload no AX tree has.
+- Foodiary (pure SwiftUI): **7 UIKit views total** — the ceiling is now
+  a measured fact; AX tree stays the only meaningful tree there.
+- Fixtures: `server/test/fixtures/viewtree/*/recdesc.txt`; failed-variant
+  logs kept in the research note (not as files).
+
 ### P1 — Parsers + cross-check (pure code, no device)
 
 1. `parseRecursiveDescription(text) → VNode[]` (class, frame, viewID,
