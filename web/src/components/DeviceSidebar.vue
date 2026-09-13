@@ -981,15 +981,15 @@ watch(isControlLost(), (lost) => {
             <div v-else-if="activeTool === 'inspect'" class="tpane">
               <div class="sect-label">
                 <span>inspect</span>
-                <span v-if="inspect" class="sect-state" :class="{ 'sect-state-warn': tree.state.value !== 'aligned' }">{{ treeLabel }}</span>
+                <span v-if="inspect" class="tree-badge" :data-state="tree.state.value">{{ treeLabel }}</span>
               </div>
-              <div v-if="inspect && !selNode" class="sect-state" style="margin-bottom: var(--s-2);">clicks select, never tap — redlines show automatically</div>
+              <p v-if="inspect && !selNode" class="inspect-invite">click any element on the screen</p>
               <div v-if="tree.state.value === 'failed' && (tree.lastError.value as TreeFetchError | null)?.code !== 'SESSION_NOT_FOUND'"
                 class="row" style="margin-bottom: var(--s-2);">
                 <button class="btn btn-sm" @click="tree.refresh()">retry tree</button>
               </div>
               <div v-if="!selNode" class="sect-hint" style="line-height: 1.8;">
-                {{ inspect ? 'click any boxed element on the screen — its card appears here.' : 'toggle inspect, then click any element on the screen.' }}
+                {{ inspect ? '' : 'the tree is loading — elements become clickable once aligned' }}
               </div>
               <template v-else>
                 <InspectProps compact :node="selNode" :parent="selParent" :siblings="selSiblings"
@@ -1171,6 +1171,18 @@ watch(isControlLost(), (lost) => {
   display: flex; justify-content: space-between; align-items: baseline;
 }
 .sect-state { color: var(--color-fog); letter-spacing: 0; text-transform: none; font-size: 9px; }
+/* tree status badge: state carries the color, not a class-per-state */
+.tree-badge {
+  font-size: 9px; padding: 1px 7px; border-radius: var(--r-full);
+  border: 1px solid var(--color-slate); color: var(--color-fog);
+  letter-spacing: 0; text-transform: none;
+}
+.tree-badge[data-state='aligned'] { border-color: var(--color-ember); color: var(--color-ember); }
+.tree-badge[data-state='failed'] { border-color: var(--color-paper); color: var(--color-paper); }
+/* the invite: white, breathing room, the single empty-state message */
+.inspect-invite {
+  margin: var(--s-2) 0 var(--s-3); color: var(--color-paper); font-size: 10px;
+}
 .sect-state-on { color: var(--color-ember); }
 .sect-state-warn { color: var(--color-ember); }
 .sect-hint { font-size: 9.5px; color: var(--color-steel); }
