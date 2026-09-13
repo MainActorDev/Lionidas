@@ -62,13 +62,15 @@ describe('P2 corpus — engine tree × real predicates', () => {
     expect(t!.y).toBeLessThan(60); // in the status-bar strip
   });
 
-  it('count-regression axis: LP tab buttons DROP on engine tree (recorded, bounded)', () => {
-    // alloy sees 4 tab buttons; engine full tree sees none (childless group).
-    // Known P1 finding — the assertion documents it as a MEASURED regression,
-    // and the hit-test seam covers it (see research note asymmetry #3).
+  it('count axis: LP tab buttons RESOLVED at source (fork fix/sweep-band-occluders, PR #2) — engine tree finds them again', () => {
+    // History: the engine full tree lost the tab buttons to full-bleed band
+    // leaves swallowing sweep points (alloy 1 / engine 0). The fork fix
+    // keeps band interiors probeable; the re-captured fixture has them.
     const tabs = { labelContains: 'Akun' };
     expect(countMatches(lpAlloy, tabs)).toBe(1);
-    expect(countMatches(lpEngine, tabs)).toBe(0);
+    expect(countMatches(lpEngine, tabs)).toBe(1); // parity restored
+    // status bar too — the other swallowed band
+    expect(countMatches(lpEngine, { labelContains: 'battery' })).toBe(1);
   });
 
   it('negative control: sweep does not fire on healthy engine trees', () => {

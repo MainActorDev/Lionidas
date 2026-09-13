@@ -174,9 +174,13 @@ Both items are honest v1 limits of the shipped pool, not unbuilt core.*
   `server/src/alloy/engine-tree.ts` (CLI subprocess, throws on failure).
   Live-verified: `source: engine`, battery visible, MINGGU 1-match.
   Corpus receipt test in `ax-depth-engine.test.ts`.
-- **Remaining (only open item):** fork-side check — why the LP full tree
-  loses status bar + tab buttons (P1 asymmetry #1; hit-test rescues the
-  buttons today). Fix belongs in the fork, not here.
+- **Fork fix SHIPPED same day** (fix/sweep-band-occluders, fork PR #2):
+  full-bleed band leaves (promo text over the status bar, blank spacer
+  over the tab bar) were swallowing sweep points — isContentLeaf now
+  keeps band interiors probeable. Live re-verified: clock/Dynamic
+  Island/cellular/battery + all 4 tab buttons in the engine tree;
+  crucible fixture re-captured, regression test flipped to parity.
+  E0 FULLY CLOSED.
 ### E1. Per-device traffic attribution for parallel batches
 - **What:** parallel (multi-lane) batches run with forge attribution OFF —
   proxy traffic rows land with `runId: null` because the host-level mitm
