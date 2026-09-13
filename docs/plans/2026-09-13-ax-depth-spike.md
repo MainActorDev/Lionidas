@@ -285,6 +285,27 @@ Testability requirements:
    layers.
 4. Deliverable: functions + tests + the 2×2 pass-rate table appended here.
 
+**P2.5 RESULT (2026-09-13, executed — HONEST VERDICT: partial, and the
+deeper finding matters more than the fix):**
+- Synthetic property tests PROVE the fix for the mis-wiring class: equal-
+  rect wrappers never parent each other; cards in one visible row become
+  siblings despite broken lineage; carousels stay non-siblings; no
+  enclosure → null (9/9 green, `inspect-geometry-reparent.test.ts`).
+- **But the corpus screen exposes the real disease on Foodiary: the
+  gradient calorie card has NO AX NODE AT ALL** (pure drawing). Vision
+  ground truth (px/3): card (18,172); both lineage AND enclosure measure
+  to the screen-covering content root — padding wrong-to-card by ~108pt
+  top. Re-parenting fixes mis-wiring; it cannot conjure a container that
+  no tree contains.
+- Class split, now evidence-backed: (1) mis-wiring → enclosure fixes it;
+  (2) absent-container (SwiftUI drawn backgrounds) → unfixable from ANY
+  tree; needs pixel-edge detection (est.-grade, like inspect sampling) or
+  the viewtree probe (its P0 measures exactly this).
+- Decision: enclosure functions STAY in shared as experimental (unused by
+  UI); wiring deferred until paired with container inference — alone
+  they'd change nothing on the reported screen, and silent no-op churn is
+  worse than an honest park.
+
 ### P3 — Decision gate (numeric, written down, then stop)
 
 | Gate | Adopt | Partial | Reject |

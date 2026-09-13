@@ -187,7 +187,12 @@ Both items are honest v1 limits of the shipped pool, not unbuilt core.*
 - **Trigger:** user gate on the implementation plan. Corpus RED tests flip
   GREEN at wiring time — that flip is the negative-control receipt.
 - **Companion (independent):** P2.5 inspector spacing re-parent (padding
-  bug) — ships on its own 2×2 evidence, not coupled to this verdict.
+  bug) — RUN 2026-09-13, honest partial: enclosure functions land in
+  shared/ as experimental (property-tested, 9/9) but are NOT wired —
+  corpus evidence shows the reported Foodiary screen's real disease is
+  ABSENT containers (drawn backgrounds, no AX node), which no tree fix
+  can address. Wiring waits for container inference (pixel-edge or the
+  viewtree probe). Tests: `server/test/inspect-geometry-reparent.test.ts`.
 
 ### E1. Per-device traffic attribution for parallel batches
 - **What:** parallel (multi-lane) batches run with forge attribution OFF —
