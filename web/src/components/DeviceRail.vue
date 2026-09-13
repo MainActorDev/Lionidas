@@ -26,27 +26,27 @@ const emit = defineEmits<{ (e: 'select', tool: 'session' | 'install' | 'inspect'
     <div class="dgroup">
       <button class="dtool" :class="{ on: active === 'inspect' }" :disabled="!hasSession" @click="emit('select', 'inspect')">
         <svg viewBox="0 0 20 20"><path d="M3 3h6v2H5v4H3V3zm8 0h6v6h-2V5h-4V3zM3 11h2v4h4v2H3v-6zm14 0v6h-6v-2h4v-4h2z" fill="currentColor"/></svg>
-        <span class="tip">inspect <kbd>i</kbd></span>
+        <span class="tip">inspect <kbd>i</kbd> · {{ hasSession ? '' : 'take control first' }}</span>
       </button>
       <button class="dtool" :class="{ on: active === 'measure' }" :disabled="!hasSession" @click="emit('select', 'measure')">
         <svg viewBox="0 0 20 20"><path d="M2 14L14 2l4 4L6 18l-4-4zm3.2.4l1.4 1.4 8.4-8.4-1.4-1.4-8.4 8.4z" fill="currentColor"/></svg>
-        <span class="tip">measure <kbd>m</kbd></span>
+        <span class="tip">measure <kbd>m</kbd> · {{ hasSession ? '' : 'take control first' }}</span>
       </button>
     </div>
     <div class="dgroup">
       <button class="dtool" :class="{ on: active === 'record' }" :disabled="!hasSession" @click="emit('select', 'record')">
         <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="10" cy="10" r="3" fill="currentColor"/></svg>
-        <span class="tip">record <kbd>r</kbd></span>
+        <span class="tip">record <kbd>r</kbd> · {{ hasSession ? '' : 'take control first' }}</span>
       </button>
     </div>
     <div class="dgroup">
       <button class="dtool" :class="{ on: active === 'shot' }" :disabled="!hasSession" @click="emit('select', 'shot')">
         <svg viewBox="0 0 20 20"><path d="M7 3L6 5H3v10h14V5h-3l-1-2H7zm3 4a4 4 0 110 8 4 4 0 010-8z" fill="currentColor"/></svg>
-        <span class="tip">screenshot <kbd>s</kbd></span>
+        <span class="tip">screenshot <kbd>s</kbd> · {{ hasSession ? '' : 'take control first' }}</span>
       </button>
       <button class="dtool" :class="{ on: active === 'copy' }" :disabled="!hasSession" @click="emit('select', 'copy')">
         <svg viewBox="0 0 20 20"><path d="M6 2h9v11h-2V4H6V2zm-3 3h9v13H3V5z" fill="currentColor"/></svg>
-        <span class="tip">copy spec <kbd>⌘⇧C</kbd></span>
+        <span class="tip">copy spec <kbd>⌘⇧C</kbd> · {{ hasSession ? '' : 'take control first' }}</span>
       </button>
     </div>
   </nav>
@@ -58,7 +58,9 @@ const emit = defineEmits<{ (e: 'select', tool: 'session' | 'install' | 'inspect'
   width: 44px; padding: 10px 0; flex: none;
   border-right: 1px solid var(--color-iron);
   background: var(--color-carbon);
-  overflow-y: auto;
+  /* NO overflow here: overflow on one axis forces the other to auto and
+     CLIPS the right-flying tooltips inside the 44px rail (they existed but
+     were invisible). Rail content ≈280px tall — never scrolls. */
 }
 .dgroup { display: flex; flex-direction: column; gap: 6px; }
 .dgroup + .dgroup { padding-top: 8px; border-top: 1px solid var(--color-iron); }
@@ -83,5 +85,9 @@ const emit = defineEmits<{ (e: 'select', tool: 'session' | 'install' | 'inspect'
   transition: opacity var(--t); z-index: 5;
 }
 .dtool .tip kbd { color: var(--color-ember); font-family: inherit; margin-left: 4px; }
-.dtool:not(:disabled):hover .tip { opacity: 1; }
+/* disabled tools keep their tooltip (steel, explaining what's missing) —
+   discovery beats a mute lock */
+.dtool:disabled .tip { color: var(--color-fog); }
+.dtool:disabled .tip kbd { color: var(--color-steel); }
+.dtool:hover .tip { opacity: 1; }
 </style>
