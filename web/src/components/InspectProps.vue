@@ -137,8 +137,8 @@ const tokenLabel = (t: string | null | undefined): string | null =>
       </section>
 
       <div v-if="showActions" class="actions">
-        <button class="abtn" @click="emit('copy-selector')">copy selector</button>
-        <button class="abtn primary" :disabled="tapDisabled" @click="emit('tap')">tap this</button>
+        <button class="btn btn-sm" @click="emit('copy-selector')">copy selector</button>
+        <button class="btn btn-sm btn-primary" :disabled="tapDisabled" @click="emit('tap')">tap this</button>
       </div>
     </template>
     <p v-else class="state empty">select an element to inspect</p>
@@ -146,6 +146,8 @@ const tokenLabel = (t: string | null | undefined): string | null =>
 </template>
 
 <style scoped>
+/* Axiom tokens (web/src/styles/tokens.css): mono typography, steel→paper text,
+   2px radius, ember only as accent. Keys uppercase left, values right. */
 .iprops {
   width: 100%;
   flex: 1 1 auto;
@@ -153,58 +155,62 @@ const tokenLabel = (t: string | null | undefined): string | null =>
   overflow-y: auto;
   padding: 12px 14px;
   background: transparent;
-  font: 400 12px var(--font-ui, ui-sans-serif);
-  color: var(--color-mist, #9aa4b2);
-  line-height: 1.4;
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);   /* 12px */
+  color: var(--color-fog);
+  line-height: var(--leading-normal);
 }
-/* compact (sidebar pane): the .tpane provides the padding — no own padding,
-   no background, full panel width */
+/* compact (sidebar pane): the .tpane provides the padding — no own padding */
 .iprops.compact { padding: 0; }
 .ihead { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
-.itype { color: var(--color-snow, #e8edf4); font-weight: 600; font-size: 12px; }
-.iid { color: var(--color-ember, #ff9f40); font: 500 10px var(--font-mono, ui-monospace); word-break: break-all; }
-.ilabel { margin: 0 0 10px; color: var(--color-mist, #9aa4b2); font-size: 11px; }
-section { margin-top: 12px; }
+.itype { color: var(--color-paper); font-weight: var(--weight-bold); font-size: var(--text-caption); }
+.iid { color: var(--color-ember); font-size: 10px; word-break: break-all; }
+.ilabel { margin: 0 0 10px; color: var(--color-fog); font-size: var(--text-caption); }
+section { margin-top: var(--s-3); }
 h4 {
   margin: 0 0 6px;
-  font: 600 10px var(--font-ui, ui-sans-serif);
+  font: var(--weight-bold) 10px var(--font-mono);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-snow, #e8edf4);
+  letter-spacing: 0.14em;
+  color: var(--color-paper);
+  border-bottom: 1px solid var(--color-iron);
+  padding-bottom: 3px;
 }
-.src { float: right; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--color-mist, #6b7686); }
+.src { float: right; font-weight: var(--weight-regular); letter-spacing: 0; text-transform: none; color: var(--color-steel); }
 .grid {
   display: grid;
-  grid-template-columns: 52px 1fr;
-  row-gap: 3px;
+  grid-template-columns: auto 1fr;
+  column-gap: var(--s-3);
+  row-gap: 4px;
+  align-items: baseline;
 }
-.k { color: var(--color-ash, #6b7686); }
-.v { color: var(--color-snow, #c9d3e0); font-variant-numeric: tabular-nums; }
-.v.tok { color: var(--color-ember, #ff9f40); font-size: 11px; }
+.k {
+  color: var(--color-steel);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+.v {
+  color: var(--color-chalk);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  word-break: break-all;
+}
+.v.tok { color: var(--color-ember); }
 .dot {
   display: inline-block;
   width: 9px; height: 9px;
-  border-radius: 3px;
-  border: 1px solid var(--color-iron, #333);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--color-slate);
   margin-right: 5px;
   vertical-align: -1px;
 }
-.state { margin-top: 12px; font-size: 10px; color: var(--color-ash, #6b7686); }
-.state.err { color: #ff7a7a; }
-.state.empty { margin-top: 24px; text-align: center; }
-.path { margin: 4px 0 6px; font: 400 10px var(--font-mono, ui-monospace); color: var(--color-ash, #6b7686); word-break: break-all; }
-.actions { display: flex; gap: 6px; margin-top: 14px; }
-.abtn {
-  flex: 1;
-  padding: 5px 8px;
-  font: 500 11px var(--font-ui, ui-sans-serif);
-  color: var(--color-snow, #c9d3e0);
-  background: var(--color-iron, #222);
-  border: 1px solid var(--color-iron, #333);
-  border-radius: 6px;
-  cursor: pointer;
-}
-.abtn:hover { border-color: var(--color-ash, #555); }
-.abtn.primary { color: #0b0d10; background: var(--color-fog, #e8edf4); border-color: transparent; }
-.abtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.state { margin-top: var(--s-3); font-size: 10px; color: var(--color-ash); }
+.state.err { color: var(--color-ember); }
+.state.empty { margin-top: var(--s-5); text-align: center; }
+.path { margin: 4px 0 6px; font-size: 10px; color: var(--color-ash); word-break: break-all; }
+.actions { display: flex; gap: var(--s-2); margin-top: var(--s-3); }
+.actions .btn { flex: 1; }
 </style>

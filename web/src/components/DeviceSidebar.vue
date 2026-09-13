@@ -983,7 +983,7 @@ watch(isControlLost(), (lost) => {
                 <span>inspect</span>
                 <span v-if="inspect" class="sect-state" :class="{ 'sect-state-warn': tree.state.value !== 'aligned' }">{{ treeLabel }}</span>
               </div>
-              <div v-if="inspect" class="sect-state" style="margin-bottom: var(--s-2);">clicks select, never tap — redlines show automatically</div>
+              <div v-if="inspect && !selNode" class="sect-state" style="margin-bottom: var(--s-2);">clicks select, never tap — redlines show automatically</div>
               <div v-if="tree.state.value === 'failed' && (tree.lastError.value as TreeFetchError | null)?.code !== 'SESSION_NOT_FOUND'"
                 class="row" style="margin-bottom: var(--s-2);">
                 <button class="btn btn-sm" @click="tree.refresh()">retry tree</button>
