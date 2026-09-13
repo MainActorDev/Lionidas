@@ -15,6 +15,7 @@ import { useInspectSample } from '../composables/useInspectSample.ts';
 import InspectOverlay from './InspectOverlay.vue';
 import InspectRedlines from './InspectRedlines.vue';
 import DeviceRail from './DeviceRail.vue';
+import InspectTree from './InspectTree.vue';
 import InspectProps from './InspectProps.vue';
 
 export interface SidebarDevice { udid: string; name: string | null; os_version: string | null; state: string | null }
@@ -284,7 +285,7 @@ const chipXY = computed(() => {
 });
 const treeLabel = computed(() => {
   switch (tree.state.value) {
-    case 'aligned': return `${tree.nodes.value.length} nodes${tree.animating.value ? ' · animating' : ''}`;
+    case 'aligned': return `snapshot · ${tree.nodes.value.length} elements${tree.animating.value ? ' · animating' : ''}`;
     case 'fetching': return 'loading tree…';
     case 'realigning': return 're-aligning…';
     case 'failed':
@@ -986,8 +987,10 @@ watch(isControlLost(), (lost) => {
               <p v-if="inspect && !selNode" class="inspect-invite">click any element on the screen</p>
               <div v-if="tree.state.value === 'failed' && (tree.lastError.value as TreeFetchError | null)?.code !== 'SESSION_NOT_FOUND'"
                 class="row" style="margin-bottom: var(--s-2);">
-                <button class="btn btn-sm" @click="tree.refresh()">retry tree</button>
+                <button class="btn btn-sm" @click="tree.refresh()">retry snapshot</button>
               </div>
+              <InspectTree v-if="inspect && tree.nodes.value.length" class="inspect-tree"
+                :nodes="tree.nodes.value" :selected="selNode" @pick="(n) => { selNode = n; }" />
               <div v-if="!selNode" class="sect-hint" style="line-height: 1.8;">
                 {{ inspect ? '' : 'the tree is loading — elements become clickable once aligned' }}
               </div>
@@ -1179,6 +1182,7 @@ watch(isControlLost(), (lost) => {
 }
 .tree-badge[data-state='aligned'] { border-color: var(--color-ember); color: var(--color-ember); }
 .tree-badge[data-state='failed'] { border-color: var(--color-paper); color: var(--color-paper); }
+.inspect-tree { margin: var(--s-2) 0; border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 4px 0; }
 /* the invite: white, breathing room, the single empty-state message */
 .inspect-invite {
   margin: var(--s-2) 0 var(--s-3); color: var(--color-paper); font-size: 10px;
