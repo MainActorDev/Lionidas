@@ -15,6 +15,7 @@ import { useInspectSample } from '../composables/useInspectSample.ts';
 import InspectOverlay from './InspectOverlay.vue';
 import InspectRedlines from './InspectRedlines.vue';
 import InspectTools from './InspectTools.vue';
+import DeviceRail from './DeviceRail.vue';
 import InspectProps from './InspectProps.vue';
 
 export interface SidebarDevice { udid: string; name: string | null; os_version: string | null; state: string | null }
@@ -142,21 +143,25 @@ function toggleInspect(): void {
 
 function onKey(e: KeyboardEvent): void {
   if ((e.target as HTMLElement)?.matches?.('input, textarea, select')) return;
-  if (e.key === 'i' && sessionId.value) { e.preventDefault(); toggleInspect(); }
+  if (e.key === 'i' && sessionId.value) { e.preventDefault(); toggleInspect(); if (inspect.value) activeTool.value = 'inspect'; }
   else if (e.key === 'Escape') {
     if (selNode.value) selNode.value = null;
     else if (inspect.value) toggleInspect();
   }
   // A2 tool shortcuts — only meaningful while inspecting
   else if (inspect.value && (e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'c') {
-    e.preventDefault(); copySpec();
+    e.preventDefault(); void copySpec(); activeTool.value = 'copy';
   }
   else if (inspect.value && !e.metaKey && !e.ctrlKey && !e.altKey) {
     const k = e.key.toLowerCase();
-    if (k === 'm') { e.preventDefault(); toolMode.value = toolMode.value === 'measure' ? 'inspect' : 'measure'; }
+    if (k === 'm') { e.preventDefault(); toolMode.value = toolMode.value === 'measure' ? 'inspect' : 'measure'; activeTool.value = toolMode.value; }
     else if (k === 't') { e.preventDefault(); showTree.value = !showTree.value; }
     else if (k === 'e') { e.preventDefault(); showEst.value = !showEst.value; }
-    else if (k === 's') { e.preventDefault(); void captureShot(); }
+    else if (k === 's') { e.preventDefault(); void captureShot(); activeTool.value = 'shot'; }
+  }
+  // 007-A rail: r opens the record pane (recorder toggle stays a button inside)
+  else if (e.key.toLowerCase() === 'r' && sessionId.value && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    e.preventDefault(); activeTool.value = 'record';
   }
 }
 window.addEventListener('keydown', onKey);
@@ -297,10 +302,25 @@ const sessionId = ref<string | null>(null);
 const logicalW = ref<number | null>(null);
 const logicalH = ref<number | null>(null);
 
+// 007-A rail-swap: which tool panel is shown beside the rail
+type DeviceTool = 'session' | 'install' | 'inspect' | 'measure' | 'record' | 'shot' | 'copy';
+const activeTool = ref<DeviceTool>('session');
+const canInstall = computed(() => phase.value === 'watching');
 // A2 inspector tool state: mode drives redlines; tree/estimates are view toggles.
 const toolMode = ref<'inspect' | 'measure'>('inspect');
 const showTree = ref(false);
 const showEst = ref(true);
+function selectTool(t: DeviceTool): void {
+  activeTool.value = t;
+  // inspect/measure need the tree; entering those tools turns inspect ON
+  if ((t === 'inspect' || t === 'measure') && sessionId.value) {
+    if (!inspect.value) toggleInspect();
+    toolMode.value = t === 'measure' ? 'measure' : 'inspect';
+  }
+  // shot/copy are instant actions: run once, the pane shows the outcome
+  if (t === 'shot' && sessionId.value) void captureShot();
+  if (t === 'copy' && sessionId.value) void copySpec();
+}
 const selParent = computed<AxNode | null>(() => (selNode.value ? parentOf(tree.nodes.value, selNode.value) : null));
 const selSiblings = computed<AxNode[]>(() => (selNode.value ? siblingsOf(tree.nodes.value, selNode.value) : []));
 const sampleOn = computed(() => inspect.value && !!selNode.value && tree.state.value === 'aligned');
@@ -856,53 +876,68 @@ watch(isControlLost(), (lost) => {
           </div>
         </div>
 
-        <!-- work column: watching controls vs driving controls -->
-        <div v-if="phase === 'watching'" class="workcol">
-          <div class="sect">
-            <div class="sect-label"><span>session</span></div>
-            <div class="meta-row">
-              <span class="k">app</span>
-              <select v-model="appBundleId" style="flex: 1;">
-                <option value="">auto (best guess)</option>
-                <option v-for="a in appOptions" :key="a.bundleId" :value="a.bundleId">{{ a.name }}</option>
-              </select>
-            </div>
-            <label class="meta-row" style="cursor: pointer;">
-              <input type="checkbox" v-model="showSystemApps" style="width: auto;" />
-              <span class="k" style="flex: 1;">show system apps</span>
-            </label>
-            <button class="btn btn-primary" style="width: 100%; margin-top: var(--s-2);" :disabled="busy || takeControlBlocked" @click="startSession">
-              {{ busy ? 'taking control…' : takeControlWhy || 'take control' }}
-            </button>
-            <div v-if="error" class="form-err" style="margin-top: var(--s-2);">{{ error }}</div>
-          </div>
+        <!-- tool column (007-A): grouped rail + ONE swap panel -->
+        <div class="toolcol">
+          <DeviceRail :active="activeTool" :can-install="canInstall" :has-session="!!sessionId" @select="selectTool" />
+          <div class="toolpanel">
 
-          <div class="sect">
-            <div class="sect-label"><span>install app</span></div>
-            <button v-if="!artifactsLoaded" class="btn btn-sm" @click="loadArtifacts">browse artifacts…</button>
-            <template v-else>
-              <div v-for="r in yourApps" :key="r.key" class="app-row" :class="{ picked: artifactPick && r.builds.some((b) => b.path === artifactPick) }">
-                <div class="app-row-head" @click="expandedRow = expandedRow === r.key ? null : r.key">
-                  <span class="app-name">{{ r.name }}</span>
-                  <span class="app-meta">{{ r.version ?? '—' }} · {{ ageOf(r.mtimeMs) }} · {{ r.builds.length > 1 ? `${r.builds.length} builds` : r.source }}</span>
+            <!-- SESSION pane - phase-aware -->
+            <div v-if="activeTool === 'session'" class="tpane">
+              <template v-if="phase === 'watching'">
+                <div class="sect-label"><span>session</span></div>
+                <div class="meta-row">
+                  <span class="k">app</span>
+                  <select v-model="appBundleId" style="flex: 1;">
+                    <option value="">auto (best guess)</option>
+                    <option v-for="a in appOptions" :key="a.bundleId" :value="a.bundleId">{{ a.name }}</option>
+                  </select>
                 </div>
-                <div v-if="expandedRow === r.key" class="app-builds">
-                  <div v-for="b in r.builds" :key="b.path" class="app-build" :class="{ picked: artifactPick === b.path }"
-                    @click="artifactPick = b.path; appBundleId = r.bundleId">
-                    <span>{{ b.path.split('/').pop() }}</span>
-                    <span class="app-meta">{{ ageOf(b.mtimeMs) }} · {{ b.source }}</span>
+                <label class="meta-row" style="cursor: pointer;">
+                  <input type="checkbox" v-model="showSystemApps" style="width: auto;" />
+                  <span class="k" style="flex: 1;">show system apps</span>
+                </label>
+                <button class="btn btn-primary" style="width: 100%; margin-top: var(--s-2);" :disabled="busy || takeControlBlocked" @click="startSession">
+                  {{ busy ? 'taking control…' : takeControlWhy || 'take control' }}
+                </button>
+                <div v-if="error" class="form-err" style="margin-top: var(--s-2);">{{ error }}</div>
+                <button class="btn btn-sm btn-quiet" style="width: 100%; margin-top: var(--s-4);" @click="emit('close')">close</button>
+              </template>
+              <template v-else>
+                <div class="sect-label"><span>drive</span><span class="sect-state sect-state-on">driving</span></div>
+                <div class="row">
+                  <div class="dpad">
+                    <button :disabled="busy" @click="scroll('up')">↑</button>
+                    <button :disabled="busy" @click="scroll('down')">↓</button>
+                    <button :disabled="busy" @click="scroll('left')">←</button>
+                    <button :disabled="busy" @click="scroll('right')">→</button>
                   </div>
+                  <span class="spacer"></span>
+                  <button class="btn btn-sm btn-quiet" :disabled="busy" @click="endSession">release</button>
                 </div>
-                <button v-else class="btn btn-sm" style="width: 100%; margin-top: 4px;"
-                  @click="artifactPick = r.builds[0]!.path; appBundleId = r.bundleId">use newest</button>
-              </div>
-              <button v-if="macApps.length" class="btn btn-sm btn-quiet" style="width: 100%; margin-top: var(--s-2);"
-                @click="showMacApps = !showMacApps">{{ showMacApps ? 'hide' : `also on this mac (${macApps.length})` }}</button>
-              <template v-if="showMacApps">
-                <div v-for="r in macApps" :key="r.key" class="app-row" :class="{ picked: artifactPick && r.builds.some((b) => b.path === artifactPick) }">
+                <div class="type-box">
+                  <input
+                    v-model="typeText"
+                    :placeholder="typeArmed ? `type into field @ ${lastTap!.x}, ${lastTap!.y} — enter sends` : 'tap a field on screen, then type here'"
+                    :disabled="!typeArmed || busy"
+                    @keydown.enter="sendType"
+                  />
+                  <button class="btn btn-sm" :disabled="!typeArmed || !typeText || busy" @click="sendType">send</button>
+                  <button v-if="typeArmed" class="btn btn-sm btn-ghost" @click="lastTap = null; typeText = ''">✕</button>
+                </div>
+                <div v-if="error" class="form-err" style="margin-top: var(--s-2);">{{ error }}</div>
+                <div v-if="busy" class="sect-hint" style="margin-top: var(--s-2);">sending…</div>
+              </template>
+            </div>
+
+            <!-- INSTALL pane (watching only - rail disables it otherwise) -->
+            <div v-else-if="activeTool === 'install'" class="tpane">
+              <div class="sect-label"><span>install app</span></div>
+              <button v-if="!artifactsLoaded" class="btn btn-sm" @click="loadArtifacts">browse artifacts…</button>
+              <template v-else>
+                <div v-for="r in yourApps" :key="r.key" class="app-row" :class="{ picked: artifactPick && r.builds.some((b) => b.path === artifactPick) }">
                   <div class="app-row-head" @click="expandedRow = expandedRow === r.key ? null : r.key">
                     <span class="app-name">{{ r.name }}</span>
-                    <span class="app-meta">{{ r.version ?? '—' }} · {{ ageOf(r.mtimeMs) }}</span>
+                    <span class="app-meta">{{ r.version ?? '—' }} · {{ ageOf(r.mtimeMs) }} · {{ r.builds.length > 1 ? `${r.builds.length} builds` : r.source }}</span>
                   </div>
                   <div v-if="expandedRow === r.key" class="app-builds">
                     <div v-for="b in r.builds" :key="b.path" class="app-build" :class="{ picked: artifactPick === b.path }"
@@ -914,147 +949,131 @@ watch(isControlLost(), (lost) => {
                   <button v-else class="btn btn-sm" style="width: 100%; margin-top: 4px;"
                     @click="artifactPick = r.builds[0]!.path; appBundleId = r.bundleId">use newest</button>
                 </div>
+                <button v-if="macApps.length" class="btn btn-sm btn-quiet" style="width: 100%; margin-top: var(--s-2);"
+                  @click="showMacApps = !showMacApps">{{ showMacApps ? 'hide' : `also on this mac (${macApps.length})` }}</button>
+                <template v-if="showMacApps">
+                  <div v-for="r in macApps" :key="r.key" class="app-row" :class="{ picked: artifactPick && r.builds.some((b) => b.path === artifactPick) }">
+                    <div class="app-row-head" @click="expandedRow = expandedRow === r.key ? null : r.key">
+                      <span class="app-name">{{ r.name }}</span>
+                      <span class="app-meta">{{ r.version ?? '—' }} · {{ ageOf(r.mtimeMs) }}</span>
+                    </div>
+                    <div v-if="expandedRow === r.key" class="app-builds">
+                      <div v-for="b in r.builds" :key="b.path" class="app-build" :class="{ picked: artifactPick === b.path }"
+                        @click="artifactPick = b.path; appBundleId = r.bundleId">
+                        <span>{{ b.path.split('/').pop() }}</span>
+                        <span class="app-meta">{{ ageOf(b.mtimeMs) }} · {{ b.source }}</span>
+                      </div>
+                    </div>
+                    <button v-else class="btn btn-sm" style="width: 100%; margin-top: 4px;"
+                      @click="artifactPick = r.builds[0]!.path; appBundleId = r.bundleId">use newest</button>
+                  </div>
+                </template>
+                <button class="btn" style="width: 100%; margin-top: var(--s-2);" :disabled="installing || !artifactPick" @click="installPicked">
+                  {{ installing ? 'installing… (≈12s)' : 'install' }}
+                </button>
               </template>
-              <button class="btn" style="width: 100%; margin-top: var(--s-2);" :disabled="installing || !artifactPick" @click="installPicked">
-                {{ installing ? 'installing… (≈12s)' : 'install' }}
-              </button>
-            </template>
-            <div v-if="installMsg" class="sect-hint" style="margin-top: var(--s-2);">{{ installMsg }}</div>
-            <div v-if="installErr" class="form-err" style="margin-top: var(--s-2);">{{ installErr }}</div>
-          </div>
+              <div v-if="installMsg" class="sect-hint" style="margin-top: var(--s-2);">{{ installMsg }}</div>
+              <div v-if="installErr" class="form-err" style="margin-top: var(--s-2);">{{ installErr }}</div>
+            </div>
 
-          <div class="sect sect-last" style="margin-top: auto; padding-top: var(--s-3);">
-            <button class="btn btn-sm btn-quiet" style="width: 100%;" @click="emit('close')">close</button>
-          </div>
-        </div>
-
-        <div v-else class="workcol">
-
-
-          <!-- drive -->
-          <div v-if="sessionId" class="sect">
-            <div class="sect-label"><span>drive</span></div>
-            <div class="row">
-              <div class="dpad">
-                <button :disabled="busy" @click="scroll('up')">↑</button>
-                <button :disabled="busy" @click="scroll('down')">↓</button>
-                <button :disabled="busy" @click="scroll('left')">←</button>
-                <button :disabled="busy" @click="scroll('right')">→</button>
+            <!-- INSPECT / MEASURE pane (shares body; toolMode differs) -->
+            <div v-else-if="activeTool === 'inspect' || activeTool === 'measure'" class="tpane">
+              <div class="sect-label">
+                <span>{{ activeTool }}</span>
+                <span v-if="inspect" class="sect-state" :class="{ 'sect-state-warn': tree.state.value !== 'aligned' }">{{ treeLabel }}</span>
               </div>
-              <span class="spacer"></span>
-              <button class="btn btn-sm btn-quiet" :disabled="busy" @click="endSession">release</button>
-            </div>
-            <div class="type-box">
-              <input
-                v-model="typeText"
-                :placeholder="typeArmed ? `type into field @ ${lastTap!.x}, ${lastTap!.y} — enter sends` : 'tap a field on screen, then type here'"
-                :disabled="!typeArmed || busy"
-                @keydown.enter="sendType"
-              />
-              <button class="btn btn-sm" :disabled="!typeArmed || !typeText || busy" @click="sendType">send</button>
-              <button v-if="typeArmed" class="btn btn-sm btn-ghost" @click="lastTap = null; typeText = ''">✕</button>
-            </div>
-            <div v-if="error" class="form-err" style="margin-top: var(--s-2);">{{ error }}</div>
-            <div v-if="busy" class="sect-hint" style="margin-top: var(--s-2);">sending…</div>
-          </div>
-
-          <!-- inspect -->
-          <div v-if="sessionId" class="sect">
-            <div class="sect-label">
-              <span>inspect</span>
-              <span v-if="inspect" class="sect-state" :class="{ 'sect-state-warn': tree.state.value !== 'aligned' }">{{ treeLabel }}</span>
-            </div>
-            <div class="row" style="margin-bottom: var(--s-2);">
-              <button class="btn btn-sm" :class="{ 'btn-accent': inspect }" @click="toggleInspect"
-                :title="'inspect (i) — ' + (inspect ? 'clicks select, never tap' : 'show element boxes')">
-                {{ inspect ? '◎ inspecting — clicks select' : '◎ inspect mode' }}
-              </button>
-              <span class="spacer"></span>
-              <span class="kbd-hint">i / esc</span>
-            </div>
-            <div v-if="tree.state.value === 'failed' && (tree.lastError.value as TreeFetchError | null)?.code !== 'SESSION_NOT_FOUND'"
-              class="row" style="margin-bottom: var(--s-2);">
-              <button class="btn btn-sm" @click="tree.refresh()">retry tree</button>
-            </div>
-            <div v-if="!selNode" class="sect-hint" style="line-height: 1.8;">
-              {{ inspect ? 'click any boxed element on the screen — its card appears here.' : 'toggle inspect, then click any element on the screen.' }}
-            </div>
-            <template v-else>
-              <!-- A2 tool rail (44px, icons) + props rail (compact 196px) -->
-              <div class="inspect-cluster">
-                <InspectTools :mode="toolMode" :tree="showTree" :estimates="showEst"
-                  @mode="(m) => { toolMode = m; }" @tree="(on) => { showTree = on; }"
-                  @estimates="(on) => { showEst = on; }"
-                  @screenshot="captureShot" @copy="copySpec" />
-                <InspectProps compact :node="selNode" :parent="selParent" :siblings="selSiblings"
-                  :sample="sample" :loading="sampleLoading" :failed="sampleFailed" :show-estimates="showEst" />
-              </div>
-              <div class="el-card">
-              <div class="el-name">{{ selNode.identifier || selNode.label || selNode.type || 'element' }}</div>
-              <div class="krow"><span class="k">identifier</span><span class="v mono">{{ selNode.identifier ?? '—' }}</span></div>
-              <div class="krow"><span class="k">type</span><span class="v">{{ selNode.type ?? '—' }}</span></div>
-              <div class="krow"><span class="k">label</span><span class="v">{{ selNode.label ?? '—' }}</span></div>
-              <div class="krow" v-if="selNode.rect"><span class="k">rect</span><span class="v mono">x{{ Math.round(selNode.rect.x) }} y{{ Math.round(selNode.rect.y) }} · {{ Math.round(selNode.rect.width) }}×{{ Math.round(selNode.rect.height) }}pt</span></div>
-              <div class="krow"><span class="k">hittable</span><span class="v">{{ selNode.hittable ? 'yes' : 'no' }}</span></div>
-              <div class="krow" v-if="parentChain(selNode).length"><span class="k">path</span><span class="v mono v-dim" style="font-size: 9px;">{{ parentChain(selNode).join(' › ') }}</span></div>
-              <div class="krow"><span class="k">selector</span><span class="v mono v-ember">on: {{ selPreview?.text }}</span></div>
-              <div class="row" style="margin-top: var(--s-2);">
-                <button class="btn btn-sm" @click="copySelector">copy selector</button>
-                <button class="btn btn-sm btn-primary" :disabled="busy || tree.state.value !== 'aligned' || !selNode.hittable" @click="tapThis">tap this</button>
+              <div class="row" style="margin-bottom: var(--s-2);">
+                <button class="btn btn-sm" :class="{ 'btn-accent': inspect }" @click="toggleInspect"
+                  :title="'inspect (i) — ' + (inspect ? 'clicks select, never tap' : 'show element boxes')">
+                  {{ inspect ? '◎ inspecting — clicks select' : '◎ inspect mode' }}
+                </button>
                 <span class="spacer"></span>
-                <span v-if="actionMsg" class="sect-hint">{{ actionMsg }}</span>
+                <span class="kbd-hint">i / esc</span>
               </div>
+              <div v-if="tree.state.value === 'failed' && (tree.lastError.value as TreeFetchError | null)?.code !== 'SESSION_NOT_FOUND'"
+                class="row" style="margin-bottom: var(--s-2);">
+                <button class="btn btn-sm" @click="tree.refresh()">retry tree</button>
               </div>
-            </template>
-          </div>
-
-          <!-- record -->
-          <div v-if="sessionId" class="sect sect-last">
-            <div class="sect-label">
-              <span>record</span>
-              <span class="sect-state" :class="{ 'sect-state-on': recording }">{{ recording ? '● live' : 'paused' }} · {{ steps.length }} steps</span>
-            </div>
-            <div class="assert-box">
-              <input
-                v-model="assertText"
-                list="assert-labels"
-                placeholder="assert screen contains…"
-                :disabled="assertBusy"
-                @keydown.enter="assertMatched === 1 ? commitAssert() : probeAssert()"
-              />
-              <datalist id="assert-labels">
-                <option v-for="l in assertLabels" :key="l" :value="l" />
-              </datalist>
-              <button class="btn btn-sm" :disabled="assertBusy || !assertText.trim()" @click="probeAssert" title="check how many elements on the CURRENT screen match this label">check</button>
-              <button class="btn btn-sm btn-primary" :disabled="assertMatched !== 1" @click="commitAssert" title="add as an assertion step — replay fails red if this element disappears">assert</button>
-            </div>
-            <div v-if="assertMatched !== null" class="assert-feedback" :style="{ color: assertMatched === 1 ? 'var(--color-paper)' : 'var(--color-ash)' }">
-              {{ assertMatched === 1 ? '✓ 1 match — assertion will check for this' : assertMatched === 0 ? '✕ 0 matches — nothing to assert yet' : `? ${assertMatched} matches — ambiguous, pick a more specific label` }}
-            </div>
-            <div v-if="steps.length > 0" class="steps">
-              <div v-for="s in steps" :key="s.idx" class="step">
-                <img v-if="s.thumb" :src="`/api/manual-thumb?path=${encodeURIComponent(s.thumb)}&v=${s.ts}`" class="step-thumb" loading="lazy" />
-                <div v-else class="step-thumb step-thumb-empty">—</div>
-                <div class="step-body">
-                  <span class="step-idx">{{ s.idx + 1 }}</span>
-                  <span class="step-label">{{ stepLabel(s) }}</span>
+              <div v-if="!selNode" class="sect-hint" style="line-height: 1.8;">
+                {{ inspect ? 'click any boxed element on the screen — its card appears here.' : 'toggle inspect, then click any element on the screen.' }}
+              </div>
+              <template v-else>
+                <div class="inspect-cluster">
+                  <InspectTools :mode="toolMode" :tree="showTree" :estimates="showEst"
+                    @mode="(m) => { toolMode = m; }" @tree="(on) => { showTree = on; }"
+                    @estimates="(on) => { showEst = on; }"
+                    @screenshot="captureShot" @copy="copySpec" />
+                  <InspectProps compact :node="selNode" :parent="selParent" :siblings="selSiblings"
+                    :sample="sample" :loading="sampleLoading" :failed="sampleFailed" :show-estimates="showEst"
+                    :hittable="selNode.hittable ?? false" :path="parentChain(selNode).join(' › ')"
+                    :selector-text="selPreview?.text ?? ''" show-actions
+                    :tap-disabled="busy || tree.state.value !== 'aligned' || !selNode.hittable"
+                    @tap="tapThis" @copy-selector="copySelector" />
                 </div>
-                <button class="btn btn-sm btn-ghost step-del" @click="removeStep(s.idx)">✕</button>
+              </template>
+            </div>
+
+            <!-- RECORD pane -->
+            <div v-else-if="activeTool === 'record'" class="tpane">
+              <div class="sect-label">
+                <span>record</span>
+                <span class="sect-state" :class="{ 'sect-state-on': recording }">{{ recording ? '● live' : 'paused' }} · {{ steps.length }} steps</span>
+              </div>
+              <div class="assert-box">
+                <input
+                  v-model="assertText"
+                  list="assert-labels"
+                  placeholder="assert screen contains…"
+                  :disabled="assertBusy"
+                  @keydown.enter="assertMatched === 1 ? commitAssert() : probeAssert()"
+                />
+                <datalist id="assert-labels">
+                  <option v-for="l in assertLabels" :key="l" :value="l" />
+                </datalist>
+                <button class="btn btn-sm" :disabled="assertBusy || !assertText.trim()" @click="probeAssert" title="check how many elements on the CURRENT screen match this label">check</button>
+                <button class="btn btn-sm btn-primary" :disabled="assertMatched !== 1" @click="commitAssert" title="add as an assertion step — replay fails red if this element disappears">assert</button>
+              </div>
+              <div v-if="assertMatched !== null" class="assert-feedback" :style="{ color: assertMatched === 1 ? 'var(--color-paper)' : 'var(--color-ash)' }">
+                {{ assertMatched === 1 ? '✓ 1 match — assertion will check for this' : assertMatched === 0 ? '✕ 0 matches — nothing to assert yet' : `? ${assertMatched} matches — ambiguous, pick a more specific label` }}
+              </div>
+              <div v-if="steps.length > 0" class="steps">
+                <div v-for="s in steps" :key="s.idx" class="step">
+                  <img v-if="s.thumb" :src="`/api/manual-thumb?path=${encodeURIComponent(s.thumb)}&v=${s.ts}`" class="step-thumb" loading="lazy" />
+                  <div v-else class="step-thumb step-thumb-empty">—</div>
+                  <div class="step-body">
+                    <span class="step-idx">{{ s.idx + 1 }}</span>
+                    <span class="step-label">{{ stepLabel(s) }}</span>
+                  </div>
+                  <button class="btn btn-sm btn-ghost step-del" @click="removeStep(s.idx)">✕</button>
+                </div>
+              </div>
+              <div v-else class="sect-hint" style="margin-top: var(--s-2);">
+                {{ recording ? 'every tap / scroll / type will appear here as a step' : 'turn on recording to capture a test config' }}
+              </div>
+              <div class="row" style="margin-top: var(--s-2); gap: var(--s-2);">
+                <button class="btn btn-sm" :class="{ 'btn-danger': recording }" :disabled="busy" @click="toggleRecording">
+                  {{ recording ? '● stop recording' : 'record' }}
+                </button>
+                <template v-if="steps.length > 0">
+                  <input v-model="saveName" class="input" placeholder="template name" @keydown.enter="saveAsTemplate" />
+                  <button class="btn btn-sm" :disabled="!saveName.trim() || saving" @click="saveAsTemplate">{{ saving ? 'saving…' : 'save as template' }}</button>
+                </template>
+                <span v-if="savedMsg" class="sect-hint">{{ savedMsg }}</span>
               </div>
             </div>
-            <div v-else class="sect-hint" style="margin-top: var(--s-2);">
-              {{ recording ? 'every tap / scroll / type will appear here as a step' : 'turn on recording to capture a test config' }}
+
+            <!-- ACTION outcome panes (instant tools) -->
+            <div v-else-if="activeTool === 'shot'" class="tpane">
+              <div class="sect-label"><span>screenshot</span></div>
+              <p class="sect-hint" style="line-height: 1.8;">{{ actionMsg || 'press the camera tool (s) to capture the current screen' }}</p>
+              <button class="btn btn-sm" style="margin-top: var(--s-2);" :disabled="!sessionId" @click="captureShot">capture again</button>
             </div>
-            <div class="row" style="margin-top: var(--s-2); gap: var(--s-2);">
-              <button class="btn btn-sm" :class="{ 'btn-danger': recording }" :disabled="busy" @click="toggleRecording">
-                {{ recording ? '● stop recording' : 'record' }}
-              </button>
-              <template v-if="steps.length > 0">
-                <input v-model="saveName" class="input" placeholder="template name" @keydown.enter="saveAsTemplate" />
-                <button class="btn btn-sm" :disabled="!saveName.trim() || saving" @click="saveAsTemplate">{{ saving ? 'saving…' : 'save as template' }}</button>
-              </template>
-              <span v-if="savedMsg" class="sect-hint">{{ savedMsg }}</span>
+            <div v-else-if="activeTool === 'copy'" class="tpane">
+              <div class="sect-label"><span>copy spec</span></div>
+              <p class="sect-hint" style="line-height: 1.8;">{{ actionMsg || 'select an element in inspect, then ⌘⇧C to copy its JSON spec' }}</p>
+              <button class="btn btn-sm" style="margin-top: var(--s-2);" :disabled="!selNode" @click="copySpec">copy again</button>
             </div>
+
           </div>
         </div>
       </div>
@@ -1153,12 +1172,9 @@ watch(isControlLost(), (lost) => {
 .stage-empty-sub { font-size: 10px; }
 .devcol .stream-meta { border-top: 1px solid var(--color-iron); background: var(--color-carbon); padding: 6px 12px; }
 
-.workcol {
-  flex: 0 0 340px;
-  display: flex; flex-direction: column;
-  overflow-y: auto;
-  min-height: 0;
-}
+.toolcol { flex: 0 0 340px; display: flex; min-height: 0; }
+.toolpanel { flex: 1 1 auto; min-width: 0; overflow-y: auto; background: var(--color-carbon); }
+.tpane { padding: 12px 14px; }
 .sect { padding: 12px 14px; border-bottom: 1px solid var(--color-iron); }
 .sect-last { border-bottom: none; }
 .sect-label {
@@ -1247,7 +1263,7 @@ watch(isControlLost(), (lost) => {
   .cockpit { flex-direction: column; }
   .devcol { border-right: none; border-bottom: 1px solid var(--color-iron); flex: 0 0 auto; }
   .stream-stage { min-height: 300px; }
-  .workcol { flex: 1 1 auto; }
+  .toolcol { flex: 1 1 auto; }
 }
 </style>
 

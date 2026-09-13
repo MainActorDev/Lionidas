@@ -8,7 +8,7 @@ defineProps<{
   canInstall: boolean;                  // watching phase only
   hasSession: boolean;                  // driving-phase tools unlocked
 }>();
-const emit = defineEmits<{ (e: 'select', tool: string): void }>();
+const emit = defineEmits<{ (e: 'select', tool: 'session' | 'install' | 'inspect' | 'measure' | 'record' | 'shot' | 'copy'): void }>();
 </script>
 
 <template>

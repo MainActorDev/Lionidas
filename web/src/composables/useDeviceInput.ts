@@ -178,6 +178,7 @@ export function useDeviceInput(
     if (!sessionId.value) return;
     if (e.key === 'Escape') { (e.target as HTMLElement)?.blur(); return; }
     if (e.metaKey || e.ctrlKey) return;   // app shortcuts stay app shortcuts
+    if (inputSuspended && e.key.length === 1) return; // tool shortcuts (i/m/r/…) are app keys while inspecting
     if (e.repeat && e.key.length !== 1 && !namedKeys.has(e.code)) return;
 
     const modifiers: string[] = [];
