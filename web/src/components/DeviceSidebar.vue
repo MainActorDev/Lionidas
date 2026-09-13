@@ -148,6 +148,13 @@ function onKey(e: KeyboardEvent): void {
     if (selNode.value) selNode.value = null;
     else if (inspect.value) toggleInspect();
   }
+  // 007-A rail: r opens the record pane — checked BEFORE the inspect-shortcut
+  // branch (which would swallow it), and never while the key would dispatch
+  // to the device as a typed letter (canvas focused + inspect off)
+  else if (e.key.toLowerCase() === 'r' && sessionId.value && !e.metaKey && !e.ctrlKey && !e.altKey
+    && !(document.activeElement?.tagName === 'CANVAS' && !inspect.value)) {
+    e.preventDefault(); activeTool.value = 'record';
+  }
   // A2 tool shortcuts — only meaningful while inspecting
   else if (inspect.value && (e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'c') {
     e.preventDefault(); void copySpec(); activeTool.value = 'copy';
@@ -158,10 +165,6 @@ function onKey(e: KeyboardEvent): void {
     else if (k === 't') { e.preventDefault(); showTree.value = !showTree.value; }
     else if (k === 'e') { e.preventDefault(); showEst.value = !showEst.value; }
     else if (k === 's') { e.preventDefault(); void captureShot(); activeTool.value = 'shot'; }
-  }
-  // 007-A rail: r opens the record pane (recorder toggle stays a button inside)
-  else if (e.key.toLowerCase() === 'r' && sessionId.value && !e.metaKey && !e.ctrlKey && !e.altKey) {
-    e.preventDefault(); activeTool.value = 'record';
   }
 }
 window.addEventListener('keydown', onKey);
