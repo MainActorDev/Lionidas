@@ -147,17 +147,19 @@ const tokenLabel = (t: string | null | undefined): string | null =>
 
 <style scoped>
 .iprops {
-  width: 272px;
-  flex: none;
+  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow-y: auto;
   padding: 12px 14px;
-  background: var(--color-carbon, #111);
-  border-left: 1px solid var(--color-iron, #222);
+  background: transparent;
   font: 400 12px var(--font-ui, ui-sans-serif);
   color: var(--color-mist, #9aa4b2);
   line-height: 1.4;
 }
-.iprops.compact { width: 196px; }
+/* compact (sidebar pane): the .tpane provides the padding — no own padding,
+   no background, full panel width */
+.iprops.compact { padding: 0; }
 .ihead { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
 .itype { color: var(--color-snow, #e8edf4); font-weight: 600; font-size: 12px; }
 .iid { color: var(--color-ember, #ff9f40); font: 500 10px var(--font-mono, ui-monospace); word-break: break-all; }
