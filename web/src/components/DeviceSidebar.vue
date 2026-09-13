@@ -14,7 +14,6 @@ import { useInspectTree, TreeFetchError } from '../composables/useInspectTree.ts
 import { useInspectSample } from '../composables/useInspectSample.ts';
 import InspectOverlay from './InspectOverlay.vue';
 import InspectRedlines from './InspectRedlines.vue';
-import InspectTools from './InspectTools.vue';
 import DeviceRail from './DeviceRail.vue';
 import InspectProps from './InspectProps.vue';
 
@@ -1000,18 +999,21 @@ watch(isControlLost(), (lost) => {
                 {{ inspect ? 'click any boxed element on the screen — its card appears here.' : 'toggle inspect, then click any element on the screen.' }}
               </div>
               <template v-else>
-                <div class="inspect-cluster">
-                  <InspectTools :mode="toolMode" :tree="showTree" :estimates="showEst"
-                    @mode="(m) => { toolMode = m; }" @tree="(on) => { showTree = on; }"
-                    @estimates="(on) => { showEst = on; }"
-                    @screenshot="captureShot" @copy="copySpec" />
-                  <InspectProps compact :node="selNode" :parent="selParent" :siblings="selSiblings"
-                    :sample="sample" :loading="sampleLoading" :failed="sampleFailed" :show-estimates="showEst"
-                    :hittable="selNode.hittable ?? false" :path="parentChain(selNode).join(' › ')"
-                    :selector-text="selPreview?.text ?? ''" show-actions
-                    :tap-disabled="busy || tree.state.value !== 'aligned' || !selNode.hittable"
-                    @tap="tapThis" @copy-selector="copySelector" />
+                <!-- view toggles that lived in the (removed) inner InspectTools
+                     rail — the outer DeviceRail already owns inspect/measure/
+                     shot/copy, so a second icon rail here = nested menus -->
+                <div class="row" style="margin-bottom: var(--s-2);">
+                  <button class="btn btn-sm" :class="{ 'btn-accent': showTree }" :disabled="!inspect"
+                    title="tree (t) — show the element hierarchy" @click="showTree = !showTree">tree</button>
+                  <button class="btn btn-sm" :class="{ 'btn-accent': showEst }" :disabled="!inspect"
+                    title="estimates (e) — show or hide sampled values" @click="showEst = !showEst">estimates</button>
                 </div>
+                <InspectProps compact :node="selNode" :parent="selParent" :siblings="selSiblings"
+                  :sample="sample" :loading="sampleLoading" :failed="sampleFailed" :show-estimates="showEst"
+                  :hittable="selNode.hittable ?? false" :path="parentChain(selNode).join(' › ')"
+                  :selector-text="selPreview?.text ?? ''" show-actions
+                  :tap-disabled="busy || tree.state.value !== 'aligned' || !selNode.hittable"
+                  @tap="tapThis" @copy-selector="copySelector" />
               </template>
             </div>
 
@@ -1281,6 +1283,4 @@ watch(isControlLost(), (lost) => {
 .app-build:hover { background: var(--color-iron); }
 .app-build.picked { color: var(--color-paper); background: var(--color-iron); }
 /* A2 inspector cluster: tool rail beside props, inside the sidebar sect */
-.inspect-cluster { display: flex; align-items: stretch; margin-bottom: var(--s-2); border: 1px solid var(--color-iron); border-radius: var(--r-sm); overflow: hidden; }
-.inspect-cluster > :first-child { border-left: none; }
 </style>
