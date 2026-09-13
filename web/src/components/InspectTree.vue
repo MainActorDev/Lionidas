@@ -52,8 +52,10 @@ watch(() => props.selected, (sel) => {
   if (chain.size) open.value = new Set([...open.value, ...chain]);
 }, { immediate: true });
 
-const label = (n: AxNode): string =>
-  n.label ?? n.identifier ?? n.type ?? `node ${n.index ?? '?'}`;
+const frame = (n: AxNode): string =>
+  n.rect ? `(${Math.round(n.rect.x)} ${Math.round(n.rect.y)}; ${Math.round(n.rect.width)}×${Math.round(n.rect.height)})` : '';
+const rowTitle = (n: AxNode): string =>
+  `${n.type ?? 'Other'}${n.identifier ? ': ' + n.identifier : ''}${n.label ? '; label = ' + n.label : ''}${frame(n) ? '; frame = ' + frame(n) : ''}`;
 
 const toggle = (idx: number): void => {
   const next = new Set(open.value);
@@ -68,12 +70,13 @@ const isSel = (n: AxNode): boolean =>
   <div class="tree-view" aria-label="Element hierarchy">
     <button v-for="r in rows" :key="r.node.index ?? r.depth" class="trow"
       :class="{ sel: isSel(r.node) }" :style="{ paddingLeft: `${6 + r.depth * 12}px` }"
-      :title="`${r.node.type ?? '—'}${r.node.label ? ' · ' + r.node.label : ''}`"
+      :title="rowTitle(r.node)"
       @click="emit('pick', r.node)">
       <span class="twist" :class="{ leaf: !r.hasKids, open: open.has(r.node.index ?? -1) }"
         @click.stop="r.hasKids && toggle(r.node.index ?? -1)">▸</span>
-      <span class="ttype">{{ r.node.type ?? '—' }}</span>
-      <span class="tlabel">{{ label(r.node) }}</span>
+      <span class="ttype">{{ r.node.type ?? 'Other' }}</span>
+      <span v-if="r.node.label" class="tlabel">"{{ r.node.label }}"</span>
+      <span class="tframe">{{ frame(r.node) }}</span>
     </button>
     <p v-if="!rows.length" class="tempty">no elements — waiting for the tree</p>
   </div>
@@ -92,7 +95,8 @@ const isSel = (n: AxNode): boolean =>
 .twist { color: var(--color-steel); width: 10px; flex: none; font-size: 8px; cursor: pointer; user-select: none; }
 .twist.leaf { visibility: hidden; }
 .twist.open { transform: rotate(90deg); display: inline-block; }
-.ttype { color: var(--color-steel); flex: none; }
-.tlabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; }
+.ttype { color: var(--color-chalk); flex: none; }
+.tlabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-fog); }
+.tframe { margin-left: auto; flex: none; color: var(--color-steel); font-variant-numeric: tabular-nums; }
 .tempty { font-size: 10px; color: var(--color-steel); padding: 6px; }
 </style>
