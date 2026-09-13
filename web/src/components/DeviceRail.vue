@@ -78,7 +78,7 @@ const emit = defineEmits<{ (e: 'select', tool: 'session' | 'install' | 'inspect'
 }
 .dtool:disabled { color: var(--color-steel); cursor: not-allowed; background: none; }
 .dtool .tip {
-  position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
+  position: absolute; right: calc(100% + 10px); top: 50%; transform: translateY(-50%);
   background: var(--color-graphite); border: 1px solid var(--color-slate);
   color: var(--color-paper); padding: 3px 8px; border-radius: var(--r-sm);
   font-size: 11px; white-space: nowrap; opacity: 0; pointer-events: none;
