@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Variant A — Figma Rail</title>
+<style>
+/* ═══ Crucible Axiom tokens (verbatim from tokens.css) ═══ */
+:root {
+  --color-void:#000; --color-carbon:#111; --color-graphite:#191919; --color-iron:#202020;
+  --color-slate:#3a3a3a; --color-pewter:#505050;
+  --color-steel:#606060; --color-ash:#7e7e7e; --color-fog:#b4b4b4; --color-chalk:#d9d9d9; --color-paper:#eee;
+  --color-ember:#da5c2c; --color-ember-dim:#a04521;
+  --font-mono:'JetBrains Mono','BerkeleyMono',ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  --font-sans:'Inter',ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--color-void);color:var(--color-paper);font-family:var(--font-mono);font-size:13px;line-height:1.45;height:100vh;overflow:hidden;display:flex}
+
+/* ── stage (fake device screen) ── */
+.stage{flex:1;display:flex;align-items:center;justify-content:center;position:relative;background:
+  radial-gradient(ellipse at 30% 20%, #141414, var(--color-void))}
+.phone{width:280px;height:560px;background:#0d0d0d;border:1px solid var(--color-slate);border-radius:14px;position:relative;overflow:hidden;font-family:var(--font-sans)}
+.appbar{height:52px;padding:0 16px;display:flex;align-items:center;border-bottom:1px solid #1c1c1c;font-weight:600;font-size:15px;color:#f2f2f2}
+.hero{margin:16px;height:96px;border-radius:10px;background:#1a1a1a;display:flex;flex-direction:column;justify-content:center;padding:0 14px}
+.hero .t{font-size:17px;font-weight:600;color:#eee}
+.hero .s{font-size:12px;color:#888;margin-top:4px}
+.btn{margin:0 16px;height:44px;border-radius:8px;background:#2a6cdb;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:600;color:#fff}
+.list{margin:16px 16px 0;display:flex;flex-direction:column;gap:10px}
+.row{height:56px;border-radius:8px;background:#161616;display:flex;align-items:center;padding:0 12px;gap:10px}
+.row .ic{width:34px;height:34px;border-radius:17px;background:#242424}
+.row .tx{font-size:13px;color:#ccc}
+
+/* ── selection ring on device ── */
+.sel{position:absolute;border:1.5px solid var(--color-ember);pointer-events:none}
+.sel-label{position:absolute;background:var(--color-ember);color:#fff;font-size:10px;padding:1px 5px;white-space:nowrap;font-family:var(--font-mono)}
+/* spacing redlines */
+.red{position:absolute;background:var(--color-ember);pointer-events:none}
+.red-v{width:1px}
+.red-h{height:1px}
+.red-cap{position:absolute;background:var(--color-ember);color:#fff;font-size:9.5px;padding:0 4px;line-height:14px;white-space:nowrap;font-family:var(--font-mono)}
+.hint{position:absolute;left:50%;transform:translateX(-50%);bottom:10px;color:var(--color-steel);font-size:10.5px;font-family:var(--font-mono);background:var(--color-carbon);border:1px solid var(--color-iron);padding:2px 8px}
+
+/* ── right rail ── */
+.rail{width:272px;background:var(--color-carbon);border-left:1px solid var(--color-iron);display:flex;flex-direction:column;overflow-y:auto}
+.rail-head{padding:10px 12px 8px;border-bottom:1px solid var(--color-iron)}
+.rail-head .kind{font-size:10px;color:var(--color-ember);letter-spacing:.08em;text-transform:uppercase}
+.rail-head .name{font-size:14px;color:var(--color-paper);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sect{padding:10px 12px;border-bottom:1px solid var(--color-iron)}
+.sect-title{font-size:10px;color:var(--color-ash);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px}
+.f{display:flex;flex-direction:column}
+.f label{font-size:9.5px;color:var(--color-steel);letter-spacing:.04em}
+.f .v{font-size:12.5px;color:var(--color-paper);margin-top:1px}
+.f .v .est{color:var(--color-ash);font-size:10px;margin-left:3px}
+/* spacing diagram */
+.spacing{display:grid;grid-template-columns:28px 1fr 28px;grid-template-rows:16px 1fr 16px;gap:2px;margin:2px 0 4px}
+.sp-cell{display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--color-fog);border:1px solid var(--color-iron);background:var(--color-graphite)}
+.sp-center{background:var(--color-void);border:1px solid var(--color-slate);color:var(--color-steel);font-size:9px}
+/* typography block */
+.type-block{background:var(--color-graphite);border:1px solid var(--color-iron);padding:8px 10px;border-radius:2px}
+.type-line{display:flex;justify-content:space-between;align-items:baseline;margin:3px 0}
+.type-line .k{color:var(--color-ash);font-size:11px}
+.type-line .v{color:var(--color-paper);font-size:12px}
+.type-line .v .est{color:var(--color-ash);font-size:10px}
+.swatch{display:inline-block;width:11px;height:11px;border-radius:1px;border:1px solid var(--color-slate);vertical-align:-1px;margin-right:5px}
+.token{color:var(--color-ember);font-size:10.5px;margin-left:4px}
+.radius-chip{display:flex;align-items:center;gap:8px}
+.radius-box{width:26px;height:26px;border:1.5px solid var(--color-fog);border-radius:8px;flex:none}
+/* source footnote */
+.src{padding:8px 12px;font-size:9.5px;color:var(--color-steel);margin-top:auto;line-height:1.6}
+.src b{color:var(--color-ash);font-weight:400}
+kbd{border:1px solid var(--color-slate);border-bottom-width:2px;border-radius:3px;padding:0 4px;font-size:9.5px;color:var(--color-fog);background:var(--color-graphite)}
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <div class="phone" id="phone">
+    <div class="appbar">Sarapan</div>
+    <div class="hero"><div class="t">Selamat pagi</div><div class="s">1.240 kkal tersisa</div></div>
+    <div class="btn">Tambah Makanan</div>
+    <div class="list">
+      <div class="row"><div class="ic"></div><div class="tx">Nasi goreng · 320 kkal</div></div>
+      <div class="row"><div class="ic"></div><div class="tx">Es teh · 45 kkal</div></div>
+    </div>
+  </div>
+
+  <!-- selection: the button (16,168,248x44 → distances shown to hero above and parent left/right) -->
+  <div class="sel" id="ring" style="left:0;top:0;width:0;height:0"></div>
+  <div class="sel-label" id="ringlab">Button · 44pt</div>
+  <!-- redlines -->
+  <div class="red red-v" id="rv1"></div><div class="red-cap" id="rc1">16</div>
+  <div class="red red-v" id="rv2"></div><div class="red-cap" id="rc2">16</div>
+  <div class="red red-h" id="rh1"></div><div class="red-cap" id="rc3">12</div>
+  <div class="hint">inspect · <kbd>alt</kbd> hover redlines · click node = lock</div>
+</div>
+
+<aside class="rail">
+  <div class="rail-head">
+    <div class="kind">StaticText · hittable</div>
+    <div class="name">Tambah Makanan</div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-title">position & size</div>
+    <div class="grid2">
+      <div class="f"><label>x</label><div class="v">16</div></div>
+      <div class="f"><label>y</label><div class="v">168</div></div>
+      <div class="f"><label>width</label><div class="v">248</div></div>
+      <div class="f"><label>height</label><div class="v">44</div></div>
+    </div>
+  </div>
+
+  <div class="spec sect">
+    <div class="sect-title">padding to parent · screen</div>
+    <div class="spacing">
+      <div></div><div class="sp-cell">16</div><div></div>
+      <div class="sp-cell">16</div><div class="sp-center">button</div><div class="sp-cell">16</div>
+      <div></div><div class="sp-cell" style="color:var(--color-steel)">—</div><div></div>
+    </div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-title">typography</div>
+    <div class="type-block">
+      <div class="type-line"><span class="k">color</span><span class="v"><span class="swatch" style="background:#ffffff"></span>#FFFFFF <span class="token">↳ paper</span></span></div>
+      <div class="type-line"><span class="k">size</span><span class="v">15 <span class="est">est.</span></span></div>
+      <div class="type-line"><span class="k">weight</span><span class="v">—</span></div>
+      <div class="stage" style="display:none"></div>
+      <div class="type-line"><span class="k">family</span><span class="v">—</span></div>
+    </div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-title">appearance</div>
+    <div class="type-block">
+      <div class="type-line"><span class="k">fill</span><span class="v"><span class="swatch" style="background:#2a6cdb"></span>#2A6CDB <span class="token">↳ LP Blue/500</span></span></div>
+      <div class="type-line"><span class="k">corner radius</span><span class="v radius-chip"><span class="radius-box"></span>8 <span class="est">est.</span></span></div>
+    </div>
+  </div>
+
+  <div class="src">
+    <b>◆</b> geometry from accessibility tree — exact<br>
+    <b>◌</b> est. sampled from lossless screenshot (3×)<br>
+    <b>—</b> not reliably knowable (font family/weight from pixels)
+  </div>
+</aside>
+
+<script>
+// ═══ Fake layout: measure .phone children, place ring + redlines ═══
+const phone = document.getElementById('phone');
+const ring = document.getElementById('ring');
+const lab = document.getElementById('ringlab');
+const btn = document.querySelector('.btn');
+const hero = document.querySelector('.hero');
+
+function layout(){
+  const pr = phone.getBoundingClientRect();
+  const r = btn.getBoundingClientRect();
+  ring.style.left = (r.left-1.5)+'px'; ring.style.top = (r.top-1.5)+'px';
+  ring.style.width = (r.width)+'px'; ring.style.height = (r.height)+'px';
+  lab.style.left = r.left+'px'; lab.style.top = (r.top-16)+'px';
+  // left gap
+  const rv1=document.getElementById('rv1'), rc1=document.getElementById('rc1');
+  rv1.style.left=(pr.left)+'px'; rv1.style.top=r.top+'px'; rv1.style.height=r.height+'px';
+  rc1.style.left=(pr.left+r.left)/2-8+'px'; rc1.style.top=(r.top+r.height/2-7)+'px';
+  // right gap
+  const rv2=document.getElementById('rv2'), rc2=document.getElementById('rc2');
+  rv2.style.left=(r.right)+'px'; rv2.style.top=r.top+'px'; rv2.style.height=r.height+'px';
+  rc2.style.left=(r.right+pr.right)/2-8+'px'; rc2.style.top=(r.top+r.height/2-7)+'px';
+  // top gap to hero
+  const rh1=document.getElementById('rh1'), rc3=document.getElementById('rc3');
+  rh1.style.left=(r.left+r.width/2)+'px'; rh1.style.top=(hero.getBoundingClientRect().bottom)+'px';
+  rh1.style.width='1px'; rh1.style.height=(r.top-hero.getBoundingClientRect().bottom)+'px';
+  rc3.style.left=(r.left+r.width/2+6)+'px'; rc3.style.top=(hero.getBoundingClientRect().bottom+(r.top-hero.getBoundingClientRect().bottom)/2-7)+'px';
+}
+window.addEventListener('resize', layout); layout();
+
+// ═══ Interactive: hover any element = live redlines; click = lock selection ═══
+let locked = false;
+document.querySelectorAll('.phone *').forEach(el => {
+  el.addEventListener('mouseenter', () => { if(!locked) inspect(el); });
+  el.addEventListener('click', () => { locked = !locked; inspect(el); });
+});
+function inspect(el){
+  const r = el.getBoundingClientRect(); const pr = phone.getBoundingClientRect();
+  ring.style.left=(r.left-1.5)+'px'; ring.style.top=(r.top-1.5)+'px';
+  ring.style.width=r.width+'px'; ring.style.height=r.height+'px';
+  lab.textContent = (el.className||el.tagName).split(' ')[0]+' · '+Math.round(r.height*(393/280))+'pt';
+  lab.style.left=r.left+'px'; lab.style.top=(r.top-16)+'px';
+  // left/right/top padding to parent
+  const rv1=document.getElementById('rv1'),rc1=document.getElementById('rc1');
+  const rv2=document.getElementById('rv2'),rc2=document.getElementById('rc2');
+  const rh1=document.getElementById('rh1'),rc3=document.getElementById('rc3');
+  const p = el.parentElement.getBoundingClientRect();
+  rv1.style.left=p.left+'px'; rv1.style.top=r.top+'px'; rv1.style.height=r.height+'px';
+  rc1.textContent=Math.round((r.left-p.left)*(393/280)); rc1.style.left=(p.left+r.left)/2-10+'px'; rc1.style.top=(r.top+r.height/2-7)+'px';
+  rv2.style.left=r.right+'px'; rv2.style.top=r.top+'px'; rv2.style.height=r.height+'px';
+  rc2.textContent=Math.round((p.right-r.right)*(393/280)); rc2.style.left=(r.right+p.right)/2-10+'px'; rc2.style.top=(r.top+r.height/2-7)+'px';
+  rh1.style.left=(r.left+r.width/2)+'px'; rh1.style.top=p.top+'px'; rh1.style.height=(r.top-p.top)+'px';
+  rc3.textContent=Math.round((r.top-p.top)*(393/280)); rc3.style.left=(r.left+r.width/2+6)+'px'; rc3.style.top=(p.top+(r.top-p.top)/2-7)+'px';
+}
+</script>
+</body>
+</html>

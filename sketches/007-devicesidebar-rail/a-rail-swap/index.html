@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>007 DeviceSidebar · A — Rail Swap (Axiom tokens)</title>
+<style>
+  /* ═══ Axiom tokens (mirrors web/src/styles/tokens.css) ═══ */
+  :root {
+    --color-void: #000000; --color-carbon: #111111; --color-graphite: #191919;
+    --color-iron: #202020; --color-slate: #3a3a3a; --color-pewter: #505050;
+    --color-steel: #606060; --color-ash: #7e7e7e; --color-fog: #b4b4b4;
+    --color-chalk: #d9d9d9; --color-paper: #eeeeee;
+    --color-ember: #da5c2c; --color-ember-dim: #a04521;
+    --font-mono: 'JetBrains Mono', 'BerkeleyMono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px;
+    --r-sm: 2px; --t: 120ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  button { background: none; border: none; color: inherit; font: inherit; cursor: pointer; }
+  body {
+    font-family: var(--font-mono); background: var(--color-void); color: var(--color-paper);
+    -webkit-font-smoothing: antialiased; line-height: 1.5; font-size: 14px;
+    min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: var(--s-5);
+  }
+  ::selection { background: var(--color-ember); color: var(--color-paper); }
+
+  .stage { display: flex; gap: var(--s-4); align-items: stretch; }
+
+  /* ── stream container (bezel style from the real sidebar: carbon, hairline, 2px) ── */
+  .stream {
+    width: 300px; flex: none; background: var(--color-carbon);
+    border: 1px solid var(--color-iron); border-radius: var(--r-sm);
+    padding: var(--s-3); position: relative;
+    display: flex; flex-direction: column; justify-content: space-between;
+  }
+  .screen {
+    background: linear-gradient(160deg, #16324a 0%, #1d3a5f 45%, #122a44 100%);
+    aspect-ratio: 402/874; border-radius: var(--r-sm); position: relative;
+    display: flex; flex-direction: column; justify-content: space-between; padding: 16px 12px;
+  }
+  .screen .greet { color: #dff1ff; font-size: 11px; padding-top: 14px; }
+  .screen .greet b { display: block; font-size: 18px; font-weight: 700; }
+  .screen .card {
+    background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14);
+    border-radius: var(--r-sm); padding: 10px; color: #fff;
+  }
+  .screen .card .big { font-size: 20px; font-weight: 700; }
+  .screen .card .sub { font-size: 9px; opacity: .75; }
+  .screen .tabs { display: flex; justify-content: space-around; font-size: 8px; color: #9fc3e8; }
+  .screen .sel {
+    position: absolute; left: 12%; top: 34%; width: 76%; height: 20%;
+    border: 1px solid var(--color-ember); pointer-events: none;
+  }
+  .stream .fps {
+    margin-top: var(--s-2); font-size: var(--text-caption, 12px); font-size: 10px;
+    color: var(--color-steel); display: flex; justify-content: space-between;
+  }
+
+  /* ═══ THE RAIL — same language as shipped InspectTools ═══ */
+  .rail {
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+    width: 44px; padding: 10px 0; flex: none;
+    border: 1px solid var(--color-iron); border-radius: var(--r-sm);
+    background: var(--color-carbon); align-self: flex-start;
+  }
+  .igroup { display: flex; flex-direction: column; gap: 6px; }
+  .igroup + .igroup { padding-top: 8px; border-top: 1px solid var(--color-iron); }
+  .tool {
+    position: relative; display: grid; place-items: center;
+    width: 32px; height: 32px; border: 1px solid transparent; border-radius: 6px;
+    background: none; color: var(--color-fog); transition: color var(--t), background var(--t);
+  }
+  .tool svg { width: 16px; height: 16px; }
+  .tool:hover { color: var(--color-paper); background: var(--color-graphite); }
+  .tool.on {
+    color: var(--color-ember); border-color: var(--color-ember);
+    background: color-mix(in srgb, var(--color-ember) 12%, transparent);
+  }
+  .tool .tip {
+    position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
+    background: var(--color-graphite); border: 1px solid var(--color-slate);
+    color: var(--color-paper); padding: 3px 8px; border-radius: var(--r-sm);
+    font-size: 11px; white-space: nowrap; opacity: 0; pointer-events: none;
+    transition: opacity var(--t); z-index: 5;
+  }
+  .tool .tip kbd { color: var(--color-ember); font-family: inherit; margin-left: 4px; }
+  .tool:hover .tip { opacity: 1; }
+
+  /* ═══ THE SWAP PANEL — card language from components.css ═══ */
+  .panel {
+    width: 300px; flex: none; background: var(--color-carbon);
+    border: 1px solid var(--color-iron); border-radius: var(--r-sm);
+    padding: var(--s-3); align-self: flex-start; min-height: 420px;
+    display: flex; flex-direction: column;
+  }
+  .ph { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: var(--s-2); }
+  .ph .t { font-size: var(--text-label, 13px); color: var(--color-paper); font-weight: 700; }
+  .badge {
+    display: inline-flex; align-items: center; gap: var(--s-2);
+    background: var(--color-carbon); border: 1px solid var(--color-iron);
+    border-radius: var(--r-sm); color: var(--color-fog); font-size: 10px; padding: 1px 7px;
+  }
+  .badge.on { border-color: var(--color-ember); color: var(--color-ember); }
+  .badge.rec { border-color: var(--color-ember); color: var(--color-ember); }
+  .row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; }
+  .row .k { color: var(--color-steel); }
+  .row .v { color: var(--color-fog); font-variant-numeric: tabular-nums; }
+  .row .v.tok { color: var(--color-ember); }
+  .h4 {
+    font-size: 10px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--color-paper); margin: var(--s-3) 0 var(--s-1); font-weight: 700;
+    padding-bottom: var(--s-1); border-bottom: 1px solid var(--color-iron);
+  }
+  .h4 .src { float: right; color: var(--color-steel); font-weight: 400; letter-spacing: 0; text-transform: none; }
+  .hint { font-size: 10px; color: var(--color-steel); margin-top: var(--s-2); line-height: 1.71; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2);
+    min-height: 28px; padding: var(--s-1) var(--s-3);
+    background: var(--color-carbon); border: 1px solid var(--color-slate);
+    border-radius: var(--r-sm); color: var(--color-paper); font-size: 12px;
+  }
+  .btn:hover { background: var(--color-graphite); border-color: var(--color-paper); }
+  .btn-primary { background: var(--color-ember); border-color: var(--color-ember); color: var(--color-paper); font-weight: 700; }
+  .btn-primary:hover { background: var(--color-ember-dim); border-color: var(--color-ember-dim); }
+  .btn-danger { border-color: var(--color-slate); }
+  .btn-danger:hover { border-color: var(--color-paper); }
+  .actions { display: flex; gap: var(--s-2); margin-top: var(--s-3); }
+  .actions .btn { flex: 1; }
+  .dot { display: inline-block; width: 8px; height: 8px; border: 1px solid var(--color-slate); background: #fff; margin-right: 6px; vertical-align: 0; }
+  .fill-row { display: flex; gap: var(--s-2); margin: var(--s-2) 0; }
+  .fill-row input {
+    flex: 1; background: var(--color-void); border: 1px solid var(--color-iron);
+    color: var(--color-paper); border-radius: var(--r-sm); padding: var(--s-1) var(--s-2);
+    font-size: 12px; font-family: inherit;
+  }
+  .step { display: flex; gap: var(--s-2); font-size: 11px; padding: 3px 0; color: var(--color-fog); }
+  .step .n { color: var(--color-ember); width: 14px; }
+  .rec-dot { width: 6px; height: 6px; border-radius: var(--r-full); background: var(--color-ember); display: inline-block; margin-right: 6px; animation: blink 1.2s infinite; }
+  @keyframes blink { 50% { opacity: .3; } }
+  .sect-note { font-size: 10px; color: var(--color-ash); border-left: 2px solid var(--color-ember); padding-left: var(--s-2); margin-top: var(--s-2); }
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <!-- simulator stream (bezel card) -->
+  <div class="stream">
+    <div class="screen">
+      <div class="greet">Selamat pagi<b>Foodiary</b></div>
+      <div class="card"><div class="big">2.300</div><div class="sub">kkal tersedia hari ini</div></div>
+      <div class="tabs"><span>HARI INI</span><span>RENCANA</span><span>WAWASAN</span><span>PROFIL</span></div>
+      <div class="sel"></div>
+    </div>
+    <div class="fps"><span>live · 60fps</span><span>402pt logical</span></div>
+  </div>
+
+  <!-- ═══ THE RAIL — grouped by context ═══ -->
+  <nav class="rail" aria-label="Device tools">
+    <div class="igroup">
+      <button class="tool" data-p="session"><svg viewBox="0 0 20 20"><path d="M10 2a4 4 0 014 4v1h1a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2V9a2 2 0 012-2h1V6a4 4 0 014-4zm0 2a2 2 0 00-2 2v1h4V6a2 2 0 00-2-2z" fill="currentColor"/></svg><span class="tip">session<kbd>⏎</kbd></span></button>
+      <button class="tool" data-p="install"><svg viewBox="0 0 20 20"><path d="M10 2l5 5h-3v6H8V7H5l5-5zm-6 13h12v3H4v-3z" fill="currentColor"/></svg><span class="tip">install app</span></button>
+    </div>
+    <div class="igroup">
+      <button class="tool on" data-p="inspect"><svg viewBox="0 0 20 20"><path d="M3 3h6v2H5v4H3V3zm8 0h6v6h-2V5h-4V3zM3 11h2v4h4v2H3v-6zm14 0v6h-6v-2h4v-4h2z" fill="currentColor"/></svg><span class="tip">inspect<kbd>i</kbd></span></button>
+      <button class="tool" data-p="measure"><svg viewBox="0 0 20 20"><path d="M2 14L14 2l4 4L6 18l-4-4zm3.2.4l1.4 1.4 8.4-8.4-1.4-1.4-8.4 8.4z" fill="currentColor"/></svg><span class="tip">measure<kbd>m</kbd></span></button>
+    </div>
+    <div class="igroup">
+      <button class="tool" data-p="record"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="10" cy="10" r="3" fill="currentColor"/></svg><span class="tip">record<kbd>r</kbd></span></button>
+    </div>
+    <div class="igroup">
+      <button class="tool" data-p="shot"><svg viewBox="0 0 20 20"><path d="M7 3L6 5H3v10h14V5h-3l-1-2H7zm3 4a4 4 0 110 8 4 4 0 010-8z" fill="currentColor"/></svg><span class="tip">screenshot<kbd>s</kbd></span></button>
+      <button class="tool" data-p="copy"><svg viewBox="0 0 20 20"><path d="M6 2h9v11h-2V4H6V2zm-3 3h9v13H3V5z" fill="currentColor"/></svg><span class="tip">copy spec<kbd>⌘⇧C</kbd></span></button>
+    </div>
+  </nav>
+
+  <!-- ═══ THE PANEL — swaps with the active tool ═══ -->
+  <aside class="panel">
+    <div data-panel="inspect">
+      <div class="ph"><span class="t">inspect</span><span class="badge on">62 nodes · aligned</span></div>
+      <div class="row"><span class="k">element</span><span class="v">StaticText · 2.300</span></div>
+      <div class="h4">layout <span class="src">◆ exact</span></div>
+      <div class="row"><span class="k">x / y</span><span class="v">37 / 216</span></div>
+      <div class="row"><span class="k">w × h</span><span class="v">183 × 79</span></div>
+      <div class="row"><span class="k">pad T L R B</span><span class="v">154 · 37 · 182 · 579</span></div>
+      <div class="h4">type <span class="src">◌ sampled</span></div>
+      <div class="row"><span class="k">size</span><span class="v">68 (est.)</span></div>
+      <div class="row"><span class="k">color</span><span class="v"><span class="dot"></span>#FFFFFF (est.)</span></div>
+      <div class="h4">paint <span class="src">◌ sampled</span></div>
+      <div class="row"><span class="k">token</span><span class="v tok">backgroundSecondary/gray50</span></div>
+      <div class="actions"><button class="btn">copy selector</button><button class="btn btn-primary">tap this</button></div>
+      <div class="hint">click any boxed element on the screen — its properties appear here</div>
+    </div>
+
+    <div data-panel="session" hidden>
+      <div class="ph"><span class="t">session</span><span class="badge on">driving</span></div>
+      <div class="row"><span class="k">operator</span><span class="v">qa</span></div>
+      <div class="row"><span class="k">device</span><span class="v">iPhone 17 Pro</span></div>
+      <div class="row"><span class="k">started</span><span class="v">14:02</span></div>
+      <div class="actions"><button class="btn">release</button><button class="btn btn-danger">finish session</button></div>
+      <div class="sect-note">manual session — never counts toward AC status</div>
+    </div>
+
+    <div data-panel="install" hidden>
+      <div class="ph"><span class="t">install app</span><span class="badge">ipa · local</span></div>
+      <div class="fill-row"><input placeholder="/path/to/app.ipa" /></div>
+      <div class="actions"><button class="btn btn-primary">install</button></div>
+      <div class="hint">installs to the booted simulator — blocked while a run is active</div>
+    </div>
+
+    <div data-panel="measure" hidden>
+      <div class="ph"><span class="t">measure</span><span class="badge">gaps</span></div>
+      <div class="h4">spacing <span class="src">◆ exact</span></div>
+      <div class="row"><span class="k">gap ↑ prev</span><span class="v">12</span></div>
+      <div class="row"><span class="k">gap ↓ next</span><span class="v">4</span></div>
+      <div class="row"><span class="k">pad T · L</span><span class="v">154 · 37</span></div>
+      <div class="hint">redlines on the screen show the measured distances</div>
+    </div>
+
+    <div data-panel="record" hidden>
+      <div class="ph"><span class="t">record</span><span class="badge rec"><span class="rec-dot"></span>live · 3 steps</span></div>
+      <div class="step"><span class="n">1</span>tap · Hari Ini tab</div>
+      <div class="step"><span class="n">2</span>swipe up · 240pt</div>
+      <div class="step"><span class="n">3</span>assert text · "SISA ESTIMASI"</div>
+      <div class="actions"><button class="btn">pause</button><button class="btn btn-primary">save template</button></div>
+    </div>
+
+    <div data-panel="shot" hidden>
+      <div class="ph"><span class="t">screenshot</span><span class="badge">just now</span></div>
+      <div class="row"><span class="k">saved</span><span class="v">inspect-2.300-….png</span></div>
+      <div class="actions"><button class="btn">download again</button></div>
+    </div>
+
+    <div data-panel="copy" hidden>
+      <div class="ph"><span class="t">copy spec</span><span class="badge">just now</span></div>
+      <div class="row"><span class="k">clipboard</span><span class="v">JSON · 9 lines</span></div>
+      <div class="actions"><button class="btn">copy again</button></div>
+    </div>
+  </aside>
+</div>
+
+<script>
+  const tools = document.querySelectorAll('.tool');
+  tools.forEach(t => t.addEventListener('click', () => {
+    tools.forEach(x => x.classList.remove('on'));
+    t.classList.add('on');
+    document.querySelectorAll('[data-panel]').forEach(p => p.hidden = p.dataset.panel !== t.dataset.p);
+  }));
+  addEventListener('keydown', e => {
+    const map = { i: 'inspect', m: 'measure', r: 'record' };
+    if (map[e.key]) document.querySelector(`.tool[data-p="${map[e.key]}"]`).click();
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Variant A2 — Figma Rail + Tool Rail</title>
+<style>
+:root {
+  --color-void:#000; --color-carbon:#111; --color-graphite:#191919; --color-iron:#202020;
+  --color-slate:#3a3a3a; --color-pewter:#505050;
+  --color-steel:#606060; --color-ash:#7e7e7e; --color-fog:#b4b4b4; --color-chalk:#d9d9d9; --color-paper:#eee;
+  --color-ember:#da5c2c; --color-ember-dim:#a04521;
+  --font-mono:'JetBrains Mono','BerkeleyMono',ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  --font-sans:'Inter',ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--color-void);color:var(--color-paper);font-family:var(--font-mono);font-size:13px;line-height:1.45;height:100vh;overflow:hidden;display:flex}
+
+/* ═══ STAGE ═══ */
+.stage{flex:1;display:flex;align-items:center;justify-content:center;position:relative;background:radial-gradient(ellipse at 30% 20%, #141414, var(--color-void))}
+.phone{width:270px;height:540px;background:#0d0d0d;border:1px solid var(--color-slate);border-radius:14px;position:relative;overflow:hidden;font-family:var(--font-sans)}
+.appbar{height:52px;padding:0 16px;display:flex;align-items:center;border-bottom:1px solid #1c1c1c;font-weight:600;font-size:15px;color:#f2f2f2}
+.hero{margin:16px;height:96px;border-radius:10px;background:#1a1a1a;display:flex;flex-direction:column;justify-content:center;padding:0 14px}
+.hero .t{font-size:17px;font-weight:600;color:#eee}
+.hero .s{font-size:12px;color:#888;margin-top:4px}
+.btn{margin:0 16px;height:44px;border-radius:8px;background:#2a6cdb;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:600;color:#fff}
+.list{margin:16px 16px 0;display:flex;flex-direction:column;gap:10px}
+.row{height:56px;border-radius:8px;background:#161616;display:flex;align-items:center;padding:0 12px;gap:10px}
+.row .ic{width:34px;height:34px;border-radius:17px;background:#242424}
+.row .tx{font-size:13px;color:#ccc}
+
+.sel{position:absolute;border:1.5px solid var(--color-ember);pointer-events:none}
+.sel-label{position:absolute;background:var(--color-ember);color:#fff;font-size:10px;padding:1px 5px;white-space:nowrap}
+.red{position:absolute;background:var(--color-ember);pointer-events:none}
+.red-cap{position:absolute;background:var(--color-ember);color:#fff;font-size:9.5px;padding:0 4px;line-height:14px;white-space:nowrap}
+.hint{position:absolute;left:50%;transform:translateX(-50%);bottom:10px;color:var(--color-steel);font-size:10.5px;background:var(--color-carbon);border:1px solid var(--color-iron);padding:2px 8px}
+kbd{border:1px solid var(--color-slate);border-bottom-width:2px;border-radius:3px;padding:0 4px;font-size:9.5px;color:var(--color-fog);background:var(--color-graphite)}
+.toast{position:absolute;left:50%;bottom:40px;transform:translateX(-50%);background:var(--color-graphite);border:1px solid var(--color-slate);color:var(--color-paper);font-size:11px;padding:4px 10px;opacity:0;transition:opacity .18s;pointer-events:none}
+.toast.on{opacity:1}
+
+/* ═══ TOOL RAIL — vertical, icon-only, hover tooltip ═══ */
+.tools{width:44px;background:var(--color-carbon);border-right:1px solid var(--color-iron);display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:2px;flex:none}
+.tgroup{display:flex;flex-direction:column;gap:2px;align-items:center}
+.tdiv{width:20px;height:1px;background:var(--color-iron);margin:6px 0}
+.tool{position:relative;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:2px;cursor:pointer;color:var(--color-fog);border:1px solid transparent}
+.tool:hover{color:var(--color-paper);background:var(--color-graphite)}
+.tool.on{color:var(--color-ember);background:var(--color-graphite);border-color:var(--color-iron);box-shadow:inset 2px 0 0 var(--color-ember)}
+.tool svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+/* tooltip — name + shortcut, appears right of icon */
+.tool .tip{position:absolute;left:40px;top:50%;transform:translateY(-50%);background:var(--color-graphite);border:1px solid var(--color-slate);color:var(--color-paper);font-size:10.5px;padding:3px 8px;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .12s;display:flex;gap:8px;align-items:center;z-index:60}
+.tool .tip .sc{color:var(--color-ash);font-size:9.5px}
+.tool:hover .tip{opacity:1}
+
+/* ═══ PROPERTIES RAIL ═══ */
+.rail{width:272px;background:var(--color-carbon);border-left:1px solid var(--color-iron);display:flex;flex-direction:column;overflow-y:auto;flex:none}
+.rail-head{padding:10px 12px 8px;border-bottom:1px solid var(--color-iron)}
+.rail-head .kind{font-size:10px;color:var(--color-ember);letter-spacing:.08em;text-transform:uppercase}
+.rail-head .name{font-size:14px;color:var(--color-paper);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sect{padding:10px 12px;border-bottom:1px solid var(--color-iron)}
+.sect-title{font-size:10px;color:var(--color-ash);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;display:flex;justify-content:space-between}
+.sect-title .mode{color:var(--color-steel);text-transform:none;letter-spacing:0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px}
+.f{display:flex;flex-direction:column}
+.f label{font-size:9.5px;color:var(--color-steel);letter-spacing:.04em}
+.f .v{font-size:12.5px;color:var(--color-paper);margin-top:1px}
+.est{color:var(--color-ash);font-size:10px;margin-left:3px}
+.na{color:var(--color-steel)}
+.spacing{display:grid;grid-template-columns:28px 1fr 28px;grid-template-rows:16px 1fr 16px;gap:2px;margin:2px 0 4px}
+.sp-cell{display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--color-fog);border:1px solid var(--color-iron);background:var(--color-graphite)}
+.sp-center{background:var(--color-void);border:1px solid var(--color-slate);color:var(--color-steel);font-size:9px}
+.type-block{background:var(--color-graphite);border:1px solid var(--color-iron);padding:8px 10px;border-radius:2px}
+.type-line{display:flex;justify-content:space-between;align-items:baseline;margin:3px 0}
+.type-line .k{color:var(--color-ash);font-size:11px}
+.type-line .v{color:var(--color-paper);font-size:12px}
+.swatch{display:inline-block;width:11px;height:11px;border-radius:1px;border:1px solid var(--color-slate);vertical-align:-1px;margin-right:5px}
+.token{color:var(--color-ember);font-size:10.5px;margin-left:4px}
+.radius-box{width:26px;height:26px;border:1.5px solid var(--color-fog);border-radius:8px;flex:none}
+.radius-chip{display:flex;align-items:center;gap:8px}
+.src{padding:8px 12px;font-size:9.5px;color:var(--color-steel);margin-top:auto;line-height:1.6}
+.src b{color:var(--color-ash);font-weight:400}
+
+/* tree section (toggleable) */
+.tree{max-height:148px;overflow-y:auto;font-size:11px}
+.tw{display:flex;align-items:center;gap:6px;padding:1.5px 2px;cursor:pointer;white-space:nowrap}
+.tw:hover{background:var(--color-graphite)}
+.tw.on{background:var(--color-graphite);box-shadow:inset 2px 0 0 var(--color-ember)}
+.tw .ty{color:var(--color-ember);font-size:9.5px}
+.tw .lb{color:var(--color-fog);overflow:hidden;text-overflow:ellipsis}
+.tw.on .lb{color:var(--color-paper)}
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <div class="phone" id="phone">
+    <div class="appbar">Sarapan</div>
+    <div class="hero"><div class="t">Selamat pagi</div><div class="s">1.240 kkal tersisa</div></div>
+    <div class="btn">Tambah Makanan</div>
+    <div class="list">
+      <div class="row"><div class="ic"></div><div class="tx">Nasi goreng · 320 kkal</div></div>
+      <div class="row"><div class="ic"></div><div class="tx">Es teh · 45 kkal</div></div>
+    </div>
+  </div>
+  <div class="sel" id="ring"></div>
+  <div class="sel-label" id="lab">Button · 246×44</div>
+  <div class="red" id="rv1" style="width:1px"></div><div class="red-cap" id="rc1">16</div>
+  <div class="red" id="rv2" style="width:1px"></div><div class="red-cap" id="rc2">16</div>
+  <div class="red" id="rh1" style="height:1px;width:1px"></div><div class="red-cap" id="rc3">12</div>
+  <div class="hint" id="hint">inspect · hover = live redlines · click = lock</div>
+  <div class="toast" id="toast"></div>
+</div>
+
+<!-- ═══ TOOL RAIL ═══ -->
+<nav class="tools">
+  <div class="tgroup">
+    <div class="tool on" id="t-inspect" data-mode="inspect">
+      <svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 2-2 6z"/></svg>
+      <div class="tip">inspect<span class="sc">i</span></div>
+    </div>
+    <div class="tool" id="t-measure" data-mode="measure">
+      <svg viewBox="0 0 24 24"><path d="M3 17L17 3l4 4L7 21zM8 12l2 2M12 8l2 2M16 4l2 2"/></svg>
+      <div class="tip">measure — gaps between nodes<span class="sc">m</span></div>
+    </div>
+  </div>
+  <div class="tdiv"></div>
+  <div class="tgroup">
+    <div class="tool" id="t-tree">
+      <svg viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="5"/><rect x="3" y="15" width="7" height="5"/><rect x="14" y="9" width="7" height="6"/><path d="M6.5 9v3h11M17.5 12v-3"/></svg>
+      <div class="tip">tree — hierarchy<span class="sc">t</span></div>
+    </div>
+    <div class="tool on" id="t-est">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8v.5"/></svg>
+      <div class="tip">estimates — sampled values<span class="sc">e</span></div>
+    </div>
+  </div>
+  <div class="tdiv"></div>
+  <div class="tgroup">
+    <div class="tool" id="t-shot">
+      <svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="1.5"/><circle cx="12" cy="13" r="3.5"/><path d="M8 7l1.5-2.5h5L16 7"/></svg>
+      <div class="tip">screenshot — lossless capture<span class="sc">s</span></div>
+    </div>
+    <div class="tool" id="t-copy">
+      <svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="1.5"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/></svg>
+      <div class="tip">copy — spec as JSON<span class="sc">⌘⇧C</span></div>
+    </div>
+  </div>
+</nav>
+
+<!-- ═══ PROPERTIES RAIL ═══ -->
+<aside class="rail">
+  <div class="rail-head">
+    <div class="kind" id="p-kind">Button · hittable</div>
+    <div class="name" id="p-name">Tambah Makanan</div>
+  </div>
+
+  <div class="sect" id="sec-tree" style="display:none">
+    <div class="sect-title">tree</div>
+    <div class="tree" id="tree"></div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-title">position & size <span class="mode">◆ exact</span></div>
+    <div class="grid2">
+      <div class="f"><label>x</label><div class="v" id="p-x">16</div></div>
+      <div class="f"><label>y</label><div class="v" id="p-y">168</div></div>
+      <div class="f"><label>width</label><div class="v" id="p-w">246</div></div>
+      <div class="f"><label>height</label><div class="v" id="p-h">44</div></div>
+    </div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-title"><span id="sp-title">padding · to parent</span> <span class="mode">◆ exact</span></div>
+    <div class="spacing" id="sp-grid">
+      <div></div><div class="sp-cell" id="sp-t">16</div><div></div>
+      <div class="sp-cell" id="sp-l">16</div><div class="sp-center" id="sp-c">button</div><div class="sp-cell" id="sp-r">16</div>
+      <div></div><div class="sp-cell" id="sp-b" style="color:var(--color-steel)">—</div><div></div>
+    </div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-title">typography <span class="mode">◌ sampled</span></div>
+    <div class="type-block">
+      <div class="type-line"><span class="k">color</span><span class="v"><span class="swatch" style="background:#fff"></span>#FFFFFF <span class="token">paper</span></span></div>
+      <div class="type-line"><span class="k">size</span><span class="v"><span class="estv">15 <span class="est">est.</span></span><span class="na esthide" style="display:none">—</span></span></div>
+      <div class="type-line"><span class="k">weight</span><span class="v na">—</span></div>
+      <div class="type-line"><span class="k">family</span><span class="v na">—</span></div>
+    </div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-title">appearance <span class="mode">◌ sampled</span></div>
+    <div class="type-block">
+      <div class="type-line"><span class="k">fill</span><span class="v"><span class="swatch" style="background:#2a6cdb"></span>#2A6CDB <span class="token">LP Blue/500</span></span></div>
+      <div class="type-line"><span class="k">corner radius</span><span class="v radius-chip"><span class="radius-box"></span><span><span class="estv">8 <span class="est">est.</span></span><span class="na esthide" style="display:none">—</span></span></span></div>
+    </div>
+  </div>
+
+  <div class="src">
+    <b>◆</b> tree geometry — exact · <b>◌</b> est. screenshot-sampled (3×) · <b>—</b> not knowable
+  </div>
+</aside>
+
+<script>
+const phone=document.getElementById('phone');
+const ring=document.getElementById('ring'), lab=document.getElementById('lab');
+const S=393/270; // pt scale
+const $=id=>document.getElementById(id);
+let mode='inspect', locked=false, current=null;
+
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('on'); setTimeout(()=>t.classList.remove('on'),1400); }
+
+/* ── redline placement ── */
+function redline(el){
+  const r=el.getBoundingClientRect(), p=el.parentElement.getBoundingClientRect();
+  ring.style.left=(r.left-1.5)+'px'; ring.style.top=(r.top-1.5)+'px';
+  ring.style.width=r.width+'px'; ring.style.height=r.height+'px';
+  lab.textContent=(el.className||el.tagName).split(' ')[0]+' · '+Math.round(r.width*S)+'×'+Math.round(r.height*S);
+  lab.style.left=r.left+'px'; lab.style.top=(r.top-16)+'px';
+  const rv1=$('rv1'),rc1=$('rc1'),rv2=$('rv2'),rc2=$('rc2'),rh1=$('rh1'),rc3=$('rc3');
+  if(mode==='inspect'){
+    $('sp-title').textContent='padding · to parent';
+    rv1.style.left=p.left+'px'; rv1.style.top=r.top+'px'; rv1.style.height=r.height+'px';
+    cap(rc1, Math.round((r.left-p.left)*S), (p.left+r.left)/2, r.top+r.height/2);
+    rv2.style.left=r.right+'px'; rv2.style.top=r.top+'px'; rv2.style.height=r.height+'px';
+    cap(rc2, Math.round((p.right-r.right)*S), (r.right+p.right)/2, r.top+r.height/2);
+    // top padding
+    rh1.style.left=(r.left+r.width/2)+'px'; rh1.style.top=p.top+'px'; rh1.style.height=(r.top-p.top)+'px';
+    cap(rc3, Math.round((r.top-p.top)*S), r.left+r.width/2+8, p.top+(r.top-p.top)/2);
+    // panel spacing diagram
+    $('sp-t').textContent=Math.round((r.top-p.top)*S); $('sp-b').textContent=Math.round((p.bottom-r.bottom)*S);
+    $('sp-l').textContent=Math.round((r.left-p.left)*S); $('sp-r').textContent=Math.round((p.right-r.right)*S);
+    $('sp-c').textContent='node';
+  } else {
+    // measure: gaps to adjacent siblings
+    $('sp-title').textContent='gaps · to siblings';
+    const sibs=[...el.parentElement.children].filter(s=>s!==el && s.tagName!=='SCRIPT');
+    const prev=[...sibs].reverse().find(s=>s.getBoundingClientRect().bottom<=r.top);
+    const next=sibs.find(s=>s.getBoundingClientRect().top>=r.bottom);
+    const hide=[rv1,rv2,rc1,rc2]; // vertical sibling gaps only
+    rv1.style.height='0px'; rv2.style.height='0px'; rc1.style.display='none'; rc2.style.display='none';
+    if(prev){
+      const pr=prev.getBoundingClientRect();
+      rh1.style.left=(r.left+r.width/2)+'px'; rh1.style.top=pr.bottom+'px'; rh1.style.height=(r.top-pr.bottom)+'px';
+      cap(rc3, Math.round((r.top-pr.bottom)*S), r.left+r.width/2+8, pr.bottom+(r.top-pr.bottom)/2);
+      $('sp-t').textContent=Math.round((r.top-pr.bottom)*S)+' ▲';
+    } else { rh1.style.height='0px'; rc3.style.display='none'; $('sp-t').textContent='—'; }
+    if(next){
+      const nr=next.getBoundingClientRect();
+      rv1.style.left=(r.left+r.width/2)+'px'; rv1.style.top=r.bottom+'px'; rv1.style.height=(nr.top-r.bottom)+'px'; rv1.style.display='block';
+      cap(rc1, Math.round((nr.top-r.bottom)*S), r.left+r.width/2+8, r.bottom+(nr.top-r.bottom)/2); rc1.style.display='block';
+      $('sp-b').textContent=Math.round((nr.top-r.bottom)*S)+' ▼';
+    } else $('sp-b').textContent='—';
+    $('sp-l').textContent='·'; $('sp-r').textContent='·'; $('sp-c').textContent='node';
+  }
+  // panel frame numbers
+  $('p-x').textContent=Math.round((r.left-phone.getBoundingClientRect().left)*S);
+  $('p-y').textContent=Math.round((r.top-phone.getBoundingClientRect().top)*S);
+  $('p-w').textContent=Math.round(r.width*S); $('p-h').textContent=Math.round(r.height*S);
+  const cls=(el.className||el.tagName).split(' ')[0];
+  $('p-kind').textContent=(cls==='t'||cls==='s'||cls==='tx'?'StaticText':cls==='ic'?'Image':'Other')+' · hittable';
+  $('p-name').textContent=el.textContent.trim().slice(0,28)||cls;
+}
+function cap(c,val,x,y){ c.style.display='block'; c.textContent=val; c.style.left=(x-10)+'px'; c.style.top=(y-7)+'px'; }
+
+/* ── hover/click on device ── */
+document.querySelectorAll('.phone *').forEach(el=>{
+  el.addEventListener('mouseenter',()=>{ if(!locked){current=el; redline(el);} });
+  el.addEventListener('click',()=>{ locked=!locked; if(locked){current=el; redline(el);} });
+});
+
+/* ── tool rail ── */
+$('t-inspect').onclick=()=>setMode('inspect');
+$('t-measure').onclick=()=>setMode('measure');
+function setMode(m){ mode=m;
+  $('t-inspect').classList.toggle('on',m==='inspect');
+  $('t-measure').classList.toggle('on',m==='measure');
+  $('hint').innerHTML = m==='inspect' ? 'inspect · hover = live redlines · click = lock' : 'measure · gaps to adjacent siblings · click = lock';
+  if(current) redline(current);
+}
+$('t-tree').onclick=()=>{
+  const on=$('sec-tree').style.display==='none';
+  $('sec-tree').style.display=on?'block':'none';
+  $('t-tree').classList.toggle('on',on);
+  if(on && !$('tree').children.length) buildTree();
+};
+$('t-est').onclick=()=>{
+  const on=$('t-est').classList.toggle('on');
+  document.querySelectorAll('.estv').forEach(e=>e.style.display=on?'':'none');
+  document.querySelectorAll('.esthide').forEach(e=>e.style.display=on?'none':'');
+};
+$('t-shot').onclick=()=>toast('Screenshot captured → artifacts/run_x/screenshot.png (lossless)');
+$('t-copy').onclick=()=>toast('Spec JSON copied — {frame, padding, color, size(est), radius(est)}');
+
+/* tree panel — mirrors C's rows, click = select on canvas */
+function buildTree(){
+  const items=[['appbar','Other','Sarapan'],['hero','Other','hero card'],['t','StaticText','“Selamat pagi”'],
+    ['s','StaticText','“1.240 kkal…”'],['btn','Button','Tambah Makanan'],['row','Other','row · nasi goreng'],
+    ['ic','Image','avatar'],['tx','StaticText','“Nasi goreng…”']];
+  const map={appbar:document.querySelector('.appbar'),hero:document.querySelector('.hero'),
+    t:document.querySelector('.hero .t'),s:document.querySelector('.hero .s'),
+    btn:document.querySelector('.btn'),row:document.querySelector('.row'),
+    ic:document.querySelector('.row .ic'),tx:document.querySelector('.row .tx')};
+  const tr=$('tree');
+  items.forEach(([k,ty,lb],i)=>{
+    const d=document.createElement('div'); d.className='tw'+(i===4?' on':''); d.style.paddingLeft=(k==='t'||k==='s'?22:k==='ic'||k==='tx'?32:6)+'px';
+    d.innerHTML=`<span class="ty">${ty}</span><span class="lb">${lb}</span>`;
+    d.onclick=()=>{ [...tr.children].forEach(x=>x.classList.remove('on')); d.classList.add('on');
+      current=map[k]; locked=true; redline(current); };
+    d.onmouseenter=()=>{ current=map[k]; if(!locked) redline(current); };
+    tr.appendChild(d);
+  });
+}
+
+/* keyboard shortcuts */
+window.addEventListener('keydown',e=>{
+  if(e.metaKey&&e.shiftKey&&e.key.toLowerCase()==='c'){$('t-copy').click();return;}
+  const k=e.key.toLowerCase();
+  if(k==='i')$('t-inspect').click(); if(k==='m')$('t-measure').click();
+  if(k==='t')$('t-tree').click(); if(k==='e')$('t-est').click(); if(k==='s')$('t-shot').click();
+});
+
+/* initial */
+current=document.querySelector('.btn'); redline(current);
+</script>
+</body>
+</html>

@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Variant B — HUD Cards</title>
+<style>
+:root {
+  --color-void:#000; --color-carbon:#111; --color-graphite:#191919; --color-iron:#202020;
+  --color-slate:#3a3a3a; --color-pewter:#505050;
+  --color-steel:#606060; --color-ash:#7e7e7e; --color-fog:#b4b4b4; --color-chalk:#d9d9d9; --color-paper:#eee;
+  --color-ember:#da5c2c; --color-ember-dim:#a04521;
+  --font-mono:'JetBrains Mono','BerkeleyMono',ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  --font-sans:'Inter',ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--color-void);color:var(--color-paper);font-family:var(--font-mono);font-size:13px;height:100vh;overflow:hidden}
+.stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 30% 20%, #141414, var(--color-void))}
+.phone{width:280px;height:560px;background:#0d0d0d;border:1px solid var(--color-slate);border-radius:14px;position:relative;overflow:hidden;font-family:var(--font-sans)}
+.appbar{height:52px;padding:0 16px;display:flex;align-items:center;border-bottom:1px solid #1c1c1c;font-weight:600;font-size:15px;color:#f2f2f2}
+.hero{margin:16px;height:96px;border-radius:10px;background:#1a1a1a;display:flex;flex-direction:column;justify-content:center;padding:0 14px}
+.hero .t{font-size:17px;font-weight:600;color:#eee}
+.hero .s{font-size:12px;color:#888;margin-top:4px}
+.btn{margin:0 16px;height:44px;border-radius:8px;background:#2a6cdb;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:600;color:#fff}
+.list{margin:16px 16px 0;display:flex;flex-direction:column;gap:10px}
+.row{height:56px;border-radius:8px;background:#161616;display:flex;align-items:center;padding:0 12px;gap:10px}
+.row .ic{width:34px;height:34px;border-radius:17px;background:#242424}
+.row .tx{font-size:13px;color:#ccc}
+
+/* ── HUD cards float NEXT TO the node, anchored to its edges ── */
+.hud{position:absolute;background:var(--color-carbon);border:1px solid var(--color-slate);border-radius:2px;min-width:150px;max-width:210px;z-index:30;font-size:11px;box-shadow:0 0 0 1px rgba(0,0,0,.6)}
+.hud-head{display:flex;justify-content:space-between;align-items:center;padding:4px 8px;border-bottom:1px solid var(--color-iron);color:var(--color-ember);font-size:10px;letter-spacing:.06em;text-transform:uppercase}
+.hud-head .nm{color:var(--color-paper);text-transform:none;letter-spacing:0;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px}
+.hud-row{display:flex;justify-content:space-between;padding:2.5px 8px}
+.hud-row .k{color:var(--color-ash)}
+.hud-row .v{color:var(--color-paper)}
+.est{color:var(--color-ash);font-size:9.5px;margin-left:2px}
+.swatch{display:inline-block;width:9px;height:9px;border-radius:1px;border:1px solid var(--color-slate);vertical-align:-1px;margin-right:4px}
+.token{color:var(--color-ember);font-size:9.5px;margin-left:3px}
+.hud-tabs{display:flex;border-top:1px solid var(--color-iron)}
+.hud-tab{flex:1;text-align:center;padding:3px 0;font-size:9.5px;color:var(--color-steel);cursor:pointer}
+.hud-tab.on{color:var(--color-ember);border-top:1px solid var(--color-ember);margin-top:-1px}
+.sel{position:absolute;border:1.5px solid var(--color-ember);pointer-events:none;z-index:20}
+.sel-label{position:absolute;background:var(--color-ember);color:#fff;font-size:10px;padding:1px 5px;white-space:nowrap;z-index:21}
+.red{position:absolute;background:var(--color-ember);pointer-events:none;z-index:15}
+.red-cap{position:absolute;background:var(--color-ember);color:#fff;font-size:9.5px;padding:0 4px;line-height:14px;z-index:22}
+.hint{position:absolute;left:50%;transform:translateX(-50%);bottom:10px;color:var(--color-steel);font-size:10.5px;background:var(--color-carbon);border:1px solid var(--color-iron);padding:2px 8px}
+kbd{border:1px solid var(--color-slate);border-bottom-width:2px;border-radius:3px;padding:0 4px;font-size:9.5px;color:var(--color-fog);background:var(--color-graphite)}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="phone" id="phone">
+    <div class="appbar">Sarapan</div>
+    <div class="hero"><div class="t">Selamat pagi</div><div class="s">1.240 kkal tersisa</div></div>
+    <div class="btn">Tambah Makanan</div>
+    <div class="list">
+      <div class="row"><div class="ic"></div><div class="tx">Nasi goreng · 320 kkal</div></div>
+      <div class="row"><div class="ic"></div><div class="tx">Es teh · 45 kkal</div></div>
+    </div>
+  </div>
+  <div class="sel" id="ring"></div>
+  <div class="sel-label" id="lab">Button · 248×44</div>
+
+  <!-- geometry card -->
+  <div class="hud" id="hud-geo" style="width:196px">
+    <div class="hud-head"><span class="nm">Tambah Makanan</span><span>Button</span></div>
+    <div class="hud-row"><span class="k">x · y</span><span class="v">16 · 168</span></div>
+    <div class="hud-row"><span class="k">w × h</span><span class="v">248 × 44</span></div>
+    <div class="hud-row"><span class="k">padding L/R</span><span class="v">16 · 16</span></div>
+    <div class="hud-row"><span class="k">gap to hero</span><span class="v">12</span></div>
+    <div class="hud-tabs">
+      <div class="hud-tab on">geometry</div><div class="hud-tab" id="tab2">type</div><div class="hud-tab" id="tab3">paint</div>
+    </div>
+  </div>
+
+  <!-- typography card (tab) -->
+  <div class="hud" id="hud-type" style="width:196px;display:none">
+    <div class="hud-head"><span class="nm">Tambah Makanan</span><span>StaticText</span></div>
+    <div class="hud-row"><span class="k">color</span><span class="v"><span class="swatch" style="background:#fff"></span>#FFF <span class="token">paper</span></span></div>
+    <div class="hud-row"><span class="k">size</span><span class="v">15 <span class="est">est.</span></span></div>
+    <div class="hud-row"><span class="k">weight</span><span class="v">—</span></div>
+    <div class="hud-row"><span class="k">family</span><span class="v">—</span></div>
+    <div class="hud-tabs">
+      <div class="hud-tab" id="tab1b">geometry</div><div class="hud-tab on">type</div><div class="hud-tab" id="tab3b">paint</div>
+    </div>
+  </div>
+
+  <!-- paint card (tab) -->
+  <div class="hud" id="hud-paint" style="width:196px;display:none">
+    <div class="hud-head"><span class="nm">Tambah Makanan</span><span>Button</span></div>
+    <div class="hud-row"><span class="k">fill</span><span class="v"><span class="swatch" style="background:#2a6cdb"></span>#2A6CDB <span class="token">LP Blue/500</span></span></div>
+    <div class="hud-row"><span class="k">radius</span><span class="v">8 <span class="est">est.</span></span></div>
+    <div class="hud-tabs">
+      <div class="hud-tab" id="tab1c">geometry</div><div class="hud-tab" id="tab2c">type</div><div class="hud-tab on">paint</div>
+    </div>
+  </div>
+
+  <div class="hint">inspect · hover = live card · <kbd>tab</kbd> cycles card deck · click = lock</div>
+</div>
+
+<script>
+const phone=document.getElementById('phone');
+const ring=document.getElementById('ring'); const lab=document.getElementById('lab');
+const geo=document.getElementById('hud-geo'), typ=document.getElementById('hud-type'),
+      pnt=document.getElementById('hud-paint');
+function show(which){
+  geo.style.display = which==='geo'?'block':'none';
+  typ.style.display = which==='type'?'block':'none';
+  pnt.style.display = which==='paint'?'block':'none';
+  const el = which==='geo'?geo:which==='type'?typ:pnt;
+  // dock right of the node, vertically centered
+  const r=current?current.getBoundingClientRect():document.querySelector('.btn').getBoundingClientRect();
+  const st=document.querySelector('.stage').getBoundingClientRect();
+  let left=r.right+14; let top=r.top+r.height/2-70;
+  el.style.left=Math.min(left, st.right-210)+'px'; el.style.top=Math.max(top, st.top+8)+'px';
+}
+let current=null;
+document.querySelectorAll('.phone *').forEach(el=>{
+  el.addEventListener('mouseenter',()=>{current=el;place(el);});
+  el.addEventListener('click',()=>{current=el;place(el);});
+});
+function place(el){
+  const r=el.getBoundingClientRect(); const pr=phone.getBoundingClientRect();
+  ring.style.left=(r.left-1.5)+'px'; ring.style.top=(r.top-1.5)+'px';
+  ring.style.width=r.width+'px'; ring.style.height=r.height+'px';
+  lab.textContent=(el.className||el.tagName).split(' ')[0];
+  lab.style.left=r.left+'px'; lab.style.top=(r.top-16)+'px';
+  show(currentTab);
+}
+let currentTab='geo';
+document.getElementById('tab2').onclick=()=>{currentTab='type';show('type')};
+document.getElementById('tab3').onclick=()=>{currentTab='paint';show('paint')};
+document.getElementById('tab1b').onclick=()=>{currentTab='geo';show('geo')};
+document.getElementById('tab3b').onclick=()=>{currentTab='paint';show('paint')};
+document.getElementById('tab1c').onclick=()=>{currentTab='geo';show('geo')};
+document.getElementById('tab2c').onclick=()=>{currentTab='type';show('type')};
+window.addEventListener('keydown',e=>{ if(e.key==='Tab'){e.preventDefault();
+  currentTab = currentTab==='geo'?'type':currentTab==='type'?'paint':'geo'; show(currentTab);} });
+// initial: button selected
+current=document.querySelector('.btn'); place(current);
+</script>
+</body>
+</html>
