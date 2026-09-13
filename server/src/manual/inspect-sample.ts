@@ -110,7 +110,7 @@ export async function textColorsOf(r: Raster, opts: { isTextNode: boolean }): Pr
   for (let y = 1; y < r.height - 1; y += 2) {
     for (let x = 1; x < r.width - 1; x += 2) {
       const c = px(r, x, y);
-      const d = dist(c, segBg[y][Math.min(Math.floor(x / SEG_W), segBg[y].length - 1)]);
+      const d = dist(c, segBg[y]![Math.min(Math.floor(x / SEG_W), segBg[y]!.length - 1)]!);
       if (d >= INK_DIST_MIN) inked.push({ d, c });
     }
   }
@@ -141,7 +141,7 @@ export async function estimateFontSizePt(r: Raster): Promise<number | null> {
     let s = -1;
     for (let y = 0; y < r.height; y++) {
       let ink = 0;
-      for (let x = x0; x < x1; x++) if (dist(px(r, x, y), segBg[y][Math.min(Math.floor(x / SEG_W), segBg[y].length - 1)]) > INK_DIST_MIN) ink++;
+      for (let x = x0; x < x1; x++) if (dist(px(r, x, y), segBg[y]![Math.min(Math.floor(x / SEG_W), segBg[y]!.length - 1)]!) > INK_DIST_MIN) ink++;
       const on = ink > Math.max(2, (x1 - x0) * 0.02);
       if (on && s < 0) s = y;
       if (!on && s >= 0) { bands.push([s, y - 1]); s = -1; }

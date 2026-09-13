@@ -88,7 +88,8 @@ describe('inspectSample — pixel-estimate endpoint fns', () => {
     const sessionId = (await startManualSession(mkDeps(), 'udid-x', 'op')).sessionId;
     const r = await inspectSample(mkDeps(), sessionId, { x: 32, y: 320, width: 300, height: 50 }, 393, 'StaticText');
     expect(r.text).not.toBeNull();
-    const parts = [r.text!.color.slice(1, 3), r.text!.color.slice(3, 5), r.text!.color.slice(5, 7)].map((h) => parseInt(h, 16));
+    const color = r.text?.color ?? '#000000';
+    const parts = [color.slice(1, 3), color.slice(3, 5), color.slice(5, 7)].map((h) => parseInt(h, 16));
     const [rr = 0, gg = 0, bb = 0] = parts;
     expect(Math.abs(rr - 0x11) + Math.abs(gg - 0x11) + Math.abs(bb - 0x11)).toBeLessThan(60);
     expect(r.text!.sizePt).not.toBeNull();

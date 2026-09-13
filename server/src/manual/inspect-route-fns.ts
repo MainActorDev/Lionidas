@@ -4,7 +4,6 @@
  *  Honesty: every null below reaches the UI as "—" (not knowable), never 0. */
 import sharp from 'sharp';
 import { ManualSessionError, dispatchWithAppHeal, type ManualDeps } from './session.ts';
-import { dispatchWithHeal } from '../alloy/heal.ts';
 import {
   fillOf, textColorsOf, estimateFontSizePt, estimateRadiusPt, nearestToken,
   regionRaster, downscaleTo, bgOf,
