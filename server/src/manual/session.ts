@@ -9,6 +9,7 @@ import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { dispatchWithHeal } from '../alloy/heal.ts';
+import { fetchEngineTree } from '../alloy/engine-tree.ts';
 import { quietKeyboard } from './keyboard-quiet.ts';
 import { captureSelectorAt, countMatches } from './selector.ts';
 import type { StepSelector, SnapNode } from './selector.ts';
@@ -333,8 +334,25 @@ export async function manualProbeSelector(deps: ManualDeps, sessionId: string, s
  *  and the element drawer all live client-side off this one payload. Server
  *  stays a dumb pipe: nodes pass through VERBATIM (interpretation belongs to
  *  @crucible/shared/ax-tree, one predicate for engine and overlay). */
-export async function manualTree(deps: ManualDeps, sessionId: string): Promise<{ nodes: SnapNode[]; logicalW: number | null; logicalH: number | null; capturedAt: number }> {
+export async function manualTree(deps: ManualDeps, sessionId: string): Promise<{ nodes: SnapNode[]; logicalW: number | null; logicalH: number | null; capturedAt: number; source: 'engine' | 'alloy' }> {
   const s = liveSession(deps, sessionId);
+  // AX-depth adoption: the wrapped engine's deeper tree is PRIMARY for
+  // simulators (spike P0–P3: fixes label-propagation ambiguity + status-bar
+  // blindness); any engine failure falls back to the alloy snapshot —
+  // tagged, never silent. Physical devices never try the engine path.
+  const dev = deps.db.prepare('SELECT platform, kind FROM devices WHERE udid = ?').get(s.udid) as { platform: string | null; kind: string | null } | undefined;
+  const isSim = dev?.platform === 'ios' && dev?.kind === 'simulator';
+  if (isSim) {
+    try {
+      const nodes = await fetchEngineTree(s.udid);
+      const root = nodes.find((n) => n.type === 'Application')?.rect;
+      deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
+      deps.bus.emit('manual.session.tree', { sessionId, nodes: nodes.length });
+      return { nodes, logicalW: root?.width ?? null, logicalH: root?.height ?? null, capturedAt: Date.now(), source: 'engine' };
+    } catch (err) {
+      console.warn(`[manual] engine tree failed for ${s.udid} — falling back to alloy snapshot (${(err as Error).message})`);
+    }
+  }
   const snap = (await dispatchWithHeal('alloy_snapshot', { udid: s.udid, interactiveOnly: false }, deps.dispatchDeps)) as
     | { ok: true; result: { nodes?: SnapNode[] } }
     | { ok: false; error?: { message?: string } };
@@ -345,7 +363,7 @@ export async function manualTree(deps: ManualDeps, sessionId: string): Promise<{
   const h = root?.height ?? s.logical_h ?? null;
   deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
   deps.bus.emit('manual.session.tree', { sessionId, nodes: nodes.length });
-  return { nodes, logicalW: w, logicalH: h, capturedAt: Date.now() };
+  return { nodes, logicalW: w, logicalH: h, capturedAt: Date.now(), source: 'alloy' };
 }
 
 /** A7: append an expect step to the recording REGARDLESS of record toggle —

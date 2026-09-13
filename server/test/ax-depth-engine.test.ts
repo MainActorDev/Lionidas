@@ -5,12 +5,13 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { countMatches, resolveSelector } from '../src/manual/selector.js';
 import { sweepTriggered } from '../src/manual/sweep.js';
-import { engineTreeToSnapNodes } from './utils/engine-tree.js';
+import { engineTreeToSnapNodes } from '@crucible/shared/engine-tree';
 import type { SnapNode } from '../src/manual/selector.js';
 
 const load = (p: string): unknown => JSON.parse(readFileSync(new URL(`./fixtures/ax-depth/${p}`, import.meta.url), 'utf8'));
 const foodiaryEngine = engineTreeToSnapNodes(load('foodiary-home/tree-engine.json'));
 const lpEngine = engineTreeToSnapNodes(load('lp-home-statusbar/tree-engine.json'));
+const foodiaryAlloyNodes = (load('foodiary-home/tree-alloy.json') as { nodes: SnapNode[] }).nodes;
 const lpAlloy = (load('lp-home-statusbar/tree-alloy.json') as { nodes: SnapNode[] }).nodes;
 
 describe('engine-tree factory contract', () => {
@@ -74,6 +75,18 @@ describe('P2 corpus — engine tree × real predicates', () => {
     const pts = [{ x: 201, y: 437 }, { x: 201, y: 820 }, { x: 100, y: 300 }, { x: 350, y: 500 }];
     for (const p of pts) expect(sweepTriggered(foodiaryEngine, p.x, p.y)).toBe(false);
     for (const p of pts) expect(sweepTriggered(lpEngine, p.x, p.y)).toBe(false);
+  });
+
+  it('adoption T4 receipt: the MINGGU selector resolves on the engine tree exactly as playback will (alloy tree stays the documented failure)', () => {
+    const sel = { label: 'MINGGU, 13 SEPTEMBER 2026' };
+    // ALLOY (fixture, what the settle poll reads): ambiguity → null (P0, still true)
+    expect(resolveSelector(foodiaryAlloyNodes, sel)).toBeNull();
+    // ENGINE (what the T4 rescue reads): unique resolve — the flip this task ships
+    const r = resolveSelector(foodiaryEngine, sel, 'recentre');
+    expect(r).not.toBeNull();
+    expect(Math.round(r!.x)).toBeGreaterThanOrEqual(18);
+    expect(Math.round(r!.y)).toBeGreaterThanOrEqual(92);
+    expect(r!.rect.height).toBeLessThan(40);
   });
 
   it('isContainerNode rejects screen-sized nodes on engine trees', () => {

@@ -33,6 +33,7 @@ import { recordTap } from '../evidence/taps-store.ts';
 import type { SnapNode } from './selector.ts';
 import { sweepTriggered, blindContainerAt, probePoints, sweepFind } from './sweep.ts';
 import { makeProbe, type SnapNodeLike } from '../alloy/probe.ts';
+import { fetchEngineTree } from '../alloy/engine-tree.ts';
 import { expandFlows } from './flows.ts';
 import type { FlowStep } from './flows.ts';
 import { listSimulatorApps } from './apps.ts';
@@ -727,7 +728,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           // coordinates are the fallback, not the plan.
           let tx = s.x;
           let ty = s.y;
-          let resolvedBy: 'selector' | 'selector-recentred' | 'coordinate-fallback' | 'coordinate-fallback-scaled' | 'coordinate' | 'coordinate-scaled' | 'selector-point-scaled' | 'selector-sweep' = 'coordinate';
+          let resolvedBy: 'selector' | 'selector-recentred' | 'coordinate-fallback' | 'coordinate-fallback-scaled' | 'coordinate' | 'coordinate-scaled' | 'selector-point-scaled' | 'selector-sweep' | 'selector-engine' = 'coordinate';
           let recentredAudit: { recentred: true; distance: number } | null = null;
           let sweepAudit: { swept: boolean; probes: number; hits: number; latencyMs: number; container?: { x: number; y: number; width: number; height: number }; found?: SnapNodeLike } | null = null;
           let lastSettleNodes: SnapNode[] | null = null; // settle poll's last read — sig-before reuse (Task 2)
@@ -803,11 +804,33 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 }
               }
             } else {
+              // AX-depth adoption (T4): the alloy tree missed — before the
+              // stencil sweep, ONE engine-tree rescue. Fixes the
+              // label-propagation class (MINGGU: alloy 4 hittable matches →
+              // resolve null; engine 1 match → resolve works) at ~0.5–1s,
+              // inside the step budget. Sim-only, best-effort: any engine
+              // failure falls through to the sweep untouched.
+              let engineHit: { x: number; y: number } | null = null;
+              try {
+                const dev = deps.db.prepare('SELECT platform, kind FROM devices WHERE udid = ?').get(udid) as { platform: string | null; kind: string | null } | undefined;
+                if (dev?.platform === 'ios' && dev?.kind === 'simulator') {
+                  const engineNodes = await fetchEngineTree(udid);
+                  const r = resolveSelector(engineNodes, s.selector, 'recentre');
+                  if (r) { engineHit = { x: r.x, y: r.y }; }
+                }
+              } catch { /* engine unavailable → sweep path, unchanged */ }
+              if (engineHit) {
+                tx = engineHit.x; ty = engineHit.y;
+                resolvedBy = 'selector-engine';
+                lastSettleNodes = null; // sig-before-reuse invariant: these nodes are NOT the alloy tree
+                sweepAudit = { swept: false, probes: 0, hits: 1, latencyMs: 0 };
+                deps.bus.emit('sweep.stats', { runId, swept: false, probes: 0, hits: 1, latencyMs: 0, step: s.idx });
+              }
               // two-source truth (steal-list 1.1/1.2): the walk missed — was it
               // walk-blindness (childless container at the recorded point)?
               // Probe the 5-point stencil; a selector hit is a verified,
               // recentre-safe resolution the coordinate fallback never is.
-              let swept = false;
+              let swept = engineHit !== null;
               const sweepT0 = Date.now();
               // containment checks run in LIVE device coords — scale the
               // recorded point first (tree rects are live, s.x/s.y are recorded)
