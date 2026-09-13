@@ -11,7 +11,8 @@ const props = defineProps({
   parent: { type: Object as PropType<AxNode | null>, default: null },
   siblings: { type: Array as PropType<AxNode[]>, default: () => [] },
   /** 'inspect' → padding redlines | 'measure' → sibling gaps */
-  mode: { type: String as PropType<'inspect' | 'measure'>, default: 'inspect' },
+  /** 'inspect' = padding only · 'measure' = gaps only · 'both' = everything */
+  mode: { type: String as PropType<'inspect' | 'measure' | 'both'>, default: 'both' },
   visible: { type: Boolean, default: false },
   logicalW: { type: Number as PropType<number | null>, default: null },
   logicalH: { type: Number as PropType<number | null>, default: null },
@@ -20,11 +21,11 @@ const props = defineProps({
 const CAP = 14;  // cap half-length in viewBox units (logical pt)
 
 const pad = computed(() =>
-  props.visible && props.mode === 'inspect' && props.selected
+  props.visible && (props.mode === 'inspect' || props.mode === 'both') && props.selected
     ? paddingToParent(props.selected, props.parent) : null,
 );
 const gaps = computed(() =>
-  props.visible && props.mode === 'measure' && props.selected
+  props.visible && (props.mode === 'measure' || props.mode === 'both') && props.selected
     ? siblingGaps(props.selected, props.siblings) : null,
 );
 </script>

@@ -166,10 +166,7 @@ function onKey(e: KeyboardEvent): void {
   }
   else if (inspect.value && !e.metaKey && !e.ctrlKey && !e.altKey) {
     const k = e.key.toLowerCase();
-    if (k === 'm') { e.preventDefault(); toolMode.value = toolMode.value === 'measure' ? 'inspect' : 'measure'; }
-    else if (k === 't') { e.preventDefault(); showTree.value = !showTree.value; }
-    else if (k === 'e') { e.preventDefault(); showEst.value = !showEst.value; }
-    else if (k === 's') { e.preventDefault(); void captureShot(); activeTool.value = 'shot'; }
+    if (k === 's') { e.preventDefault(); void captureShot(); activeTool.value = 'shot'; }
   }
 }
 window.addEventListener('keydown', onKey);
@@ -314,20 +311,13 @@ const logicalH = ref<number | null>(null);
 type DeviceTool = 'session' | 'install' | 'inspect' | 'record' | 'shot' | 'copy';
 const activeTool = ref<DeviceTool>('session');
 const canInstall = computed(() => phase.value === 'watching');
-// A2 inspector tool state: mode drives redlines; tree/estimates are view toggles.
-const toolMode = ref<'inspect' | 'measure'>('inspect');
-const showTree = ref(false);
-const showEst = ref(true);
 function selectTool(t: DeviceTool): void {
   // leaving the inspect pane (to any other tool) turns inspect mode OFF —
   // the menu IS the toggle now; entering it (below) is what turns it on
   if (t !== 'inspect' && inspect.value) toggleInspect();
   activeTool.value = t;
   // the inspect pane owns the tree; entering it turns inspect ON
-  if (t === 'inspect' && sessionId.value) {
-    if (!inspect.value) toggleInspect();
-    toolMode.value = 'inspect';       // always land on the inspect section
-  }
+  if (t === 'inspect' && sessionId.value && !inspect.value) toggleInspect();
   // shot/copy are instant actions: run once, the pane shows the outcome
   if (t === 'shot' && sessionId.value) void captureShot();
   if (t === 'copy' && sessionId.value) void copySpec();
@@ -839,7 +829,7 @@ watch(isControlLost(), (lost) => {
                   :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
                             width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%` }" />
                 <InspectRedlines v-if="inspect && sessionId && selNode" :selected="selNode" :parent="selParent"
-                  :siblings="selSiblings" :mode="toolMode" :visible="tree.state.value === 'aligned'"
+                  :siblings="selSiblings" mode="both" :visible="tree.state.value === 'aligned'"
                   :logical-w="tree.logicalW.value" :logical-h="tree.logicalH.value"
                   :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
                             width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%` }" />
@@ -993,14 +983,7 @@ watch(isControlLost(), (lost) => {
                 <span>inspect</span>
                 <span v-if="inspect" class="sect-state" :class="{ 'sect-state-warn': tree.state.value !== 'aligned' }">{{ treeLabel }}</span>
               </div>
-              <div class="row" style="margin-bottom: var(--s-2);">
-                <button class="btn btn-sm" :class="{ 'btn-accent': toolMode === 'inspect' }" :disabled="!inspect"
-                  title="inspect — click any element on the screen to select it" @click="toolMode = 'inspect'">select</button>
-                <button class="btn btn-sm" :class="{ 'btn-accent': toolMode === 'measure' }" :disabled="!inspect"
-                  title="measure (m) — spacing redlines: padding to parent, gaps to siblings" @click="toolMode = 'measure'">measure <span class="kbd-hint">m</span></button>
-                <span class="spacer"></span>
-                <span v-if="inspect" class="sect-state">clicks select, never tap</span>
-              </div>
+              <div v-if="inspect" class="sect-state" style="margin-bottom: var(--s-2);">clicks select, never tap — redlines show automatically</div>
               <div v-if="tree.state.value === 'failed' && (tree.lastError.value as TreeFetchError | null)?.code !== 'SESSION_NOT_FOUND'"
                 class="row" style="margin-bottom: var(--s-2);">
                 <button class="btn btn-sm" @click="tree.refresh()">retry tree</button>
@@ -1009,17 +992,8 @@ watch(isControlLost(), (lost) => {
                 {{ inspect ? 'click any boxed element on the screen — its card appears here.' : 'toggle inspect, then click any element on the screen.' }}
               </div>
               <template v-else>
-                <!-- view toggles that lived in the (removed) inner InspectTools
-                     rail — the outer DeviceRail already owns inspect/measure/
-                     shot/copy, so a second icon rail here = nested menus -->
-                <div class="row" style="margin-bottom: var(--s-2);">
-                  <button class="btn btn-sm" :class="{ 'btn-accent': showTree }" :disabled="!inspect"
-                    title="tree (t) — show the element hierarchy" @click="showTree = !showTree">tree</button>
-                  <button class="btn btn-sm" :class="{ 'btn-accent': showEst }" :disabled="!inspect"
-                    title="estimates (e) — show or hide sampled values" @click="showEst = !showEst">estimates</button>
-                </div>
                 <InspectProps compact :node="selNode" :parent="selParent" :siblings="selSiblings"
-                  :sample="sample" :loading="sampleLoading" :failed="sampleFailed" :show-estimates="showEst"
+                  :sample="sample" :loading="sampleLoading" :failed="sampleFailed"
                   :hittable="selNode.hittable ?? false" :path="parentChain(selNode).join(' › ')"
                   :selector-text="selPreview?.text ?? ''" show-actions
                   :tap-disabled="busy || tree.state.value !== 'aligned' || !selNode.hittable"
