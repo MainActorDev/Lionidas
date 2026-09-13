@@ -179,7 +179,7 @@ h4 {
 .src { float: right; font-weight: var(--weight-regular); letter-spacing: 0; text-transform: none; color: var(--color-steel); }
 .grid {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: minmax(64px, auto) 1fr; /* key column: fixed-ish lane, not per-section width */
   column-gap: var(--s-3);
   row-gap: 4px;
   align-items: baseline;
@@ -195,7 +195,7 @@ h4 {
   color: var(--color-chalk);
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
-  text-align: right;
+  text-align: left;   /* value follows the key lane — no dead space between */
   word-break: break-all;
 }
 .v.tok { color: var(--color-ember); }
