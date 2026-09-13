@@ -903,7 +903,6 @@ watch(isControlLost(), (lost) => {
                   {{ busy ? 'taking control…' : takeControlWhy || 'take control' }}
                 </button>
                 <div v-if="error" class="form-err" style="margin-top: var(--s-2);">{{ error }}</div>
-                <button class="btn btn-sm btn-quiet" style="width: 100%; margin-top: var(--s-4);" @click="emit('close')">close</button>
               </template>
               <template v-else>
                 <div class="sect-label"><span>drive</span><span class="sect-state sect-state-on">driving</span></div>
