@@ -1,0 +1,21 @@
+{
+  "app": "com.lionparcel.services.consumer-dev",
+  "appVersion": "11 (build 11)",
+  "device": "iPhone 17 Pro",
+  "sim": "835EE2B0-311F-4A79-B377-A0C0FE8C9FD9",
+  "os": "iOS 27.0 sim runtime",
+  "xcode": "26.4 (17E192)",
+  "captured": "2026-09-13",
+  "screen": "home — UIKit TabBar (healthy: Home/Paketmu/Bayar/Akun buttons), voucher cell, announcement banner",
+  "expectedFailures": [
+    {
+      "case": "A — status-bar items invisible",
+      "selector": { "labelContains": "baterai" },
+      "assert": "zero nodes labeled battery/wifi/clock — only full-span containers reach y<60"
+    }
+  ],
+  "healthyOnThisScreen": [
+    "UIKit TabBar with real Buttons + icon identifiers — the steal-list childless-tabbar disease is NOT present on today's screens",
+    "voucher Cell + banner StaticTexts exposed"
+  ]
+}

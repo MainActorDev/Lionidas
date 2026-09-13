@@ -1,0 +1,28 @@
+{
+  "app": "com.his.foodiary.app",
+  "appVersion": "4 (build 4)",
+  "device": "iPhone 17 Pro",
+  "sim": "835EE2B0-311F-4A79-B377-A0C0FE8C9FD9",
+  "os": "iOS 27.0 sim runtime",
+  "xcode": "26.4 (17E192)",
+  "captured": "2026-09-13",
+  "screen": "home — day header + meal slots + SwiftUI tab bar (Tab Bar > TabBar with 4 buttons, all healthy)",
+  "expectedFailures": [
+    {
+      "case": "B — heading label-propagation ambiguity",
+      "selector": { "label": "MINGGU, 13 SEPTEMBER 2026" },
+      "assert": "resolveSelector returns null on this tree (4 hittable matches incl. full-screen containers via SwiftUI label propagation)",
+      "note": "countMatches=3 also proves origin-collapse misses one dup (StaticText idx7 is inside Other idx6 at a different origin)"
+    },
+    {
+      "case": "A — status-bar items invisible",
+      "selector": { "labelContains": "baterai" },
+      "clockRegex": "\\b\\d{1,2}:\\d{2}\\b",
+      "assert": "zero nodes labeled battery/clock on this screen"
+    }
+  ],
+  "healthyOnThisScreen": [
+    "SwiftUI tab bar (Buttons with identifiers flame.fill/calendar/chart.bar.fill/person.circle.fill) — NOT a childless-container case",
+    "meal-slot Buttons fully exposed (label + children StaticTexts)"
+  ]
+}
