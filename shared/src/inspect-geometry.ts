@@ -81,3 +81,39 @@ export function siblingGaps(n: AxNode, siblings: AxNode[]): Gaps | null {
 function overlapAxis(a: number, aw: number, b: number, bw: number): number {
   return Math.max(0, Math.min(a + aw, b + bw) - Math.max(a, b));
 }
+
+/** ── P2.5 geometric re-parent (experimental) ─────────────────────────────
+ *  AX lineage lies for spacing: SwiftUI layout containers often expose no
+ *  element, or a wrapper whose rect is just the union of children; one
+ *  extra `Other` on one element breaks same-parent siblinghood. Container
+ *  := smallest node whose rect strictly encloses n's (EQUAL rects — the
+ *  SwiftUI double-exposure / label-propagation chains — never parent each
+ *  other). Lineage is demoted to a fallback for root-level nodes. */
+export function enclosureParent(nodes: AxNode[], n: AxNode): AxNode | null {
+  if (!n.rect) return null;
+  const r = n.rect;
+  let best: AxNode | null = null;
+  let bestArea = Infinity;
+  for (const o of nodes) {
+    if (o === n || !o.rect) continue;
+    const b = o.rect;
+    const strictlyBigger = b.width > r.width || b.height > r.height;
+    if (!strictlyBigger) continue; // equal-or-smaller: exposure twin or child
+    if (b.x <= r.x && b.y <= r.y && b.x + b.width >= r.x + r.width && b.y + b.height >= r.y + r.height) {
+      const area = b.width * b.height;
+      if (area < bestArea) { best = o; bestArea = area; }
+    }
+  }
+  return best;
+}
+
+/** Geometric siblings: nodes whose enclosureParent is the SAME node as
+ *  n's. Root-level nodes (no enclosing node) fall back to lineage peers. */
+export function enclosureSiblings(nodes: AxNode[], n: AxNode): AxNode[] {
+  if (!n.rect) return [];
+  const parent = enclosureParent(nodes, n);
+  if (!parent) {
+    return n.parentIndex === undefined ? [] : nodes.filter((m) => m !== n && m.parentIndex === n.parentIndex);
+  }
+  return nodes.filter((m) => m !== n && m.rect && enclosureParent(nodes, m) === parent);
+}
