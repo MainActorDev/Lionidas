@@ -130,6 +130,29 @@ fork (`ai/Baguette`), SPM release build, binary-swap ritual.
 
 ### P1 — Parsers + cross-check (pure code, no device)
 
+**P1 DONE (2026-09-13, commit eee2bb8):** `shared/src/view-tree.ts` +
+exports entry; 8 tests green incl. the ≥90% AX↔view agreement cross-check
+(passes on the LP fixture). Real-format traps handled: trailing attrs
+after `>` (UIStackView), layer-only echo lines, pipe-indent depth via
+leading-prefix pipe count. SwiftUI ceiling asserted as fixture (Foodiary
+= 7 views, zero content classes).
+
+### P2 — Experimental wiring (manual sessions ONLY)
+
+**P2 DONE (2026-09-13, commit eee2bb8):** route + 6 tests; live-verified
+2× (446/445 nodes, tab bar + 4 buttons, 45 hidden views, pausedMs honest).
+Guard semantics live: automated-run 409 (manual sessions carry
+kind='manual' parents — excluded, matching session-start), sim-only 422,
+per-device mutex, fresh PID per call. lldb hardening found the hard way:
+argv PAIRS (flag in the command string is rejected), cwd MUST be neutral
+(repo cwd breaks lldb's clang category import, 3/3), 45s budget (cold
+attach 17–23s), err.stdout (not err.message) carries lldb's real error,
+SIGCONT on timeout kill, one retry on the cold-attach category signature
+(attach right after app relaunch = categories not yet registered).
+Inspector UI toggle (P2.3/T6) NOT built — API-only until demand exists.
+P3 (dylib) remains gated: pausedMs 20–25s is within tolerance for a
+manual, user-invoked inspection.
+
 1. `parseRecursiveDescription(text) → VNode[]` (class, frame, viewID,
    hidden/alpha markers) and `parsePrintHierarchy(text) → VCNode[]` in
    `shared/src/view-tree.ts`. Flat + parentIndex, SAME SHAPE CONVENTIONS as
