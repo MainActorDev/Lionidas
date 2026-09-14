@@ -15,7 +15,8 @@
     "./ax-tree": "./src/ax-tree.ts",
     "./engine-tree": "./src/engine-tree.ts",
     "./inspect-geometry": "./src/inspect-geometry.ts",
-    "./frame-settle": "./src/frame-settle.ts"
+    "./frame-settle": "./src/frame-settle.ts",
+    "./view-tree": "./src/view-tree.ts"
   },
   "dependencies": {
     "yaml": "^2.9.0"

@@ -8,6 +8,7 @@ import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, manualProbeSelector, manualTree, finishManualSession, setRecording, getRecording, deleteRecordedStep, recordExpectStep, manualGesture, touchSessionActivity, ManualSessionError } from '../manual/session.ts';
 import { inspectSample } from '../manual/inspect-route-fns.ts';
+import { dumpViewtree, ViewtreeError } from '../manual/viewtree.ts';
 import { listSimulatorApps } from '../manual/apps.ts';
 import { installApp } from '../manual/app-install.ts';
 import { findArtifacts, importArtifact, appsStoreDir } from '../manual/artifacts.ts';
@@ -235,6 +236,31 @@ export function registerManualRoutes(
     const { id } = req.params as { id: string };
     touchSessionActivity({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id);
     return { ok: true };
+  });
+
+  app.post('/api/manual/:id/viewtree', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    // ⛔ never during playback: the dump SIGSTOPs the app (~7s) — that
+    // poisons settle polls and watchdogs. Same 409 class as install/power.
+    // Manual-kind runs are EXCLUDED — a manual session's own parent row is
+    // kind='manual' status='running' by design (startManualSession); only
+    // AUTOMATED runs block, matching session-start semantics.
+    const s = db.prepare('SELECT udid, app_bundle_id FROM manual_sessions WHERE id = ? AND finished_at IS NULL').get(id) as { udid: string; app_bundle_id: string | null } | undefined;
+    if (!s) return reply.code(410).send({ error: 'session not found', code: 'SESSION_NOT_FOUND' });
+    const busy = db.prepare(`SELECT 1 FROM runs WHERE device_udid = ? AND status IN ('queued','running') AND kind != 'manual' LIMIT 1`).get(s.udid);
+    if (busy) return reply.code(409).send({ error: 'a run holds this device — viewtree pauses the app and would poison it', code: 'DEVICE_BUSY' });
+    const dev = db.prepare('SELECT platform, kind FROM devices WHERE udid = ?').get(s.udid) as { platform: string | null; kind: string | null } | undefined;
+    if (dev?.platform !== 'ios' || dev?.kind !== 'simulator') return reply.code(422).send({ error: 'viewtree is simulator-only (lldb attach)', code: 'NOT_SIM' });
+    try {
+      const r = await dumpViewtree(s.udid, s.app_bundle_id);
+      return { nodes: r.nodes, pausedMs: r.pausedMs, pid: r.pid };
+    } catch (err) {
+      if (err instanceof ViewtreeError) {
+        const code = err.code === 'DEVICE_BUSY' ? 409 : err.code === 'NO_APP' ? 422 : 502;
+        return reply.code(code).send({ error: err.message, code: err.code });
+      }
+      throw err;
+    }
   });
 
   app.post('/api/manual/:id/tree', async (req, reply) => {
