@@ -452,4 +452,47 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     ).run(r.case.name, JSON.stringify(r.case.steps), r.case.setup ? JSON.stringify(r.case.setup) : null, r.case.alerts ? JSON.stringify(r.case.alerts) : null, tagsToJson(r.case.tags), r.case.app ?? null, Date.now(), req.user?.name ?? null, id);
     return rowToTemplate(db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow);
   });
+
+  // ── Phase A: case versions (immutable run provenance) ──────────────────
+  // List for one case, revision desc. The yaml IS the audit surface —
+  // inline, not behind a second fetch. Scenario snapshot rides along as
+  // parsed json (null when the version ran scenario-free).
+  app.get('/api/templates/:id/versions', async (req, _reply) => {
+    const { id } = req.params as { id: string };
+    const rows = db.prepare(
+      'SELECT id, revision, steps_sha256, yaml_canonical, scenario_id, scenario_snapshot_json, source, created_by, created_at FROM case_versions WHERE template_id = ? ORDER BY revision DESC',
+    ).all(id) as Array<{ id: string; revision: number; steps_sha256: string; yaml_canonical: string; scenario_id: string | null; scenario_snapshot_json: string | null; source: string; created_by: string | null; created_at: number }>;
+    const count = db.prepare('SELECT COUNT(*) n FROM runs WHERE case_version_id = ?');
+    return {
+      versions: rows.map((v) => ({
+        id: v.id, revision: v.revision, stepsSha: v.steps_sha256, yaml: v.yaml_canonical,
+        scenarioId: v.scenario_id,
+        scenarioSnapshot: v.scenario_snapshot_json ? JSON.parse(v.scenario_snapshot_json) as { presets: unknown[]; bodyManifest: Array<{ path: string; sha256: string }> } : null,
+        source: v.source, createdBy: v.created_by, createdAt: v.created_at,
+        runCount: (count.get(v.id) as { n: number }).n,
+      })),
+    };
+  });
+
+  // One version + its runs — survives template deletion (no FK), so an
+  // audit link outlives the case itself.
+  app.get('/api/versions/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const v = db.prepare(
+      'SELECT id, template_id, revision, steps_sha256, yaml_canonical, scenario_id, scenario_snapshot_json, source, created_by, created_at FROM case_versions WHERE id = ?',
+    ).get(id) as { id: string; template_id: string; revision: number; steps_sha256: string; yaml_canonical: string; scenario_id: string | null; scenario_snapshot_json: string | null; source: string; created_by: string | null; created_at: number } | undefined;
+    if (!v) return reply.code(404).send({ error: 'version not found' });
+    const runs = db.prepare(
+      'SELECT id, status, started_at, app_version, device_udid FROM runs WHERE case_version_id = ? ORDER BY started_at DESC LIMIT 50',
+    ).all(id) as Array<{ id: string; status: string; started_at: number; app_version: string | null; device_udid: string }>;
+    return {
+      version: {
+        id: v.id, templateId: v.template_id, revision: v.revision, stepsSha: v.steps_sha256,
+        yaml: v.yaml_canonical, scenarioId: v.scenario_id,
+        scenarioSnapshot: v.scenario_snapshot_json ? JSON.parse(v.scenario_snapshot_json) as { presets: unknown[]; bodyManifest: Array<{ path: string; sha256: string }> } : null,
+        source: v.source, createdBy: v.created_by, createdAt: v.created_at,
+      },
+      runs,
+    };
+  });
 }
