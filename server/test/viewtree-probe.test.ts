@@ -2,7 +2,7 @@
  *  poll pipeline, all through the test seam (fs + spawn overridden; real
  *  files where the seam's default impls are used). */
 import { describe, expect, it, afterEach } from 'vitest';
-import { mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {

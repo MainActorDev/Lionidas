@@ -21,7 +21,18 @@ import { parseRecursiveDescription, type VNode } from '@crucible/shared/view-tre
 
 const exec = promisify(execFile);
 
+/** Per-device dump serialization, shared by BOTH sources (lldb + probe):
+ *  one dump at a time per device — an lldb attach holds the process while
+ *  attached, and interleaving two dumps of the same app makes the probe's
+ *  id-matching race an in-flight lldb read. Exported for the probe route. */
 const locks = new Set<string>();
+export function viewtreeLockHeld(udid: string): boolean { return locks.has(udid); }
+export function acquireViewtreeLock(udid: string): boolean {
+  if (locks.has(udid)) return false;
+  locks.add(udid);
+  return true;
+}
+export function releaseViewtreeLock(udid: string): void { locks.delete(udid); }
 
 /** Test seam (pattern of __setAlloyForTest / __setEngineTreeForTest):
  *  replaces PID resolution + the lldb invocation so route tests run the
@@ -99,8 +110,7 @@ export async function dumpViewtree(
   bundleId: string | null,
   opts: ViewtreeDeps = {},
 ): Promise<{ nodes: VNode[]; pausedMs: number; pid: number }> {
-  if (locks.has(udid)) throw new ViewtreeError('a viewtree dump is already in flight for this device', 'DEVICE_BUSY');
-  locks.add(udid);
+  if (!acquireViewtreeLock(udid)) throw new ViewtreeError('a viewtree dump is already in flight for this device', 'DEVICE_BUSY');
   const t0 = Date.now();
   try {
     const resolver = testOverride?.resolvePid ?? opts.resolvePid ?? resolveAppPid;
@@ -134,6 +144,6 @@ export async function dumpViewtree(
     if (nodes.length === 0) throw new ViewtreeError('lldb produced no view lines (empty tree)', 'LLDB_FAILED');
     return { nodes, pausedMs: Date.now() - t0, pid };
   } finally {
-    locks.delete(udid);
+    releaseViewtreeLock(udid);
   }
 }

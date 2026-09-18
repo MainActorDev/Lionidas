@@ -6,7 +6,8 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildApp } from '../src/index.ts';
-import { __setViewtreeForTest } from '../src/manual/viewtree.ts';
+import { __setViewtreeForTest, acquireViewtreeLock, releaseViewtreeLock } from '../src/manual/viewtree.ts';
+import { armProbe, disarmProbe, __setViewtreeProbeForTest } from '../src/manual/viewtree-probe.ts';
 import { migrateM1 } from '../src/db/schema.ts';
 
 let db: Database.Database;
@@ -26,6 +27,7 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   __setViewtreeForTest(null);
+  __setViewtreeProbeForTest(null);
   await app.close();
   db.close();
   rmSync(tmp, { recursive: true, force: true });
@@ -104,5 +106,94 @@ describe('POST /api/manual/:id/viewtree', () => {
     expect(second.statusCode).toBe(409);
     release();
     expect((await first).statusCode).toBe(200);
+  });
+});
+
+describe('POST /api/manual/:id/viewtree — source:probe (P3)', () => {
+  // All probe-route tests need an "armed" udid without spawning the real
+  // engine binary — the cli seam is a no-op stub for every test in here.
+  beforeEach(() => {
+    __setViewtreeProbeForTest({ cli: async () => undefined });
+  });
+
+  it('409 PROBE_NOT_ARMED when the session never armed (flag hint in message)', async () => {
+    mkDevice('sim-vp1');
+    const sid = mkSession('sim-vp1');
+    const r = await app.app.inject({ method: 'POST', url: `/api/manual/${sid}/viewtree`, payload: { source: 'probe' } });
+    expect(r.statusCode).toBe(409);
+    const body = r.json() as { code: string; error: string };
+    expect(body.code).toBe('PROBE_NOT_ARMED');
+    expect(body.error).toContain('CRUCIBLE_VIEWTREE_PROBE');
+  });
+
+  it('armed happy path: probe nodes + source/waitMs/injected, NO pausedMs/pid', async () => {
+    mkDevice('sim-vp2');
+    const sid = mkSession('sim-vp2');
+    await armProbe('sim-vp2', 'com.x.app');
+    // Simulate the dylib: read the request the client wrote, answer with a
+    // matching-id dump.
+    let requestFile = '';
+    __setViewtreeProbeForTest({
+      cli: async () => undefined,
+      writeRequest: (_udid, body) => { requestFile = body; },
+      readResponse: () => {
+        const req = JSON.parse(requestFile) as { id: string };
+        return JSON.stringify({
+          id: req.id, bundleId: 'com.x.app',
+          nodes: [
+            { index: 0, viewClass: 'UIWindow', rect: { x: 0, y: 0, width: 402, height: 874 } },
+            { index: 1, parentIndex: 0, viewClass: 'UIButton', rect: { x: 16, y: 16, width: 100, height: 44 } },
+          ],
+        });
+      },
+    });
+    const r = await app.app.inject({ method: 'POST', url: `/api/manual/${sid}/viewtree`, payload: { source: 'probe' } });
+    expect(r.statusCode).toBe(200);
+    const body = r.json() as { nodes: Array<{ viewClass: string; type: string }>; source: string; waitMs: number; injected: boolean; pausedMs?: number; pid?: number };
+    expect(body.source).toBe('probe');
+    expect(body.injected).toBe(true);
+    expect(body.nodes.length).toBeGreaterThan(0);
+    expect(body.nodes[0]!.viewClass).toBe('UIWindow');
+    // honesty contract: never fabricate pause/pid for the probe
+    expect(body.pausedMs).toBeUndefined();
+    expect(body.pid).toBeUndefined();
+    __setViewtreeProbeForTest({ cli: async () => undefined });
+    await disarmProbe('sim-vp2');
+  });
+
+  it('armed + no answer → honest 422 NO_RESPONSE', async () => {
+    mkDevice('sim-vp3');
+    const sid = mkSession('sim-vp3');
+    await armProbe('sim-vp3', 'com.x.app');
+    // NB: this REPLACES the override — cli must be restubbed or the
+    // disarm below spawns the real binary.
+    __setViewtreeProbeForTest({ cli: async () => undefined, readResponse: () => null, sleep: () => Promise.resolve() });
+    const r = await app.app.inject({ method: 'POST', url: `/api/manual/${sid}/viewtree`, payload: { source: 'probe' } });
+    expect(r.statusCode).toBe(422);
+    expect((r.json() as { code: string }).code).toBe('NO_RESPONSE');
+    await disarmProbe('sim-vp3');
+  });
+
+  it('default (no source) stays lldb even when probe is armed', async () => {
+    mkDevice('sim-vp4');
+    const sid = mkSession('sim-vp4');
+    await armProbe('sim-vp4', 'com.x.app');
+    __setViewtreeForTest({ resolvePid: async () => ({ pid: 77, label: 'UIKitApplication:com.x.app[77]' }), lldb: async () => fixture });
+    const r = await app.app.inject({ method: 'POST', url: `/api/manual/${sid}/viewtree` });
+    expect(r.statusCode).toBe(200);
+    const body = r.json() as { pid?: number; source?: string };
+    expect(body.pid).toBe(77); // lldb shape, not probe shape
+    expect(body.source).toBeUndefined();
+    await disarmProbe('sim-vp4');
+  });
+
+  it('shared device lock: probe dump in flight blocks an lldb dump (409 DEVICE_BUSY)', async () => {
+    mkDevice('sim-vp5');
+    const sid = mkSession('sim-vp5');
+    acquireViewtreeLock('sim-vp5');
+    const r = await app.app.inject({ method: 'POST', url: `/api/manual/${sid}/viewtree` });
+    expect(r.statusCode).toBe(409);
+    expect((r.json() as { code: string }).code).toBe('DEVICE_BUSY');
+    releaseViewtreeLock('sim-vp5');
   });
 });

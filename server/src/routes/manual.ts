@@ -8,7 +8,8 @@ import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, manualProbeSelector, manualTree, finishManualSession, setRecording, getRecording, deleteRecordedStep, recordExpectStep, manualGesture, touchSessionActivity, ManualSessionError } from '../manual/session.ts';
 import { inspectSample } from '../manual/inspect-route-fns.ts';
-import { dumpViewtree, ViewtreeError } from '../manual/viewtree.ts';
+import { dumpViewtree, ViewtreeError, acquireViewtreeLock, releaseViewtreeLock } from '../manual/viewtree.ts';
+import { fetchProbeViewtree, probeArmed, ProbeError } from '../manual/viewtree-probe.ts';
 import { listSimulatorApps } from '../manual/apps.ts';
 import { installApp } from '../manual/app-install.ts';
 import { findArtifacts, importArtifact, appsStoreDir } from '../manual/artifacts.ts';
@@ -240,8 +241,11 @@ export function registerManualRoutes(
 
   app.post('/api/manual/:id/viewtree', async (req, reply) => {
     const { id } = req.params as { id: string };
-    // ⛔ never during playback: the dump SIGSTOPs the app (~7s) — that
+    const body = (req.body ?? {}) as { source?: string };
+    // ⛔ never during playback: the lldb dump SIGSTOPs the app (~7s) — that
     // poisons settle polls and watchdogs. Same 409 class as install/power.
+    // The PROBE never pauses the app, but its walk hops the main thread
+    // mid-run — same guard applies to BOTH sources, cheap consistency.
     // Manual-kind runs are EXCLUDED — a manual session's own parent row is
     // kind='manual' status='running' by design (startManualSession); only
     // AUTOMATED runs block, matching session-start semantics.
@@ -251,6 +255,34 @@ export function registerManualRoutes(
     if (busy) return reply.code(409).send({ error: 'a run holds this device — viewtree pauses the app and would poison it', code: 'DEVICE_BUSY' });
     const dev = db.prepare('SELECT platform, kind FROM devices WHERE udid = ?').get(s.udid) as { platform: string | null; kind: string | null } | undefined;
     if (dev?.platform !== 'ios' || dev?.kind !== 'simulator') return reply.code(422).send({ error: 'viewtree is simulator-only (lldb attach)', code: 'NOT_SIM' });
+    if (body.source === 'probe') {
+      // Opt-in in-process source (P3). The session must have armed the
+      // probe at start (env-gated) — refuse honestly with the hint rather
+      // than timing out on a non-injected app.
+      if (!probeArmed(s.udid)) {
+        return reply.code(409).send({
+          error: 'probe not armed for this device — start the session with CRUCIBLE_VIEWTREE_PROBE=1 (and relaunch the app after arming)',
+          code: 'PROBE_NOT_ARMED',
+        });
+      }
+      if (!acquireViewtreeLock(s.udid)) {
+        return reply.code(409).send({ error: 'a viewtree dump is already in flight for this device', code: 'DEVICE_BUSY' });
+      }
+      try {
+        const r = await fetchProbeViewtree(s.udid, s.app_bundle_id);
+        // Honesty contract: the app was never paused and never attached —
+        // no pausedMs, no pid. `injected` badges the mechanism instead.
+        return { nodes: r.nodes, source: 'probe' as const, waitMs: r.waitMs, injected: true };
+      } catch (err) {
+        if (err instanceof ProbeError) {
+          const code = err.code === 'NO_RESPONSE' || err.code === 'NO_KEY_WINDOW' ? 422 : 502;
+          return reply.code(code).send({ error: err.message, code: err.code });
+        }
+        throw err;
+      } finally {
+        releaseViewtreeLock(s.udid);
+      }
+    }
     try {
       const r = await dumpViewtree(s.udid, s.app_bundle_id);
       return { nodes: r.nodes, pausedMs: r.pausedMs, pid: r.pid };

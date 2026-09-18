@@ -11,6 +11,7 @@ import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { dispatchWithHeal } from '../alloy/heal.ts';
 import { fetchEngineTree } from '../alloy/engine-tree.ts';
 import { quietKeyboard } from './keyboard-quiet.ts';
+import { armProbe, disarmProbe, probeArmed } from './viewtree-probe.ts';
 import { captureSelectorAt, countMatches } from './selector.ts';
 import type { StepSelector, SnapNode } from './selector.ts';
 import { engineInput } from './engine-input.ts';
@@ -132,6 +133,20 @@ export async function startManualSession(deps: ManualDeps, udid: string, operato
     // QA keyboard quieting (simulator-only, best-effort): autocorrect/prediction
     // animations starve XCTest's idle-wait during rapid typing taps.
     await quietKeyboard(udid);
+
+    // Viewtree probe (P3, experimental, env-gated): arm BEFORE the app open
+    // below — dyld injects at exec time, so the app this session opens is
+    // the one that carries the probe (zero extra relaunches). Failure is a
+    // warn-and-continue: the session must not die for an experimental probe
+    // (the lldb viewtree source still works); the honest surface is the
+    // route's PROBE_NOT_ARMED 409.
+    if (process.env['CRUCIBLE_VIEWTREE_PROBE'] === '1' && appBundleId) {
+      try {
+        await armProbe(udid, appBundleId);
+      } catch (err) {
+        console.warn(`[viewtree-probe] arm failed for ${udid}: ${(err as Error).message}`);
+      }
+    }
 
     const runId = `run_${createHash('sha256').update(`manual${Date.now()}${Math.random()}`).digest('hex').slice(0, 8)}`;
     const sessionId = `ms_${runId.slice(4, 12)}`;
@@ -397,6 +412,14 @@ export async function finishManualSession(deps: ManualDeps, sessionId: string, n
   if (!s) throw new ManualSessionError('SESSION_NOT_FOUND', `no session ${sessionId}`);
   if (s.finished_at) return; // idempotent
   await dispatchWithHeal('alloy_release', { udid: s.udid }, deps.dispatchDeps).catch(() => undefined);
+  // Viewtree probe disarm (best-effort): stops FUTURE launches carrying the
+  // dylib. A running app keeps its watcher until it exits — harmless, it
+  // only reads a file nobody will rewrite.
+  if (probeArmed(s.udid)) {
+    await disarmProbe(s.udid).catch((err) => {
+      console.warn(`[viewtree-probe] disarm failed for ${s.udid}: ${(err as Error).message}`);
+    });
+  }
   deps.db.prepare('UPDATE manual_sessions SET finished_at = ? WHERE id = ?').run(Date.now(), sessionId);
   deps.db.prepare(`UPDATE runs SET status = 'passed', finished_at = ?, note = ? WHERE id = ?`).run(Date.now(), note ?? `manual:${sessionId}`, s.run_id);
   deps.bus.emit('manual.session.finish', { sessionId });
