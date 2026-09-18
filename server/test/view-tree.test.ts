@@ -2,7 +2,7 @@
  *  fixtures, + the AX↔view cross-check (machine-checkable richness claim). */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { parseRecursiveDescription, type VNode } from '@crucible/shared/view-tree';
+import { parseRecursiveDescription, nodesFromProbe, type VNode, type ProbeNode } from '@crucible/shared/view-tree';
 import type { AxNode } from '@crucible/shared/ax-tree';
 
 const load = (p: string): string => readFileSync(new URL(`./fixtures/viewtree/${p}`, import.meta.url), 'utf8');
@@ -88,5 +88,51 @@ describe('parseRecursiveDescription — golden on P0 fixtures', () => {
     expect(labeled.length).toBeGreaterThan(20);
     // ≥90% was the adopt bar in the plan; assert honestly what we got
     expect(agreement).toBeGreaterThanOrEqual(0.9);
+  });
+});
+
+describe('nodesFromProbe — probe normalizer (P3)', () => {
+  const probeFixture = (): ProbeNode[] =>
+    JSON.parse(readFileSync(new URL('./fixtures/viewtree/lp-home/probe.json', import.meta.url), 'utf8'));
+
+  it('normalizes the LP-home probe fixture: same node count, type filled, rect preserved', () => {
+    const nodes = nodesFromProbe(probeFixture());
+    const parsed = parseRecursiveDescription(load('lp-home/recdesc.txt'));
+    expect(nodes).toHaveLength(parsed.length);
+    expect(nodes[0]!.viewClass).toBe('UIWindow');
+    expect(nodes[0]!.type).toBe('Window');
+    expect(nodes[0]!.rect!.width).toBe(402);
+    // optional flags round-trip only when set (honesty: never fabricated)
+    expect(nodes.some((n) => n.hidden)).toBe(true);
+  });
+
+  it('type parity: every probe node maps to the SAME type the lldb parser produced', () => {
+    const nodes = nodesFromProbe(probeFixture());
+    const parsed = parseRecursiveDescription(load('lp-home/recdesc.txt'));
+    nodes.forEach((n, i) => {
+      expect(n.type).toBe(parsed[i]!.type);
+      expect(n.viewClass).toBe(parsed[i]!.viewClass);
+      expect(n.rect).toEqual(parsed[i]!.rect);
+    });
+  });
+
+  it('throws on malformed input — never a partial tree', () => {
+    expect(() => nodesFromProbe(null as never)).toThrow(/not an array/);
+    expect(() => nodesFromProbe([{ viewClass: 'UIView' }])).toThrow(/no rect/);
+    expect(() => nodesFromProbe([{ viewClass: 'UIView', rect: { x: 0, y: 0, width: 1, height: 1 } },
+      { viewClass: 'UIView', index: 5, parentIndex: 0, rect: { x: 0, y: 0, width: 1, height: 1 } }]))
+      .toThrow(/dense sequential/);
+    expect(() => nodesFromProbe([{ viewClass: 'UIView', index: 0, rect: { x: 0, y: 0, width: 1, height: 1 } },
+      { viewClass: 'UIView', index: 1, parentIndex: 7, rect: { x: 0, y: 0, width: 1, height: 1 } }]))
+      .toThrow(/dangling parentIndex/);
+  });
+
+  it('hittable defaults to true, honors explicit false', () => {
+    const nodes = nodesFromProbe([
+      { viewClass: 'UIView', rect: { x: 0, y: 0, width: 1, height: 1 } },
+      { viewClass: 'UIView', index: 1, parentIndex: 0, hittable: false, rect: { x: 0, y: 0, width: 1, height: 1 } },
+    ]);
+    expect(nodes[0]!.hittable).toBe(true);
+    expect(nodes[1]!.hittable).toBe(false);
   });
 });

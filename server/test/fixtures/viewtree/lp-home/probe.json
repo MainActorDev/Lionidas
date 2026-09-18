@@ -1,0 +1,4653 @@
+[
+ {
+  "viewClass": "UIWindow",
+  "address": "0x1159125e0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 874
+  },
+  "hittable": true,
+  "index": 0
+ },
+ {
+  "viewClass": "UITransitionView",
+  "address": "0x1314b2550",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 874
+  },
+  "hittable": true,
+  "index": 1,
+  "parentIndex": 0
+ },
+ {
+  "viewClass": "UIDropShadowView",
+  "address": "0x1161f2f80",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 874
+  },
+  "hittable": true,
+  "index": 2,
+  "parentIndex": 1
+ },
+ {
+  "viewClass": "UILayoutContainerView",
+  "address": "0x11611a310",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 874
+  },
+  "hittable": true,
+  "index": 3,
+  "parentIndex": 2
+ },
+ {
+  "viewClass": "UITransitionView",
+  "address": "0x11611b8d0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 874
+  },
+  "hittable": true,
+  "index": 4,
+  "parentIndex": 3,
+  "clipped": true
+ },
+ {
+  "viewClass": "UIViewControllerWrapperView",
+  "address": "0x11598eff0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 874
+  },
+  "hittable": true,
+  "index": 5,
+  "parentIndex": 4
+ },
+ {
+  "viewClass": "UILayoutContainerView",
+  "address": "0x11598b250",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 874
+  },
+  "hittable": true,
+  "index": 6,
+  "parentIndex": 5,
+  "clipped": true
+ },
+ {
+  "viewClass": "UINavigationTransitionView",
+  "address": "0x11598ccb0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 874
+  },
+  "hittable": true,
+  "index": 7,
+  "parentIndex": 6
+ },
+ {
+  "viewClass": "UIViewControllerWrapperView",
+  "address": "0x11617eb60",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 874
+  },
+  "hittable": true,
+  "index": 8,
+  "parentIndex": 7
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x1162a7b00",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 874
+  },
+  "hittable": true,
+  "index": 9,
+  "parentIndex": 8
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampView",
+  "address": "0x11902f600",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 791
+  },
+  "hittable": true,
+  "index": 10,
+  "parentIndex": 9
+ },
+ {
+  "viewClass": "UITableView",
+  "address": "0x1198e3000",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 791
+  },
+  "hittable": true,
+  "index": 11,
+  "parentIndex": 10,
+  "clipped": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampMenuCellView",
+  "address": "0x1478b8e00",
+  "rect": {
+   "x": 0,
+   "y": 666.712,
+   "width": 402,
+   "height": 64
+  },
+  "hittable": true,
+  "index": 12,
+  "parentIndex": 11,
+  "baseClass": "UITableViewCell",
+  "hidden": true,
+  "alpha0": true
+ },
+ {
+  "viewClass": "_UISystemBackgroundView",
+  "address": "0x11d7d1a00",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 64
+  },
+  "hittable": true,
+  "index": 13,
+  "parentIndex": 12
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x11d7d1bf0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 64
+  },
+  "hittable": false,
+  "index": 14,
+  "parentIndex": 13
+ },
+ {
+  "viewClass": "UITableViewCellContentView",
+  "address": "0x11d7f5890",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 64
+  },
+  "hittable": true,
+  "index": 15,
+  "parentIndex": 12
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampMenuView",
+  "address": "0x11d7f5c50",
+  "rect": {
+   "x": 16,
+   "y": 8,
+   "width": 370,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 16,
+  "parentIndex": 15
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x11d7f5e10",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 370,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 17,
+  "parentIndex": 16,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "LionParcelLogistics.SkeletonView",
+  "address": "0x13e4c1fa0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 18,
+  "parentIndex": 17
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x13e404080",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 19,
+  "parentIndex": 18,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x13e404240",
+  "rect": {
+   "x": 21,
+   "y": 0,
+   "width": 32,
+   "height": 32
+  },
+  "hittable": false,
+  "index": 20,
+  "parentIndex": 19
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x13e4cb140",
+  "rect": {
+   "x": 0,
+   "y": 36,
+   "width": 74,
+   "height": 12
+  },
+  "hittable": false,
+  "index": 21,
+  "parentIndex": 19,
+  "baseClass": "UILabel",
+  "label": "Cek Ongkir"
+ },
+ {
+  "viewClass": "LionParcelLogistics.SkeletonView",
+  "address": "0x13e404440",
+  "rect": {
+   "x": 74,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 22,
+  "parentIndex": 17
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x13e404bf0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 23,
+  "parentIndex": 22,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x13e4adee0",
+  "rect": {
+   "x": 21,
+   "y": 0,
+   "width": 32,
+   "height": 32
+  },
+  "hittable": false,
+  "index": 24,
+  "parentIndex": 23
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x13e4ae890",
+  "rect": {
+   "x": 0,
+   "y": 36,
+   "width": 74,
+   "height": 12
+  },
+  "hittable": false,
+  "index": 25,
+  "parentIndex": 23,
+  "baseClass": "UILabel",
+  "label": "Lacak Paket"
+ },
+ {
+  "viewClass": "LionParcelLogistics.SkeletonView",
+  "address": "0x13e4b0330",
+  "rect": {
+   "x": 148,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 26,
+  "parentIndex": 17
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x13e4b04d0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 27,
+  "parentIndex": 26,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x13e4b07c0",
+  "rect": {
+   "x": 21,
+   "y": 0,
+   "width": 32,
+   "height": 32
+  },
+  "hittable": false,
+  "index": 28,
+  "parentIndex": 27
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x13e4b12a0",
+  "rect": {
+   "x": 0,
+   "y": 36,
+   "width": 74,
+   "height": 12
+  },
+  "hittable": false,
+  "index": 29,
+  "parentIndex": 27,
+  "baseClass": "UILabel",
+  "label": "Same Day"
+ },
+ {
+  "viewClass": "LionParcelLogistics.SkeletonView",
+  "address": "0x13e4b2d40",
+  "rect": {
+   "x": 222,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 30,
+  "parentIndex": 17
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x13e4b2ee0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 31,
+  "parentIndex": 30,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x13e4b31d0",
+  "rect": {
+   "x": 21,
+   "y": 0,
+   "width": 32,
+   "height": 32
+  },
+  "hittable": false,
+  "index": 32,
+  "parentIndex": 31
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x13e4b3cb0",
+  "rect": {
+   "x": 0,
+   "y": 36,
+   "width": 74,
+   "height": 12
+  },
+  "hittable": false,
+  "index": 33,
+  "parentIndex": 31,
+  "baseClass": "UILabel",
+  "label": "Klaim Paket"
+ },
+ {
+  "viewClass": "LionParcelLogistics.SkeletonView",
+  "address": "0x13e4b5750",
+  "rect": {
+   "x": 296,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 34,
+  "parentIndex": 17
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x13e4b58f0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 35,
+  "parentIndex": 34,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x13e4b5be0",
+  "rect": {
+   "x": 21,
+   "y": 0,
+   "width": 32,
+   "height": 32
+  },
+  "hittable": false,
+  "index": 36,
+  "parentIndex": 35
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x13e4b66c0",
+  "rect": {
+   "x": 0,
+   "y": 36,
+   "width": 74,
+   "height": 12
+  },
+  "hittable": false,
+  "index": 37,
+  "parentIndex": 35,
+  "baseClass": "UILabel",
+  "label": "Laporan"
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampMenuCellView",
+  "address": "0x147891a00",
+  "rect": {
+   "x": 0,
+   "y": 666.712,
+   "width": 402,
+   "height": 64
+  },
+  "hittable": true,
+  "index": 38,
+  "parentIndex": 11,
+  "baseClass": "UITableViewCell"
+ },
+ {
+  "viewClass": "_UISystemBackgroundView",
+  "address": "0x11d7f02b0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 64
+  },
+  "hittable": true,
+  "index": 39,
+  "parentIndex": 38
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x11d7f04a0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 64
+  },
+  "hittable": false,
+  "index": 40,
+  "parentIndex": 39
+ },
+ {
+  "viewClass": "UITableViewCellContentView",
+  "address": "0x11d7ee020",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 64
+  },
+  "hittable": true,
+  "index": 41,
+  "parentIndex": 38
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampMenuView",
+  "address": "0x11d7bdba0",
+  "rect": {
+   "x": 16,
+   "y": 8,
+   "width": 370,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 42,
+  "parentIndex": 41
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x11d7f7df0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 370,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 43,
+  "parentIndex": 42,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "LionParcelLogistics.SkeletonView",
+  "address": "0x13dc3cef0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 44,
+  "parentIndex": 43
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x13e4b4ed0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 45,
+  "parentIndex": 44,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x13e4b78e0",
+  "rect": {
+   "x": 21,
+   "y": 0,
+   "width": 32,
+   "height": 32
+  },
+  "hittable": false,
+  "index": 46,
+  "parentIndex": 45
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x13e4b8d20",
+  "rect": {
+   "x": 0,
+   "y": 36,
+   "width": 74,
+   "height": 12
+  },
+  "hittable": false,
+  "index": 47,
+  "parentIndex": 45,
+  "baseClass": "UILabel",
+  "label": "Cek Ongkir"
+ },
+ {
+  "viewClass": "LionParcelLogistics.SkeletonView",
+  "address": "0x13e4b62f0",
+  "rect": {
+   "x": 74,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 48,
+  "parentIndex": 43
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x13e4b5090",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 49,
+  "parentIndex": 48,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x13e4b89f0",
+  "rect": {
+   "x": 21,
+   "y": 0,
+   "width": 32,
+   "height": 32
+  },
+  "hittable": false,
+  "index": 50,
+  "parentIndex": 49
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x13e4bf340",
+  "rect": {
+   "x": 0,
+   "y": 36,
+   "width": 74,
+   "height": 12
+  },
+  "hittable": false,
+  "index": 51,
+  "parentIndex": 49,
+  "baseClass": "UILabel",
+  "label": "Lacak Paket"
+ },
+ {
+  "viewClass": "LionParcelLogistics.SkeletonView",
+  "address": "0x13e4c0af0",
+  "rect": {
+   "x": 148,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 52,
+  "parentIndex": 43
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x13e4c0c90",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 53,
+  "parentIndex": 52,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x13e4c0f80",
+  "rect": {
+   "x": 21,
+   "y": 0,
+   "width": 32,
+   "height": 32
+  },
+  "hittable": false,
+  "index": 54,
+  "parentIndex": 53
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x13e43cd40",
+  "rect": {
+   "x": 0,
+   "y": 36,
+   "width": 74,
+   "height": 12
+  },
+  "hittable": false,
+  "index": 55,
+  "parentIndex": 53,
+  "baseClass": "UILabel",
+  "label": "Same Day"
+ },
+ {
+  "viewClass": "LionParcelLogistics.SkeletonView",
+  "address": "0x13e43d4a0",
+  "rect": {
+   "x": 222,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 56,
+  "parentIndex": 43
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x13e43f150",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 57,
+  "parentIndex": 56,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x13e43f440",
+  "rect": {
+   "x": 21,
+   "y": 0,
+   "width": 32,
+   "height": 32
+  },
+  "hittable": false,
+  "index": 58,
+  "parentIndex": 57
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x13e43ff20",
+  "rect": {
+   "x": 0,
+   "y": 36,
+   "width": 74,
+   "height": 12
+  },
+  "hittable": false,
+  "index": 59,
+  "parentIndex": 57,
+  "baseClass": "UILabel",
+  "label": "Klaim Paket"
+ },
+ {
+  "viewClass": "LionParcelLogistics.SkeletonView",
+  "address": "0x13e441db0",
+  "rect": {
+   "x": 296,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 60,
+  "parentIndex": 43
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x13e441f50",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 61,
+  "parentIndex": 60,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x13e442240",
+  "rect": {
+   "x": 21,
+   "y": 0,
+   "width": 32,
+   "height": 32
+  },
+  "hittable": false,
+  "index": 62,
+  "parentIndex": 61
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x13e442d20",
+  "rect": {
+   "x": 0,
+   "y": 36,
+   "width": 74,
+   "height": 12
+  },
+  "hittable": false,
+  "index": 63,
+  "parentIndex": 61,
+  "baseClass": "UILabel",
+  "label": "Laporan"
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampMenuCellView",
+  "address": "0x13c8dfe00",
+  "rect": {
+   "x": 0,
+   "y": 666.712,
+   "width": 402,
+   "height": 64
+  },
+  "hittable": true,
+  "index": 64,
+  "parentIndex": 11,
+  "baseClass": "UITableViewCell",
+  "hidden": true,
+  "alpha0": true
+ },
+ {
+  "viewClass": "_UISystemBackgroundView",
+  "address": "0x13157c790",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 64
+  },
+  "hittable": true,
+  "index": 65,
+  "parentIndex": 64
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x13157c980",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 64
+  },
+  "hittable": false,
+  "index": 66,
+  "parentIndex": 65
+ },
+ {
+  "viewClass": "UITableViewCellContentView",
+  "address": "0x13156be40",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 64
+  },
+  "hittable": true,
+  "index": 67,
+  "parentIndex": 64
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampMenuView",
+  "address": "0x13156c480",
+  "rect": {
+   "x": 16,
+   "y": 8,
+   "width": 370,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 68,
+  "parentIndex": 67
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x13157c2d0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 370,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 69,
+  "parentIndex": 68,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "LionParcelLogistics.SkeletonView",
+  "address": "0x13e215de0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 70,
+  "parentIndex": 69
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x13e2160b0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 71,
+  "parentIndex": 70,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x13e2163a0",
+  "rect": {
+   "x": 21,
+   "y": 0,
+   "width": 32,
+   "height": 32
+  },
+  "hittable": false,
+  "index": 72,
+  "parentIndex": 71
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x13e216d60",
+  "rect": {
+   "x": 0,
+   "y": 36,
+   "width": 74,
+   "height": 12
+  },
+  "hittable": false,
+  "index": 73,
+  "parentIndex": 71,
+  "baseClass": "UILabel",
+  "label": "Cek Ongkir"
+ },
+ {
+  "viewClass": "LionParcelLogistics.SkeletonView",
+  "address": "0x13e2171c0",
+  "rect": {
+   "x": 74,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 74,
+  "parentIndex": 69
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x13e218a40",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 75,
+  "parentIndex": 74,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x13e218d30",
+  "rect": {
+   "x": 21,
+   "y": 0,
+   "width": 32,
+   "height": 32
+  },
+  "hittable": false,
+  "index": 76,
+  "parentIndex": 75
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x13e2196f0",
+  "rect": {
+   "x": 0,
+   "y": 36,
+   "width": 74,
+   "height": 12
+  },
+  "hittable": false,
+  "index": 77,
+  "parentIndex": 75,
+  "baseClass": "UILabel",
+  "label": "Lacak Paket"
+ },
+ {
+  "viewClass": "LionParcelLogistics.SkeletonView",
+  "address": "0x13e219b50",
+  "rect": {
+   "x": 148,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 78,
+  "parentIndex": 69
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x13e21b1e0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 79,
+  "parentIndex": 78,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x13e21b4d0",
+  "rect": {
+   "x": 21,
+   "y": 0,
+   "width": 32,
+   "height": 32
+  },
+  "hittable": false,
+  "index": 80,
+  "parentIndex": 79
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x13e42b440",
+  "rect": {
+   "x": 0,
+   "y": 36,
+   "width": 74,
+   "height": 12
+  },
+  "hittable": false,
+  "index": 81,
+  "parentIndex": 79,
+  "baseClass": "UILabel",
+  "label": "Same Day"
+ },
+ {
+  "viewClass": "LionParcelLogistics.SkeletonView",
+  "address": "0x13e42d150",
+  "rect": {
+   "x": 222,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 82,
+  "parentIndex": 69
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x13e42d2f0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 83,
+  "parentIndex": 82,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x13e42d5e0",
+  "rect": {
+   "x": 21,
+   "y": 0,
+   "width": 32,
+   "height": 32
+  },
+  "hittable": false,
+  "index": 84,
+  "parentIndex": 83
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x13e42e0c0",
+  "rect": {
+   "x": 0,
+   "y": 36,
+   "width": 74,
+   "height": 12
+  },
+  "hittable": false,
+  "index": 85,
+  "parentIndex": 83,
+  "baseClass": "UILabel",
+  "label": "Klaim Paket"
+ },
+ {
+  "viewClass": "LionParcelLogistics.SkeletonView",
+  "address": "0x13e42ff50",
+  "rect": {
+   "x": 296,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 86,
+  "parentIndex": 69
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x13e4300f0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 74,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 87,
+  "parentIndex": 86,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x13e4303e0",
+  "rect": {
+   "x": 21,
+   "y": 0,
+   "width": 32,
+   "height": 32
+  },
+  "hittable": false,
+  "index": 88,
+  "parentIndex": 87
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x13e430ec0",
+  "rect": {
+   "x": 0,
+   "y": 36,
+   "width": 74,
+   "height": 12
+  },
+  "hittable": false,
+  "index": 89,
+  "parentIndex": 87,
+  "baseClass": "UILabel",
+  "label": "Laporan"
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampCheckTariffCellView",
+  "address": "0x13ea0f400",
+  "rect": {
+   "x": 0,
+   "y": 378.712,
+   "width": 402,
+   "height": 82
+  },
+  "hittable": true,
+  "index": 90,
+  "parentIndex": 11,
+  "baseClass": "UITableViewCell",
+  "hidden": true,
+  "alpha0": true
+ },
+ {
+  "viewClass": "UITableViewCellContentView",
+  "address": "0x115969c10",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 82
+  },
+  "hittable": true,
+  "index": 91,
+  "parentIndex": 90
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x1331edc70",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 82
+  },
+  "hittable": true,
+  "index": 92,
+  "parentIndex": 91,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x133104080",
+  "rect": {
+   "x": 16,
+   "y": 12,
+   "width": 370,
+   "height": 30
+  },
+  "hittable": true,
+  "index": 93,
+  "parentIndex": 92
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x1331fb3e0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 147,
+   "height": 30
+  },
+  "hittable": false,
+  "index": 94,
+  "parentIndex": 93,
+  "baseClass": "UILabel",
+  "label": "Cek ongkir dari  ke ...",
+  "clipped": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomButton",
+  "address": "0x1331f0bd0",
+  "rect": {
+   "x": 292,
+   "y": 0,
+   "width": 78,
+   "height": 30
+  },
+  "hittable": true,
+  "index": 95,
+  "parentIndex": 93,
+  "baseClass": "UIButton",
+  "clipped": true
+ },
+ {
+  "viewClass": "UIButtonLabel",
+  "address": "0x1331cbe00",
+  "rect": {
+   "x": 0,
+   "y": 7.66667,
+   "width": 78,
+   "height": 15
+  },
+  "hittable": false,
+  "index": 96,
+  "parentIndex": 95,
+  "label": "Tujuan lainnya"
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x11591d210",
+  "rect": {
+   "x": 16,
+   "y": 50,
+   "width": 370,
+   "height": 20
+  },
+  "hittable": true,
+  "index": 97,
+  "parentIndex": 92,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x1314e60c0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 0,
+   "height": 20
+  },
+  "hittable": true,
+  "index": 98,
+  "parentIndex": 97
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x1314ec290",
+  "rect": {
+   "x": 8,
+   "y": 0,
+   "width": 0,
+   "height": 20
+  },
+  "hittable": true,
+  "index": 99,
+  "parentIndex": 97
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x1314ed390",
+  "rect": {
+   "x": 16,
+   "y": 0,
+   "width": 0,
+   "height": 20
+  },
+  "hittable": true,
+  "index": 100,
+  "parentIndex": 97
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x1314ecac0",
+  "rect": {
+   "x": 24,
+   "y": 0,
+   "width": 346,
+   "height": 20
+  },
+  "hittable": true,
+  "index": 101,
+  "parentIndex": 97
+ },
+ {
+  "viewClass": "LionParcelLogistics.ScrollingStackView",
+  "address": "0x13ea2ec00",
+  "rect": {
+   "x": 16,
+   "y": 70,
+   "width": 370,
+   "height": 65
+  },
+  "hittable": true,
+  "index": 102,
+  "parentIndex": 92,
+  "baseClass": "UIScrollView",
+  "hidden": true,
+  "clipped": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomStackView",
+  "address": "0x1314ffdb0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 0,
+   "height": 65
+  },
+  "hittable": true,
+  "index": 103,
+  "parentIndex": 102,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampCheckTariffCellView",
+  "address": "0x13e9c9200",
+  "rect": {
+   "x": 0,
+   "y": 378.712,
+   "width": 402,
+   "height": 82
+  },
+  "hittable": true,
+  "index": 104,
+  "parentIndex": 11,
+  "baseClass": "UITableViewCell"
+ },
+ {
+  "viewClass": "UITableViewCellContentView",
+  "address": "0x1331c2cd0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 82
+  },
+  "hittable": true,
+  "index": 105,
+  "parentIndex": 104
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x1331bc250",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 82
+  },
+  "hittable": true,
+  "index": 106,
+  "parentIndex": 105,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x1331ff150",
+  "rect": {
+   "x": 16,
+   "y": 12,
+   "width": 370,
+   "height": 30
+  },
+  "hittable": true,
+  "index": 107,
+  "parentIndex": 106
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x133191ec0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 147,
+   "height": 30
+  },
+  "hittable": false,
+  "index": 108,
+  "parentIndex": 107,
+  "baseClass": "UILabel",
+  "label": "Cek ongkir dari  ke ...",
+  "clipped": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomButton",
+  "address": "0x1331921f0",
+  "rect": {
+   "x": 292,
+   "y": 0,
+   "width": 78,
+   "height": 30
+  },
+  "hittable": true,
+  "index": 109,
+  "parentIndex": 107,
+  "baseClass": "UIButton",
+  "clipped": true
+ },
+ {
+  "viewClass": "UIButtonLabel",
+  "address": "0x1331928b0",
+  "rect": {
+   "x": 0,
+   "y": 7.66667,
+   "width": 78,
+   "height": 15
+  },
+  "hittable": false,
+  "index": 110,
+  "parentIndex": 109,
+  "label": "Tujuan lainnya"
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x1331fbbf0",
+  "rect": {
+   "x": 16,
+   "y": 50,
+   "width": 370,
+   "height": 20
+  },
+  "hittable": true,
+  "index": 111,
+  "parentIndex": 106,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x133109170",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 0,
+   "height": 20
+  },
+  "hittable": true,
+  "index": 112,
+  "parentIndex": 111
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x1331097b0",
+  "rect": {
+   "x": 8,
+   "y": 0,
+   "width": 0,
+   "height": 20
+  },
+  "hittable": true,
+  "index": 113,
+  "parentIndex": 111
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x133109df0",
+  "rect": {
+   "x": 16,
+   "y": 0,
+   "width": 0,
+   "height": 20
+  },
+  "hittable": true,
+  "index": 114,
+  "parentIndex": 111
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x13310a430",
+  "rect": {
+   "x": 24,
+   "y": 0,
+   "width": 346,
+   "height": 20
+  },
+  "hittable": true,
+  "index": 115,
+  "parentIndex": 111
+ },
+ {
+  "viewClass": "LionParcelLogistics.ScrollingStackView",
+  "address": "0x13ea2e000",
+  "rect": {
+   "x": 16,
+   "y": 70,
+   "width": 370,
+   "height": 65
+  },
+  "hittable": true,
+  "index": 116,
+  "parentIndex": 106,
+  "baseClass": "UIScrollView",
+  "hidden": true,
+  "clipped": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomStackView",
+  "address": "0x1314fbf80",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 0,
+   "height": 65
+  },
+  "hittable": true,
+  "index": 117,
+  "parentIndex": 116,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampCheckTariffCellView",
+  "address": "0x13e892000",
+  "rect": {
+   "x": 0,
+   "y": 378.712,
+   "width": 402,
+   "height": 82
+  },
+  "hittable": true,
+  "index": 118,
+  "parentIndex": 11,
+  "baseClass": "UITableViewCell",
+  "hidden": true,
+  "alpha0": true
+ },
+ {
+  "viewClass": "UITableViewCellContentView",
+  "address": "0x11d7ae600",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 82
+  },
+  "hittable": true,
+  "index": 119,
+  "parentIndex": 118
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x11d7ae120",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 82
+  },
+  "hittable": true,
+  "index": 120,
+  "parentIndex": 119,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x11d7af960",
+  "rect": {
+   "x": 16,
+   "y": 12,
+   "width": 370,
+   "height": 30
+  },
+  "hittable": true,
+  "index": 121,
+  "parentIndex": 120
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x11d7b1f70",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 115.333,
+   "height": 30
+  },
+  "hittable": false,
+  "index": 122,
+  "parentIndex": 121,
+  "baseClass": "UILabel",
+  "label": "                         ...",
+  "clipped": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomButton",
+  "address": "0x11d7b22a0",
+  "rect": {
+   "x": 292,
+   "y": 0,
+   "width": 78,
+   "height": 30
+  },
+  "hittable": true,
+  "index": 123,
+  "parentIndex": 121,
+  "baseClass": "UIButton",
+  "clipped": true
+ },
+ {
+  "viewClass": "UIButtonLabel",
+  "address": "0x13154fdc0",
+  "rect": {
+   "x": 0,
+   "y": 7.66667,
+   "width": 78,
+   "height": 15
+  },
+  "hittable": false,
+  "index": 124,
+  "parentIndex": 123,
+  "label": "Tujuan lainnya"
+ },
+ {
+  "viewClass": "LionParcelLogistics.BaseStackView",
+  "address": "0x11d7afb00",
+  "rect": {
+   "x": 16,
+   "y": 50,
+   "width": 370,
+   "height": 20
+  },
+  "hittable": true,
+  "index": 125,
+  "parentIndex": 120,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "LionParcelLogistics.SkeletonView",
+  "address": "0x13dc39510",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 86.6667,
+   "height": 20
+  },
+  "hittable": true,
+  "index": 126,
+  "parentIndex": 125
+ },
+ {
+  "viewClass": "LionParcelLogistics.SkeletonView",
+  "address": "0x13dc39a20",
+  "rect": {
+   "x": 94.6667,
+   "y": 0,
+   "width": 86.3333,
+   "height": 20
+  },
+  "hittable": true,
+  "index": 127,
+  "parentIndex": 125
+ },
+ {
+  "viewClass": "LionParcelLogistics.SkeletonView",
+  "address": "0x13dc39f30",
+  "rect": {
+   "x": 189,
+   "y": 0,
+   "width": 86.6667,
+   "height": 20
+  },
+  "hittable": true,
+  "index": 128,
+  "parentIndex": 125
+ },
+ {
+  "viewClass": "LionParcelLogistics.SkeletonView",
+  "address": "0x13dc3a440",
+  "rect": {
+   "x": 283.667,
+   "y": 0,
+   "width": 86.3333,
+   "height": 20
+  },
+  "hittable": true,
+  "index": 129,
+  "parentIndex": 125
+ },
+ {
+  "viewClass": "LionParcelLogistics.ScrollingStackView",
+  "address": "0x147895200",
+  "rect": {
+   "x": 16,
+   "y": 70,
+   "width": 370,
+   "height": 65
+  },
+  "hittable": true,
+  "index": 130,
+  "parentIndex": 120,
+  "baseClass": "UIScrollView",
+  "hidden": true,
+  "clipped": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomStackView",
+  "address": "0x11d7afcc0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 0,
+   "height": 65
+  },
+  "hittable": true,
+  "index": 131,
+  "parentIndex": 130,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampBannerCellView",
+  "address": "0x13e9bea00",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 293.712
+  },
+  "hittable": true,
+  "index": 132,
+  "parentIndex": 11,
+  "baseClass": "UITableViewCell",
+  "hidden": true,
+  "alpha0": true
+ },
+ {
+  "viewClass": "_UISystemBackgroundView",
+  "address": "0x1331e75b0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 294
+  },
+  "hittable": true,
+  "index": 133,
+  "parentIndex": 132
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x1331e77a0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 294
+  },
+  "hittable": false,
+  "index": 134,
+  "parentIndex": 133
+ },
+ {
+  "viewClass": "UITableViewCellContentView",
+  "address": "0x1331b90d0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 293.712
+  },
+  "hittable": true,
+  "index": 135,
+  "parentIndex": 132
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampBanner",
+  "address": "0x1331bed20",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 251.667
+  },
+  "hittable": true,
+  "index": 136,
+  "parentIndex": 135
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x1331d9c60",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 251.667
+  },
+  "hittable": true,
+  "index": 137,
+  "parentIndex": 136
+ },
+ {
+  "viewClass": "UICollectionView",
+  "address": "0x13e9c2000",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 251.667
+  },
+  "hittable": true,
+  "index": 138,
+  "parentIndex": 137,
+  "clipped": true
+ },
+ {
+  "viewClass": "_UIScrollViewScrollIndicator",
+  "address": "0x1331eac50",
+  "rect": {
+   "x": 396,
+   "y": 3,
+   "width": 3,
+   "height": 245.667
+  },
+  "hittable": true,
+  "index": 139,
+  "parentIndex": 138,
+  "alpha0": true
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x1331eae20",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 3,
+   "height": 245.667
+  },
+  "hittable": true,
+  "index": 140,
+  "parentIndex": 139
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomPageControl",
+  "address": "0x1331d96c0",
+  "rect": {
+   "x": 201,
+   "y": 217.667,
+   "width": 0,
+   "height": 0
+  },
+  "hittable": true,
+  "index": 141,
+  "parentIndex": 137,
+  "hidden": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomStackView",
+  "address": "0x1331d98a0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 0,
+   "height": 0
+  },
+  "hittable": true,
+  "index": 142,
+  "parentIndex": 141,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampBalanceView",
+  "address": "0x1331dea10",
+  "rect": {
+   "x": 16,
+   "y": 221.667,
+   "width": 370,
+   "height": 60
+  },
+  "hittable": true,
+  "index": 143,
+  "parentIndex": 135
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x1331e0210",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 370,
+   "height": 60
+  },
+  "hittable": false,
+  "index": 144,
+  "parentIndex": 143
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomStackView",
+  "address": "0x1331e0530",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 370,
+   "height": 60
+  },
+  "hittable": true,
+  "index": 145,
+  "parentIndex": 143,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x1331e0ca0",
+  "rect": {
+   "x": 8,
+   "y": 18,
+   "width": 24,
+   "height": 24
+  },
+  "hittable": false,
+  "index": 146,
+  "parentIndex": 145
+ },
+ {
+  "viewClass": "LionParcelLogistics.UserBalanceView",
+  "address": "0x1331e0fc0",
+  "rect": {
+   "x": 40,
+   "y": 9,
+   "width": 322,
+   "height": 42
+  },
+  "hittable": true,
+  "index": 147,
+  "parentIndex": 145
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomStackView",
+  "address": "0x1331e12e0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 173,
+   "height": 42
+  },
+  "hittable": true,
+  "index": 148,
+  "parentIndex": 147,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x1331e22f0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 173,
+   "height": 26.3333
+  },
+  "hittable": true,
+  "index": 149,
+  "parentIndex": 148,
+  "baseClass": "UILabel",
+  "label": "Rp0"
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x1331e29d0",
+  "rect": {
+   "x": 0,
+   "y": 27.3333,
+   "width": 173,
+   "height": 14.6667
+  },
+  "hittable": true,
+  "index": 150,
+  "parentIndex": 148,
+  "baseClass": "UILabel",
+  "label": "0 Parcel Poin"
+ },
+ {
+  "viewClass": "LionParcelLogistics.VerticalSmallDashedView",
+  "address": "0x1331e1850",
+  "rect": {
+   "x": 181,
+   "y": 0,
+   "width": 1,
+   "height": 42
+  },
+  "hittable": true,
+  "index": 151,
+  "parentIndex": 147
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomStackView",
+  "address": "0x1331e1a00",
+  "rect": {
+   "x": 190,
+   "y": 0,
+   "width": 132,
+   "height": 42
+  },
+  "hittable": true,
+  "index": 152,
+  "parentIndex": 147,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "LionParcelLogistics.BalanceBarButtonItem",
+  "address": "0x1331e30b0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 62,
+   "height": 42
+  },
+  "hittable": true,
+  "index": 153,
+  "parentIndex": 152,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x1331e3b50",
+  "rect": {
+   "x": 19,
+   "y": 0,
+   "width": 24,
+   "height": 24
+  },
+  "hittable": true,
+  "index": 154,
+  "parentIndex": 153
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x1331e36f0",
+  "rect": {
+   "x": 2,
+   "y": 2,
+   "width": 20,
+   "height": 20
+  },
+  "hittable": false,
+  "index": 155,
+  "parentIndex": 154,
+  "clipped": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x1331e3290",
+  "rect": {
+   "x": 0,
+   "y": 28,
+   "width": 62,
+   "height": 14
+  },
+  "hittable": false,
+  "index": 156,
+  "parentIndex": 153,
+  "baseClass": "UILabel",
+  "label": "Isi Koin"
+ },
+ {
+  "viewClass": "LionParcelLogistics.BalanceBarButtonItem",
+  "address": "0x1331e4120",
+  "rect": {
+   "x": 70,
+   "y": 0,
+   "width": 62,
+   "height": 42
+  },
+  "hittable": true,
+  "index": 157,
+  "parentIndex": 152,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x1331e4a90",
+  "rect": {
+   "x": 19,
+   "y": 0,
+   "width": 24,
+   "height": 24
+  },
+  "hittable": true,
+  "index": 158,
+  "parentIndex": 157
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x1331e4630",
+  "rect": {
+   "x": 2,
+   "y": 2,
+   "width": 20,
+   "height": 20
+  },
+  "hittable": false,
+  "index": 159,
+  "parentIndex": 158,
+  "clipped": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x1331e4300",
+  "rect": {
+   "x": 0,
+   "y": 28,
+   "width": 62,
+   "height": 14
+  },
+  "hittable": false,
+  "index": 160,
+  "parentIndex": 157,
+  "baseClass": "UILabel",
+  "label": "Tarik Saldo"
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomStackView",
+  "address": "0x1331e57f0",
+  "rect": {
+   "x": 362,
+   "y": 12.6667,
+   "width": 0,
+   "height": 35
+  },
+  "hittable": true,
+  "index": 161,
+  "parentIndex": 145,
+  "baseClass": "UIStackView",
+  "hidden": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x1331df620",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 0,
+   "height": 19.3333
+  },
+  "hittable": false,
+  "index": 162,
+  "parentIndex": 161,
+  "baseClass": "UILabel",
+  "label": "Hai, Sobat Lio 👋"
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x1331dfc80",
+  "rect": {
+   "x": 0,
+   "y": 20.3333,
+   "width": 0,
+   "height": 14.6667
+  },
+  "hittable": false,
+  "index": 163,
+  "parentIndex": 161,
+  "baseClass": "UILabel",
+  "label": "Masuk & nikmati promo ong..."
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomButton",
+  "address": "0x1331e59b0",
+  "rect": {
+   "x": 362,
+   "y": 15,
+   "width": 90,
+   "height": 30
+  },
+  "hittable": true,
+  "index": 164,
+  "parentIndex": 145,
+  "baseClass": "UIButton",
+  "hidden": true
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x1331f6b80",
+  "rect": {
+   "x": 64,
+   "y": 8,
+   "width": 14,
+   "height": 14
+  },
+  "hittable": false,
+  "index": 165,
+  "parentIndex": 164,
+  "clipped": true
+ },
+ {
+  "viewClass": "UIButtonLabel",
+  "address": "0x1331e6a90",
+  "rect": {
+   "x": 20,
+   "y": 7.66667,
+   "width": 36,
+   "height": 15
+  },
+  "hittable": false,
+  "index": 166,
+  "parentIndex": 164,
+  "label": "Masuk"
+ },
+ {
+  "viewClass": "LionParcelLogistics.RibbonTagView",
+  "address": "0x1331dec60",
+  "rect": {
+   "x": -5,
+   "y": -7,
+   "width": 118.667,
+   "height": 24
+  },
+  "hittable": true,
+  "index": 167,
+  "parentIndex": 143
+ },
+ {
+  "viewClass": "UILabel",
+  "address": "0x1331deec0",
+  "rect": {
+   "x": 4,
+   "y": 0,
+   "width": 106.667,
+   "height": 18
+  },
+  "hittable": false,
+  "index": 168,
+  "parentIndex": 167,
+  "label": "UNLeash: LioLioPromo 3"
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampBannerCellView",
+  "address": "0x147848600",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 293.712
+  },
+  "hittable": true,
+  "index": 169,
+  "parentIndex": 11,
+  "baseClass": "UITableViewCell"
+ },
+ {
+  "viewClass": "_UISystemBackgroundView",
+  "address": "0x1314dd8b0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 294
+  },
+  "hittable": true,
+  "index": 170,
+  "parentIndex": 169
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x1314ddaa0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 294
+  },
+  "hittable": false,
+  "index": 171,
+  "parentIndex": 170
+ },
+ {
+  "viewClass": "UITableViewCellContentView",
+  "address": "0x11d79d6a0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 293.712
+  },
+  "hittable": true,
+  "index": 172,
+  "parentIndex": 169
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampBanner",
+  "address": "0x131545790",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 251.667
+  },
+  "hittable": true,
+  "index": 173,
+  "parentIndex": 172
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x11d791a80",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 251.667
+  },
+  "hittable": true,
+  "index": 174,
+  "parentIndex": 173
+ },
+ {
+  "viewClass": "UICollectionView",
+  "address": "0x13f848e00",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 251.667
+  },
+  "hittable": true,
+  "index": 175,
+  "parentIndex": 174,
+  "clipped": true
+ },
+ {
+  "viewClass": "_UIScrollViewScrollIndicator",
+  "address": "0x1314e02b0",
+  "rect": {
+   "x": 396,
+   "y": 3,
+   "width": 3,
+   "height": 245.667
+  },
+  "hittable": true,
+  "index": 176,
+  "parentIndex": 175,
+  "alpha0": true
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x1314e0480",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 3,
+   "height": 245.667
+  },
+  "hittable": true,
+  "index": 177,
+  "parentIndex": 176
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomPageControl",
+  "address": "0x11d79c910",
+  "rect": {
+   "x": 201,
+   "y": 217.667,
+   "width": 0,
+   "height": 0
+  },
+  "hittable": true,
+  "index": 178,
+  "parentIndex": 174,
+  "hidden": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomStackView",
+  "address": "0x11d79caf0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 0,
+   "height": 0
+  },
+  "hittable": true,
+  "index": 179,
+  "parentIndex": 178,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampBalanceView",
+  "address": "0x13dc1bd50",
+  "rect": {
+   "x": 16,
+   "y": 221.667,
+   "width": 370,
+   "height": 60
+  },
+  "hittable": true,
+  "index": 180,
+  "parentIndex": 172
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x13dc1da90",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 370,
+   "height": 60
+  },
+  "hittable": false,
+  "index": 181,
+  "parentIndex": 180
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomStackView",
+  "address": "0x13dc1ddb0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 370,
+   "height": 60
+  },
+  "hittable": true,
+  "index": 182,
+  "parentIndex": 180,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x13dc1ecd0",
+  "rect": {
+   "x": 8,
+   "y": 18,
+   "width": 24,
+   "height": 24
+  },
+  "hittable": false,
+  "index": 183,
+  "parentIndex": 182
+ },
+ {
+  "viewClass": "LionParcelLogistics.UserBalanceView",
+  "address": "0x13dc1eff0",
+  "rect": {
+   "x": 40,
+   "y": 9,
+   "width": 322,
+   "height": 42
+  },
+  "hittable": true,
+  "index": 184,
+  "parentIndex": 182
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomStackView",
+  "address": "0x13dc1f510",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 173,
+   "height": 42
+  },
+  "hittable": true,
+  "index": 185,
+  "parentIndex": 184,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x1314d5f50",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 173,
+   "height": 26.3333
+  },
+  "hittable": true,
+  "index": 186,
+  "parentIndex": 185,
+  "baseClass": "UILabel",
+  "label": "Rp0"
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x1314dab20",
+  "rect": {
+   "x": 0,
+   "y": 27.3333,
+   "width": 173,
+   "height": 14.6667
+  },
+  "hittable": true,
+  "index": 187,
+  "parentIndex": 185,
+  "baseClass": "UILabel",
+  "label": "0 Parcel Poin"
+ },
+ {
+  "viewClass": "LionParcelLogistics.VerticalSmallDashedView",
+  "address": "0x13dc1fa80",
+  "rect": {
+   "x": 181,
+   "y": 0,
+   "width": 1,
+   "height": 42
+  },
+  "hittable": true,
+  "index": 188,
+  "parentIndex": 184
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomStackView",
+  "address": "0x1314d5d90",
+  "rect": {
+   "x": 190,
+   "y": 0,
+   "width": 132,
+   "height": 42
+  },
+  "hittable": true,
+  "index": 189,
+  "parentIndex": 184,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "LionParcelLogistics.BalanceBarButtonItem",
+  "address": "0x1314db610",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 62,
+   "height": 42
+  },
+  "hittable": true,
+  "index": 190,
+  "parentIndex": 189,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x1314dbf20",
+  "rect": {
+   "x": 19,
+   "y": 0,
+   "width": 24,
+   "height": 24
+  },
+  "hittable": true,
+  "index": 191,
+  "parentIndex": 190
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x1314dbd20",
+  "rect": {
+   "x": 2,
+   "y": 2,
+   "width": 20,
+   "height": 20
+  },
+  "hittable": false,
+  "index": 192,
+  "parentIndex": 191,
+  "clipped": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x1314db9f0",
+  "rect": {
+   "x": 0,
+   "y": 28,
+   "width": 62,
+   "height": 14
+  },
+  "hittable": false,
+  "index": 193,
+  "parentIndex": 190,
+  "baseClass": "UILabel",
+  "label": "Isi Koin"
+ },
+ {
+  "viewClass": "LionParcelLogistics.BalanceBarButtonItem",
+  "address": "0x1314db7f0",
+  "rect": {
+   "x": 70,
+   "y": 0,
+   "width": 62,
+   "height": 42
+  },
+  "hittable": true,
+  "index": 194,
+  "parentIndex": 189,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x1314dc2c0",
+  "rect": {
+   "x": 19,
+   "y": 0,
+   "width": 24,
+   "height": 24
+  },
+  "hittable": true,
+  "index": 195,
+  "parentIndex": 194
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x1314dc0c0",
+  "rect": {
+   "x": 2,
+   "y": 2,
+   "width": 20,
+   "height": 20
+  },
+  "hittable": false,
+  "index": 196,
+  "parentIndex": 195,
+  "clipped": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x1314d5990",
+  "rect": {
+   "x": 0,
+   "y": 28,
+   "width": 62,
+   "height": 14
+  },
+  "hittable": false,
+  "index": 197,
+  "parentIndex": 194,
+  "baseClass": "UILabel",
+  "label": "Tarik Saldo"
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomStackView",
+  "address": "0x1314dc460",
+  "rect": {
+   "x": 362,
+   "y": 12.6667,
+   "width": 0,
+   "height": 35
+  },
+  "hittable": true,
+  "index": 198,
+  "parentIndex": 182,
+  "baseClass": "UIStackView",
+  "hidden": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x13dc1c960",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 0,
+   "height": 19.3333
+  },
+  "hittable": false,
+  "index": 199,
+  "parentIndex": 198,
+  "baseClass": "UILabel",
+  "label": "Hai, Sobat Lio 👋"
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x13dc1d020",
+  "rect": {
+   "x": 0,
+   "y": 20.3333,
+   "width": 0,
+   "height": 14.6667
+  },
+  "hittable": false,
+  "index": 200,
+  "parentIndex": 198,
+  "baseClass": "UILabel",
+  "label": "Masuk & nikmati promo ong..."
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomButton",
+  "address": "0x1314dc620",
+  "rect": {
+   "x": 362,
+   "y": 15,
+   "width": 90,
+   "height": 30
+  },
+  "hittable": true,
+  "index": 201,
+  "parentIndex": 182,
+  "baseClass": "UIButton",
+  "hidden": true
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x1314ea960",
+  "rect": {
+   "x": 64,
+   "y": 8,
+   "width": 14,
+   "height": 14
+  },
+  "hittable": false,
+  "index": 202,
+  "parentIndex": 201,
+  "clipped": true
+ },
+ {
+  "viewClass": "UIButtonLabel",
+  "address": "0x1314dc920",
+  "rect": {
+   "x": 20,
+   "y": 7.66667,
+   "width": 36,
+   "height": 15
+  },
+  "hittable": false,
+  "index": 203,
+  "parentIndex": 201,
+  "label": "Masuk"
+ },
+ {
+  "viewClass": "LionParcelLogistics.RibbonTagView",
+  "address": "0x13dc1bfa0",
+  "rect": {
+   "x": -5,
+   "y": -7,
+   "width": 118.667,
+   "height": 24
+  },
+  "hittable": true,
+  "index": 204,
+  "parentIndex": 180
+ },
+ {
+  "viewClass": "UILabel",
+  "address": "0x13dc1c200",
+  "rect": {
+   "x": 4,
+   "y": 0,
+   "width": 106.667,
+   "height": 18
+  },
+  "hittable": false,
+  "index": 205,
+  "parentIndex": 204,
+  "label": "UNLeash: LioLioPromo 3"
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampLioJastipCellView",
+  "address": "0x13f88e000",
+  "rect": {
+   "x": 0,
+   "y": 606.712,
+   "width": 402,
+   "height": 60
+  },
+  "hittable": true,
+  "index": 206,
+  "parentIndex": 11,
+  "baseClass": "UITableViewCell",
+  "hidden": true,
+  "alpha0": true
+ },
+ {
+  "viewClass": "UITableViewCellContentView",
+  "address": "0x13dc3d250",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 60
+  },
+  "hittable": true,
+  "index": 207,
+  "parentIndex": 206
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x13dc3d880",
+  "rect": {
+   "x": 16,
+   "y": -2,
+   "width": 370,
+   "height": 56
+  },
+  "hittable": true,
+  "index": 208,
+  "parentIndex": 207
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomStackView",
+  "address": "0x13dc3ddd0",
+  "rect": {
+   "x": 8,
+   "y": 8,
+   "width": 354,
+   "height": 40
+  },
+  "hittable": true,
+  "index": 209,
+  "parentIndex": 208,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x13dc3df90",
+  "rect": {
+   "x": 6,
+   "y": 0,
+   "width": 40,
+   "height": 40
+  },
+  "hittable": false,
+  "index": 210,
+  "parentIndex": 209
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomStackView",
+  "address": "0x13dc3e830",
+  "rect": {
+   "x": 54,
+   "y": 4.66667,
+   "width": 294,
+   "height": 30.6667
+  },
+  "hittable": true,
+  "index": 211,
+  "parentIndex": 209,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x13dc3e9f0",
+  "rect": {
+   "x": 0,
+   "y": 5.66667,
+   "width": 63,
+   "height": 19.3333
+  },
+  "hittable": false,
+  "index": 212,
+  "parentIndex": 211,
+  "baseClass": "UILabel",
+  "label": "LioJastip"
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x13dc3ee50",
+  "rect": {
+   "x": 71,
+   "y": 0,
+   "width": 223,
+   "height": 30.6667
+  },
+  "hittable": true,
+  "index": 213,
+  "parentIndex": 211,
+  "clipped": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomStackView",
+  "address": "0x13dc3f2a0",
+  "rect": {
+   "x": 4,
+   "y": 8,
+   "width": 215,
+   "height": 14.6667
+  },
+  "hittable": true,
+  "index": 214,
+  "parentIndex": 213,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x13dc3fec0",
+  "rect": {
+   "x": 0,
+   "y": 0.333333,
+   "width": 14,
+   "height": 14
+  },
+  "hittable": false,
+  "index": 215,
+  "parentIndex": 214
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x13dc3f460",
+  "rect": {
+   "x": 18,
+   "y": 0,
+   "width": 197,
+   "height": 14.6667
+  },
+  "hittable": true,
+  "index": 216,
+  "parentIndex": 214,
+  "clipped": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x13dc3f600",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 197,
+   "height": 14.6667
+  },
+  "hittable": false,
+  "index": 217,
+  "parentIndex": 216,
+  "baseClass": "UILabel",
+  "label": "Kirim tagihan mudah via l..."
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x13dc3fa60",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 197,
+   "height": 14.6667
+  },
+  "hittable": false,
+  "index": 218,
+  "parentIndex": 216,
+  "baseClass": "UILabel",
+  "label": "Kirim tagihan mudah via l...",
+  "alpha0": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampPickUpDropoffMenuSwiftUICellView",
+  "address": "0x13e909000",
+  "rect": {
+   "x": 0,
+   "y": 460.712,
+   "width": 402,
+   "height": 146
+  },
+  "hittable": true,
+  "index": 219,
+  "parentIndex": 11,
+  "baseClass": "UITableViewCell",
+  "hidden": true,
+  "alpha0": true
+ },
+ {
+  "viewClass": "UITableViewCellContentView",
+  "address": "0x1331c9e30",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 146
+  },
+  "hittable": true,
+  "index": 220,
+  "parentIndex": 219
+ },
+ {
+  "viewClass": "_TtGC7SwiftUI14_UIHostingViewV9LPScreens30PickUpDropoffMenuContainerView_",
+  "address": "0x1331ca1f0",
+  "rect": {
+   "x": 16,
+   "y": 12,
+   "width": 370,
+   "height": 122
+  },
+  "hittable": true,
+  "index": 221,
+  "parentIndex": 220
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampLioJastipCellView",
+  "address": "0x13e815800",
+  "rect": {
+   "x": 0,
+   "y": 606.712,
+   "width": 402,
+   "height": 60
+  },
+  "hittable": true,
+  "index": 222,
+  "parentIndex": 11,
+  "baseClass": "UITableViewCell"
+ },
+ {
+  "viewClass": "UITableViewCellContentView",
+  "address": "0x118223460",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 60
+  },
+  "hittable": true,
+  "index": 223,
+  "parentIndex": 222
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x118222c40",
+  "rect": {
+   "x": 16,
+   "y": -2,
+   "width": 370,
+   "height": 56
+  },
+  "hittable": true,
+  "index": 224,
+  "parentIndex": 223
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomStackView",
+  "address": "0x11821cea0",
+  "rect": {
+   "x": 8,
+   "y": 8,
+   "width": 354,
+   "height": 40
+  },
+  "hittable": true,
+  "index": 225,
+  "parentIndex": 224,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x118225420",
+  "rect": {
+   "x": 6,
+   "y": 0,
+   "width": 40,
+   "height": 40
+  },
+  "hittable": false,
+  "index": 226,
+  "parentIndex": 225
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomStackView",
+  "address": "0x118225620",
+  "rect": {
+   "x": 54,
+   "y": 4.66667,
+   "width": 294,
+   "height": 30.6667
+  },
+  "hittable": true,
+  "index": 227,
+  "parentIndex": 225,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x1182257e0",
+  "rect": {
+   "x": 0,
+   "y": 5.66667,
+   "width": 63,
+   "height": 19.3333
+  },
+  "hittable": false,
+  "index": 228,
+  "parentIndex": 227,
+  "baseClass": "UILabel",
+  "label": "LioJastip"
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x1160dbe60",
+  "rect": {
+   "x": 71,
+   "y": 0,
+   "width": 223,
+   "height": 30.6667
+  },
+  "hittable": true,
+  "index": 229,
+  "parentIndex": 227,
+  "clipped": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomStackView",
+  "address": "0x11d7ce420",
+  "rect": {
+   "x": 4,
+   "y": 8,
+   "width": 215,
+   "height": 14.6667
+  },
+  "hittable": true,
+  "index": 230,
+  "parentIndex": 229,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x11d7b89e0",
+  "rect": {
+   "x": 0,
+   "y": 0.333333,
+   "width": 14,
+   "height": 14
+  },
+  "hittable": false,
+  "index": 231,
+  "parentIndex": 230
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x11d7f67f0",
+  "rect": {
+   "x": 18,
+   "y": 0,
+   "width": 197,
+   "height": 14.6667
+  },
+  "hittable": true,
+  "index": 232,
+  "parentIndex": 230,
+  "clipped": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x11d788df0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 197,
+   "height": 14.6667
+  },
+  "hittable": false,
+  "index": 233,
+  "parentIndex": 232,
+  "baseClass": "UILabel",
+  "label": "Kirim tagihan mudah via l..."
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x11d7cb1b0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 197,
+   "height": 14.6667
+  },
+  "hittable": false,
+  "index": 234,
+  "parentIndex": 232,
+  "baseClass": "UILabel",
+  "label": "Kirim tagihan mudah via l...",
+  "alpha0": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampPickUpDropoffMenuSwiftUICellView",
+  "address": "0x13eb1b000",
+  "rect": {
+   "x": 0,
+   "y": 460.712,
+   "width": 402,
+   "height": 146
+  },
+  "hittable": true,
+  "index": 235,
+  "parentIndex": 11,
+  "baseClass": "UITableViewCell"
+ },
+ {
+  "viewClass": "UITableViewCellContentView",
+  "address": "0x1331ab580",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 146
+  },
+  "hittable": true,
+  "index": 236,
+  "parentIndex": 235
+ },
+ {
+  "viewClass": "_TtGC7SwiftUI14_UIHostingViewV9LPScreens30PickUpDropoffMenuContainerView_",
+  "address": "0x1331bf110",
+  "rect": {
+   "x": 16,
+   "y": 12,
+   "width": 370,
+   "height": 122
+  },
+  "hittable": true,
+  "index": 237,
+  "parentIndex": 236
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampDynamicBannerCellView",
+  "address": "0x13e8fc200",
+  "rect": {
+   "x": 0,
+   "y": 809.712,
+   "width": 402,
+   "height": 147.667
+  },
+  "hittable": true,
+  "index": 238,
+  "parentIndex": 11,
+  "baseClass": "UITableViewCell"
+ },
+ {
+  "viewClass": "_UISystemBackgroundView",
+  "address": "0x1314fcf40",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 147.667
+  },
+  "hittable": true,
+  "index": 239,
+  "parentIndex": 238
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x1314f9730",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 147.667
+  },
+  "hittable": false,
+  "index": 240,
+  "parentIndex": 239
+ },
+ {
+  "viewClass": "UITableViewCellContentView",
+  "address": "0x1314f7ff0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 147.667
+  },
+  "hittable": true,
+  "index": 241,
+  "parentIndex": 238
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x131444020",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 147.667
+  },
+  "hittable": true,
+  "index": 242,
+  "parentIndex": 241
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x1314fdcd0",
+  "rect": {
+   "x": 16,
+   "y": 6,
+   "width": 370,
+   "height": 28
+  },
+  "hittable": false,
+  "index": 243,
+  "parentIndex": 242,
+  "baseClass": "UILabel",
+  "label": "Ambil hadiah voucher kamu...",
+  "hidden": true
+ },
+ {
+  "viewClass": "Lottie.LottieAnimationView",
+  "address": "0x1159a4210",
+  "rect": {
+   "x": 16,
+   "y": 6,
+   "width": 248,
+   "height": 28
+  },
+  "hittable": true,
+  "index": 244,
+  "parentIndex": 242,
+  "hidden": true,
+  "clipped": true
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x1314fe000",
+  "rect": {
+   "x": 16,
+   "y": 6,
+   "width": 248,
+   "height": 28
+  },
+  "hittable": false,
+  "index": 245,
+  "parentIndex": 242,
+  "clipped": true
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x1314fe790",
+  "rect": {
+   "x": 16,
+   "y": 42,
+   "width": 370,
+   "height": 99.6667
+  },
+  "hittable": true,
+  "index": 246,
+  "parentIndex": 242,
+  "clipped": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampVoucherCodeCellView",
+  "address": "0x13eb17c00",
+  "rect": {
+   "x": 0,
+   "y": 730.712,
+   "width": 402,
+   "height": 79
+  },
+  "hittable": true,
+  "index": 247,
+  "parentIndex": 11,
+  "baseClass": "UITableViewCell"
+ },
+ {
+  "viewClass": "UITableViewCellContentView",
+  "address": "0x11592adb0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 79
+  },
+  "hittable": true,
+  "index": 248,
+  "parentIndex": 247
+ },
+ {
+  "viewClass": "_TtGC7SwiftUI14_UIHostingViewV9LPScreens20VoucherCodeEntryView_",
+  "address": "0x1314f2470",
+  "rect": {
+   "x": 16,
+   "y": 12,
+   "width": 370,
+   "height": 55
+  },
+  "hittable": true,
+  "index": 249,
+  "parentIndex": 248
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampInfoBarCellView",
+  "address": "0x147865c00",
+  "rect": {
+   "x": 0,
+   "y": 293.712,
+   "width": 402,
+   "height": 85
+  },
+  "hittable": true,
+  "index": 250,
+  "parentIndex": 11,
+  "baseClass": "UITableViewCell"
+ },
+ {
+  "viewClass": "_UISystemBackgroundView",
+  "address": "0x11d7aaa70",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 85
+  },
+  "hittable": true,
+  "index": 251,
+  "parentIndex": 250
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x11d7aac60",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 85
+  },
+  "hittable": false,
+  "index": 252,
+  "parentIndex": 251
+ },
+ {
+  "viewClass": "UITableViewCellContentView",
+  "address": "0x11d7a5880",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 85
+  },
+  "hittable": true,
+  "index": 253,
+  "parentIndex": 250
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomStackView",
+  "address": "0x11d7aa8b0",
+  "rect": {
+   "x": 16,
+   "y": 6,
+   "width": 370,
+   "height": 73
+  },
+  "hittable": true,
+  "index": 254,
+  "parentIndex": 253,
+  "baseClass": "UIStackView",
+  "clipped": true
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x11d7ac080",
+  "rect": {
+   "x": 8,
+   "y": 4,
+   "width": 20,
+   "height": 65
+  },
+  "hittable": false,
+  "index": 255,
+  "parentIndex": 254
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomStackView",
+  "address": "0x11d7ac3a0",
+  "rect": {
+   "x": 36,
+   "y": 4,
+   "width": 302,
+   "height": 65
+  },
+  "hittable": true,
+  "index": 256,
+  "parentIndex": 254,
+  "baseClass": "UIStackView"
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x11d7ad000",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 302,
+   "height": 15
+  },
+  "hittable": false,
+  "index": 257,
+  "parentIndex": 256,
+  "baseClass": "UILabel",
+  "label": "✨Pengumuman✨ "
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x11d7ad6c0",
+  "rect": {
+   "x": 0,
+   "y": 17,
+   "width": 302,
+   "height": 48
+  },
+  "hittable": false,
+  "index": 258,
+  "parentIndex": 256,
+  "baseClass": "UILabel",
+  "label": "proses pengiriman barang ..."
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x11d7ac560",
+  "rect": {
+   "x": 346,
+   "y": 4,
+   "width": 16,
+   "height": 65
+  },
+  "hittable": true,
+  "index": 259,
+  "parentIndex": 254
+ },
+ {
+  "viewClass": "UIButton",
+  "address": "0x11d7ac700",
+  "rect": {
+   "x": 0,
+   "y": 24.6667,
+   "width": 16,
+   "height": 16
+  },
+  "hittable": true,
+  "index": 260,
+  "parentIndex": 259
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x1314ee450",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 16,
+   "height": 16
+  },
+  "hittable": false,
+  "index": 261,
+  "parentIndex": 260,
+  "clipped": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampPickUpDropoffMenuSwiftUICellView",
+  "address": "0x13e80f000",
+  "rect": {
+   "x": 0,
+   "y": 460.712,
+   "width": 402,
+   "height": 146
+  },
+  "hittable": true,
+  "index": 262,
+  "parentIndex": 11,
+  "baseClass": "UITableViewCell",
+  "hidden": true,
+  "alpha0": true
+ },
+ {
+  "viewClass": "UITableViewCellContentView",
+  "address": "0x1331ba080",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 146
+  },
+  "hittable": true,
+  "index": 263,
+  "parentIndex": 262
+ },
+ {
+  "viewClass": "_TtGC7SwiftUI14_UIHostingViewV9LPScreens30PickUpDropoffMenuContainerView_",
+  "address": "0x1331ba440",
+  "rect": {
+   "x": 16,
+   "y": 12,
+   "width": 370,
+   "height": 122
+  },
+  "hittable": true,
+  "index": 264,
+  "parentIndex": 263
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampPickUpDropoffMenuSwiftUICellView",
+  "address": "0x147897800",
+  "rect": {
+   "x": 0,
+   "y": 460.712,
+   "width": 402,
+   "height": 146
+  },
+  "hittable": true,
+  "index": 265,
+  "parentIndex": 11,
+  "baseClass": "UITableViewCell",
+  "hidden": true,
+  "alpha0": true
+ },
+ {
+  "viewClass": "UITableViewCellContentView",
+  "address": "0x11d7b1970",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 146
+  },
+  "hittable": true,
+  "index": 266,
+  "parentIndex": 265
+ },
+ {
+  "viewClass": "_TtGC7SwiftUI14_UIHostingViewV9LPScreens30PickUpDropoffMenuContainerView_",
+  "address": "0x11d7ba340",
+  "rect": {
+   "x": 16,
+   "y": 12,
+   "width": 370,
+   "height": 122
+  },
+  "hittable": true,
+  "index": 267,
+  "parentIndex": 266
+ },
+ {
+  "viewClass": "UIRefreshControl",
+  "address": "0x116235b40",
+  "rect": {
+   "x": 0,
+   "y": 7.5,
+   "width": 402,
+   "height": 60
+  },
+  "hittable": true,
+  "index": 268,
+  "parentIndex": 11,
+  "hidden": true
+ },
+ {
+  "viewClass": "_UIRefreshControlModernContentView",
+  "address": "0x116235f70",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 536,
+   "height": 60
+  },
+  "hittable": true,
+  "index": 269,
+  "parentIndex": 268
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x116237280",
+  "rect": {
+   "x": 218,
+   "y": -20,
+   "width": 100,
+   "height": 100
+  },
+  "hittable": true,
+  "index": 270,
+  "parentIndex": 269
+ },
+ {
+  "viewClass": "_UIRefreshControlModernReplicatorView",
+  "address": "0x116237420",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 100,
+   "height": 100
+  },
+  "hittable": true,
+  "index": 271,
+  "parentIndex": 270
+ },
+ {
+  "viewClass": "_UIRefreshControlSeedView",
+  "address": "0x116237ae0",
+  "rect": {
+   "x": 48.3333,
+   "y": 35,
+   "width": 3.66667,
+   "height": 10
+  },
+  "hittable": true,
+  "index": 272,
+  "parentIndex": 271
+ },
+ {
+  "viewClass": "UILabel",
+  "address": "0x116236370",
+  "rect": {
+   "x": 10,
+   "y": 48.6667,
+   "width": 516,
+   "height": 0
+  },
+  "hittable": false,
+  "index": 273,
+  "parentIndex": 269,
+  "alpha0": true
+ },
+ {
+  "viewClass": "_UIScrollViewScrollIndicator",
+  "address": "0x13154be70",
+  "rect": {
+   "x": -42,
+   "y": 785,
+   "width": 36,
+   "height": 3
+  },
+  "hittable": true,
+  "index": 274,
+  "parentIndex": 11,
+  "alpha0": true
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x13154c240",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 36,
+   "height": 3
+  },
+  "hittable": true,
+  "index": 275,
+  "parentIndex": 274
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x1159661f0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 0
+  },
+  "hittable": true,
+  "index": 276,
+  "parentIndex": 9
+ },
+ {
+  "viewClass": "LionParcelLogistics.DefaultNavigationBarView",
+  "address": "0x115964a20",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 106
+  },
+  "hittable": true,
+  "index": 277,
+  "parentIndex": 9
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x115965d10",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 106
+  },
+  "hittable": true,
+  "index": 278,
+  "parentIndex": 277
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x115965eb0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 106
+  },
+  "hittable": true,
+  "index": 279,
+  "parentIndex": 278
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x115966050",
+  "rect": {
+   "x": 0,
+   "y": 105,
+   "width": 402,
+   "height": 1
+  },
+  "hittable": true,
+  "index": 280,
+  "parentIndex": 279,
+  "hidden": true
+ },
+ {
+  "viewClass": "UIButton",
+  "address": "0x115965410",
+  "rect": {
+   "x": 18,
+   "y": 66,
+   "width": 24,
+   "height": 24
+  },
+  "hittable": true,
+  "index": 281,
+  "parentIndex": 278,
+  "hidden": true
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x11617f000",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 24,
+   "height": 24
+  },
+  "hittable": false,
+  "index": 282,
+  "parentIndex": 281,
+  "clipped": true
+ },
+ {
+  "viewClass": "UIButton",
+  "address": "0x1159665d0",
+  "rect": {
+   "x": 350,
+   "y": 68,
+   "width": 36,
+   "height": 36
+  },
+  "hittable": true,
+  "index": 283,
+  "parentIndex": 278
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x11617f850",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 36,
+   "height": 36
+  },
+  "hittable": false,
+  "index": 284,
+  "parentIndex": 283,
+  "clipped": true
+ },
+ {
+  "viewClass": "UIButton",
+  "address": "0x115966da0",
+  "rect": {
+   "x": 300,
+   "y": 68,
+   "width": 36,
+   "height": 36
+  },
+  "hittable": true,
+  "index": 285,
+  "parentIndex": 278
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x11617fcf0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 36,
+   "height": 36
+  },
+  "hittable": false,
+  "index": 286,
+  "parentIndex": 285,
+  "clipped": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomButton",
+  "address": "0x115988940",
+  "rect": {
+   "x": 20,
+   "y": -1,
+   "width": 18,
+   "height": 18
+  },
+  "hittable": false,
+  "index": 287,
+  "parentIndex": 285,
+  "baseClass": "UIButton",
+  "hidden": true
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x13e21d650",
+  "rect": {
+   "x": 9,
+   "y": 9,
+   "width": 0,
+   "height": 0
+  },
+  "hittable": false,
+  "index": 288,
+  "parentIndex": 287,
+  "hidden": true,
+  "clipped": true
+ },
+ {
+  "viewClass": "UIButtonLabel",
+  "address": "0x115988d80",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 0,
+   "height": 0
+  },
+  "hittable": false,
+  "index": 289,
+  "parentIndex": 287,
+  "hidden": true
+ },
+ {
+  "viewClass": "UIButton",
+  "address": "0x115967570",
+  "rect": {
+   "x": 268,
+   "y": 66,
+   "width": 24,
+   "height": 24
+  },
+  "hittable": true,
+  "index": 290,
+  "parentIndex": 278
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x11d7ccd70",
+  "rect": {
+   "x": 12,
+   "y": 12,
+   "width": 0,
+   "height": 0
+  },
+  "hittable": false,
+  "index": 291,
+  "parentIndex": 290,
+  "hidden": true,
+  "clipped": true
+ },
+ {
+  "viewClass": "UILabel",
+  "address": "0x115967d40",
+  "rect": {
+   "x": 47,
+   "y": 78,
+   "width": 206,
+   "height": 0
+  },
+  "hittable": false,
+  "index": 292,
+  "parentIndex": 278,
+  "hidden": true
+ },
+ {
+  "viewClass": "UIButton",
+  "address": "0x115968070",
+  "rect": {
+   "x": 354,
+   "y": 66,
+   "width": 24,
+   "height": 24
+  },
+  "hittable": true,
+  "index": 293,
+  "parentIndex": 278,
+  "hidden": true
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x11617f550",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 24,
+   "height": 24
+  },
+  "hittable": false,
+  "index": 294,
+  "parentIndex": 293,
+  "clipped": true
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x115968840",
+  "rect": {
+   "x": 382,
+   "y": 68,
+   "width": 8,
+   "height": 8
+  },
+  "hittable": true,
+  "index": 295,
+  "parentIndex": 278,
+  "hidden": true
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x115968b10",
+  "rect": {
+   "x": 322,
+   "y": 60,
+   "width": 20,
+   "height": 20
+  },
+  "hittable": false,
+  "index": 296,
+  "parentIndex": 278,
+  "hidden": true,
+  "clipped": true
+ },
+ {
+  "viewClass": "UILabel",
+  "address": "0x115968cb0",
+  "rect": {
+   "x": 4,
+   "y": 0,
+   "width": 12,
+   "height": 20
+  },
+  "hittable": false,
+  "index": 297,
+  "parentIndex": 296,
+  "label": "0"
+ },
+ {
+  "viewClass": "LionParcelLogistics.HomeRevampNavView",
+  "address": "0x1160ca040",
+  "rect": {
+   "x": 16,
+   "y": 68,
+   "width": 270,
+   "height": 36
+  },
+  "hittable": true,
+  "index": 298,
+  "parentIndex": 277
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x1160e7990",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 270,
+   "height": 36
+  },
+  "hittable": true,
+  "index": 299,
+  "parentIndex": 298
+ },
+ {
+  "viewClass": "UIButton",
+  "address": "0x11d725be0",
+  "rect": {
+   "x": 8,
+   "y": 8,
+   "width": 20,
+   "height": 20
+  },
+  "hittable": true,
+  "index": 300,
+  "parentIndex": 299
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x116180460",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 20,
+   "height": 20
+  },
+  "hittable": false,
+  "index": 301,
+  "parentIndex": 300,
+  "clipped": true
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x1160d43a0",
+  "rect": {
+   "x": 36,
+   "y": 10.6667,
+   "width": 198,
+   "height": 14.6667
+  },
+  "hittable": true,
+  "index": 302,
+  "parentIndex": 299,
+  "baseClass": "UILabel",
+  "label": "Yuk, lacak nomor resi/shi..."
+ },
+ {
+  "viewClass": "UIButton",
+  "address": "0x1160e4510",
+  "rect": {
+   "x": 242,
+   "y": 10,
+   "width": 16,
+   "height": 16
+  },
+  "hittable": true,
+  "index": 303,
+  "parentIndex": 299
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x11604ba30",
+  "rect": {
+   "x": 8,
+   "y": 8,
+   "width": 0,
+   "height": 0
+  },
+  "hittable": false,
+  "index": 304,
+  "parentIndex": 303,
+  "hidden": true,
+  "clipped": true
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x1160f4ae0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 16,
+   "height": 16
+  },
+  "hittable": false,
+  "index": 305,
+  "parentIndex": 303
+ },
+ {
+  "viewClass": "UIButtonLabel",
+  "address": "0x11d79ffc0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 0,
+   "height": 0
+  },
+  "hittable": false,
+  "index": 306,
+  "parentIndex": 303,
+  "hidden": true
+ },
+ {
+  "viewClass": "UITextField",
+  "address": "0x11a9a3600",
+  "rect": {
+   "x": 36,
+   "y": 7,
+   "width": 214,
+   "height": 22
+  },
+  "hittable": false,
+  "index": 307,
+  "parentIndex": 299
+ },
+ {
+  "viewClass": "_UITouchPassthroughView",
+  "address": "0x131545c10",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 0,
+   "height": 0
+  },
+  "hittable": true,
+  "index": 308,
+  "parentIndex": 307
+ },
+ {
+  "viewClass": "_UITextLayoutCanvasView",
+  "address": "0x1162b53e0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 214,
+   "height": 22
+  },
+  "hittable": true,
+  "index": 309,
+  "parentIndex": 307
+ },
+ {
+  "viewClass": "_UITextLayoutFragmentView",
+  "address": "0x11d7a1040",
+  "rect": {
+   "x": 0,
+   "y": 2.66667,
+   "width": 0,
+   "height": 21
+  },
+  "hittable": true,
+  "index": 310,
+  "parentIndex": 309
+ },
+ {
+  "viewClass": "LionParcelLogistics.CustomLabel",
+  "address": "0x1162a6590",
+  "rect": {
+   "x": 368,
+   "y": 63,
+   "width": 12.6667,
+   "height": 18
+  },
+  "hittable": false,
+  "index": 311,
+  "parentIndex": 277,
+  "baseClass": "UILabel",
+  "label": "  0  ",
+  "hidden": true,
+  "clipped": true
+ },
+ {
+  "viewClass": "UIToolbar",
+  "address": "0x13e430c70",
+  "rect": {
+   "x": 0,
+   "y": 874,
+   "width": 402,
+   "height": 49
+  },
+  "hittable": true,
+  "index": 312,
+  "parentIndex": 6,
+  "hidden": true
+ },
+ {
+  "viewClass": "_TtGC5UIKit17UICoreHostingViewVCS_21ToolbarVisualProvider8RootView_",
+  "address": "0x133118660",
+  "rect": {
+   "x": 0,
+   "y": -1,
+   "width": 402,
+   "height": 133
+  },
+  "hittable": true,
+  "index": 313,
+  "parentIndex": 312
+ },
+ {
+  "viewClass": "_TtGC5UIKit22UICorePlatformViewHostGVS_32PlatformViewRepresentableAdaptorVS_P10$186d42f208BlurView__",
+  "address": "0x13dc9e340",
+  "rect": {
+   "x": 0,
+   "y": 1,
+   "width": 402,
+   "height": 132
+  },
+  "hittable": true,
+  "index": 314,
+  "parentIndex": 313
+ },
+ {
+  "viewClass": "UIVisualEffectView",
+  "address": "0x13e43b4e0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 132
+  },
+  "hittable": true,
+  "index": 315,
+  "parentIndex": 314
+ },
+ {
+  "viewClass": "_UIVisualEffectBackdropView",
+  "address": "0x13e43b900",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 132
+  },
+  "hittable": false,
+  "index": 316,
+  "parentIndex": 315
+ },
+ {
+  "viewClass": "_UIPointerInteractionAssistantEffectContainerView",
+  "address": "0x1331a6e80",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 0,
+   "height": 0
+  },
+  "hittable": false,
+  "index": 317,
+  "parentIndex": 312
+ },
+ {
+  "viewClass": "UITabBar",
+  "address": "0x11611b110",
+  "rect": {
+   "x": 0,
+   "y": 791,
+   "width": 402,
+   "height": 83
+  },
+  "hittable": true,
+  "index": 318,
+  "parentIndex": 3
+ },
+ {
+  "viewClass": "_UIBarBackground",
+  "address": "0x11611b590",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 83
+  },
+  "hittable": false,
+  "index": 319,
+  "parentIndex": 318
+ },
+ {
+  "viewClass": "UIImageView",
+  "address": "0x1314a6aa0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 83
+  },
+  "hittable": false,
+  "index": 320,
+  "parentIndex": 319
+ },
+ {
+  "viewClass": "_UIBarBackgroundShadowView",
+  "address": "0x1314a8c20",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 0
+  },
+  "hittable": true,
+  "index": 321,
+  "parentIndex": 319
+ },
+ {
+  "viewClass": "_UIBarBackgroundShadowContentImageView",
+  "address": "0x1314a8e40",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 0
+  },
+  "hittable": false,
+  "index": 322,
+  "parentIndex": 321
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x11611bcd0",
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "width": 402,
+   "height": 83
+  },
+  "hittable": true,
+  "index": 323,
+  "parentIndex": 318
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x115952f20",
+  "rect": {
+   "x": 0,
+   "y": 48,
+   "width": 402,
+   "height": 1
+  },
+  "hittable": true,
+  "index": 324,
+  "parentIndex": 318
+ },
+ {
+  "viewClass": "UIView",
+  "address": "0x1162a7960",
+  "rect": {
+   "x": 30.25,
+   "y": -2,
+   "width": 40,
+   "height": 4
+  },
+  "hittable": false,
+  "index": 325,
+  "parentIndex": 318
+ },
+ {
+  "viewClass": "UITabBarButton",
+  "address": "0x13dc54130",
+  "rect": {
+   "x": 2,
+   "y": 1,
+   "width": 97,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 326,
+  "parentIndex": 318
+ },
+ {
+  "viewClass": "UITabBarSwappableImageView",
+  "address": "0x13dc6d430",
+  "rect": {
+   "x": 35.6667,
+   "y": 9.33333,
+   "width": 25,
+   "height": 25
+  },
+  "hittable": false,
+  "index": 327,
+  "parentIndex": 326
+ },
+ {
+  "viewClass": "UITabBarButtonLabel",
+  "address": "0x13dc6c740",
+  "rect": {
+   "x": 32.6667,
+   "y": 37.3333,
+   "width": 31.3333,
+   "height": 12.3333
+  },
+  "hittable": false,
+  "index": 328,
+  "parentIndex": 326,
+  "label": "Home"
+ },
+ {
+  "viewClass": "UITabBarButton",
+  "address": "0x13dc78370",
+  "rect": {
+   "x": 103,
+   "y": 1,
+   "width": 96,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 329,
+  "parentIndex": 318
+ },
+ {
+  "viewClass": "UITabBarSwappableImageView",
+  "address": "0x13dc7c270",
+  "rect": {
+   "x": 35.3333,
+   "y": 9.33333,
+   "width": 25,
+   "height": 25
+  },
+  "hittable": false,
+  "index": 330,
+  "parentIndex": 329
+ },
+ {
+  "viewClass": "UITabBarButtonLabel",
+  "address": "0x13dc7b580",
+  "rect": {
+   "x": 24.6667,
+   "y": 37.3333,
+   "width": 46.3333,
+   "height": 12.3333
+  },
+  "hittable": false,
+  "index": 331,
+  "parentIndex": 329,
+  "label": "Paketmu"
+ },
+ {
+  "viewClass": "UITabBarButton",
+  "address": "0x13dc65a30",
+  "rect": {
+   "x": 203,
+   "y": 1,
+   "width": 97,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 332,
+  "parentIndex": 318
+ },
+ {
+  "viewClass": "UITabBarSwappableImageView",
+  "address": "0x13dc7e4b0",
+  "rect": {
+   "x": 35.6667,
+   "y": 9.33333,
+   "width": 25,
+   "height": 25
+  },
+  "hittable": false,
+  "index": 333,
+  "parentIndex": 332
+ },
+ {
+  "viewClass": "UITabBarButtonLabel",
+  "address": "0x13dc7aa50",
+  "rect": {
+   "x": 34,
+   "y": 37.3333,
+   "width": 28.6667,
+   "height": 12.3333
+  },
+  "hittable": false,
+  "index": 334,
+  "parentIndex": 332,
+  "label": "Bayar"
+ },
+ {
+  "viewClass": "UITabBarButton",
+  "address": "0x13dc83160",
+  "rect": {
+   "x": 304,
+   "y": 1,
+   "width": 96,
+   "height": 48
+  },
+  "hittable": true,
+  "index": 335,
+  "parentIndex": 318
+ },
+ {
+  "viewClass": "UITabBarSwappableImageView",
+  "address": "0x13dc84270",
+  "rect": {
+   "x": 36,
+   "y": 9.66667,
+   "width": 24,
+   "height": 24
+  },
+  "hittable": false,
+  "index": 336,
+  "parentIndex": 335
+ },
+ {
+  "viewClass": "UITabBarButtonLabel",
+  "address": "0x13dc83450",
+  "rect": {
+   "x": 34.6667,
+   "y": 37.3333,
+   "width": 26.6667,
+   "height": 12.3333
+  },
+  "hittable": false,
+  "index": 337,
+  "parentIndex": 335,
+  "label": "Akun"
+ }
+]

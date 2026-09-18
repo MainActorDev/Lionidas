@@ -107,7 +107,64 @@ const CLASS_TYPE: Readonly<Record<string, string>> = {
 };
 
 /** baseClass wins when present (app classes map through their base). */
-function viewClassToType(cls: string): string {
+export function viewClassToType(cls: string): string {
   const short = cls.split('.').pop() ?? cls;
   return CLASS_TYPE[short] ?? CLASS_TYPE[cls] ?? 'Other';
+}
+
+/** One node as emitted by the in-process probe dylib (ViewTreeProbe).
+ *  Deliberately has NO `type` — the host fills it through the SAME
+ *  viewClassToType map the lldb parser uses, so the class→type vocabulary
+ *  can never drift between the two sources. */
+export interface ProbeNode {
+  index?: number;
+  parentIndex?: number;
+  viewClass: string;
+  baseClass?: string;
+  address?: string;
+  rect?: { x: number; y: number; width: number; height: number };
+  hidden?: boolean;
+  alpha0?: boolean;
+  clipped?: boolean;
+  label?: string;
+  hittable?: boolean;
+}
+
+/** Normalize a probe dump into VNode[]. Throws on malformed input — same
+ *  garbage-in-is-loud contract as parseRecursiveDescription: a partial
+ *  tree is never returned. */
+export function nodesFromProbe(raw: ProbeNode[]): VNode[] {
+  if (!Array.isArray(raw)) throw new Error('viewtree-probe: payload is not an array');
+  const out: VNode[] = [];
+  raw.forEach((n, i) => {
+    if (typeof n.viewClass !== 'string' || n.viewClass.length === 0) {
+      throw new Error(`viewtree-probe: node ${i} has no viewClass`);
+    }
+    if (!n.rect || typeof n.rect.x !== 'number' || typeof n.rect.y !== 'number'
+      || typeof n.rect.width !== 'number' || typeof n.rect.height !== 'number') {
+      throw new Error(`viewtree-probe: node ${i} (${n.viewClass}) has no rect`);
+    }
+    if (i > 0 && (n.index === undefined || n.index !== i)) {
+      throw new Error(`viewtree-probe: node ${i} carries index ${n.index} — the dylib emits dense sequential indexes`);
+    }
+    if (n.parentIndex !== undefined && (n.parentIndex < 0 || n.parentIndex >= i)) {
+      throw new Error(`viewtree-probe: node ${i} has dangling parentIndex ${n.parentIndex}`);
+    }
+    const node: VNode = {
+      index: i,
+      viewClass: n.viewClass,
+      rect: { x: n.rect.x, y: n.rect.y, width: n.rect.width, height: n.rect.height },
+      type: viewClassToType(n.baseClass ?? n.viewClass),
+      hittable: n.hittable !== false,
+    };
+    if (n.parentIndex !== undefined) node.parentIndex = n.parentIndex;
+    if (n.baseClass) node.baseClass = n.baseClass;
+    if (n.address) node.address = n.address;
+    if (n.hidden) node.hidden = true;
+    if (n.alpha0) node.alpha0 = true;
+    if (n.clipped) node.clipped = true;
+    if (n.label) node.label = n.label;
+    out.push(node);
+  });
+  return out;
 }
