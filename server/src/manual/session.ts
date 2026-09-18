@@ -413,12 +413,20 @@ export async function finishManualSession(deps: ManualDeps, sessionId: string, n
   if (s.finished_at) return; // idempotent
   await dispatchWithHeal('alloy_release', { udid: s.udid }, deps.dispatchDeps).catch(() => undefined);
   // Viewtree probe disarm (best-effort): stops FUTURE launches carrying the
-  // dylib. A running app keeps its watcher until it exits — harmless, it
-  // only reads a file nobody will rewrite.
+  // dylib — but ONLY when no OTHER live session still holds this device
+  // (multi-take-control and orphaned-session cleanup both produce overlaps;
+  // a live drill caught a stale session's watchdog-finish disarming the
+  // probe a fresh session had just armed). A running app keeps its watcher
+  // until it exits either way — harmless.
   if (probeArmed(s.udid)) {
-    await disarmProbe(s.udid).catch((err) => {
-      console.warn(`[viewtree-probe] disarm failed for ${s.udid}: ${(err as Error).message}`);
-    });
+    const others = deps.db
+      .prepare('SELECT COUNT(*) AS n FROM manual_sessions WHERE udid = ? AND finished_at IS NULL AND id != ?')
+      .get(s.udid, sessionId) as { n: number };
+    if (others.n === 0) {
+      await disarmProbe(s.udid).catch((err) => {
+        console.warn(`[viewtree-probe] disarm failed for ${s.udid}: ${(err as Error).message}`);
+      });
+    }
   }
   deps.db.prepare('UPDATE manual_sessions SET finished_at = ? WHERE id = ?').run(Date.now(), sessionId);
   deps.db.prepare(`UPDATE runs SET status = 'passed', finished_at = ?, note = ? WHERE id = ?`).run(Date.now(), note ?? `manual:${sessionId}`, s.run_id);
