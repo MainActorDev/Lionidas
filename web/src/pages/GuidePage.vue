@@ -74,6 +74,11 @@ const groups = computed(() => {
       confirms it points at exactly one element. Save the recording, name it, tag it — it's now a test case that
       replays forever.
     </p>
+    <p style="color: var(--color-fog); font-size: var(--text-body); line-height: 1.6; margin: var(--s-2) 0 0;">
+      Every run pins the <b>exact version</b> of the case it executed — edit the case later and past runs still
+      resolve the yaml, steps, and network setup that actually ran. A case's <b>history</b> (in its editor) lists
+      each version; a run row shows which version it executed (⚠ when it's not the current one).
+    </p>
   </div>
 
   <div class="section-label">3 · test bad network days</div>
