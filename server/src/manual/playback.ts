@@ -41,6 +41,7 @@ import { lastArtifactFor } from './app-catalog-store.ts';
 import { setLocation, clearLocation, prodExecute } from './location.ts';
 import { ensureLocationGrant } from './location-tcc.ts';
 import { internalAuthHeaders } from '../auth/roles.ts';
+import { snapshotCaseVersion } from './case-versions.ts';
 
 const defaultListApps = (udid: string): Promise<Array<{ bundleId: string }>> =>
   listSimulatorApps(udid).then((apps) => apps.map((a) => ({ bundleId: a.bundleId })));
@@ -145,7 +146,7 @@ function stepLabel(s: PlaybackStep): string {
  *  per-run, template stays network-agnostic (its defaultPresetId is a hint). */
 export class PlaybackError extends Error {
   constructor(
-    public code: 'DEVICE_BUSY' | 'APP_NOT_INSTALLED' | 'DEVICE_AMBIGUOUS' | 'LOCATION_GRANT_FAILED',
+    public code: 'DEVICE_BUSY' | 'APP_NOT_INSTALLED' | 'DEVICE_AMBIGUOUS' | 'LOCATION_GRANT_FAILED' | 'VERSION_SNAPSHOT_FAILED',
     message: string,
     public payload?: { appBundleId?: string; udid?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null },
   ) { super(message); }
@@ -312,10 +313,20 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     const { listSimulatorApps } = await import('./apps.ts');
     appVersion = (await listSimulatorApps(udid)).find((a) => a.bundleId === appToLaunch)?.version ?? null;
   } catch { /* version best-effort */ }
+  // Phase A — provenance snapshot BEFORE any step executes (and before the
+  // self-hardening sweep can rewrite steps_json mid-run: that rewrite bumps
+  // the NEXT run's revision, never this one's). A run that cannot name its
+  // version is not evidence — snapshot failure aborts honestly.
+  let version: ReturnType<typeof snapshotCaseVersion>;
+  try {
+    version = snapshotCaseVersion(deps.db, { templateId, scenarioId: opts.scenarioId ?? null, triggeredBy: opts.triggeredBy ?? null });
+  } catch (err) {
+    throw new PlaybackError('VERSION_SNAPSHOT_FAILED', `case-version snapshot failed: ${err instanceof Error ? err.message : String(err)}`, { appBundleId: appToLaunch, udid });
+  }
   deps.db
-    .prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, note, template_id, app_version)
-              VALUES (?, ?, 'manual', 'running', ?, ?, ?, ?, ?, ?)`)
-    .run(runId, t.ticket_key ?? '-', opts.triggeredBy ?? 'qa', udid, Date.now(), `template:${templateId} ${t.name}`, templateId, appVersion);
+    .prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, note, template_id, app_version, case_version_id, scenario_id, scenario_sha)
+              VALUES (?, ?, 'manual', 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(runId, t.ticket_key ?? '-', opts.triggeredBy ?? 'qa', udid, Date.now(), `template:${templateId} ${t.name}`, templateId, appVersion, version.id, opts.scenarioId ?? null, version.scenarioSha);
   deps.bus.emit('run.started', { runId, ticketKey: t.ticket_key ?? '-', udid, templateId });
   // latest-only evidence: this run replaces the previous run's artifacts —
   // UNLESS a sibling run of the same template is still RUNNING (parallel
