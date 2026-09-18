@@ -160,6 +160,11 @@ async function load(): Promise<void> {
  *  PATCH route), then the yaml (PUT :id/yaml validates + persists steps). */
 async function save(): Promise<void> {
   if (saving.value) return;
+  // Viewing an old revision read-only: the editor shows the SNAPSHOT's
+  // yaml — saving here would silently overwrite the live case with old
+  // content. Guard at the choke point (button, ⌘↵, switch-modal all
+  // funnel here). Return to editing first.
+  if (viewingRev.value !== null) { pickRevision(null); return; }
   saving.value = true;
   msg.value = '';
   try {
@@ -246,7 +251,7 @@ const savedAgo = computed((): string | null => {
       <span class="spacer"></span>
       <button class="btn btn-sm" @click="maybeClose">esc · close</button>
       <button class="btn btn-sm" @click="copyYaml" title="copy the yaml to clipboard">&lt;/&gt; copy</button>
-      <button class="btn btn-sm btn-primary" :disabled="saving || loading" @click="save">{{ saving ? 'saving…' : '⌘↵ save' }}</button>
+      <button class="btn btn-sm btn-primary" :disabled="saving || loading || viewingRev !== null" :title="viewingRev !== null ? 'viewing a revision — back to editing to save' : undefined" @click="save">{{ saving ? 'saving…' : '⌘↵ save' }}</button>
     </div>
 
     <!-- metadata: name / ticket / description / tags -->
