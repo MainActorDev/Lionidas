@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<!-- REVISION v3 — three FRESH options for version history UX.
+     All three fix what's wrong with the current one:
+     · the current UI is a VIEWER bolted into the editor — meta-work
+     · history only matters at two moments: "what changed?" and "what ran?"
+     · single-version cases shouldn't see structure at all
+
+     OPTION A — "quiet footer": history is ONE LINE in the editor, always
+     visible, no disclosure. Clicking a revision swaps the YAML view
+     read-only. The editor IS the viewer; no second surface exists. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>v3 option A — quiet footer</title>
+<style>
+  :root {
+    --void:#000; --carbon:#111; --graphite:#191919; --iron:#202020; --slate:#3a3a3a;
+    --steel:#606060; --ash:#7e7e7e; --fog:#b4b4b4; --paper:#eee;
+    --ember:#ff5f2e; --ok:#8fce63; --bad:#e05c4f; --amber:#d9a03f;
+    --mono:'JetBrains Mono','SF Mono',Menlo,monospace;
+  }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--void); color:var(--paper); font:12px/1.5 var(--mono); padding:20px; width:fit-content; }
+  .tag { color:var(--ash); font-size:10px; letter-spacing:.12em; text-transform:uppercase; margin:0 0 8px 2px; }
+  .frame { border:1px solid var(--iron); border-radius:2px; background:var(--carbon); width:880px; margin-bottom:8px; }
+  .note { color:var(--steel); font-size:10px; width:880px; margin:0 0 26px 2px; }
+
+  .ed-hd { display:flex; gap:12px; align-items:baseline; padding:10px 14px; border-bottom:1px solid var(--iron); }
+  .ed-hd .name { font-size:13px; }
+  .ed-hd .sub { color:var(--steel); font-size:10px; }
+  .ed-hd .btns { margin-left:auto; display:flex; gap:6px; }
+  .btn { border:1px solid var(--slate); border-radius:2px; padding:1px 8px; color:var(--fog); font-size:10px; cursor:pointer; background:none; font-family:inherit; }
+  .btn.primary { border-color:var(--ember); color:var(--ember); }
+
+  .ce-meta { display:flex; gap:10px; padding:8px 14px; border-bottom:1px solid var(--iron); }
+  .f { display:flex; flex-direction:column; gap:2px; }
+  .f span { color:var(--steel); font-size:9px; letter-spacing:.08em; }
+  .f input { background:var(--void); border:1px solid var(--iron); border-radius:2px; color:var(--paper); font:11px var(--mono); padding:4px 8px; width:150px; }
+
+  /* the editor body: outline | yaml. When an OLD revision is picked, the
+     yaml column becomes read-only with a banner — the SAME pane, no new
+     surface. */
+  .ce-body { display:grid; grid-template-columns:250px 1fr; min-height:200px; }
+  .outline { border-right:1px solid var(--iron); padding:10px 12px; }
+  .outline .t { color:var(--ash); font-size:10px; letter-spacing:.12em; text-transform:uppercase; margin-bottom:6px; }
+  .o-step { font-size:11px; color:var(--fog); padding:2px 0; }
+  .o-step .k { color:var(--ember); margin-right:6px; }
+  .editor { position:relative; }
+  .ro-banner { display:none; align-items:center; gap:8px; padding:5px 12px; border-bottom:1px solid var(--iron); border-left:2px solid var(--amber); color:var(--amber); font-size:11px; }
+  .editor.stale .ro-banner { display:flex; }
+  .cm { padding:10px 12px; font-size:11px; color:var(--fog); white-space:pre; }
+  .editor.stale .cm { color:var(--steel); }
+
+  /* ── THE OPTION A PART: quiet footer ── */
+  .vfoot { display:flex; gap:6px; align-items:baseline; padding:6px 14px; border-top:1px solid var(--iron); }
+  .vfoot .lbl { color:var(--steel); font-size:10px; margin-right:4px; }
+  .vstep { border:1px solid var(--slate); border-radius:2px; padding:0 7px; font-size:10px; color:var(--fog); cursor:pointer; }
+  .vstep:hover { border-color:var(--ember); color:var(--ember); }
+  .vstep.on { border-color:var(--ember); color:var(--ember); }
+  .vstep .n { color:var(--steel); font-size:9px; margin-left:3px; }
+  .vfoot .spacer { flex:1; }
+  .vfoot .cnt { color:var(--steel); font-size:10px; }
+</style>
+</head>
+<body>
+
+<div class="tag">option A · quiet footer — revisions as breadcrumbs, editor doubles as the viewer</div>
+<div class="frame" id="edA">
+  <div class="ed-hd">
+    <span class="name">Login happy path</span>
+    <span class="sub">14 steps · smoke</span>
+    <span class="btns"><button class="btn">esc · close</button><button class="btn">&lt;/&gt; copy</button><button class="btn primary">⌘↵ save</button></span>
+  </div>
+  <div class="ce-meta">
+    <label class="f"><span>NAME</span><input value="Login happy path"></label>
+    <label class="f"><span>TAGS</span><input value="smoke, login"></label>
+  </div>
+  <div class="ce-body">
+    <div class="outline">
+      <div class="t">steps</div>
+      <div class="o-step"><span class="k">1</span>tap · Masuk</div>
+      <div class="o-step"><span class="k">2</span>type · email</div>
+      <div class="o-step"><span class="k">3</span>expect · Beranda</div>
+    </div>
+    <div class="editor" id="edA-editor">
+      <div class="ro-banner">viewing r2 — the case has moved on (current r4) · <span class="btn" style="padding:0 6px;">back to current</span></div>
+      <div class="cm" id="edA-yaml">name: Login happy path
+tags: [smoke, login]
+steps:
+  - tap:
+      on: Masuk
+  - type: "qa@lp.id"
+      on: Email</div>
+    </div>
+  </div>
+  <!-- the quiet footer: r1 → r2 → r3 → r4(current). tiny step-chart, runs inline -->
+  <div class="vfoot">
+    <span class="lbl">versions</span>
+    <span class="vstep" onclick="pickA(1)"><b>r1</b><span class="n">11</span></span>
+    <span class="vstep on" onclick="pickA(2)"><b>r2</b><span class="n">4</span></span>
+    <span class="vstep" onclick="pickA(3)"><b>r3</b><span class="n">2</span></span>
+    <span class="vstep" onclick="pickA(4)"><b>r4</b><span class="n">·</span> current</span>
+    <span class="spacer"></span>
+    <span class="cnt">tip: pick a revision to view it — esc returns to editing</span>
+  </div>
+</div>
+<div class="note">no disclosure, no panes. revisions sit in a footer strip like page numbers; picking one makes the yaml column read-only (banner + dimmed). single version = one step "r1 current" — nothing else.</div>
+
+<script>
+const yaml = {
+  1: 'name: Login happy path\ntags: [login]\nsteps:\n  - tap: [210, 640]\n  - type: "qa@lp.id"',
+  2: 'name: Login happy path\ntags: [smoke, login]\nsteps:\n  - tap:\n      on: Masuk\n  - type: "qa@lp.id"\n      on: Email',
+  3: 'name: Login happy path\ntags: [smoke, login]\nsteps:\n  - tap:\n      on: Masuk\n  - type: "qa@lp.id"\n      on: Email\n  - expect:\n      equals: "Beranda"',
+  4: 'name: Login happy path\ntags: [smoke, login]\nsteps:\n  - tap:\n      on: Masuk\n  - type: "qa@lp.id"\n      on: Email\n  - expect:\n      equals: "Beranda"\n  - expect:\n      equals: "Cek Ongkir"',
+};
+function pickA(r) {
+  document.querySelectorAll('#edA .vstep').forEach(s => s.classList.remove('on'));
+  document.querySelector(`#edA .vstep:nth-of-type(${r})`)?.classList.add('on');
+  // nth-of-type counts from the label — adjust: steps are the .vstep set
+  const steps = document.querySelectorAll('#edA .vstep');
+  steps[r-1]?.classList.add('on');
+  const ed = document.getElementById('edA-editor');
+  ed.classList.toggle('stale', r !== 4);
+  document.getElementById('edA-yaml').textContent = yaml[r];
+  document.querySelector('#edA .ro-banner').innerHTML = r === 4
+    ? ''
+    : `viewing r${r} — the case has moved on (current r4) · <span class="btn" style="padding:0 6px;" onclick="pickA(4)">back to current</span>`;
+}
+</script>
+</body>
+</html>

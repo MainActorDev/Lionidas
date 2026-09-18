@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<!-- OPTION B — "timeline on the run": history lives WHERE the questions are
+     asked — the run detail page. Each run row already says which version it
+     ran; the run DETAIL gets a "what this ran" block (yaml snapshot, inline,
+     collapsible) + "changed since" diff when stale. The case editor stays
+     100% about editing — zero history chrome in it.
+     Cost: you can't browse a case's version list without a run. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>v3 option B — timeline on the run</title>
+<style>
+  :root {
+    --void:#000; --carbon:#111; --graphite:#191919; --iron:#202020; --slate:#3a3a3a;
+    --steel:#606060; --ash:#7e7e7e; --fog:#b4b4b4; --paper:#eee;
+    --ember:#ff5f2e; --ok:#8fce63; --bad:#e05c4f; --amber:#d9a03f;
+    --mono:'JetBrains Mono','SF Mono',Menlo,monospace;
+  }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--void); color:var(--paper); font:12px/1.5 var(--mono); padding:20px; width:fit-content; }
+  .tag { color:var(--ash); font-size:10px; letter-spacing:.12em; text-transform:uppercase; margin:0 0 8px 2px; }
+  .note { color:var(--steel); font-size:10px; width:900px; margin:0 0 26px 2px; }
+  .p{color:var(--ok);} .f{color:var(--bad);}
+
+  /* run detail header — existing page anatomy */
+  .run-hd { display:flex; gap:12px; align-items:baseline; padding:10px 14px; border:1px solid var(--iron); border-radius:2px 2px 0 0; background:var(--carbon); }
+  .run-hd .id { color:var(--ember); }
+  .run-hd .sub { color:var(--steel); font-size:10px; }
+  .run-hd .st { margin-left:auto; }
+  .vbadge { border:1px solid var(--amber); color:var(--amber); border-radius:2px; padding:0 6px; font-size:10px; cursor:pointer; }
+  .vbadge.now { border-color:var(--slate); color:var(--fog); }
+
+  /* ── the block: "what this ran" ── */
+  .ran { border:1px solid var(--iron); border-top:none; border-radius:0 0 2px 2px; background:var(--carbon); margin-bottom:8px; }
+  .ran .hd { display:flex; gap:8px; align-items:baseline; padding:7px 14px; border-bottom:1px solid var(--iron); cursor:pointer; }
+  .ran .hd .t { color:var(--ash); font-size:10px; letter-spacing:.12em; text-transform:uppercase; }
+  .ran .hd .rev { color:var(--ember); }
+  .ran .hd .warn { color:var(--amber); font-size:11px; }
+  .ran .hd .arr { margin-left:auto; color:var(--steel); }
+  .ran .body { padding:10px 14px; }
+  .diff { background:var(--void); border:1px solid var(--iron); border-radius:2px; padding:10px; font-size:11px; overflow:auto; }
+  .l { display:flex; white-space:pre; line-height:1.7; }
+  .m { width:24px; color:var(--steel); text-align:right; padding-right:10px; flex:none; user-select:none; }
+  .old { color:var(--bad); } .new { color:var(--ok); } .ctx { color:var(--fog); }
+  .yaml { background:var(--void); border:1px solid var(--iron); border-radius:2px; padding:10px; color:var(--fog); font-size:11px; white-space:pre; }
+  .ran .sub2 { color:var(--steel); font-size:10px; margin-top:6px; }
+
+  /* runs list rows — chips become the entry */
+  .rrow { display:grid; grid-template-columns:14px 1fr 130px 90px 84px; gap:10px; padding:8px 12px; border:1px solid var(--iron); border-radius:2px; background:var(--carbon); margin-bottom:5px; width:900px; font-size:11px; align-items:baseline; }
+  .rrow .case { color:var(--paper); }
+  .rrow .meta { color:var(--steel); font-size:10px; }
+  .chip { border:1px solid var(--slate); border-radius:2px; padding:0 5px; color:var(--fog); font-size:10px; }
+  .chip.stale { border-color:var(--amber); color:var(--amber); }
+</style>
+</head>
+<body>
+
+<div class="tag">option B · timeline on the run — provenance lives in run detail, editor stays pure</div>
+
+<div class="run-hd">
+  <span class="id">run_8f3a21</span>
+  <span class="sub">Login happy path · iPhone 16 Pro · v3.4.0 · today 11:40 · ci</span>
+  <span class="st f">✕ failed</span>
+  <span class="vbadge" title="what this run executed">r2 ⚠</span>
+</div>
+<div class="ran">
+  <div class="hd" onclick="this.parentNode.classList.toggle('open')">
+    <span class="t">what this ran</span>
+    <span class="rev">r2</span>
+    <span class="warn">case has moved on — current is r4</span>
+    <span class="arr">▾</span>
+  </div>
+  <div class="body">
+    <div class="diff">
+      <div class="l ctx"><span class="m">4</span> steps:</div>
+      <div class="l ctx"><span class="m">5</span>   - tap:</div>
+      <div class="l old"><span class="m">6</span>-     point: [210, 640]</div>
+      <div class="l new"><span class="m">6</span>+       on: Masuk</div>
+      <div class="l ctx"><span class="m">7</span>   - type: "qa@lp.id"</div>
+      <div class="l new"><span class="m">8</span>+   - expect:</div>
+      <div class="l new"><span class="m">9</span>+       equals: "Beranda"</div>
+    </div>
+    <div class="sub2">diff r2 → r4 · scenario checkout-3g · snapshot sha 9c11…40d · <span style="color:var(--fog); cursor:pointer;">full yaml of r2</span></div>
+  </div>
+</div>
+
+<div class="tag" style="margin-top:18px;">current-version run — quiet by contrast</div>
+<div class="run-hd">
+  <span class="id" style="color:var(--fog);">run_71bb02</span>
+  <span class="sub">Login happy path · iPhone 14 Plus · v3.4.0 · today 14:22 · qa</span>
+  <span class="st p">✓ passed</span>
+  <span class="vbadge now">r4</span>
+</div>
+<div class="ran" style="opacity:.55;">
+  <div class="hd">
+    <span class="t">what this ran</span>
+    <span class="rev">r4</span>
+    <span class="warn" style="color:var(--steel);">current version</span>
+    <span class="arr">▸</span>
+  </div>
+</div>
+
+<div class="tag" style="margin-top:18px;">runs list — chips stay as the entry point</div>
+<div class="rrow"><span class="p">✓</span><span class="case">Login happy path</span><span class="meta">iPhone 14 Plus · 14:22</span><span class="meta">v3.4.0</span><span class="chip">r4</span></div>
+<div class="rrow"><span class="f">✕</span><span class="case">Login happy path</span><span class="meta">iPhone 16 Pro · 11:40</span><span class="meta">v3.4.0</span><span class="chip stale">r2 ⚠</span></div>
+
+<div class="note">the question "what did THIS run do" is answered where you already are. no version browsing without a run — that's the accepted cost. editor keeps zero history UI.</div>
+
+</body>
+</html>

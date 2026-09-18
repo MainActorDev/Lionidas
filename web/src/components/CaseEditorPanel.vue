@@ -39,18 +39,39 @@ const ticket = ref('');
 const description = ref('');
 const tags = ref('');
 
-// ── version history (phase A): collapsed disclosure, ambient by default ──
-const histOpen = ref(false);
-const versionCount = ref<number | null>(null);
-async function loadVersionCount(): Promise<void> {
+// ── version history (option A quiet footer): revisions strip, always
+// visible; picking one flips the yaml column read-only. No disclosure. ──
+const viewingRev = ref<number | null>(null);
+const snapshots = new Map<number, string>(); // revision → yaml (fetched on demand)
+const editingYaml = ref(''); // the live doc before a revision view took over
+const currentRevision = ref<number | null>(null);
+async function loadVersionsFooter(): Promise<void> {
   try {
     const res = await fetch(`/api/templates/${props.templateId}/versions`);
-    versionCount.value = ((await res.json()) as { versions: unknown[] }).versions.length;
-  } catch { versionCount.value = null; }
+    const body = (await res.json()) as { versions: Array<{ revision: number; yaml: string }> };
+    currentRevision.value = body.versions.length ? Math.max(...body.versions.map((v) => v.revision)) : null;
+    for (const v of body.versions) snapshots.set(v.revision, v.yaml);
+  } catch { currentRevision.value = null; }
 }
-onMounted(loadVersionCount);
-// deep-link: a rev in the query opens the history disclosure itself
-watch(() => props.deepRev, (r) => { if (r != null) histOpen.value = true; }, { immediate: true });
+onMounted(loadVersionsFooter);
+/** Footer pick: null = back to editing (restore the live doc); N = show
+ *  revision N read-only. Stash/restore so switching never loses edits. */
+function pickRevision(rev: number | null): void {
+  if (rev === null) {
+    viewingRev.value = null;
+    ed.setValue(editingYaml.value);
+    return;
+  }
+  if (viewingRev.value === null) editingYaml.value = ed.getValue();
+  viewingRev.value = rev;
+  const yaml = snapshots.get(rev) ?? '';
+  ed.setValue(yaml === '' ? `# revision ${rev} — backfill snapshot; yaml is captured from the first run after it` : yaml);
+}
+// deep-link: a rev in the query opens that revision read-only. The doc
+// loads async AFTER mount — applying pickRevision before load() finishes
+// would be overwritten by the live yaml. Capture now, apply at load end.
+const pendingDeepRev = ref<number | null>(null);
+watch(() => props.deepRev, (r) => { if (r != null) pendingDeepRev.value = r; }, { immediate: true });
 
 // ── yaml editor ──
 const editorHost = ref<HTMLElement | null>(null);
@@ -128,7 +149,11 @@ async function load(): Promise<void> {
       reparse();
     }
     reparse();
-  } catch { msg.value = 'load failed'; } finally { loading.value = false; }
+  } catch { msg.value = 'load failed'; } finally {
+    loading.value = false;
+    // deep-link wins AFTER the live doc is in place (see pendingDeepRev)
+    if (pendingDeepRev.value != null) { const r = pendingDeepRev.value; pendingDeepRev.value = null; pickRevision(r); }
+  }
 }
 
 /** ONE save: metadata first (name/ticket/description/tags via the template
@@ -219,30 +244,20 @@ const savedAgo = computed((): string | null => {
         <button class="btn btn-sm" :disabled="position >= total" title="next case in filter" @click="hop(1)">›</button>
       </span>
       <span class="spacer"></span>
-      <button
-        class="btn btn-sm"
-        :title="histOpen ? 'hide version history' : 'show version history — every run pins the exact case version it executed'"
-        @click="histOpen = !histOpen"
-      >history<template v-if="versionCount !== null"> · <span style="color: var(--color-ember);">{{ versionCount }}</span></template> {{ histOpen ? '▾' : '▸' }}</button>
       <button class="btn btn-sm" @click="maybeClose">esc · close</button>
       <button class="btn btn-sm" @click="copyYaml" title="copy the yaml to clipboard">&lt;/&gt; copy</button>
       <button class="btn btn-sm btn-primary" :disabled="saving || loading" @click="save">{{ saving ? 'saving…' : '⌘↵ save' }}</button>
     </div>
 
     <!-- metadata: name / ticket / description / tags -->
-    <div class="ce-meta">
-      <label class="ce-field"><span>name</span><input v-model="name" @input="dirty = true" placeholder="case name" /></label>
-      <label class="ce-field"><span>ticket</span><input v-model="ticket" @input="dirty = true" placeholder="ticket key (e.g. LP-123)" /></label>
-      <label class="ce-field ce-wide"><span>description</span><input v-model="description" @input="dirty = true" placeholder="what this case verifies" /></label>
-      <label class="ce-field"><span>tags</span><input v-model="tags" @input="dirty = true" placeholder="smoke, login" title="comma list, max 8" /></label>
+    <div class="ce-meta" :class="{ ro: viewingRev !== null }">
+      <label class="ce-field"><span>name</span><input v-model="name" :disabled="viewingRev !== null" @input="dirty = true" placeholder="case name" /></label>
+      <label class="ce-field"><span>ticket</span><input v-model="ticket" :disabled="viewingRev !== null" @input="dirty = true" placeholder="ticket key (e.g. LP-123)" /></label>
+      <label class="ce-field ce-wide"><span>description</span><input v-model="description" :disabled="viewingRev !== null" @input="dirty = true" placeholder="what this case verifies" /></label>
+      <label class="ce-field"><span>tags</span><input v-model="tags" :disabled="viewingRev !== null" @input="dirty = true" placeholder="smoke, login" title="comma list, max 8" /></label>
     </div>
 
-    <!-- version history: collapsed disclosure; the ONE surface for version content -->
-    <div v-if="histOpen" class="ce-hist">
-      <CaseVersions :template-id="templateId" :initial-rev="deepRev ?? null" @close="histOpen = false" />
-    </div>
-
-    <div class="ce-body">
+    <div class="ce-body" :class="{ ro: viewingRev !== null }">
       <div class="outline">
         <div class="outline-title">steps<template v-if="outlineStale"> · <span style="color: var(--color-ember);">stale</span></template></div>
         <div v-for="s in outline" :key="s.idx" class="o-step" :title="s.detail">
@@ -255,24 +270,39 @@ const savedAgo = computed((): string | null => {
         </div>
       </div>
       <div class="editor">
+        <div v-if="viewingRev !== null" class="ro-banner">
+          viewing revision r{{ viewingRev }} — read-only
+          <span v-if="currentRevision !== null && viewingRev !== currentRevision" style="color: var(--color-steel);">(current is r{{ currentRevision }})</span>
+          · <span class="ro-link" @click="pickRevision(null)">back to editing</span>
+        </div>
         <div v-if="loading" class="empty" style="border: none; padding: var(--s-4);">loading case…</div>
-        <div v-show="!loading" ref="editorHost" class="cm-host"></div>
+        <div v-show="!loading" ref="editorHost" class="cm-host" :class="{ ro: viewingRev !== null }"></div>
       </div>
     </div>
+    <CaseVersions :template-id="templateId" :viewing="viewingRev" @pick="pickRevision" />
     <div v-if="msg" class="ce-foot">{{ msg }}</div>
   </div>
 </template>
 
 <style scoped>
 .ce-panel {
-  display: grid; grid-template-rows: auto auto auto 1fr auto;
+  display: grid; grid-template-rows: auto auto 1fr auto auto;
   min-height: 0;
   border: 1px solid var(--color-ash, #3a3a3a);
   border-radius: var(--r-sm, 2px);
   background: var(--color-void, #0a0a0a);
   overflow: hidden;
 }
-.ce-hist { min-height: 0; }
+/* read-only revision view: banner + dimmed editor + disabled inputs */
+.ro-banner {
+  display: flex; gap: 8px; align-items: baseline;
+  padding: 5px 12px; border-bottom: 1px solid var(--color-iron, #202020);
+  border-left: 2px solid var(--color-amber, #d9a03f);
+  color: var(--color-amber, #d9a03f); font-size: 11px;
+}
+.ro-link { text-decoration: underline; cursor: pointer; }
+.ce-meta.ro, .ce-body.ro { opacity: .55; }
+.cm-host.ro { pointer-events: none; filter: saturate(.6); }
 .ce-head {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 12px; border-bottom: 1px solid var(--color-iron, #202020);

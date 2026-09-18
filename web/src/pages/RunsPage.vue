@@ -85,8 +85,8 @@ onUnmounted(() => { if (poll) clearInterval(poll); unwatch(); live.release(); })
                 class="vchip"
                 :class="{ stale: !r.versionInfo.current }"
                 :title="r.versionInfo.current
-                  ? `current revision r${r.versionInfo.revision} — opens the case editor's history`
-                  : `ran an older revision r${r.versionInfo.revision} — click to open the case editor on it`"
+                  ? `current revision r${r.versionInfo.revision} — opens the case editor on it`
+                  : `ran an older revision r${r.versionInfo.revision} — click to view it read-only in the case editor`"
                 @click.stop="router.push(`/templates?case=${r.template_id}&rev=${r.versionInfo.revision}`)"
               >r{{ r.versionInfo.revision }}<template v-if="!r.versionInfo.current"> ⚠</template></span>
             </td>

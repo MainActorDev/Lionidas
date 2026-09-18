@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<!-- OPTION C — "activity strip": versions as a horizontal activity timeline
+     INSIDE the runs page's case filter — one strip per case, dots = versions
+     sized by run count, colored by outcome. Click a dot = popover with yaml
+     + diff. History becomes GLANCEABLE trend data (TestRail-ish) rather than
+     a browsing surface. Editor keeps only the count in the header.
+     Cost: the most new UI of the three; popover-on-click is less deep than
+     a pane for long yamls. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>v3 option C — activity strip</title>
+<style>
+  :root {
+    --void:#000; --carbon:#111; --graphite:#191919; --iron:#202020; --slate:#3a3a3a;
+    --steel:#606060; --ash:#7e7e7e; --fog:#b4b4b4; --paper:#eee;
+    --ember:#ff5f2e; --ok:#8fce63; --bad:#e05c4f; --amber:#d9a03f;
+    --mono:'JetBrains Mono','SF Mono',Menlo,monospace;
+  }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--void); color:var(--paper); font:12px/1.5 var(--mono); padding:20px; width:fit-content; }
+  .tag { color:var(--ash); font-size:10px; letter-spacing:.12em; text-transform:uppercase; margin:0 0 8px 2px; }
+  .note { color:var(--steel); font-size:10px; width:920px; margin:0 0 26px 2px; }
+
+  .card { border:1px solid var(--iron); border-radius:2px; background:var(--carbon); width:920px; margin-bottom:10px; }
+  .hd { display:flex; gap:10px; align-items:baseline; padding:8px 14px; border-bottom:1px solid var(--iron); }
+  .hd .name { font-size:12px; }
+  .hd .sub { color:var(--steel); font-size:10px; }
+  .hd .verdict { margin-left:auto; color:var(--ok); font-size:11px; }
+
+  /* ── the strip ── */
+  .strip { display:flex; align-items:center; gap:0; padding:10px 14px; height:64px; }
+  .rail { position:relative; flex:1; height:2px; background:var(--iron); }
+  .dot { position:absolute; top:50%; transform:translate(-50%,-50%); border-radius:50%; cursor:pointer; border:1px solid var(--slate); }
+  .dot.p { background:var(--ok); }
+  .dot.f { background:var(--bad); }
+  .dot.m { background:var(--graphite); }
+  .dot.cur { border-color:var(--ember); box-shadow:0 0 0 3px rgba(255,95,46,.15); }
+  .dot .rl { position:absolute; top:-16px; left:50%; transform:translateX(-50%); font-size:9px; color:var(--steel); white-space:nowrap; }
+  .dot .rr { position:absolute; bottom:-16px; left:50%; transform:translateX(-50%); font-size:9px; color:var(--steel); white-space:nowrap; }
+  .dot:hover { border-color:var(--paper); }
+
+  /* popover */
+  .pop { position:absolute; z-index:5; width:420px; border:1px solid var(--slate); border-radius:2px; background:var(--graphite); margin:90px 0 0 240px; box-shadow:0 4px 20px rgba(0,0,0,.6); }
+  .pop .ph { display:flex; gap:8px; padding:7px 12px; border-bottom:1px solid var(--iron); align-items:baseline; }
+  .pop .ph .rev { color:var(--ember); }
+  .pop .ph .sub { color:var(--steel); font-size:10px; }
+  .pop .ph .x { margin-left:auto; color:var(--steel); cursor:pointer; }
+  .pop .pb { padding:10px 12px; }
+  .diff { background:var(--void); border:1px solid var(--iron); border-radius:2px; padding:8px; font-size:10.5px; overflow:auto; }
+  .l { display:flex; white-space:pre; line-height:1.65; }
+  .m { width:20px; color:var(--steel); text-align:right; padding-right:8px; flex:none; user-select:none; }
+  .old { color:var(--bad); } .new { color:var(--ok); } .ctx { color:var(--fog); }
+  .pop .pf { color:var(--steel); font-size:10px; margin-top:6px; }
+
+  .legend { display:flex; gap:14px; padding:0 14px 8px; color:var(--steel); font-size:9.5px; align-items:center; }
+  .swatch { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px; vertical-align:middle; }
+</style>
+</head>
+<body>
+
+<div class="tag">option C · activity strip — versions as glanceable trend, popover for detail</div>
+
+<div class="card" style="position:relative;">
+  <div class="hd">
+    <span class="name">Login happy path</span>
+    <span class="sub">4 versions · 17 runs · smoke</span>
+    <span class="verdict">✓ passing</span>
+  </div>
+  <div class="strip">
+    <div class="rail">
+      <!-- dots sized by run count; label = rev + last outcome -->
+      <div class="dot f" style="left:6%;  width:14px; height:14px;" title="r1 · 11 runs"><span class="rl">r1</span><span class="rr">11</span></div>
+      <div class="dot f" style="left:32%; width:10px; height:10px;" title="r2 · 4 runs"><span class="rl">r2</span><span class="rr">4</span></div>
+      <div class="dot m" style="left:55%; width:8px;  height:8px;"  title="r3 · 2 runs"><span class="rl">r3</span><span class="rr">2</span></div>
+      <div class="dot p cur" style="left:80%; width:10px; height:10px;" title="r4 · current, no runs yet"><span class="rl">r4 · now</span></div>
+    </div>
+  </div>
+  <div class="legend">
+    <span><span class="swatch" style="background:var(--ok)"></span>runs passed</span>
+    <span><span class="swatch" style="background:var(--bad)"></span>has failures</span>
+    <span><span class="swatch" style="background:var(--graphite); border:1px solid var(--slate)"></span>no runs</span>
+    <span><span class="swatch" style="background:transparent; border:1px solid var(--ember)"></span>current</span>
+    <span style="margin-left:auto;">dot size = run count · click a dot for the snapshot</span>
+  </div>
+
+  <!-- the popover (shown for r2) -->
+  <div class="pop">
+    <div class="ph">
+      <span class="rev">r2</span>
+      <span class="sub">sep 12 · 4 runs · 1 fail · scenario checkout-3g</span>
+      <span class="x">✕</span>
+    </div>
+    <div class="pb">
+      <div class="diff">
+        <div class="l ctx"><span class="m">5</span> steps:</div>
+        <div class="l old"><span class="m">6</span>-   - tap: [210, 640]</div>
+        <div class="l new"><span class="m">6</span>+   - tap:</div>
+        <div class="l new"><span class="m">7</span>+       on: Masuk</div>
+        <div class="l ctx"><span class="m">8</span>   - type: "qa@lp.id"</div>
+      </div>
+      <div class="pf">diff vs current r4 · <span style="color:var(--fog); cursor:pointer;">runs on this version</span> · <span style="color:var(--fog); cursor:pointer;">full yaml</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="hd">
+    <span class="name">Waybill tracking</span>
+    <span class="sub">1 version · 3 runs</span>
+    <span class="verdict" style="color:var(--steel);">·</span>
+  </div>
+  <div class="strip" style="height:44px;">
+    <div class="rail">
+      <div class="dot p cur" style="left:8%; width:10px; height:10px;" title="r1 · current"><span class="rl">r1 · now</span><span class="rr">3</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="note">history = a trend you read in one second (which versions failed, where the case churns). detail on demand via popover. this is the most 'product' of the three — and the most code.</div>
+
+</body>
+</html>
