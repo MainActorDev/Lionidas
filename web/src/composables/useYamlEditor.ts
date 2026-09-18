@@ -17,6 +17,9 @@ export interface YamlEditorHandle {
   getValue(): string;
   setValue(v: string): void;
   setErrors(lines: number[]): void;
+  /** CM-level read-only (EditorView.editable via Compartment). CSS
+   *  pointer-events does NOT stop an already-focused editor — this does. */
+  setEditable(editable: boolean): void;
   destroy(): void;
 }
 
@@ -25,12 +28,15 @@ export function useYamlEditor(): YamlEditorHandle {
   let view: EditorView | null = null;
   let setDeco: ((lines: number[]) => void) | null = null;
   let saveCb: (() => void) | null = null;
+  // hoisted from mount(): the CM view module (needed by setEditable post-mount)
+  let viewModRef: typeof import('@codemirror/view') | null = null;
+  let editCompartment: import('@codemirror/state').Compartment | null = null;
 
   async function mount(el: HTMLElement, initial: string, onSave: () => void, vocab?: EditorVocabulary): Promise<void> {
     // no vocabulary (endpoint down / old caller) → grammar-only completions
     const theVocab: EditorVocabulary = vocab ?? { selectors: [], caseNames: [], apps: [], tags: [] };
     saveCb = onSave;
-    const [viewMod, { yaml }, stateMod, languageMod, highlightMod, commandsMod, autocompMod, slotsMod, complMod] = await Promise.all([
+    const [cmView, { yaml }, stateMod, languageMod, highlightMod, commandsMod, autocompMod, slotsMod, complMod] = await Promise.all([
       import('@codemirror/view'),
       import('@codemirror/lang-yaml'),
       import('@codemirror/state'),
@@ -42,7 +48,7 @@ export function useYamlEditor(): YamlEditorHandle {
       import('@crucible/shared/yaml-completions'),
     ]);
     const { StateField } = stateMod;
-    const { Decoration } = viewMod;
+    const { Decoration } = cmView;
     const { tags } = highlightMod;
     const { HighlightStyle } = languageMod;
 
@@ -56,7 +62,7 @@ export function useYamlEditor(): YamlEditorHandle {
       { tag: tags.punctuation, color: '#787878' },
     ]);
 
-    const theme = viewMod.EditorView.theme({
+    const theme = cmView.EditorView.theme({
       '&': { backgroundColor: '#0a0a0a', color: '#f0f0f0', fontSize: '12.5px' },
       '.cm-content': { fontFamily: "'JetBrains Mono', 'SF Mono', Menlo, monospace", caretColor: '#ff5c1a', lineHeight: '1.65' },
       '.cm-gutters': { backgroundColor: '#0a0a0a', color: '#4a4a4a', border: 'none' },
@@ -103,7 +109,7 @@ export function useYamlEditor(): YamlEditorHandle {
         }
         return value;
       },
-      provide: (f) => viewMod.EditorView.decorations.from(f),
+      provide: (f) => cmView.EditorView.decorations.from(f),
     });
     setDeco = (lines: number[]) => { view?.dispatch({ effects: [setErrLines.of(lines)] }); };
 
@@ -139,19 +145,21 @@ export function useYamlEditor(): YamlEditorHandle {
       return { from: fragStart, options, validFor: /^[A-Za-z0-9_'-]*$/ };
     };
 
-    view = new viewMod.EditorView({
+    editCompartment = new stateMod.Compartment();
+    view = new cmView.EditorView({
       doc: initial,
       parent: el,
       extensions: [
-        viewMod.lineNumbers(),
+        editCompartment.of(cmView.EditorView.editable.of(true)),
+        cmView.lineNumbers(),
         commandsMod.history(),
-        viewMod.highlightActiveLine(),
+        cmView.highlightActiveLine(),
         yaml(),
         languageMod.syntaxHighlighting(hl),
         theme,
         errorField,
         autocompMod.autocompletion({ override: [completionSource], activateOnTyping: true }),
-        viewMod.keymap.of([
+        cmView.keymap.of([
           { key: 'Mod-Enter', run: () => { saveCb?.(); return true; } },
           ...autocompMod.completionKeymap,
           ...commandsMod.defaultKeymap,
@@ -159,8 +167,10 @@ export function useYamlEditor(): YamlEditorHandle {
         ]),
       ],
     });
+    viewModRef = cmView;
     ready.value = true;
   }
+
 
   function getValue(): string { return view ? view.state.doc.toString() : ''; }
   function setValue(v: string): void {
@@ -168,8 +178,14 @@ export function useYamlEditor(): YamlEditorHandle {
     view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v } });
   }
   function setErrors(lines: number[]): void { setDeco?.(lines); }
+  function setEditable(editable: boolean): void {
+    if (!view || !editCompartment || !viewModRef) return;
+    view.dispatch({
+      effects: editCompartment.reconfigure(viewModRef.EditorView.editable.of(editable)),
+    });
+  }
   function destroy(): void { view?.destroy(); view = null; ready.value = false; }
 
   onBeforeUnmount(destroy);
-  return { ready, mount, getValue, setValue, setErrors, destroy };
+  return { ready, mount, getValue, setValue, setErrors, setEditable, destroy };
 }

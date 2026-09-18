@@ -59,11 +59,13 @@ onMounted(loadVersionsFooter);
 function pickRevision(rev: number | null): void {
   if (rev === null) {
     viewingRev.value = null;
+    ed.setEditable(true);
     ed.setValue(editingYaml.value);
     return;
   }
   if (viewingRev.value === null) editingYaml.value = ed.getValue();
   viewingRev.value = rev;
+  ed.setEditable(false); // CM-level read-only — CSS cannot stop a focused editor
   const yaml = snapshots.get(rev) ?? '';
   ed.setValue(yaml === '' ? `# revision ${rev} — backfill snapshot; yaml is captured from the first run after it` : yaml);
 }
