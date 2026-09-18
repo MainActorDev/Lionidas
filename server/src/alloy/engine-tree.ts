@@ -14,6 +14,13 @@ import { engineTreeToSnapNodes, type SnapNode } from '@crucible/shared/engine-tr
 const BIN = process.env['CRUCIBLE_SIMDECK_BIN']
   ?? join(dirname(fileURLToPath(import.meta.url)), '../../../../baguette/Baguette');
 
+/** Resolve the engine binary path (shared with the viewtree probe client).
+ *  Exported so the probe's arm/disarm spawns the SAME binary the tree
+ *  client uses — one resolution, no drift. */
+export function engineBin(): string {
+  return BIN;
+}
+
 const TIMEOUT_MS = 10_000;
 
 /** Test seam (same pattern as __setAlloyForTest): overrides the CLI spawn
