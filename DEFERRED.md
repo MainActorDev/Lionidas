@@ -262,3 +262,27 @@ probe is BUILT (fork PR MainActorDev/Baguette#3, Crucible commits
   structurally covered by fixtures + launchctl-env semantics.
 - **P4 numeric gate write-up** folds into the inspector-toggle decision
   when that lands.
+
+## G. Test-case management — Phase A shipped 2026-09-18, carry-overs
+
+*Source: "E2E Test-Case Management" brief; assessment + 5-phase plan at
+`docs/plans/2026-09-18-testcase-management.md`, Phase A plan
+`docs/plans/2026-09-18-phase-a-case-versions.md`. Phase A SHIPPED (T1–T5):
+`case_versions` snapshots pinned to every run, read routes, scenario
+columns finally written. Remaining phases + decisions:*
+
+- **Phase A UI** — the chosen journey v2 sketch
+  (`sketches/008-case-versions/chosen-journey-v2.html`) is the 1:1 spec:
+  history disclosure in the case editor (one line per revision, yaml|diff
+  tabs), version chip on run rows (⚠ stale). Gated build, not started.
+- **Evidence retention decision** — versions make historical runs resolve
+  their INPUTS, but artifacts stay latest-only per case (disk-vs-history
+  product call; flagged at the phase gate).
+- **Phase B** — `variants:` yaml key (parse/validate/autocomplete only).
+- **Phase C** — runner variant expansion; per-variant versioning question
+  (variant env changes the yaml hash → separate versions) rides with it;
+  `runs.variant_id` column already exists, unwritten.
+- **Phase D** — suites (⚠ concept-first + sketches BEFORE any UI);
+  plans-reference-suites follow-up.
+- **Phase E** — case status lifecycle; publish act (rejected for v1 —
+  implicit snapshot-on-run covers the brief; revisit on demand).
