@@ -1,5 +1,6 @@
 /** M1 schema (append-only; DDL is contract per plans/M1 §1). */
 import type Database from 'better-sqlite3';
+import { createHash } from 'node:crypto';
 
 export function migrateM1(db: Database.Database): void {
   db.exec(`
@@ -243,9 +244,54 @@ export function migrateM1(db: Database.Database): void {
     // Auth v2 — admin approval gate: Jira auto-created users are born pending (approved=0)
     // and cannot log in until an admin approves. Local users are admin-created → born approved.
     'ALTER TABLE users ADD COLUMN approved INTEGER NOT NULL DEFAULT 1',
+    // Test-case management Phase A — case versions: every run pins the exact
+    // content it executed. variant_id lands now (Phase C writes it) so the
+    // migration era stays one; nothing writes it yet.
+    'ALTER TABLE runs ADD COLUMN case_version_id TEXT',
+    'ALTER TABLE runs ADD COLUMN variant_id TEXT',
   ]) {
     try { db.exec(col); } catch { /* column exists */ }
   }
+  // Phase A — immutable case-version snapshots. Deliberately NO FK on
+  // template_id: a version must survive its template's deletion (historical
+  // runs keep resolving their inputs). Identity = (template, revision).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS case_versions(
+      id TEXT PRIMARY KEY,
+      template_id TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      steps_sha256 TEXT NOT NULL,
+      yaml_canonical TEXT NOT NULL,
+      scenario_id TEXT,
+      scenario_snapshot_json TEXT,
+      source TEXT NOT NULL CHECK(source IN ('run','backfill')) DEFAULT 'run',
+      created_by TEXT,
+      created_at INTEGER NOT NULL,
+      UNIQUE(template_id, revision)
+    );
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_case_versions_template ON case_versions(template_id, revision DESC)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_runs_version ON runs(case_version_id)');
+  // Idempotent backfill: every existing case gets an honest revision 1
+  // ("backfill" = current content, no invented provenance). tsx-watch
+  // re-runs migrate on every edit — the NOT EXISTS guard makes repeats a
+  // no-op. Runs created before versioning stay case_version_id NULL
+  // (the UI shows "pre-versioning", never a fabricated link). The
+  // canonical yaml is filled lazily by the snapshot service on next run —
+  // backfill rows carry the steps hash, the honest minimum.
+  {
+    const insert = db.prepare(`
+      INSERT INTO case_versions(id, template_id, revision, steps_sha256, yaml_canonical, source, created_by, created_at)
+      VALUES (?, ?, 1, ?, '', 'backfill', ?, ?)`);
+    const rows = db.prepare(`
+      SELECT t.id, t.steps_json, t.created_by, t.updated_at FROM templates t
+      WHERE NOT EXISTS (SELECT 1 FROM case_versions cv WHERE cv.template_id = t.id)`).all() as
+      Array<{ id: string; steps_json: string; created_by: string | null; updated_at: number }>;
+    for (const t of rows) {
+      insert.run(`cv_bf_${t.id}`, t.id, createHash('sha256').update(t.steps_json).digest('hex'), t.created_by, t.updated_at);
+    }
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS run_taps(
       run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
