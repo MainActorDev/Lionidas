@@ -239,3 +239,26 @@ comment). The entry was describing intentional behavior as pending work.*
   host coupling. Costs an ios-consumer change.
 - **Trigger:** first MacStadium staging run — verify service resolution, sim
   inheritance after reboot, watchdog drill, before production.
+
+---
+
+## F. Viewtree follow-ups — deferred 2026-09-18 (P3 shipped)
+
+*Source: viewtree probe P3 (mechanism B) executed + live-verified —
+`docs/research/2026-09-18-viewtree-p3-probe.md`. The pause-free in-process
+probe is BUILT (fork PR MainActorDev/Baguette#3, Crucible commits
+820c232/b2be6d7/6b68761+). Remaining, deliberately deferred:*
+
+- **P2.3 inspector UI toggle** (semantic ⟷ structural tree mode): still
+  API-only; the backend now supports a cheap toggle on either source.
+  Revive on inspector demand.
+- **Warm-up relaunch when app pre-dates arming**: `startManualSession`'s
+  alloy open (hold:false) fronts an already-running app without
+  relaunching; if the app was up before the session armed, probe dumps
+  time out honestly (NO_RESPONSE). Workaround: terminate the app before
+  session start. Revive (sweep's `ensureEnvReady` pattern) if it bites.
+- **SwiftUI ceiling live check** (row 3) + sim-reboot wipe (row 7) were
+  not drilled — no Foodiary/second sim on the box this session;
+  structurally covered by fixtures + launchctl-env semantics.
+- **P4 numeric gate write-up** folds into the inspector-toggle decision
+  when that lands.

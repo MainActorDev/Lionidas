@@ -191,6 +191,15 @@ manual, user-invoked inspection.
 
 ### P3 — Mechanism B decision (dylib via existing injection) — GATED
 
+**P3 EXECUTED 2026-09-18 — verdict BUILT (pause removed).** Full drill
+matrix + two fork bug fixes + one Crucible fix:
+`docs/research/2026-09-18-viewtree-p3-probe.md`. Highlights: parity
+100% class/parent, count ±0; 52–449ms dumps vs 6.6–23s lldb; stream
+continuity proven; honest NO_RESPONSE/PROBE_NOT_ARMED verified live.
+Env-gated `CRUCIBLE_VIEWTREE_PROBE=1`, default off; lldb stays default.
+Known limitation: an already-running app needs one terminate before the
+armed session opens it (alloy open with hold:false doesn't relaunch).
+
 Build ONLY if P2 shows the pause/latency blocks a workflow QA actually runs
 (evidence: which drill broke, recorded pause budget vs need), AND the
 viewtree earns adoption signals in P4. Design if reached:
