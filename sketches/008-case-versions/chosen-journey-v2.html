@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<!-- v2 — STRIPPED. What was cut from v1 and why:
+     · no hashes on screen (audit data; copy affordance later if ever asked for)
+     · no kv grid — scenario is one muted line, body-fixture warning gone (API keeps it)
+     · no change-summary prose (v1 invented "+selector hardened" — nothing computes that;
+       the DIFF between revisions IS the what-changed, derived from stored yaml)
+     · no footer note; banner shortened to one clause
+     · runs hint shortened to one line
+     Result: one line per revision; detail = yaml or diff, nothing else. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>chosen journey v2 — stripped</title>
+<style>
+  :root {
+    --void:#000; --carbon:#111; --graphite:#191919; --iron:#202020; --slate:#3a3a3a;
+    --steel:#606060; --ash:#7e7e7e; --fog:#b4b4b4; --paper:#eee;
+    --ember:#ff5f2e; --ok:#8fce63; --bad:#e05c4f; --amber:#d9a03f;
+    --mono:'JetBrains Mono','SF Mono',Menlo,monospace;
+  }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--void); color:var(--paper); font:12px/1.5 var(--mono); padding:20px; width:fit-content; }
+  .tag { color:var(--ash); font-size:10px; letter-spacing:.12em; text-transform:uppercase; margin:0 0 8px 2px; }
+  .frame { border:1px solid var(--iron); border-radius:2px; background:var(--carbon); width:900px; margin-bottom:26px; }
+
+  .ed-hd { display:flex; gap:12px; align-items:baseline; padding:10px 14px; border-bottom:1px solid var(--iron); }
+  .ed-hd .name { font-size:13px; }
+  .ed-hd .sub { color:var(--steel); font-size:10px; }
+  .disclosure { margin-left:auto; color:var(--fog); font-size:11px; cursor:pointer; border:1px solid var(--slate); border-radius:2px; padding:1px 8px; }
+  .disclosure:hover { border-color:var(--ember); color:var(--ember); }
+  .disclosure .n { color:var(--ember); }
+
+  .hist { display:grid; grid-template-columns:190px 1fr; min-height:300px; }
+  .list { border-right:1px solid var(--iron); }
+  .li { display:flex; gap:8px; align-items:baseline; padding:7px 12px; border-bottom:1px solid var(--iron); cursor:pointer; font-size:11px; }
+  .li:hover { background:var(--graphite); }
+  .li.sel { background:var(--graphite); border-left:2px solid var(--ember); padding-left:10px; }
+  .li .rev { color:var(--ember); }
+  .li .when { color:var(--fog); }
+  .li .runs { color:var(--steel); margin-left:auto; font-size:10px; }
+  .li.cur .rev::after { content:" ·"; color:var(--steel); }
+  .li.cur .when::after { content:" (current)"; color:var(--ash); font-size:10px; }
+
+  .snap { display:flex; flex-direction:column; min-width:0; }
+  .snap .hd { display:flex; gap:8px; padding:7px 14px; border-bottom:1px solid var(--iron); align-items:baseline; }
+  .rev2 { color:var(--ember); }
+  .tabs { margin-left:auto; display:flex; gap:4px; }
+  .tab { border:1px solid var(--slate); border-radius:2px; padding:0 8px; color:var(--fog); font-size:10px; cursor:pointer; }
+  .tab.on { border-color:var(--ember); color:var(--ember); }
+  .banner { border-bottom:1px solid var(--iron); border-left:2px solid var(--amber); color:var(--amber); font-size:11px; padding:5px 14px; display:none; }
+  .snap.stale .banner { display:block; }
+  .body { padding:12px 14px; overflow:auto; flex:1; }
+  pre { background:var(--void); border:1px solid var(--iron); border-radius:2px; padding:10px; color:var(--fog); font-size:11px; white-space:pre; }
+  .diff { background:var(--void); border:1px solid var(--iron); border-radius:2px; padding:10px; font-size:11px; overflow:auto; }
+  .diff .l { display:flex; white-space:pre; line-height:1.7; }
+  .diff .m { width:22px; color:var(--steel); text-align:right; padding-right:10px; flex:none; user-select:none; }
+  .old { color:var(--bad); } .new { color:var(--ok); } .ctx { color:var(--fog); }
+  .scen { color:var(--steel); font-size:10px; margin-top:8px; }
+
+  .rrow { display:grid; grid-template-columns:14px 1fr 105px 92px 70px 60px; gap:10px; padding:8px 10px; border:1px solid var(--iron); border-radius:2px; background:var(--carbon); margin-bottom:5px; width:900px; font-size:11px; align-items:baseline; }
+  .rrow .case { color:var(--paper); }
+  .rrow .meta { color:var(--steel); font-size:10px; }
+  .vchip { border:1px solid var(--slate); border-radius:2px; padding:0 5px; color:var(--fog); font-size:10px; cursor:pointer; }
+  .vchip:hover { border-color:var(--ember); color:var(--ember); }
+  .vchip.stale { border-color:var(--amber); color:var(--amber); }
+  .p{color:var(--ok);} .f{color:var(--bad);}
+  .hint { color:var(--steel); font-size:10px; margin:4px 0 0 2px; width:900px; }
+</style>
+</head>
+<body>
+
+<div class="tag">moment 1 · case editor · history open</div>
+<div class="frame">
+  <div class="ed-hd">
+    <span class="name">Login happy path</span>
+    <span class="sub">14 steps · smoke, checkout · updated 2d ago</span>
+    <span class="disclosure" onclick="toggleHist()">history · 3 ▾</span>
+  </div>
+  <div class="hist" id="hist">
+    <div class="list">
+      <div class="li sel cur" data-rev="r3" onclick="sel(this, 'r3')">
+        <span class="rev">r3</span><span class="when">today</span><span class="runs">4</span>
+      </div>
+      <div class="li" data-rev="r2" onclick="sel(this, 'r2')">
+        <span class="rev">r2</span><span class="when">sep 12</span><span class="runs">11</span>
+      </div>
+      <div class="li" data-rev="r1" onclick="sel(this, 'r1')">
+        <span class="rev">r1</span><span class="when">sep 03</span><span class="runs">—</span>
+      </div>
+    </div>
+    <div class="snap" id="snap">
+      <div class="hd">
+        <span class="rev2" id="s-rev">r3</span>
+        <span class="tabs">
+          <span class="tab on" id="t-yaml" onclick="tab('yaml')">yaml</span>
+          <span class="tab" id="t-diff" onclick="tab('diff')">diff vs r3</span>
+        </span>
+      </div>
+      <div class="banner">older snapshot — current is r3</div>
+      <div class="body">
+        <pre id="s-yaml">name: Login happy path
+tags: [checkout, smoke]
+steps:
+  - tap:
+      on: Masuk
+  - type: "berkamain@lp.id"
+      on: Email
+  - expect:
+      equals: "Beranda"</pre>
+        <div class="diff" id="s-diff" style="display:none">
+          <div class="l ctx"><span class="m">5</span> steps:</div>
+          <div class="l ctx"><span class="m">6</span>   - tap:</div>
+          <div class="l old"><span class="m">7</span>-     [210, 640]</div>
+          <div class="l new"><span class="m">7</span>+       on: Masuk</div>
+          <div class="l ctx"><span class="m">8</span>   - type: "berkamain@lp.id"</div>
+        </div>
+        <div class="scen" id="s-scen">scenario checkout-3g</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="tag">moment 2 · runs page · breadcrumb only</div>
+<div class="rrow">
+  <span class="p">✓</span><span class="case">Login happy path</span>
+  <span class="meta">iPhone 14 Plus · 14:22</span><span class="meta">v3.4.0</span>
+  <span class="vchip">r3</span><span class="meta">qa</span>
+</div>
+<div class="rrow">
+  <span class="f">✕</span><span class="case">Login happy path</span>
+  <span class="meta">iPhone 16 Pro · 11:40</span><span class="meta">v3.4.0</span>
+  <span class="vchip stale" title="opens the case editor on r2">r2 ⚠</span><span class="meta">ci</span>
+</div>
+<div class="rrow">
+  <span class="p">✓</span><span class="case">Waybill tracking</span>
+  <span class="meta">iPhone 14 Plus · 09:58</span><span class="meta">v3.3.9</span>
+  <span class="meta">pre-versioning</span><span class="meta">qa</span>
+</div>
+<div class="hint">⚠ = older revision — opens the case editor on it</div>
+
+<script>
+const S = {
+  r3: { scen:'scenario checkout-3g', stale:false, diffLabel:'diff vs r3',
+    yaml:'name: Login happy path\ntags: [checkout, smoke]\nsteps:\n  - tap:\n      on: Masuk\n  - type: "berkamain@lp.id"\n      on: Email\n  - expect:\n      equals: "Beranda"' },
+  r2: { scen:'scenario checkout-3g', stale:true, diffLabel:'diff vs r3',
+    yaml:'name: Login happy path\ntags: [checkout, smoke]\nsteps:\n  - tap: [210, 640]\n  - type: "berkamain@lp.id"\n  - expect:\n      equals: "Beranda"' },
+  r1: { scen:'', stale:true, diffLabel:'diff vs r3',
+    yaml:'name: Login happy path\ntags: [checkout]\nsteps:\n  - tap: [210, 640]\n  - type: "berkamain@lp.id"' },
+};
+function sel(el, rev){
+  document.querySelectorAll('.li').forEach(x=>x.classList.remove('sel'));
+  el.classList.add('sel');
+  const s = S[rev];
+  document.getElementById('s-rev').textContent = rev;
+  document.getElementById('s-yaml').textContent = s.yaml;
+  document.getElementById('s-scen').textContent = s.scen;
+  document.getElementById('snap').classList.toggle('stale', s.stale);
+  document.getElementById('t-diff').textContent = rev === 'r3' ? 'diff vs r2' : 'diff vs r3';
+  tab('yaml');
+}
+function tab(which){
+  document.getElementById('s-yaml').style.display = which==='yaml' ? 'block' : 'none';
+  document.getElementById('s-diff').style.display = which==='diff' ? 'block' : 'none';
+  document.getElementById('t-yaml').classList.toggle('on', which==='yaml');
+  document.getElementById('t-diff').classList.toggle('on', which==='diff');
+}
+function toggleHist(){
+  const h = document.getElementById('hist');
+  const open = h.style.display !== 'none';
+  h.style.display = open ? 'none' : 'grid';
+}
+</script>
+</body>
+</html>

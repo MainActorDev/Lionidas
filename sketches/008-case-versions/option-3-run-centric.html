@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<!-- Option 3 — RUN-CENTRIC: version truth lives on the RUN (where the
+     questions are asked). Runs page shows the version chip inline; clicking
+     opens a slide-over comparing "what ran" vs "what's current".
+     Trade: no browsing of history without a run; weakest for case management. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>option 3 — run-centric slide-over</title>
+<style>
+  :root {
+    --void:#000; --carbon:#111; --graphite:#191919; --iron:#202020; --slate:#3a3a3a;
+    --steel:#606060; --ash:#7e7e7e; --fog:#b4b4b4; --chalk:#d9d9d9; --paper:#eee;
+    --ember:#ff5f2e; --ok:#8fce63; --bad:#e05c4f; --amber:#d9a03f;
+    --mono:'JetBrains Mono','SF Mono',Menlo,monospace;
+  }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--void); color:var(--paper); font:12px/1.5 var(--mono); padding:20px; width:fit-content; }
+  .h { color:var(--ash); font-size:10px; letter-spacing:.12em; text-transform:uppercase; margin-bottom:10px; }
+  .stage { display:flex; gap:0; width:980px; }
+  /* ── runs table (existing page shape) ── */
+  .runs { flex:1; min-width:0; }
+  .rrow { display:grid; grid-template-columns:14px 1fr 110px 90px 84px 120px; gap:10px; padding:8px 10px; border:1px solid var(--iron); border-radius:2px; background:var(--carbon); margin-bottom:5px; align-items:baseline; font-size:11px; }
+  .rrow .st { text-align:center; }
+  .rrow .case { color:var(--paper); }
+  .rrow .meta { color:var(--steel); font-size:10px; }
+  .vchip { border:1px solid var(--slate); border-radius:2px; padding:0 5px; color:var(--fog); font-size:10px; cursor:pointer; }
+  .vchip:hover, .vchip.on { border-color:var(--ember); color:var(--ember); }
+  .vchip.stale { border-color:var(--amber); color:var(--amber); }
+  .p{color:var(--ok);} .f{color:var(--bad);}
+  /* ── slide-over ── */
+  .slide { width:400px; border:1px solid var(--slate); border-radius:2px; background:var(--graphite); margin-left:10px; display:flex; flex-direction:column; }
+  .slide .hd { padding:10px 12px; border-bottom:1px solid var(--iron); display:flex; gap:8px; align-items:baseline; }
+  .slide .hd .rev { color:var(--ember); }
+  .slide .hd .x { margin-left:auto; color:var(--steel); cursor:pointer; }
+  .slide .body { padding:12px; overflow:auto; }
+  .banner { border:1px solid var(--amber); border-radius:2px; color:var(--amber); font-size:11px; padding:7px 10px; margin-bottom:12px; }
+  .kv { display:grid; grid-template-columns:110px 1fr; gap:3px 10px; margin-bottom:12px; font-size:11px; }
+  .kv .k { color:var(--steel); font-size:10px; }
+  .kv .v2 { color:var(--fog); }
+  .diff-h { color:var(--ash); font-size:10px; letter-spacing:.12em; text-transform:uppercase; margin:4px 0 6px; }
+  .diff { border:1px solid var(--iron); border-radius:2px; background:var(--void); font-size:11px; overflow:auto; }
+  .diff .line { display:flex; white-space:pre; }
+  .diff .ln { width:26px; color:var(--steel); text-align:right; padding-right:8px; flex:none; user-select:none; }
+  .diff .old { color:var(--bad); } .diff .new { color:var(--ok); }
+  .diff .ctx { color:var(--fog); }
+  .foot { color:var(--steel); font-size:10px; margin-top:10px; }
+</style>
+</head>
+<body>
+<div class="h">runs · today</div>
+<div class="stage">
+  <div class="runs">
+    <div class="rrow">
+      <span class="st p">✓</span><span class="case">Login happy path</span>
+      <span class="meta">iPhone 14 Plus · 14:22</span>
+      <span class="meta">v3.4.0</span>
+      <span class="vchip on">r3</span>
+      <span class="meta">qa</span>
+    </div>
+    <div class="rrow">
+      <span class="st f">✕</span><span class="case">Login happy path</span>
+      <span class="meta">iPhone 16 Pro · 11:40</span>
+      <span class="meta">v3.4.0</span>
+      <span class="vchip stale">r2 ⚠</span>
+      <span class="meta">ci</span>
+    </div>
+    <div class="rrow">
+      <span class="st p">✓</span><span class="case">Checkout — cod payment</span>
+      <span class="meta">iPhone 14 Plus · 10:05</span>
+      <span class="meta">v3.4.0</span>
+      <span class="vchip">r1</span>
+      <span class="meta">qa</span>
+    </div>
+    <div class="rrow">
+      <span class="st p">✓</span><span class="case">Waybill tracking detail</span>
+      <span class="meta">iPhone 14 Plus · 09:58</span>
+      <span class="meta">v3.3.9</span>
+      <span class="meta">—</span>
+      <span class="meta">qa</span>
+    </div>
+  </div>
+  <div class="slide">
+    <div class="hd">
+      <span>run</span><span class="rev">✕ login happy path · r2</span><span class="x">✕ close</span>
+    </div>
+    <div class="body">
+      <div class="banner">⚠ this run executed r2 — the case has since moved to r3</div>
+      <div class="kv">
+        <span class="k">ran</span><span class="v2">today 11:40 · iPhone 16 Pro · v3.4.0</span>
+        <span class="k">version</span><span class="v2">r2 · 77d0…1aa · run-snap sep 12</span>
+        <span class="k">scenario</span><span class="v2">checkout-3g · snapshot 9c11…40d</span>
+        <span class="k">result</span><span class="v2 f">✕ step 9 — expect equals "Beranda" → 0 matches</span>
+      </div>
+      <div class="diff-h">what changed since (r2 → r3)</div>
+      <div class="diff">
+        <div class="line ctx"><span class="ln">6</span>  - tap:</div>
+        <div class="line old"><span class="ln">7</span>-     point: [210, 640]</div>
+        <div class="line new"><span class="ln">7</span>+       on: "Masuk"</div>
+        <div class="line ctx"><span class="ln">8</span>  - type: "berkamain@lp.id"</div>
+      </div>
+      <div class="foot">evidence + full yaml pinned to this version — unaffected by later edits</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

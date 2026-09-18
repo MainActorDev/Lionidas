@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<!-- Option 1 — INLINE EXPAND: version history unfolds under the case row.
+     Lowest-friction: stays in the test-cases list, one click from where you are.
+     Trade: list gets tall; yaml reading is secondary. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>option 1 — inline expand</title>
+<style>
+  :root {
+    --void:#000; --carbon:#111; --graphite:#191919; --iron:#202020; --slate:#3a3a3a;
+    --steel:#606060; --ash:#7e7e7e; --fog:#b4b4b4; --chalk:#d9d9d9; --paper:#eee;
+    --ember:#ff5f2e; --ok:#8fce63; --bad:#e05c4f;
+    --mono:'JetBrains Mono','SF Mono',Menlo,monospace;
+  }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--void); color:var(--paper); font:12px/1.5 var(--mono); padding:20px; width:fit-content; min-width:720px; }
+  .h { color:var(--ash); font-size:10px; letter-spacing:.12em; text-transform:uppercase; margin-bottom:10px; }
+  .row { border:1px solid var(--iron); border-radius:2px; background:var(--carbon); margin-bottom:6px; width:fit-content; min-width:100%; }
+  .case { display:grid; grid-template-columns:1fr auto auto; gap:12px; padding:9px 12px; align-items:center; cursor:pointer; }
+  .case:hover { background:var(--graphite); }
+  .name { color:var(--paper); }
+  .meta { color:var(--steel); font-size:11px; }
+  .chip { border:1px solid var(--slate); border-radius:2px; padding:0 6px; color:var(--fog); font-size:10px; }
+  .chip.rev { color:var(--ember); border-color:var(--ember); }
+  /* the unfolded history */
+  .versions { border-top:1px solid var(--iron); }
+  .v { display:grid; grid-template-columns:64px 110px 1fr auto; gap:10px; padding:7px 12px; align-items:baseline; border-bottom:1px solid var(--iron); cursor:pointer; }
+  .v:last-child { border-bottom:none; }
+  .v:hover { background:var(--graphite); }
+  .v.current { background:var(--graphite); }
+  .v .rev { color:var(--ember); }
+  .v .sha { color:var(--steel); font-size:11px; }
+  .v .what { color:var(--fog); font-size:11px; }
+  .v .what b { color:var(--paper); font-weight:400; }
+  .runs { color:var(--steel); font-size:10px; text-align:right; }
+  .runs .p { color:var(--ok); } .runs .f { color:var(--bad); }
+  .yaml { border-top:1px dashed var(--slate); background:var(--void); padding:10px 12px; color:var(--fog); font-size:11px; white-space:pre; display:none; }
+  .v.open + .yaml { display:block; }
+  .src { color:var(--steel); font-size:10px; }
+</style>
+</head>
+<body>
+<div class="h">test cases · checkout</div>
+
+<div class="row">
+  <div class="case" onclick="this.parentNode.classList.toggle('x'); this.querySelector('.versions')">
+    <span class="name">Login happy path</span>
+    <span class="meta">14 steps · updated 2d ago</span>
+    <span class="chip rev">r3</span>
+    <div class="versions" style="display:none">
+      <div class="v current open" onclick="event.stopPropagation(); toggleV(this)">
+        <span class="rev">r3</span><span class="sha">a41f…c92</span>
+        <span class="what"><b>+ selector hardened</b> on step 6 · <span class="src">run-snap</span></span>
+        <span class="runs">4 runs · <span class="p">✓3</span> <span class="f">✕1</span></span>
+      </div>
+      <pre class="yaml" style="display:block"># Login happy path — edit as yaml; save validates against the step schema
+name: Login happy path
+tags: [checkout, smoke]
+steps:
+  - tap:
+      on: Masuk
+  - type: "berkamain@lp.id"
+      on: Email
+  - expect:
+      equals: "Beranda"</pre>
+      <div class="v" onclick="event.stopPropagation(); toggleV(this)">
+        <span class="rev">r2</span><span class="sha">77d0…1aa</span>
+        <span class="what">scenario <b>checkout-3g</b> attached · <span class="src">run-snap</span></span>
+        <span class="runs">11 runs · <span class="p">✓9</span> <span class="f">✕2</span></span>
+      </div>
+      <pre class="yaml">name: Login happy path
+tags: [checkout, smoke]
+steps:
+  - tap:
+      on: Masuk
+  - type: "berkamain@lp.id"
+      on: Email
+  - expect:
+      equals: "Beranda"</pre>
+      <div class="v" onclick="event.stopPropagation(); toggleV(this)">
+        <span class="rev">r1</span><span class="sha">e02b…9f4</span>
+        <span class="what">backfill from recorded case · <span class="src">backfill</span></span>
+        <span class="runs">—</span>
+      </div>
+      <pre class="yaml">name: Login happy path
+tags: [checkout]
+steps:
+  - tap: [210, 640]
+  - type: "berkamain@lp.id"
+  - expect:
+      equals: "Beranda"</pre>
+    </div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="case">
+    <span class="name">Checkout — cod payment</span>
+    <span class="meta">22 steps · updated 5d ago</span>
+    <span class="chip rev">r1</span>
+  </div>
+</div>
+<div class="row">
+  <div class="case">
+    <span class="name">Waybill tracking detail</span>
+    <span class="meta">9 steps · updated 3w ago</span>
+    <span class="chip rev">r2</span>
+  </div>
+</div>
+
+<script>
+function toggleV(el){
+  document.querySelectorAll('.v').forEach(v=>{v.classList.remove('open'); v.nextElementSibling.style.display='none';});
+  el.classList.add('open');
+  const y = el.nextElementSibling;
+  if(y && y.classList.contains('yaml')) y.style.display='block';
+}
+// click the case row to unfold
+document.querySelectorAll('.case').forEach(c=>{
+  c.addEventListener('click',()=>{
+    const vs=c.querySelector('.versions');
+    if(vs) vs.style.display = vs.style.display==='none'?'block':'none';
+  });
+});
+</script>
+</body>
+</html>

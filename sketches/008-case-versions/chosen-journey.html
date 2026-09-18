@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<!-- CHOSEN JOURNEY — one surface for versions, one breadcrumb, zero competing viewers.
+     Rules this design encodes (the fix for the confusion risk):
+       1. ONE surface per fact: versions live ONLY inside the case editor (house rule:
+          one edit surface per entity — extends to one HISTORY surface).
+       2. The runs page NEVER shows version content — only a breadcrumb chip (r2 ⚠)
+          that deep-links into the editor's history with that revision open.
+       3. History is ambient, not a destination: collapsed disclosure with a count;
+          daily editing never sees audit chrome.
+       4. "current" is the default selection; older revisions self-declare via banner.
+     Moments below: (1) editor with history open, (2) the runs-page breadcrumb. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>chosen journey — one surface, one breadcrumb</title>
+<style>
+  :root {
+    --void:#000; --carbon:#111; --graphite:#191919; --iron:#202020; --slate:#3a3a3a;
+    --steel:#606060; --ash:#7e7e7e; --fog:#b4b4b4; --chalk:#d9d9d9; --paper:#eee;
+    --ember:#ff5f2e; --ok:#8fce63; --bad:#e05c4f; --amber:#d9a03f;
+    --mono:'JetBrains Mono','SF Mono',Menlo,monospace;
+  }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--void); color:var(--paper); font:12px/1.5 var(--mono); padding:20px; width:fit-content; }
+  .frame { border:1px solid var(--iron); border-radius:2px; background:var(--carbon); width:960px; margin-bottom:26px; }
+  .frame .tag { color:var(--ash); font-size:10px; letter-spacing:.12em; text-transform:uppercase; margin:0 0 8px 2px; }
+  .p{color:var(--ok);} .f{color:var(--bad);}
+
+  /* ── editor header + disclosure ── */
+  .ed-hd { display:flex; gap:12px; align-items:baseline; padding:10px 14px; border-bottom:1px solid var(--iron); }
+  .ed-hd .name { font-size:13px; }
+  .ed-hd .sub { color:var(--steel); font-size:10px; }
+  .disclosure { margin-left:auto; color:var(--fog); font-size:11px; cursor:pointer; border:1px solid var(--slate); border-radius:2px; padding:1px 8px; }
+  .disclosure:hover { border-color:var(--ember); color:var(--ember); }
+  .disclosure .n { color:var(--ember); }
+
+  /* collapsed state = only the header row above; open = this grid */
+  .hist { display:grid; grid-template-columns:264px 1fr; min-height:340px; }
+  .list { border-right:1px solid var(--iron); }
+  .li { padding:8px 12px; border-bottom:1px solid var(--iron); cursor:pointer; }
+  .li:hover { background:var(--graphite); }
+  .li.sel { background:var(--graphite); border-left:2px solid var(--ember); padding-left:10px; }
+  .li .top { display:flex; gap:8px; align-items:baseline; }
+  .li .rev { color:var(--ember); }
+  .li .cur { color:var(--ash); font-size:10px; border:1px solid var(--slate); border-radius:2px; padding:0 4px; }
+  .li .sha { color:var(--steel); font-size:10px; }
+  .li .what { color:var(--fog); font-size:11px; margin-top:1px; }
+  .li .what b { color:var(--paper); font-weight:400; }
+  .li .foot { color:var(--steel); font-size:10px; margin-top:1px; }
+
+  .snap { display:flex; flex-direction:column; min-width:0; }
+  .snap .hd { display:flex; gap:10px; padding:8px 14px; border-bottom:1px solid var(--iron); align-items:baseline; }
+  .snap .hd .rev { color:var(--ember); }
+  .snap .hd .sub { color:var(--steel); font-size:10px; }
+  .banner { border-bottom:1px solid var(--iron); border-left:2px solid var(--amber); color:var(--amber); font-size:11px; padding:6px 14px; display:none; }
+  .snap.stale .banner { display:block; }
+  .body { padding:12px 14px; overflow:auto; }
+  .kv { display:grid; grid-template-columns:120px 1fr; gap:3px 12px; margin-bottom:10px; font-size:11px; }
+  .kv .k { color:var(--steel); font-size:10px; }
+  .kv .v2 { color:var(--fog); }
+  .kv .warn { color:var(--amber); }
+  pre { background:var(--void); border:1px solid var(--iron); border-radius:2px; padding:10px; color:var(--fog); font-size:11px; white-space:pre; }
+  .note { color:var(--steel); font-size:10px; margin-top:8px; }
+
+  /* ── runs page breadcrumb ── */
+  .rrow { display:grid; grid-template-columns:14px 1fr 105px 92px 70px 60px; gap:10px; padding:8px 10px; border:1px solid var(--iron); border-radius:2px; background:var(--carbon); margin-bottom:5px; width:960px; font-size:11px; align-items:baseline; }
+  .rrow .case { color:var(--paper); }
+  .rrow .meta { color:var(--steel); font-size:10px; }
+  .vchip { border:1px solid var(--slate); border-radius:2px; padding:0 5px; color:var(--fog); font-size:10px; cursor:pointer; }
+  .vchip:hover { border-color:var(--ember); color:var(--ember); }
+  .vchip.stale { border-color:var(--amber); color:var(--amber); }
+  .hint { color:var(--steel); font-size:10px; margin:4px 0 14px 2px; width:960px; }
+</style>
+</head>
+<body>
+
+<div class="tag">moment 1 · test cases page · case editor · history open</div>
+<div class="frame">
+  <div class="ed-hd">
+    <span class="name">Login happy path</span>
+    <span class="sub">14 steps · smoke, checkout · updated 2d ago</span>
+    <span class="disclosure" id="disc" onclick="toggleHist()">history · <span class="n">3</span> ▾</span>
+  </div>
+  <div class="hist" id="hist">
+    <div class="list">
+      <div class="li sel" data-rev="r3" onclick="sel(this)">
+        <div class="top"><span class="rev">r3</span><span class="cur">current</span><span class="sha">a41f…c92</span></div>
+        <div class="what"><b>selector hardened</b> · step 6</div>
+        <div class="foot">today 14:02 · run-snap · 4 runs <span class="p">✓3</span> <span class="f">✕1</span></div>
+      </div>
+      <div class="li" data-rev="r2" onclick="sel(this)">
+        <div class="top"><span class="rev">r2</span><span class="sha">77d0…1aa</span></div>
+        <div class="what">scenario <b>checkout-3g</b> attached</div>
+        <div class="foot">sep 12 · run-snap · 11 runs <span class="p">✓9</span> <span class="f">✕2</span></div>
+      </div>
+      <div class="li" data-rev="r1" onclick="sel(this)">
+        <div class="top"><span class="rev">r1</span><span class="sha">e02b…9f4</span></div>
+        <div class="what">backfill from recorded case</div>
+        <div class="foot">sep 03 · backfill · no runs</div>
+      </div>
+    </div>
+    <div class="snap" id="snap">
+      <div class="hd"><span class="rev" id="s-rev">r3</span><span class="sub" id="s-sub">a41f2e…c92 · today 14:02 by qa · source: run-snap</span></div>
+      <div class="banner">⚠ the case has moved on — this snapshot is what ran at the time, current is r3</div>
+      <div class="body">
+        <div class="kv" id="s-kv">
+          <span class="k">steps</span><span class="v2">14 · sha a41f2e…c92</span>
+          <span class="k">scenario</span><span class="v2">checkout-3g · 3 presets · snapshot 9c11…40d</span>
+          <span class="k">body fixtures</span><span class="v2">2 files · hashes pinned <span class="warn">(files may have changed since)</span></span>
+          <span class="k">runs</span><span class="v2">4 · <span class="p">✓3</span> <span class="f">✕1</span> · latest today 14:22 · iPhone 14 Plus</span>
+        </div>
+        <pre id="s-yaml"># Login happy path — edit as yaml; save validates against the step schema
+name: Login happy path
+tags: [checkout, smoke]
+steps:
+  - tap:
+      on: Masuk
+  - type: "berkamain@lp.id"
+      on: Email
+  - expect:
+      equals: "Beranda"</pre>
+        <div class="note">immutable — runs pinned here keep this yaml even after edits. diff vs current: click an older revision.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="tag">moment 2 · runs page · breadcrumb only — no viewer here</div>
+<div class="rrow">
+  <span class="p">✓</span><span class="case">Login happy path</span>
+  <span class="meta">iPhone 14 Plus · 14:22</span><span class="meta">v3.4.0</span>
+  <span class="vchip">r3</span><span class="meta">qa</span>
+</div>
+<div class="rrow">
+  <span class="f">✕</span><span class="case">Login happy path</span>
+  <span class="meta">iPhone 16 Pro · 11:40</span><span class="meta">v3.4.0</span>
+  <span class="vchip stale" title="opens the case editor on r2 — runs never show version content here">r2 ⚠</span><span class="meta">ci</span>
+</div>
+<div class="rrow">
+  <span class="p">✓</span><span class="case">Waybill tracking detail</span>
+  <span class="meta">iPhone 14 Plus · 09:58</span><span class="meta">v3.3.9</span>
+  <span class="meta">pre-versioning</span><span class="meta">qa</span>
+</div>
+<div class="hint">⚠ = this run executed an older revision — the chip opens the case editor with that revision selected. runs before versioning say so honestly, no chip.</div>
+
+<script>
+const SNAPSHOTS = {
+  r3: { sub:'a41f2e…c92 · today 14:02 by qa · source: run-snap', stale:false,
+    kv:'<span class="k">steps</span><span class="v2">14 · sha a41f2e…c92</span><span class="k">scenario</span><span class="v2">checkout-3g · 3 presets · snapshot 9c11…40d</span><span class="k">body fixtures</span><span class="v2">2 files · hashes pinned <span class="warn">(files may have changed since)</span></span><span class="k">runs</span><span class="v2">4 · <span class="p">✓3</span> <span class="f">✕1</span> · latest today 14:22 · iPhone 14 Plus</span>',
+    yaml:'# Login happy path — edit as yaml; save validates against the step schema\nname: Login happy path\ntags: [checkout, smoke]\nsteps:\n  - tap:\n      on: Masuk\n  - type: "berkamain@lp.id"\n      on: Email\n  - expect:\n      equals: "Beranda"' },
+  r2: { sub:'77d0…1aa · sep 12 by ci · source: run-snap', stale:true,
+    kv:'<span class="k">steps</span><span class="v2">14 · sha 77d0…1aa</span><span class="k">scenario</span><span class="v2">checkout-3g · 3 presets · snapshot 9c11…40d</span><span class="k">runs</span><span class="v2">11 · <span class="p">✓9</span> <span class="f">✕2</span> · latest today 11:40 · iPhone 16 Pro</span>',
+    yaml:'name: Login happy path\ntags: [checkout, smoke]\nsteps:\n  - tap: [210, 640]\n  - type: "berkamain@lp.id"\n  - expect:\n      equals: "Beranda"' },
+  r1: { sub:'e02b…9f4 · sep 03 · source: backfill', stale:true,
+    kv:'<span class="k">steps</span><span class="v2">11 · sha e02b…9f4</span><span class="k">runs</span><span class="v2">—</span>',
+    yaml:'name: Login happy path\ntags: [checkout]\nsteps:\n  - tap: [210, 640]\n  - type: "berkamain@lp.id"' },
+};
+function sel(el){
+  document.querySelectorAll('.li').forEach(x=>x.classList.remove('sel'));
+  el.classList.add('sel');
+  const s = SNAPSHOTS[el.dataset.rev];
+  document.getElementById('s-rev').textContent = el.dataset.rev;
+  document.getElementById('s-sub').textContent = s.sub;
+  document.getElementById('s-kv').innerHTML = s.kv;
+  document.getElementById('s-yaml').textContent = s.yaml;
+  document.getElementById('snap').classList.toggle('stale', s.stale);
+}
+function toggleHist(){
+  const h = document.getElementById('hist');
+  const open = h.style.display !== 'none';
+  h.style.display = open ? 'none' : 'grid';
+  document.getElementById('disc').textContent = open ? 'history · 3 ▸' : 'history · 3 ▾';
+}
+</script>
+</body>
+</html>

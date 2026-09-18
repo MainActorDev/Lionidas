@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<!-- Option 2 — SIDE PANEL: version history as a right dock inside the case
+     editor. Best for AUDIT work (diff-adjacent reading, copy a hash) because
+     the yaml stays open beside it. Trade: editor panel gets denser. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>option 2 — editor side panel</title>
+<style>
+  :root {
+    --void:#000; --carbon:#111; --graphite:#191919; --iron:#202020; --slate:#3a3a3a;
+    --steel:#606060; --ash:#7e7e7e; --fog:#b4b4b4; --chalk:#d9d9d9; --paper:#eee;
+    --ember:#ff5f2e; --ok:#8fce63; --bad:#e05c4f;
+    --mono:'JetBrains Mono','SF Mono',Menlo,monospace;
+  }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--void); color:var(--paper); font:12px/1.5 var(--mono); padding:20px; width:fit-content; }
+  .h { color:var(--ash); font-size:10px; letter-spacing:.12em; text-transform:uppercase; margin-bottom:10px; }
+  .panel { display:grid; grid-template-columns:340px 1fr; gap:0; border:1px solid var(--iron); border-radius:2px; width:900px; height:430px; background:var(--carbon); overflow:hidden; }
+  /* ── versions rail ── */
+  .rail { border-right:1px solid var(--iron); overflow-y:auto; }
+  .rail .hd { padding:9px 12px; border-bottom:1px solid var(--iron); color:var(--ash); font-size:10px; letter-spacing:.12em; text-transform:uppercase; position:sticky; top:0; background:var(--carbon); }
+  .v { padding:9px 12px; border-bottom:1px solid var(--iron); cursor:pointer; }
+  .v:hover { background:var(--graphite); }
+  .v.sel { background:var(--graphite); border-left:2px solid var(--ember); padding-left:10px; }
+  .v .top { display:flex; gap:8px; align-items:baseline; }
+  .v .rev { color:var(--ember); }
+  .v .sha { color:var(--steel); font-size:10px; }
+  .v .what { color:var(--fog); font-size:11px; margin-top:2px; }
+  .v .what b { color:var(--paper); font-weight:400; }
+  .v .foot { color:var(--steel); font-size:10px; margin-top:2px; }
+  .p { color:var(--ok); } .f { color:var(--bad); }
+  /* ── snapshot view ── */
+  .snap { display:flex; flex-direction:column; min-width:0; }
+  .snap .hd { display:flex; gap:10px; padding:9px 12px; border-bottom:1px solid var(--iron); align-items:baseline; }
+  .snap .hd .rev { color:var(--ember); }
+  .snap .hd .sub { color:var(--steel); font-size:10px; }
+  .snap .hd .spacer { flex:1; }
+  .btn { border:1px solid var(--slate); border-radius:2px; padding:1px 8px; color:var(--fog); font-size:10px; cursor:pointer; background:none; font-family:inherit; }
+  .btn:hover { border-color:var(--ember); color:var(--ember); }
+  .body { flex:1; overflow:auto; padding:12px; }
+  .kv { display:grid; grid-template-columns:130px 1fr; gap:4px 12px; margin-bottom:12px; }
+  .kv .k { color:var(--steel); font-size:10px; }
+  .kv .v2 { color:var(--fog); font-size:11px; }
+  .kv .v2 .warn { color:var(--ember); }
+  pre { background:var(--void); border:1px solid var(--iron); border-radius:2px; padding:10px; color:var(--fog); font-size:11px; white-space:pre; overflow:auto; }
+  .note { color:var(--steel); font-size:10px; margin-top:8px; }
+</style>
+</head>
+<body>
+<div class="h">case editor · login happy path · versions</div>
+<div class="panel">
+  <div class="rail">
+    <div class="hd">versions · 3</div>
+    <div class="v sel">
+      <div class="top"><span class="rev">r3</span><span class="sha">a41f…c92</span></div>
+      <div class="what"><b>selector hardened</b> step 6</div>
+      <div class="foot">today 14:02 · run-snap · 4 runs <span class="p">✓3</span> <span class="f">✕1</span></div>
+    </div>
+    <div class="v">
+      <div class="top"><span class="rev">r2</span><span class="sha">77d0…1aa</span></div>
+      <div class="what">scenario <b>checkout-3g</b> attached</div>
+      <div class="foot">sep 12 · run-snap · 11 runs <span class="p">✓9</span> <span class="f">✕2</span></div>
+    </div>
+    <div class="v">
+      <div class="top"><span class="rev">r1</span><span class="sha">e02b…9f4</span></div>
+      <div class="what">backfill from recorded case</div>
+      <div class="foot">sep 03 · backfill</div>
+    </div>
+  </div>
+  <div class="snap">
+    <div class="hd">
+      <span class="rev">r3</span><span class="sub">a41f2e…c92 · created today 14:02 by qa · source: run-snap</span>
+      <span class="spacer"></span>
+      <button class="btn">copy hash</button><button class="btn">runs (4)</button>
+    </div>
+    <div class="body">
+      <div class="kv">
+        <span class="k">steps sha</span><span class="v2">a41f2e…c92 · 14 steps</span>
+        <span class="k">scenario</span><span class="v2">checkout-3g · 3 presets · snapshot sha 9c11…40d</span>
+        <span class="k">body fixtures</span><span class="v2">2 files · hashes recorded at snapshot <span class="warn">(files may have changed since)</span></span>
+        <span class="k">runs on this version</span><span class="v2">4 · ✓3 ✕1 · latest: today 14:22 on iPhone 14 Plus</span>
+      </div>
+      <pre># Login happy path — edit as yaml; save validates against the step schema
+name: Login happy path
+tags: [checkout, smoke]
+steps:
+  - tap:
+      on: Masuk
+  - type: "berkamain@lp.id"
+      on: Email
+  - expect:
+      equals: "Beranda"</pre>
+      <div class="note">immutable — this is what ran. the case has moved on; this yaml did not.</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
