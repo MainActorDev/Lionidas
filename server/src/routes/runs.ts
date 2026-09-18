@@ -15,6 +15,9 @@ interface RunRow {
   id: string; ticket_key: string; kind: string; status: string; triggered_by: string;
   device_udid: string; artifact_hash: string | null; freshness: string;
   launch_args_json: string; started_at: number | null; finished_at: number | null;
+  /** phase A: the case version this run executed (null = pre-versioning) */
+  case_version_id?: string | null;
+  template_id?: string | null;
 }
 
 export function registerRunRoutes(app: FastifyInstance, db: Database.Database, bus?: TypedEventBus<AppEvents>): void {
@@ -79,7 +82,33 @@ export function registerRunRoutes(app: FastifyInstance, db: Database.Database, b
     if (q.app_version) { where.push('app_version = ?'); params.push(q.app_version); }
     const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const rows = db.prepare(`SELECT * FROM runs ${clause} ORDER BY started_at DESC LIMIT ?`).all(...params, limit);
-    return { runs: rows as RunRow[] };
+    // Phase A breadcrumb: the revision each run executed + whether it is the
+    // case's CURRENT one (drives the ⚠ stale chip). Two lookups over the
+    // page's ids — no N+1 per row.
+    const byId = new Map<string, RunRow>(
+      (rows as RunRow[]).filter((r) => r.case_version_id).map((r) => [r.case_version_id as string, r]),
+    );
+    let versionMeta: Record<string, { revision: number; current: boolean }> = {};
+    if (byId.size > 0) {
+      const vids = [...byId.keys()];
+      const placeholders = vids.map(() => '?').join(',');
+      const vrows = db.prepare(
+        `SELECT id, template_id, revision FROM case_versions WHERE id IN (${placeholders})`,
+      ).all(...vids) as Array<{ id: string; template_id: string; revision: number }>;
+      const tplIds = [...new Set(vrows.map((v) => v.template_id))];
+      const tplaceholders = tplIds.map(() => '?').join(',');
+      const cur = db.prepare(
+        `SELECT template_id, MAX(revision) AS revision FROM case_versions WHERE template_id IN (${tplaceholders}) GROUP BY template_id`,
+      ).all(...tplIds) as Array<{ template_id: string; revision: number }>;
+      const curMap = new Map(cur.map((c) => [c.template_id, c.revision]));
+      versionMeta = Object.fromEntries(vrows.map((v) => [v.id, { revision: v.revision, current: curMap.get(v.template_id) === v.revision }]));
+    }
+    return {
+      runs: rows.map((r) => {
+        const run = r as RunRow;
+        return { ...run, versionInfo: run.case_version_id ? versionMeta[run.case_version_id] ?? null : null };
+      }),
+    };
   });
 
   app.get('/api/runs/:id', async (req, reply) => {

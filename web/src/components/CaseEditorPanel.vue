@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { parseCaseYaml } from '@crucible/shared/case-yaml';
 import { useYamlEditor } from '../composables/useYamlEditor.ts';
+import CaseVersions from './CaseVersions.vue';
 
 /** The ONE case editor: metadata (name / ticket / description / tags) above,
  *  yaml steps below — a single component, a single save, a single dirty flag.
@@ -23,6 +24,8 @@ const props = defineProps<{
   description: string | null;
   ticketKey: string | null;
   tags: string[];
+  /** deep-link: open history on this revision (from a run's version chip) */
+  deepRev?: number | null;
 }>();
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -35,6 +38,19 @@ const name = ref('');
 const ticket = ref('');
 const description = ref('');
 const tags = ref('');
+
+// ── version history (phase A): collapsed disclosure, ambient by default ──
+const histOpen = ref(false);
+const versionCount = ref<number | null>(null);
+async function loadVersionCount(): Promise<void> {
+  try {
+    const res = await fetch(`/api/templates/${props.templateId}/versions`);
+    versionCount.value = ((await res.json()) as { versions: unknown[] }).versions.length;
+  } catch { versionCount.value = null; }
+}
+onMounted(loadVersionCount);
+// deep-link: a rev in the query opens the history disclosure itself
+watch(() => props.deepRev, (r) => { if (r != null) histOpen.value = true; }, { immediate: true });
 
 // ── yaml editor ──
 const editorHost = ref<HTMLElement | null>(null);
@@ -203,6 +219,11 @@ const savedAgo = computed((): string | null => {
         <button class="btn btn-sm" :disabled="position >= total" title="next case in filter" @click="hop(1)">›</button>
       </span>
       <span class="spacer"></span>
+      <button
+        class="btn btn-sm"
+        :title="histOpen ? 'hide version history' : 'show version history — every run pins the exact case version it executed'"
+        @click="histOpen = !histOpen"
+      >history<template v-if="versionCount !== null"> · <span style="color: var(--color-ember);">{{ versionCount }}</span></template> {{ histOpen ? '▾' : '▸' }}</button>
       <button class="btn btn-sm" @click="maybeClose">esc · close</button>
       <button class="btn btn-sm" @click="copyYaml" title="copy the yaml to clipboard">&lt;/&gt; copy</button>
       <button class="btn btn-sm btn-primary" :disabled="saving || loading" @click="save">{{ saving ? 'saving…' : '⌘↵ save' }}</button>
@@ -214,6 +235,11 @@ const savedAgo = computed((): string | null => {
       <label class="ce-field"><span>ticket</span><input v-model="ticket" @input="dirty = true" placeholder="ticket key (e.g. LP-123)" /></label>
       <label class="ce-field ce-wide"><span>description</span><input v-model="description" @input="dirty = true" placeholder="what this case verifies" /></label>
       <label class="ce-field"><span>tags</span><input v-model="tags" @input="dirty = true" placeholder="smoke, login" title="comma list, max 8" /></label>
+    </div>
+
+    <!-- version history: collapsed disclosure; the ONE surface for version content -->
+    <div v-if="histOpen" class="ce-hist">
+      <CaseVersions :template-id="templateId" :initial-rev="deepRev ?? null" @close="histOpen = false" />
     </div>
 
     <div class="ce-body">
@@ -239,13 +265,14 @@ const savedAgo = computed((): string | null => {
 
 <style scoped>
 .ce-panel {
-  display: grid; grid-template-rows: auto auto 1fr auto;
+  display: grid; grid-template-rows: auto auto auto 1fr auto;
   min-height: 0;
   border: 1px solid var(--color-ash, #3a3a3a);
   border-radius: var(--r-sm, 2px);
   background: var(--color-void, #0a0a0a);
   overflow: hidden;
 }
+.ce-hist { min-height: 0; }
 .ce-head {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 12px; border-bottom: 1px solid var(--color-iron, #202020);

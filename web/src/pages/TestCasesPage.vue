@@ -8,6 +8,7 @@
  *  plans, rename/edit/delete, step expander (param/optional, + subflow,
  *  + assert), tag-filter chips, suite summary. */
 import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import CaseEditorPanel from '../components/CaseEditorPanel.vue';
 import RunPanel from '../components/RunPanel.vue';
 import TapOverlayVideo from '../components/TapOverlayVideo.vue';
@@ -433,6 +434,24 @@ onMounted(() => window.addEventListener('keydown', onCmdF));
 onBeforeUnmount(() => { window.removeEventListener('keydown', onCmdF); });
 
 onMounted(() => { void load().then(() => void adoptRunningRun()); void loadPlans(); void loadBootedDevices(); initActiveRuns(); });
+// deep-link from a run's version chip: /templates?case=<id>&rev=<n> —
+// opens that case's editor with the history disclosure on that revision.
+const route = useRoute();
+const deepRev = ref<number | null>(null);
+onMounted(() => {
+  const c = route.query['case'];
+  const r = route.query['rev'];
+  if (typeof c !== 'string' || !c) return;
+  // templates load async in another mount hook — wait until the list is
+  // populated (or a settle proves it never will be), then open.
+  const stop = watch(templates, (list) => {
+    if (list.some((t) => t.id === c)) {
+      yamlOpenId.value = c;
+      if (typeof r === 'string' && r) deepRev.value = Number.parseInt(r, 10) || null;
+      stop();
+    }
+  }, { immediate: true, deep: false });
+});
 
 // verdict refresh when any tracked run settles (background runs land here)
 watch(() => tracker.settledCount(), () => { void load(); });
@@ -697,7 +716,8 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
             :description="t.description"
             :ticket-key="t.ticketKey"
             :tags="t.tags ?? []"
-            @close="yamlOpenId = null"
+            :deep-rev="yamlOpenId === t.id ? deepRev : null"
+            @close="yamlOpenId = null; deepRev = null"
             @saved="() => void load()"
             @hop="hopYaml"
           />
