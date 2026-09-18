@@ -26,6 +26,9 @@ const sel = ref<string | null>(null);
 const tab = ref<'yaml' | 'diff'>('yaml');
 
 const selected = computed(() => versions.value.find((v) => v.id === sel.value) ?? null);
+/** one revision = nothing to select against: the two-pane layout is wrong
+ *  for it. Compact mode shows a single honest line instead. */
+const single = computed(() => versions.value.length === 1);
 const isCurrent = computed(() => {
   if (!selected.value || versions.value.length === 0) return false;
   return selected.value.revision === Math.max(...versions.value.map((v) => v.revision));
@@ -86,7 +89,15 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="hist">
+  <!-- single version: one honest line — no empty list column, no empty
+       detail pane reserving width for a diff that cannot exist -->
+  <div v-if="single && !loading" class="hist-single">
+    <span class="rev">r{{ versions[0]!.revision }}</span>
+    <span class="when">{{ when(versions[0]!.createdAt) }}</span>
+    <span class="runs">{{ versions[0]!.runCount > 0 ? `${versions[0]!.runCount} runs` : 'no runs yet' }}</span>
+    <span v-if="versions[0]!.yaml === ''" class="single-note">backfill — yaml captured on first run</span>
+  </div>
+  <div v-else class="hist">
     <div class="list">
       <div v-if="loading" class="li" style="color: var(--color-steel);">loading…</div>
       <div v-else-if="versions.length === 0" class="li" style="color: var(--color-steel);">no versions yet — the first run creates one</div>
@@ -122,6 +133,15 @@ onMounted(load);
 </template>
 
 <style scoped>
+.hist-single {
+  display: flex; gap: 10px; align-items: baseline;
+  padding: 7px 12px; border-top: 1px solid var(--color-iron, #202020);
+  font-size: 11px; color: var(--color-steel, #606060);
+}
+.hist-single .rev { color: var(--color-ember); }
+.hist-single .when { color: var(--color-fog, #b4b4b4); }
+.hist-single .runs { color: var(--color-fog, #b4b4b4); }
+.single-note { color: var(--color-steel, #606060); font-size: 10px; }
 .hist { display: grid; grid-template-columns: 210px 1fr; min-height: 260px; border-top: 1px solid var(--color-iron, #202020); }
 .list { border-right: 1px solid var(--color-iron, #202020); overflow-y: auto; }
 .li { display: flex; gap: 8px; align-items: baseline; padding: 6px 12px; border-bottom: 1px solid var(--color-iron, #202020); cursor: pointer; font-size: 11px; }
