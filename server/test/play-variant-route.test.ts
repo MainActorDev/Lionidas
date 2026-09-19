@@ -54,6 +54,17 @@ beforeEach(async () => {
   ];
 });
 afterEach(async () => {
+  // Background runs (variantless/one-shot paths return WITHOUT awaiting
+  // done) are still mid-flight at assert time — wait for every run this
+  // test created to reach its terminal write BEFORE teardown closes the DB.
+  // Bounded poll on finished_at; the fake settles in ms, this only guards
+  // the last async hop of the run bookkeeping.
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const pending = (db.prepare('SELECT COUNT(*) AS n FROM runs WHERE finished_at IS NULL').get() as { n: number }).n;
+    if (pending === 0) break;
+    await new Promise((r) => setTimeout(r, 25));
+  }
   __setAlloyForTest(null);
   const { resetAlloyRuntimeForTests } = await import('../src/alloy/runtime.ts');
   resetAlloyRuntimeForTests();
