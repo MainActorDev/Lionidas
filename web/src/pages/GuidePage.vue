@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue';
 import GuideSlices from '../components/GuideSlices.vue';
 
-type SectionId = 'yourday' | 'quickstart' | 'wall' | 'runs' | 'matrix' | 'triage' | 'baselines' | 'forge' | 'templates' | 'drive' | 'flakes' | 'status' | 'shortcuts';
+type SectionId = 'yourday' | 'quickstart' | 'wall' | 'runs' | 'matrix' | 'triage' | 'baselines' | 'forge' | 'templates' | 'drive' | 'flakes' | 'status' | 'suites' | 'shortcuts';
 
 const active = ref<SectionId>('quickstart');
 
@@ -12,6 +12,7 @@ const sections: Array<{ id: SectionId; label: string; group: string }> = [
   { id: 'wall', label: 'devices', group: 'basics' },
   { id: 'runs', label: 'runs & queue', group: 'basics' },
   { id: 'status', label: 'status vocabulary', group: 'basics' },
+  { id: 'suites', label: 'suites', group: 'verify' },
   { id: 'matrix', label: 'acceptance criteria', group: 'verify' },
   { id: 'triage', label: 'triage a failure', group: 'verify' },
   { id: 'baselines', label: 'approvals', group: 'verify' },
@@ -56,9 +57,9 @@ const groups = computed(() => {
 
   <div class="section-label">1 · check the app</div>
   <div class="card">
-    <div class="meta-row"><span class="k">path</span><b class="mono">home page → run suite → read verdicts</b></div>
+    <div class="meta-row"><span class="k">path</span><b class="mono">home page → run all cases → read verdicts</b></div>
     <p style="color: var(--color-fog); font-size: var(--text-body); line-height: 1.6; margin: var(--s-2) 0 0;">
-      Open Crucible. The home page lists every test case as a card with its latest verdict. Press <b>run suite</b>
+      Open Crucible. The home page lists every test case as a card with its latest verdict. Press <b>run all cases</b>
       and every case replays back-to-back — cards flip to their new verdict as runs finish. A passing card needs
       nothing from you. Click a red one to see exactly which step broke, with the screenshot at the moment it broke.
     </p>
@@ -229,7 +230,42 @@ const groups = computed(() => {
       </div>
 
       <!-- ═══ MATRIX ═══ -->
-      <div v-if="active === 'matrix'">
+      <div v-if="active === 'suites'">
+  <div class="page-title">suites</div>
+  <p style="color: var(--color-ash); margin: var(--s-2) 0 var(--s-4); font-size: var(--text-body); line-height: 1.6;">
+    A named, ordered group of cases — the regression pack you actually run, not every case you have.
+  </p>
+
+  <div class="card">
+    <div class="meta-row"><span class="k">path</span><b class="mono">suites → + new → pick cases → run suite</b></div>
+    <p style="color: var(--color-fog); font-size: var(--text-body); line-height: 1.6; margin: var(--s-2) 0 0;">
+      The home page runs <b>every</b> case. A suite runs <b>the ones you choose</b>, in the order you set. Go to
+      <b>suites</b>, press <b>+ new</b>, name it, and click cases into it. For a case with variants, pin the
+      countries you care about — <b>sg my</b> — or leave it loose to run them all. Press <b>▶ run suite</b>
+      and the board replays the pack back-to-back; each row flips to its fresh verdict as its run finishes.
+    </p>
+  </div>
+
+  <div class="card">
+    <div class="meta-row"><span class="k">truth</span><b class="mono">live reads, never a snapshot</b></div>
+    <p style="color: var(--color-fog); font-size: var(--text-body); line-height: 1.6; margin: var(--s-2) 0 0;">
+      A suite stores <b>membership</b> — which cases, which variants, what order. It never stores results.
+      The board's verdicts are read live from each case's latest run, so they can't drift from the truth
+      on any other page. Delete a suite and its runs survive untouched — the history is the runs', not the suite's.
+    </p>
+  </div>
+
+  <div class="card">
+    <div class="meta-row"><span class="k">also</span><b class="mono">runs from this suite → the stamped history</b></div>
+    <p style="color: var(--color-fog); font-size: var(--text-body); line-height: 1.6; margin: var(--s-2) 0 0;">
+      Every run a suite spawns is stamped with it. <b>runs from this suite →</b> at the bottom of the board
+      opens the runs page filtered to that stamp — the audit trail of everything this pack has ever done,
+      separate from verdicts, which follow the case wherever it ran.
+    </p>
+  </div>
+</div>
+
+<div v-if="active === 'matrix'">
         <div class="page-title">acceptance criteria</div>
         <p style="color: var(--color-ash); margin: var(--s-2) 0;">The per-ticket scorecard: every acceptance criterion, its status, and which flows cover it.</p>
 
