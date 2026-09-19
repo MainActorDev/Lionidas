@@ -9,6 +9,8 @@ interface RunRow {
   template_id: string | null; app_version: string | null; blocked: number; note: string | null;
   /** phase A breadcrumb: revision this run executed + is-current flag */
   versionInfo?: { revision: number; current: boolean } | null;
+  /** phase C: variant this run executed (null = plain/variantless) */
+  variantId?: string | null;
 }
 const router = useRouter();
 const runs = ref<RunRow[]>([]);
@@ -91,6 +93,11 @@ onUnmounted(() => { if (poll) clearInterval(poll); unwatch(); live.release(); })
                   ? router.push(`/templates?case=${r.template_id}`)
                   : router.push(`/templates?case=${r.template_id}&rev=${r.versionInfo.revision}`)"
               >{{ r.versionInfo.current ? 'current' : `r${r.versionInfo.revision}` }}<template v-if="!r.versionInfo.current"> ⚠</template></span>
+              <span
+                v-if="r.variantId"
+                class="vchip variant"
+                :title="`variant execution — world '${r.variantId}' (env + network scenario)`"
+              >▸ {{ r.variantId }}</span>
             </td>
             <td>
               <RouterLink :to="`/tickets/${r.ticket_key}`" style="color: inherit; text-decoration: none;">{{ r.ticket_key }}</RouterLink>
@@ -131,4 +138,6 @@ onUnmounted(() => { if (poll) clearInterval(poll); unwatch(); live.release(); })
 }
 .vchip:hover { border-color: var(--color-ember); color: var(--color-ember); }
 .vchip.stale { border-color: var(--color-amber, #d9a03f); color: var(--color-amber, #d9a03f); }
+/* phase C variant chip — same geometry, violet accent */
+.vchip.variant { border-color: var(--color-violet, #8b5cf6); color: var(--color-violet, #8b5cf6); cursor: default; }
 </style>

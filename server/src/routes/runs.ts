@@ -106,7 +106,13 @@ export function registerRunRoutes(app: FastifyInstance, db: Database.Database, b
     return {
       runs: rows.map((r) => {
         const run = r as RunRow;
-        return { ...run, versionInfo: run.case_version_id ? versionMeta[run.case_version_id] ?? null : null };
+        return {
+          ...run,
+          versionInfo: run.case_version_id ? versionMeta[run.case_version_id] ?? null : null,
+          // Phase C: explicit snake→camel for the variant chip (runs already
+          // carry variant_id from T1; UI reads variantId)
+          variantId: (run as RunRow & { variant_id?: string | null }).variant_id ?? null,
+        };
       }),
     };
   });
