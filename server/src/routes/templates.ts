@@ -13,6 +13,7 @@ interface TemplateRow {
   id: string;
   name: string;
   description: string | null;
+  variants_json: string | null;
   ticket_key: string | null;
   udid: string;
   logical_w: number | null;
@@ -59,6 +60,7 @@ function rowToTemplate(r: TemplateRow): Record<string, unknown> {
     logicalW: r.logical_w,
     logicalH: r.logical_h,
     steps: JSON.parse(r.steps_json) as unknown[],
+    ...(r.variants_json ? { variants: (JSON.parse(r.variants_json) as Array<{ id: string }>).map((v) => v.id) } : {}),
     ...(r.setup_json ? { setup: JSON.parse(r.setup_json) as unknown[] } : {}),
     ...(r.alerts_policy ? { alerts: JSON.parse(r.alerts_policy) as unknown } : {}),
     defaultPresetId: r.default_preset_id,
@@ -409,11 +411,13 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       ? { ...s, templateId: id2name.get(s['templateId'] as string) }
       : s));
     const alerts = row.alerts_policy ? JSON.parse(row.alerts_policy) as unknown : undefined;
+    const variants = row.variants_json ? JSON.parse(row.variants_json) as unknown[] : undefined;
     const yaml = caseToYaml({
       name: row.name,
       tags: (JSON.parse(row.tags_json ?? '[]') as string[]),
       steps: withNames(steps),
       ...(alerts ? { alerts } : {}),
+      ...(variants && variants.length > 0 ? { variants } : {}),
       ...(setup && setup.length > 0 ? { setup: withNames(setup) } : {}),
       ...(row.app_bundle_id ? { app: row.app_bundle_id } : {}),
     });
@@ -447,9 +451,19 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       const clash = db.prepare('SELECT id FROM templates WHERE name = ? AND id != ?').get(r.case.name, id);
       if (clash) return reply.code(409).send({ errors: [{ line: 1, message: `a case named "${r.case.name}" already exists` }] });
     }
+    // phase B: variant scenario names must resolve (scenarios.name UNIQUE —
+    // total resolution, same argument as runFlow-by-name). Parse can't see
+    // the DB, so the SAVE path owns this check.
+    if (r.case.variants) {
+      for (const v of r.case.variants) {
+        if (v.networkScenario === undefined) continue;
+        const known = db.prepare('SELECT 1 FROM scenarios WHERE name = ?').get(v.networkScenario);
+        if (!known) return reply.code(422).send({ errors: [{ line: 1, message: `variant "${v.id}": unknown scenario "${v.networkScenario}"` }] });
+      }
+    }
     db.prepare(
-      `UPDATE templates SET name = ?, steps_json = ?, setup_json = ?, alerts_policy = ?, tags_json = ?, app_bundle_id = COALESCE(?, app_bundle_id), updated_at = ?, updated_by = ? WHERE id = ?`,
-    ).run(r.case.name, JSON.stringify(r.case.steps), r.case.setup ? JSON.stringify(r.case.setup) : null, r.case.alerts ? JSON.stringify(r.case.alerts) : null, tagsToJson(r.case.tags), r.case.app ?? null, Date.now(), req.user?.name ?? null, id);
+      `UPDATE templates SET name = ?, steps_json = ?, setup_json = ?, alerts_policy = ?, variants_json = ?, tags_json = ?, app_bundle_id = COALESCE(?, app_bundle_id), updated_at = ?, updated_by = ? WHERE id = ?`,
+    ).run(r.case.name, JSON.stringify(r.case.steps), r.case.setup ? JSON.stringify(r.case.setup) : null, r.case.alerts ? JSON.stringify(r.case.alerts) : null, r.case.variants ? JSON.stringify(r.case.variants) : null, tagsToJson(r.case.tags), r.case.app ?? null, Date.now(), req.user?.name ?? null, id);
     return rowToTemplate(db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow);
   });
 

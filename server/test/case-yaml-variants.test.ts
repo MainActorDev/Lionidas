@@ -59,7 +59,7 @@ describe('caseToYaml — variants serialization', () => {
     const serialized = caseToYaml({
       name: first.case!.name,
       tags: first.case!.tags,
-      variants: first.case!.variants,
+      ...(first.case!.variants ? { variants: first.case!.variants } : {}),
       steps: first.case!.steps as unknown[],
     });
     const second = parseCaseYaml(serialized);
@@ -68,7 +68,7 @@ describe('caseToYaml — variants serialization', () => {
     // and the second serialization is IDENTICAL (idempotent serialization)
     const reserialized = caseToYaml({
       name: second.case!.name, tags: second.case!.tags,
-      variants: second.case!.variants, steps: second.case!.steps as unknown[],
+      ...(second.case!.variants ? { variants: second.case!.variants } : {}), steps: second.case!.steps as unknown[],
     });
     expect(reserialized).toBe(serialized);
   });
@@ -121,7 +121,7 @@ describe('caseToYaml — variants serialization', () => {
       variants: [{ id: 'a', env: { title: '${expected_title}' } }],
       steps: [{ idx: 0, action: 'tap', x: 1, y: 2 }],
     });
-    expect(y).toContain("title: '\${expected_title}'");
+    expect(y).toContain("title: '${expected_title}'");
     const back = parseCaseYaml(y);
     expect(back.case!.variants![0]!.env).toEqual({ title: '${expected_title}' });
   });
