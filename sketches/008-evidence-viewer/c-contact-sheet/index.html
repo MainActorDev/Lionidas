@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>008-C · Contact sheet</title>
+<style>
+:root {
+  --color-void:#000; --color-carbon:#111; --color-graphite:#191919; --color-iron:#202020;
+  --color-slate:#3a3a3a; --color-pewter:#505050; --color-steel:#606060; --color-ash:#7e7e7e;
+  --color-fog:#b4b4b4; --color-chalk:#d9d9d9; --color-paper:#eee;
+  --color-ember:#da5c2c; --color-ember-dim:#a04521;
+  --font-mono:'JetBrains Mono','BerkeleyMono',ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  --font-sans:'Inter',ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --text-caption:12px; --text-body:14px; --text-label:13px;
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --s-6:32px;
+  --r:2px; --t:120ms cubic-bezier(.4,0,.2,1);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+button{background:none;border:none;color:inherit;font:inherit;cursor:pointer}
+
+body{background:var(--color-void);color:var(--color-paper);font-family:var(--font-mono)}
+
+/* ── full-bleed sheet: header + filter row + scrollable grid ── */
+.sheet{position:fixed;inset:0;display:grid;grid-template-rows:auto auto 1fr;z-index:200;background:var(--color-void)}
+.sh-head{display:flex;align-items:center;gap:var(--s-3);padding:var(--s-3) var(--s-5);border-bottom:1px solid var(--color-iron)}
+.sh-title{font-size:var(--text-body);font-weight:700}
+.sh-sub{color:var(--color-ash);font-size:var(--text-caption)}
+.sh-spacer{flex:1}
+.btn{border:1px solid var(--color-slate);color:var(--color-fog);font-family:var(--font-mono);font-size:var(--text-caption);padding:5px 10px;border-radius:var(--r);transition:color var(--t),border-color var(--t)}
+.btn:hover{color:var(--color-paper);border-color:var(--color-chalk)}
+
+/* filter row: pill filter, not tabs */
+.filters{display:flex;gap:var(--s-2);align-items:center;padding:var(--s-2) var(--s-5);border-bottom:1px solid var(--color-iron)}
+.f-label{color:var(--color-steel);font-size:11px}
+.f-pill{font-family:var(--font-mono);font-size:var(--text-caption);color:var(--color-ash);padding:3px 10px;border:1px solid var(--color-iron);border-radius:var(--r);transition:all var(--t)}
+.f-pill:hover{color:var(--color-paper)}
+.f-pill.on{color:var(--color-ember);border-color:var(--color-ember)}
+.f-pill.fail{color:var(--color-paper);border-color:var(--color-paper);border-style:dashed}
+
+/* the grid: GROUP ROWS per lane, contact thumbnails inside */
+.grid{overflow-y:auto;padding:var(--s-4) var(--s-5) var(--s-6)}
+.grp-head{display:flex;align-items:center;gap:var(--s-3);padding:var(--s-2) 0;margin-bottom:var(--s-2);border-bottom:1px solid var(--color-iron)}
+.grp-name{font-size:var(--text-label);color:var(--color-paper)}
+.grp-env{color:var(--color-steel);font-size:11px}
+.grp-status{margin-left:auto;color:var(--color-ash);font-size:11px}
+.grp-status b{font-weight:400;color:var(--color-fog)}
+.grp-status .x{color:var(--color-paper);border:1px dashed var(--color-paper);padding:0 6px}
+
+.row{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:var(--s-5)}
+.card{position:relative;border:1px solid var(--color-iron);border-radius:var(--r);background:var(--color-carbon);
+  padding:0;overflow:hidden;text-align:left;transition:border-color var(--t)}
+.card:hover{border-color:var(--color-chalk)}
+.card.sel{border-color:var(--color-ember)}
+.card .thumb{aspect-ratio:390/844;width:100%;background:var(--color-graphite);object-fit:cover;object-position:top;display:block}
+.card .cap{display:flex;align-items:center;gap:6px;padding:6px 8px;border-top:1px solid var(--color-iron)}
+.card .cap .nm{flex:1;min-width:0;font-size:11px;color:var(--color-fog);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .cap .ix{color:var(--color-steel);font-size:10px}
+.card.fail .cap .nm{color:var(--color-paper)}
+.card.fail{border-style:dashed}
+.card.vid .inner{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--color-ash);font-size:11px;aspect-ratio:390/844}
+.card.vid .tri{width:0;height:0;border-left:12px solid var(--color-fog);border-top:7px solid transparent;border-bottom:7px solid transparent}
+.card .stamp{position:absolute;top:6px;left:6px;font-size:9px;background:rgba(0,0,0,.75);color:var(--color-fog);padding:1px 5px;border-radius:var(--r)}
+
+.hint{position:fixed;bottom:6px;right:10px;color:var(--color-steel);font-size:10px;z-index:1}
+</style>
+</head>
+<body>
+<div class="sheet">
+  <div class="sh-head">
+    <span class="sh-title">evidence · lp-intl · destination flow</span>
+    <span class="sh-sub">7 lanes · latest run per lane</span>
+    <span class="sh-spacer"></span>
+    <button class="btn">open run ↗</button>
+    <button class="btn">close</button>
+  </div>
+  <div class="filters">
+    <span class="f-label">lanes</span>
+    <button class="f-pill on">all</button>
+    <button class="f-pill">sg</button>
+    <button class="f-pill">my</button>
+    <button class="f-pill">empty</button>
+    <button class="f-pill fail">legacy · fail</button>
+    <span class="f-label" style="margin-left:auto">click a card → cinema view of that world</span>
+  </div>
+  <div class="grid">
+    <div class="grp" data-lane="sg">
+      <div class="grp-head">
+        <span class="grp-name">sg</span>
+        <span class="grp-env">COUNTRY=Singapore · run_80bd8bde · 21:38</span>
+        <span class="grp-status">passed · <b>2 shots</b> · <b>video</b></span>
+      </div>
+      <div class="row">
+        <button class="card sel">
+          <img class="thumb" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='390' height='844'%3E%3Crect width='390' height='844' fill='%23111'/%3E%3Crect x='16' y='150' width='358' height='120' fill='%23191919'/%3E%3Crect x='16' y='150' width='358' height='3' fill='%23da5c2c'/%3E%3Ctext x='30' y='180' fill='%23da5c2c' font-family='monospace' font-size='12'%3ESingapore%3C/text%3E%3Ctext x='30' y='240' fill='%23606060' font-family='monospace' font-size='11'%3Eexpect contains: Singapore ✓%3C/text%3E%3C/svg%3E">
+          <span class="stamp">expect</span>
+          <span class="cap"><span class="ix">#1</span><span class="nm">expect contains: Singapore</span></span>
+        </button>
+        <button class="card vid">
+          <span class="inner"><span class="tri"></span>whole run</span>
+        </button>
+      </div>
+    </div>
+    <div class="grp" data-lane="my">
+      <div class="grp-head">
+        <span class="grp-name">my</span>
+        <span class="grp-env">COUNTRY=Johor · run_f0f14f1c · 21:39</span>
+        <span class="grp-status">passed · <b>2 shots</b> · <b>video</b></span>
+      </div>
+      <div class="row">
+        <button class="card">
+          <img class="thumb" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='390' height='844'%3E%3Crect width='390' height='844' fill='%23111'/%3E%3Ctext x='30' y='180' fill='%23da5c2c' font-family='monospace' font-size='12'%3EJohor%3C/text%3E%3C/svg%3E">
+          <span class="cap"><span class="ix">#1</span><span class="nm">expect contains: Johor</span></span>
+        </button>
+        <button class="card vid">
+          <span class="inner"><span class="tri"></span>whole run</span>
+        </button>
+      </div>
+    </div>
+    <div class="grp" data-lane="legacy">
+      <div class="grp-head">
+        <span class="grp-name">legacy</span>
+        <span class="grp-env">— · run_8897d140 · 20:12</span>
+        <span class="grp-status"><span class="x">failed</span> · <b>2 shots</b> · <b>video</b></span>
+      </div>
+      <div class="row">
+        <button class="card fail">
+          <img class="thumb" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='390' height='844'%3E%3Crect width='390' height='844' fill='%23111'/%3E%3Ctext x='30' y='180' fill='%23eee' font-family='monospace' font-size='12'%3Eexpect ACCOUNT — not found%3C/text%3E%3C/svg%3E">
+          <span class="stamp">expect · fail</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+<span class="hint">demo media: inline SVG · filter pills + card selection interactive</span>
+<script>
+const pills = [...document.querySelectorAll('.f-pill')];
+pills.forEach(p => p.addEventListener('click', () => {
+  pills.forEach(x => x.classList.remove('on'));
+  p.classList.add('on');
+  const lane = p.textContent.trim().split(' ')[0];
+  document.querySelectorAll('.grp').forEach(g => {
+    g.style.display = (lane === 'all' || g.dataset.lane === lane) ? '' : 'none';
+  });
+}));
+document.querySelectorAll('.card').forEach(c => c.addEventListener('click', () => {
+  document.querySelectorAll('.card').forEach(x => x.classList.remove('sel'));
+  c.classList.add('sel');
+}));
+</script>
+</body>
+</html>

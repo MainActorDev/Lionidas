@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>008-A · Cinema lightbox</title>
+<style>
+/* Axiom tokens (verbatim from web/src/styles/tokens.css) */
+:root {
+  --color-void:#000; --color-carbon:#111; --color-graphite:#191919; --color-iron:#202020;
+  --color-slate:#3a3a3a; --color-pewter:#505050; --color-steel:#606060; --color-ash:#7e7e7e;
+  --color-fog:#b4b4b4; --color-chalk:#d9d9d9; --color-paper:#eee;
+  --color-ember:#da5c2c; --color-ember-dim:#a04521;
+  --font-mono:'JetBrains Mono','BerkeleyMono',ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  --font-sans:'Inter',ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --text-caption:12px; --text-body:14px; --text-label:13px;
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --s-6:32px;
+  --r:2px; --t:120ms cubic-bezier(.4,0,.2,1);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+button{background:none;border:none;color:inherit;font:inherit;cursor:pointer}
+
+/* ── dimmed case table behind (context, not spec) ── */
+.stage{position:fixed;inset:0;background:var(--color-void);color:var(--color-paper);
+  font-family:var(--font-mono);font-size:var(--text-caption);padding:0}
+.bgtbl{position:absolute;inset:0;opacity:.28;filter:saturate(.4);padding:48px 64px;}
+.bgtbl table{width:100%;border-collapse:collapse}
+.bgtbl td{border-bottom:1px solid var(--color-iron);padding:10px 8px;color:var(--color-fog)}
+.bgtbl .dot{width:8px;height:8px;border-radius:50%;background:var(--color-slate);display:inline-block;margin-right:8px}
+
+/* ── lightbox shell: stage-first, chrome at edges ── */
+.lb{position:fixed;inset:0;background:rgba(0,0,0,.86);display:grid;
+  grid-template-rows:auto 1fr auto;z-index:200}
+.lb-head{display:flex;align-items:center;gap:var(--s-3);padding:var(--s-3) var(--s-4);
+  border-bottom:1px solid var(--color-iron)}
+.lb-title{font-size:var(--text-body);font-weight:700;letter-spacing:.02em}
+.lb-sub{color:var(--color-ash);font-size:var(--text-caption)}
+.lb-spacer{flex:1}
+.btn{border:1px solid var(--color-slate);color:var(--color-fog);font-family:var(--font-mono);
+  font-size:var(--text-caption);padding:5px 10px;border-radius:var(--r);transition:color var(--t),border-color var(--t)}
+.btn:hover{color:var(--color-paper);border-color:var(--color-chalk)}
+.btn.ghost{border-color:transparent;color:var(--color-ash)}
+.btn.ghost:hover{color:var(--color-paper)}
+
+/* ── the stage: media fills ALL space between head and rail ── */
+.lb-stage{position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.shot{height:100%;max-width:100%;object-fit:contain}
+/* ember hairline frames the ACTIVE shot — the only accent on screen */
+.shot-frame{height:calc(100% - 24px);padding:2px;border:1px solid var(--color-slate)}
+.shot-frame.focus{border-color:var(--color-ember)}
+
+/* ── bottom rail: lanes × steps as ONE strip ── */
+.lb-rail{border-top:1px solid var(--color-iron);padding:var(--s-2) var(--s-4) var(--s-3);
+  display:flex;flex-direction:column;gap:6px;max-height:32vh}
+.rail-lanes{display:flex;gap:var(--s-2);align-items:center}
+.lane{font-family:var(--font-mono);font-size:var(--text-caption);color:var(--color-ash);
+  padding:3px 8px;border:1px solid var(--color-iron);border-radius:var(--r);transition:all var(--t)}
+.lane:hover{color:var(--color-paper)}
+.lane.sel{color:var(--color-ember);border-color:var(--color-ember)}
+.lane .st{margin-left:6px;color:var(--color-steel)}
+.lane.fail{color:var(--color-paper);border-color:var(--color-paper);border-style:dashed}
+.lane.fail.sel{color:var(--color-ember);border-color:var(--color-ember);border-style:solid}
+.rail-steps{display:flex;gap:6px;overflow-x:auto;padding:2px}
+.rail-steps::-webkit-scrollbar{height:4px}
+.rail-steps::-webkit-scrollbar-thumb{background:var(--color-pewter)}
+.step-chip{position:relative;flex:none;width:48px;height:96px;border:1px solid var(--color-iron);
+  border-radius:var(--r);overflow:hidden;transition:border-color var(--t)}
+.step-chip img{width:100%;height:100%;object-fit:cover;object-position:top}
+.step-chip .nm{position:absolute;bottom:0;left:0;right:0;font-size:9px;line-height:1.3;
+  background:rgba(0,0,0,.72);color:var(--color-fog);padding:2px 3px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;text-align:left}
+.step-chip:hover{border-color:var(--color-chalk)}
+.step-chip.sel{border-color:var(--color-ember)}
+.step-chip.video{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;
+  background:var(--color-carbon);color:var(--color-ash);font-size:9px}
+.step-chip.video .tri{width:0;height:0;border-left:8px solid var(--color-fog);border-top:5px solid transparent;border-bottom:5px solid transparent}
+
+/* ── keyboard legend (right-aligned in head) ── */
+.keys{display:flex;gap:var(--s-3);color:var(--color-steel);font-size:11px}
+kbd{border:1px solid var(--color-slate);border-radius:var(--r);padding:1px 5px;font-family:var(--font-mono);font-size:10px;color:var(--color-ash)}
+
+/* demo wiring */
+.hint{position:absolute;bottom:6px;right:10px;color:var(--color-steel);font-size:10px}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="bgtbl"><table>
+    <tr><td><span class="dot"></span>lp-intl · destination flow</td><td>3 variants</td><td>pass</td></tr>
+    <tr><td><span class="dot"></span>lifecycle · account states</td><td>active/pending/rejected</td><td>pass</td></tr>
+    <tr><td><span class="dot"></span>tariff · sg lane regression</td><td>2 variants</td><td>fail</td></tr>
+  </table></div>
+
+  <div class="lb" id="lb">
+    <div class="lb-head">
+      <span class="lb-title">lp-intl · destination flow</span>
+      <span class="lb-sub">evidence · 3 lanes · latest per lane</span>
+      <span class="lb-spacer"></span>
+      <span class="keys"><kbd>←</kbd><kbd>→</kbd> step <kbd>↑</kbd><kbd>↓</kbd> lane <kbd>esc</kbd> close</span>
+      <button class="btn ghost">open run</button>
+      <button class="btn ghost">close</button>
+    </div>
+    <div class="lb-stage">
+      <div class="shot-frame focus" id="frame"><img class="shot" id="shot" alt="step screenshot"
+        src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='390' height='844'%3E%3Crect width='390' height='844' fill='%23111'/%3E%3Crect x='16' y='90' width='358' height='44' rx='2' fill='%23202020'/%3E%3Ctext x='30' y='118' fill='%23b4b4b4' font-family='monospace' font-size='15'%3EWhere to?%3C/text%3E%3Crect x='16' y='150' width='358' height='120' fill='%23191919'/%3E%3Crect x='16' y='150' width='358' height='3' fill='%23da5c2c'/%3E%3Ctext x='30' y='180' fill='%23da5c2c' font-family='monospace' font-size='12'%3ESingapore%3C/text%3E%3Ctext x='30' y='205' fill='%23606060' font-family='monospace' font-size='11'%3E· country chip row ·%3C/text%3E%3Ctext x='30' y='240' fill='%23606060' font-family='monospace' font-size='11'%3Eexpect contains: Singapore ✓%3C/text%3E%3Crect x='16' y='290' width='358' height='300' fill='%23191919'/%3E%3Ctext x='30' y='315' fill='%237e7e7e' font-family='monospace' font-size='11'%3ERecommended%3C/text%3E%3Crect x='30' y='330' width='330' height='56' fill='%23202020'/%3E%3Crect x='30' y='394' width='330' height='56' fill='%23202020'/%3E%3Crect x='30' y='458' width='330' height='56' fill='%23202020'/%3E%3Ctext x='44' y='362' fill='%23b4b4b4' font-family='monospace' font-size='12'%3ESG · Reguler%3C/text%3E%3Ctext x='44' y='426' fill='%23b4b4b4' font-family='monospace' font-size='12'%3EMY · Reguler%3C/text%3E%3Ctext x='44' y='490' fill='%23b4b4b4' font-family='monospace' font-size='12'%3ETH · Land%3C/text%3E%3C/svg%3E"></div>
+      <span class="hint">demo media: inline SVG standing in for PNG</span>
+    </div>
+    <div class="lb-rail">
+      <div class="rail-lanes" id="lanes">
+        <button class="lane sel" data-lane="sg">sg <span class="st">pass</span></button>
+        <button class="lane" data-lane="my">my <span class="st">pass</span></button>
+        <button class="lane" data-lane="empty">empty <span class="st">pass</span></button>
+        <button class="lane fail" data-lane="legacy">legacy <span class="st">fail</span></button>
+      </div>
+      <div class="rail-steps" id="steps">
+        <button class="step-chip sel" title="expect contains: Singapore"><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='96'%3E%3Crect width='48' height='96' fill='%23191919'/%3E%3Crect x='0' y='0' width='48' height='3' fill='%23da5c2c'/%3E%3Ctext x='6' y='90' fill='%23b4b4b4' font-family='monospace' font-size='8'%3Eexpect%3C/text%3E%3C/svg%3E"><span class="nm">expect contains: Singapore</span></button>
+        <button class="step-chip" title="tap search field"><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='96'%3E%3Crect width='48' height='96' fill='%23191919'/%3E%3Crect x='6' y='10' width='36' height='14' fill='%23202020'/%3E%3Ctext x='6' y='90' fill='%23b4b4b4' font-family='monospace' font-size='8'%3Etap%3C/text%3E%3C/svg%3E"><span class="nm">tap search field</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+// lane switch keeps chip widths; steps strip per lane (demo: two lanes)
+const stepsByLane = {
+  sg: [
+    {nm:'expect contains: Singapore', sel:true},
+    {nm:'tap search field'},
+    {nm:'video · whole run', video:true},
+  ],
+  my: [
+    {nm:'expect contains: Johor', sel:true},
+    {nm:'video · whole run', video:true},
+  ],
+  empty: [
+    {nm:'expect contains: Thailand', sel:true},
+    {nm:'video · whole run', video:true},
+  ],
+  legacy: [
+    {nm:'expect ACCOUNT — FAIL', fail:true, sel:true},
+    {nm:'video · whole run', video:true},
+  ],
+};
+const lanesEl = document.getElementById('lanes');
+const stepsEl = document.getElementById('steps');
+function renderSteps(lane){
+  stepsEl.innerHTML = '';
+  for (const s of stepsByLane[lane]) {
+    const b = document.createElement('button');
+    b.className = 'step-chip' + (s.video?' video':'') + (s.sel?' sel':'');
+    b.innerHTML = s.video
+      ? '<span class="tri"></span>video'
+      : `<img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='96'%3E%3Crect width='48' height='96' fill='%23191919'/%3E%3C/text%3E%3C/svg%3E"><span class="nm">${s.nm}</span>`;
+    stepsEl.appendChild(b);
+  }
+}
+lanesEl.addEventListener('click', (e) => {
+  const b = e.target.closest('.lane'); if (!b) return;
+  lanesEl.querySelectorAll('.lane').forEach(x => x.classList.remove('sel'));
+  b.classList.add('sel');
+  renderSteps(b.dataset.lane);
+});
+document.getElementById('lb').addEventListener('click', (e) => {
+  if (e.target.classList.contains('lb') || e.target.classList.contains('lb-stage')) location.reload();
+});
+</script>
+</body>
+</html>

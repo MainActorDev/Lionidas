@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>008-B · Inspector drawer</title>
+<style>
+:root {
+  --color-void:#000; --color-carbon:#111; --color-graphite:#191919; --color-iron:#202020;
+  --color-slate:#3a3a3a; --color-pewter:#505050; --color-steel:#606060; --color-ash:#7e7e7e;
+  --color-fog:#b4b4b4; --color-chalk:#d9d9d9; --color-paper:#eee;
+  --color-ember:#da5c2c; --color-ember-dim:#a04521;
+  --font-mono:'JetBrains Mono','BerkeleyMono',ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  --font-sans:'Inter',ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --text-caption:12px; --text-body:14px; --text-label:13px;
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px;
+  --r:2px; --t:120ms cubic-bezier(.4,0,.2,1);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+button{background:none;border:none;color:inherit;font:inherit;cursor:pointer}
+
+body{background:var(--color-void);color:var(--color-paper);font-family:var(--font-mono)}
+
+/* ── page behind (dimmed case table) ── */
+.page{position:fixed;inset:0;opacity:.25;filter:saturate(.4);padding:48px 64px}
+.page table{width:100%;border-collapse:collapse}
+.page td{border-bottom:1px solid var(--color-iron);padding:10px 8px;color:var(--color-fog);font-size:12px}
+
+/* ── drawer: right rail, table stays visible ── */
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(420px,92vw);background:var(--color-carbon);
+  border-left:1px solid var(--color-iron);display:grid;grid-template-rows:auto auto 1fr auto;z-index:120;
+  transform:translateX(100%);transition:transform 200ms cubic-bezier(.4,0,.2,1)}
+.drawer.open{transform:none}
+.d-head{display:flex;align-items:center;gap:var(--s-2);padding:var(--s-3) var(--s-4);border-bottom:1px solid var(--color-iron)}
+.d-title{font-size:var(--text-body);font-weight:700}
+.d-sub{color:var(--color-ash);font-size:var(--text-caption)}
+.d-spacer{flex:1}
+.x{color:var(--color-ash);font-size:16px;padding:2px 6px}
+.x:hover{color:var(--color-paper)}
+
+/* lane list: one ROW per world — status first, name, shot count */
+.lane-list{border-bottom:1px solid var(--color-iron)}
+.lane-row{display:grid;grid-template-columns:16px 1fr auto auto;align-items:center;gap:var(--s-2);
+  width:100%;padding:8px var(--s-4);border-bottom:1px solid var(--color-iron);text-align:left;transition:background var(--t)}
+.lane-row:last-child{border-bottom:none}
+.lane-row:hover{background:var(--color-graphite)}
+.lane-row.sel{background:var(--color-graphite);box-shadow:inset 2px 0 0 var(--color-ember)}
+.lane-mark{width:8px;height:8px;border-radius:50%;background:var(--color-slate)}
+.lane-mark.ok{background:var(--color-fog)}
+.lane-mark.fail{background:var(--color-paper);outline:2px solid var(--color-paper);outline-offset:2px}
+.lane-name{font-size:var(--text-label);color:var(--color-paper)}
+.lane-name .env{color:var(--color-steel);font-size:11px;margin-left:8px}
+.lane-shots{color:var(--color-ash);font-size:11px}
+.lane-when{color:var(--color-steel);font-size:11px}
+
+/* media area: shot fills drawer body */
+.d-body{position:relative;overflow:hidden;display:flex;flex-direction:column}
+.d-shot-wrap{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;padding:var(--s-3)}
+.d-shot{max-width:100%;max-height:100%;object-fit:contain;border:1px solid var(--color-iron)}
+/* step pager INSIDE the media area bottom */
+.step-pager{display:flex;align-items:center;gap:var(--s-2);padding:var(--s-2) var(--s-4);border-top:1px solid var(--color-iron)}
+.pg-btn{border:1px solid var(--color-slate);color:var(--color-fog);padding:3px 10px;border-radius:var(--r);font-family:var(--font-mono);font-size:12px}
+.pg-btn:hover{color:var(--color-paper);border-color:var(--color-chalk)}
+.pg-name{flex:1;text-align:center;color:var(--color-fog);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pg-count{color:var(--color-steel);font-size:11px}
+
+/* footer: video + meta */
+.d-foot{display:flex;align-items:center;gap:var(--s-2);padding:var(--s-3) var(--s-4);border-top:1px solid var(--color-iron)}
+.vid-btn{display:flex;align-items:center;gap:6px;border:1px solid var(--color-slate);color:var(--color-fog);
+  padding:5px 12px;border-radius:var(--r);font-family:var(--font-mono);font-size:12px;transition:all var(--t)}
+.vid-btn:hover{color:var(--color-paper);border-color:var(--color-chalk)}
+.vid-btn .tri{width:0;height:0;border-left:7px solid var(--color-fog);border-top:4px solid transparent;border-bottom:4px solid transparent}
+.d-meta{margin-left:auto;color:var(--color-steel);font-size:11px;text-align:right}
+
+/* compare mode: two lanes side by side */
+.cmp{position:absolute;inset:0;background:var(--color-carbon);display:none;grid-template-rows:auto 1fr;z-index:5}
+.cmp.on{display:grid}
+.cmp-head{display:flex;align-items:center;gap:var(--s-2);padding:var(--s-2) var(--s-4);border-bottom:1px solid var(--color-iron)}
+.cmp-title{font-size:12px;color:var(--color-fog)}
+.cmp-body{display:grid;grid-template-columns:1fr 1fr;min-height:0}
+.cmp-cell{display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--color-iron)}
+.cmp-cell:last-child{border-right:none}
+.cmp-lbl{padding:6px var(--s-3);font-size:11px;color:var(--color-ash);border-bottom:1px solid var(--color-iron);display:flex;justify-content:space-between}
+.cmp-lbl b{color:var(--color-paper);font-weight:400}
+.cmp-img{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:var(--s-2)}
+.cmp-img img{max-width:100%;max-height:100%;object-fit:contain}
+
+.hint{position:absolute;bottom:6px;left:10px;color:var(--color-steel);font-size:10px}
+</style>
+</head>
+<body>
+<div class="page"><table>
+  <tr><td>lp-intl · destination flow</td><td>3 variants</td><td>pass</td></tr>
+  <tr><td>lifecycle · account states</td><td>active/pending/rejected</td><td>pass</td></tr>
+  <tr><td>tariff · sg lane regression</td><td>2 variants</td><td>fail</td></tr>
+</table></div>
+
+<aside class="drawer open" id="drawer">
+  <div class="d-head">
+    <span class="d-title">evidence</span>
+    <span class="d-sub">lp-intl · destination flow</span>
+    <span class="d-spacer"></span>
+    <button class="x" title="close">✕</button>
+  </div>
+
+  <div class="lane-list" id="lanes">
+    <button class="lane-row sel" data-lane="sg">
+      <span class="lane-mark ok"></span>
+      <span class="lane-name">sg <span class="env">COUNTRY=Singapore</span></span>
+      <span class="lane-shots">2 shots</span>
+      <span class="lane-when">21:38</span>
+    </button>
+    <button class="lane-row" data-lane="my">
+      <span class="lane-mark ok"></span>
+      <span class="lane-name">my <span class="env">COUNTRY=Johor</span></span>
+      <span class="lane-shots">2 shots</span>
+      <span class="lane-when">21:39</span>
+    </button>
+    <button class="lane-row" data-lane="empty">
+      <span class="lane-mark ok"></span>
+      <span class="lane-name">empty <span class="env">COUNTRY=Thailand</span></span>
+      <span class="lane-shots">2 shots</span>
+      <span class="lane-when">21:40</span>
+    </button>
+    <button class="lane-row" data-lane="legacy">
+      <span class="lane-mark fail"></span>
+      <span class="lane-name">legacy <span class="env">—</span></span>
+      <span class="lane-shots">2 shots</span>
+      <span class="lane-when">20:12</span>
+    </button>
+  </div>
+
+  <div class="d-body">
+    <div class="d-shot-wrap">
+      <img class="d-shot" id="shot" alt="step screenshot"
+        src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='390' height='844'%3E%3Crect width='390' height='844' fill='%23111'/%3E%3Crect x='16' y='90' width='358' height='44' rx='2' fill='%23202020'/%3E%3Ctext x='30' y='118' fill='%23b4b4b4' font-family='monospace' font-size='15'%3EWhere to?%3C/text%3E%3Crect x='16' y='150' width='358' height='120' fill='%23191919'/%3E%3Crect x='16' y='150' width='358' height='3' fill='%23da5c2c'/%3E%3Ctext x='30' y='180' fill='%23da5c2c' font-family='monospace' font-size='12'%3ESingapore%3C/text%3E%3Ctext x='30' y='240' fill='%23606060' font-family='monospace' font-size='11'%3Eexpect contains: Singapore ✓%3C/text%3E%3Crect x='16' y='290' width='358' height='300' fill='%23191919'/%3E%3Crect x='30' y='330' width='330' height='56' fill='%23202020'/%3E%3Ctext x='44' y='362' fill='%23b4b4b4' font-family='monospace' font-size='12'%3ESG · Reguler%3C/text%3E%3C/svg%3E">
+      <span class="hint">demo media: inline SVG</span>
+    </div>
+
+    <div class="cmp" id="cmp">
+      <div class="cmp-head">
+        <span class="cmp-title">compare · same step, both worlds</span>
+        <span style="flex:1"></span>
+        <button class="pg-btn" id="cmp-x">exit compare</button>
+      </div>
+      <div class="cmp-body">
+        <div class="cmp-cell">
+          <div class="cmp-lbl"><b>sg</b><span>expect contains: Singapore</span></div>
+          <div class="cmp-img"><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='390' height='844'%3E%3Crect width='390' height='844' fill='%23111'/%3E%3Ctext x='30' y='180' fill='%23da5c2c' font-family='monospace' font-size='12'%3ESingapore%3C/text%3E%3C/svg%3E"></div>
+        </div>
+        <div class="cmp-cell">
+          <div class="cmp-lbl"><b>empty</b><span>expect contains: Thailand</span></div>
+          <div class="cmp-img"><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='390' height='844'%3E%3Crect width='390' height='844' fill='%23111'/%3E%3Ctext x='30' y='180' fill='%237e7e7e' font-family='monospace' font-size='12'%3ETH · Land%3C/text%3E%3C/svg%3E"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step-pager">
+      <button class="pg-btn">←</button>
+      <span class="pg-name" id="pgname">expect contains: Singapore</span>
+      <span class="pg-count">1 / 2</span>
+      <button class="pg-btn">→</button>
+    </div>
+  </div>
+
+  <div class="d-foot">
+    <button class="vid-btn"><span class="tri"></span>video</button>
+    <button class="pg-btn" id="cmp-open">compare</button>
+    <span class="d-meta">run_80bd8bde<br>iPhone 16 Pro · 18.2</span>
+    <span style="flex:1"></span>
+    <button class="pg-btn">open run ↗</button>
+  </div>
+</aside>
+
+<script>
+const lanes = document.getElementById('lanes');
+lanes.addEventListener('click', (e) => {
+  const r = e.target.closest('.lane-row'); if (!r) return;
+  lanes.querySelectorAll('.lane-row').forEach(x => x.classList.remove('sel'));
+  r.classList.add('sel');
+});
+const cmp = document.getElementById('cmp');
+document.getElementById('cmp-open').addEventListener('click', () => cmp.classList.add('on'));
+document.getElementById('cmp-x').addEventListener('click', () => cmp.classList.remove('on'));
+document.querySelector('.x').addEventListener('click', () => document.getElementById('drawer').classList.remove('open'));
+</script>
+</body>
+</html>
