@@ -18,7 +18,7 @@ import SuitesPage from './pages/SuitesPage.vue';
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', name: 'suite', component: SuiteHomePage, meta: { title: 'suite' } },
+    { path: '/', name: 'overview', component: SuiteHomePage, meta: { title: 'overview' } },
     { path: '/suites', name: 'suites', component: SuitesPage, meta: { title: 'suites' } },
     { path: '/devices', name: 'wall', component: WallPage, meta: { title: 'devices' } },
     { path: '/runs', name: 'runs', component: RunsPage, meta: { title: 'runs' } },

@@ -38,7 +38,7 @@ watch(() => route.fullPath, () => void loadMe());
     <nav class="sidebar">
       <div class="nav-group">
         <div class="nav-group-label">testing</div>
-        <RouterLink to="/" class="nav-item" :class="{ active: isActive('suite') }">suite</RouterLink>
+        <RouterLink to="/" class="nav-item" :class="{ active: isActive('overview') }">overview</RouterLink>
         <RouterLink to="/suites" class="nav-item" :class="{ active: isActive('suites') }">suites</RouterLink>
         <RouterLink to="/devices" class="nav-item" :class="{ active: isActive('wall') }">devices</RouterLink>
         <RouterLink to="/runs" class="nav-item" :class="{ active: isActive('runs') || isActive('runDetail') }">runs</RouterLink>

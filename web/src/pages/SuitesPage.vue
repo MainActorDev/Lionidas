@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** Phase D T6 — /suites: sidebar rail + detail board (010 option-1 pick).
  *  Verdicts are live reads via the API's computed rollups — nothing stored.
- *  Home hero keeps "run all cases"; the word "suite" belongs here. */
+ *  Home is "overview" now; curated packs live here. */
 import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 

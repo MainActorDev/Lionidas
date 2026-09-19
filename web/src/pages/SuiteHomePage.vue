@@ -1,6 +1,6 @@
 <script setup lang="ts">
-/** Suite home — the front door. Answers "is the app OK?" in one screen:
- *  every case's latest verdict, attention-first ordering, run-the-suite
+/** Overview — the front door. Answers "is the app OK?" in one screen:
+ *  every case's latest verdict, attention-first ordering, run-all-cases
  *  and plans one click away, live-updating as runs finish. */
 import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
@@ -69,7 +69,7 @@ function openCase(c: { verdict: { lastRunId: string | null } | null; id: string 
   <section class="page">
     <header class="sh-head">
       <div class="sh-title-group">
-        <h1>suite health</h1>
+        <h1>overview</h1>
         <p class="sh-sub">every case's latest verdict — click a card to open its last run</p>
         <span class="stat-summary" :title="`${summary.green} pass · ${summary.red} fail · ${summary.blocked} blocked · ${summary.never} never run`">
           <span class="n">{{ summary.total }}</span> {{ summary.total === 1 ? 'case' : 'cases' }}
