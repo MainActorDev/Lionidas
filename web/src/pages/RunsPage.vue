@@ -85,10 +85,12 @@ onUnmounted(() => { if (poll) clearInterval(poll); unwatch(); live.release(); })
                 class="vchip"
                 :class="{ stale: !r.versionInfo.current }"
                 :title="r.versionInfo.current
-                  ? `current revision r${r.versionInfo.revision} — opens the case editor on it`
-                  : `ran an older revision r${r.versionInfo.revision} — click to view it read-only in the case editor`"
-                @click.stop="router.push(`/templates?case=${r.template_id}&rev=${r.versionInfo.revision}`)"
-              >r{{ r.versionInfo.revision }}<template v-if="!r.versionInfo.current"> ⚠</template></span>
+                  ? 'the current state of the case — click to open it'
+                  : `ran superseded state r${r.versionInfo.revision} — click to view it read-only in the case editor`"
+                @click.stop="r.versionInfo.current
+                  ? router.push(`/templates?case=${r.template_id}`)
+                  : router.push(`/templates?case=${r.template_id}&rev=${r.versionInfo.revision}`)"
+              >{{ r.versionInfo.current ? 'current' : `r${r.versionInfo.revision}` }}<template v-if="!r.versionInfo.current"> ⚠</template></span>
             </td>
             <td>
               <RouterLink :to="`/tickets/${r.ticket_key}`" style="color: inherit; text-decoration: none;">{{ r.ticket_key }}</RouterLink>

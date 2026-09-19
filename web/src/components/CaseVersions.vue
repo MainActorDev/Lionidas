@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 
-/** Version history — OPTION A "quiet footer" (chosen 2026-09-18):
- *  revisions as a breadcrumb strip in the editor footer, always visible.
- *  Clicking a revision emits `pick` — the EDITOR's yaml column becomes
- *  read-only (banner + dim); no second viewer surface exists. The footer
- *  never renders a diff or yaml itself.
- *
- *  Vocabulary: `revision N` (r = revision, never "version" — v belongs to
- *  the app build a run tested). The tooltip on every step spells it out. */
+/** Version history — quiet footer, "current"-first model (user directive
+ *  2026-09-18):
+ *  - `current` is its own selectable item — the LIVE editable case — and
+ *    is the default selection. It is never numbered.
+ *  - A state only becomes `rN` once SUPERSEDED (a newer version exists
+ *    with different content). Snapshots matching the live content are
+ *    represented by the `current` chip — no duplicate numbered chip.
+ *  - Selection is always exactly ONE item: you move between chips;
+ *    clicking the selected one is a no-op (there is no unselect). */
 
 interface VersionRow {
   id: string;
@@ -23,16 +24,34 @@ interface VersionRow {
 
 const props = defineProps<{
   templateId: string;
-  /** currently-viewed revision (null = editing the live case) */
-  viewing: number | null;
+  /** 'current' = the live case; a number = viewing that revision */
+  viewing: number | 'current' | null;
 }>();
-const emit = defineEmits<{ (e: 'pick', revision: number | null): void }>();
+const emit = defineEmits<{ (e: 'pick', which: number | 'current'): void }>();
 
 const versions = ref<VersionRow[]>([]);
+const liveSha = ref<string | null>(null);
 const loading = ref(true);
 
-const currentRevision = computed(() =>
-  versions.value.length === 0 ? null : Math.max(...versions.value.map((v) => v.revision)));
+/** superseded = a NEWER version exists (the snapshot has history above it). */
+const superseded = computed(() => versions.value.filter((v) =>
+  versions.value.some((w) => w.revision > v.revision)));
+
+/** the revision the live content matches, if any (for run-count merge) */
+const liveRevision = computed(() =>
+  liveSha.value === null ? null : versions.value.find((v) => v.stepsSha === liveSha.value) ?? null);
+
+/** items in strip order: superseded revisions asc, then `current` last. */
+const items = computed<Array<{ kind: 'rev'; v: VersionRow } | { kind: 'current'; runs: number }>>(() => {
+  const runs = liveRevision.value?.runCount ?? 0;
+  return [
+    ...superseded.value
+      .slice()
+      .sort((a, b) => a.revision - b.revision)
+      .map((v) => ({ kind: 'rev' as const, v })),
+    { kind: 'current' as const, runs },
+  ];
+});
 
 const when = (ms: number): string => {
   const d = Date.now() - ms;
@@ -45,40 +64,49 @@ async function load(): Promise<void> {
   loading.value = true;
   try {
     const res = await fetch(`/api/templates/${props.templateId}/versions`);
-    const body = (await res.json()) as { versions: VersionRow[] };
-    // asc for the strip (oldest → current, like pages)
+    const body = (await res.json()) as { versions: VersionRow[]; liveSha: string | null };
     versions.value = body.versions.slice().sort((a, b) => a.revision - b.revision);
+    liveSha.value = body.liveSha;
   } finally {
     loading.value = false;
   }
 }
 onMounted(load);
 
-function tip(v: VersionRow): string {
-  const runs = v.runCount > 0 ? `${v.runCount} run${v.runCount === 1 ? '' : 's'} executed this exact yaml` : 'no runs yet';
-  const cur = v.revision === currentRevision.value ? ' · current' : '';
-  return `revision ${v.revision} — ${runs} · ${when(v.createdAt)}${cur}`;
+function isActive(item: { kind: 'rev'; v: VersionRow } | { kind: 'current'; runs: number }): boolean {
+  if (item.kind === 'current') return props.viewing === 'current' || props.viewing === null;
+  return props.viewing === item.v.revision;
+}
+function pick(item: { kind: 'rev'; v: VersionRow } | { kind: 'current'; runs: number }): void {
+  if (isActive(item)) return; // cannot unselect — clicking the selected chip is a no-op
+  emit('pick', item.kind === 'current' ? 'current' : item.v.revision);
+}
+function tip(item: { kind: 'rev'; v: VersionRow } | { kind: 'current'; runs: number }): string {
+  if (item.kind === 'current') {
+    const runs = item.runs > 0 ? `${item.runs} run${item.runs === 1 ? '' : 's'} executed this exact yaml` : 'no runs yet';
+    return `current — the live case you are editing · ${runs}`;
+  }
+  const v = item.v;
+  const runs = v.runCount > 0 ? `${v.runCount} run${v.runCount === 1 ? '' : 's'} executed this exact yaml` : 'no runs';
+  return `revision ${v.revision} — ${runs} · ${when(v.createdAt)} · superseded`;
 }
 </script>
 
 <template>
   <div class="vfoot">
-    <span class="lbl">revisions</span>
+    <span class="lbl">states</span>
     <span v-if="loading" class="cnt">loading…</span>
     <template v-else>
-      <span
-        v-for="v in versions" :key="v.id"
-        class="vstep"
-        :class="{ on: viewing === v.revision }"
-        :title="tip(v)"
-        @click="emit('pick', v.revision === viewing ? null : v.revision)"
-      >r{{ v.revision }}<span class="n">{{ v.runCount > 0 ? v.runCount : '·' }}</span></span>
-      <span v-if="versions.length === 0" class="cnt">none yet — the first run creates revision 1</span>
-      <span v-else-if="viewing === null" class="cnt">editing current</span>
-      <span v-else-if="viewing !== currentRevision" class="cnt stale">
-        viewing r{{ viewing }} · <span class="link" @click="emit('pick', null)">back to current r{{ currentRevision }}</span>
-      </span>
-      <span v-else class="cnt">current</span>
+      <template v-for="item in items" :key="item.kind === 'current' ? 'cur' : item.v.id">
+        <span
+          class="vstep"
+          :class="{ on: isActive(item), cur: item.kind === 'current' }"
+          :title="tip(item)"
+          @click="pick(item)"
+        >{{ item.kind === 'current' ? 'current' : `r${item.v.revision}` }}<span class="n">{{ (item.kind === 'current' ? item.runs : item.v.runCount) > 0 ? (item.kind === 'current' ? item.runs : item.v.runCount) : '·' }}</span></span>
+      </template>
+      <span v-if="items.length === 1" class="cnt">current only — a state becomes rN when superseded</span>
+      <span v-else-if="viewing !== 'current' && viewing !== null" class="cnt stale">viewing r{{ viewing }} — superseded</span>
     </template>
   </div>
 </template>
@@ -96,8 +124,8 @@ function tip(v: VersionRow): string {
 }
 .vstep:hover { border-color: var(--color-ember); color: var(--color-ember); }
 .vstep.on { border-color: var(--color-ember); color: var(--color-ember); background: rgba(255, 95, 46, .08); }
+.vstep.cur.on { border-color: var(--color-ember); }
 .vstep .n { color: var(--color-steel); font-size: 9px; margin-left: 3px; }
 .cnt { color: var(--color-steel); font-size: 10px; margin-left: 4px; }
 .cnt.stale { color: var(--color-amber, #d9a03f); }
-.link { text-decoration: underline; cursor: pointer; }
 </style>

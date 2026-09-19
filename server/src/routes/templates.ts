@@ -3,7 +3,7 @@
  *  Templates are plain data — playback (2d) interprets steps_json against a device. */
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { crucibleAlloy } from '../alloy/client.ts';
 import { initAlloyRuntime } from '../alloy/runtime.ts';
 import { parseCaseYaml, caseToYaml } from '@crucible/shared/case-yaml';
@@ -462,8 +462,14 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     const rows = db.prepare(
       'SELECT id, revision, steps_sha256, yaml_canonical, scenario_id, scenario_snapshot_json, source, created_by, created_at FROM case_versions WHERE template_id = ? ORDER BY revision DESC',
     ).all(id) as Array<{ id: string; revision: number; steps_sha256: string; yaml_canonical: string; scenario_id: string | null; scenario_snapshot_json: string | null; source: string; created_by: string | null; created_at: number }>;
+    // live content sha: the footer hides numbered chips whose snapshot
+    // MATCHES the live case — "current" represents them instead (a state
+    // is only named rN once superseded).
+    const live = db.prepare('SELECT steps_json FROM templates WHERE id = ?').get(id) as { steps_json: string } | undefined;
+    const liveSha = live ? createHash('sha256').update(live.steps_json).digest('hex') : null;
     const count = db.prepare('SELECT COUNT(*) n FROM runs WHERE case_version_id = ?');
     return {
+      liveSha,
       versions: rows.map((v) => ({
         id: v.id, revision: v.revision, stepsSha: v.steps_sha256, yaml: v.yaml_canonical,
         scenarioId: v.scenario_id,

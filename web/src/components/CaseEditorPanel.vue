@@ -41,7 +41,7 @@ const tags = ref('');
 
 // ── version history (option A quiet footer): revisions strip, always
 // visible; picking one flips the yaml column read-only. No disclosure. ──
-const viewingRev = ref<number | null>(null);
+const viewingRev = ref<number | 'current' | null>(null); // null ≡ 'current' (default editing)
 const snapshots = new Map<number, string>(); // revision → yaml (fetched on demand)
 const editingYaml = ref(''); // the live doc before a revision view took over
 const currentRevision = ref<number | null>(null);
@@ -54,20 +54,21 @@ async function loadVersionsFooter(): Promise<void> {
   } catch { currentRevision.value = null; }
 }
 onMounted(loadVersionsFooter);
-/** Footer pick: null = back to editing (restore the live doc); N = show
- *  revision N read-only. Stash/restore so switching never loses edits. */
-function pickRevision(rev: number | null): void {
-  if (rev === null) {
-    viewingRev.value = null;
+/** Footer pick: 'current' = edit the live case (restore the stashed doc);
+ *  N = show revision N read-only. Stash/restore so switching never loses
+ *  edits. Selection always moves — the footer refuses unselect. */
+function pickRevision(which: number | 'current'): void {
+  if (which === 'current') {
+    viewingRev.value = null; // null ≡ current — editing mode
     ed.setEditable(true);
     ed.setValue(editingYaml.value);
     return;
   }
-  if (viewingRev.value === null) editingYaml.value = ed.getValue();
-  viewingRev.value = rev;
+  if (viewingRev.value === null || viewingRev.value === 'current') editingYaml.value = ed.getValue();
+  viewingRev.value = which;
   ed.setEditable(false); // CM-level read-only — CSS cannot stop a focused editor
-  const yaml = snapshots.get(rev) ?? '';
-  ed.setValue(yaml === '' ? `# revision ${rev} — backfill snapshot; yaml is captured from the first run after it` : yaml);
+  const yaml = snapshots.get(which) ?? '';
+  ed.setValue(yaml === '' ? `# revision ${which} — backfill snapshot; yaml is captured from the first run after it` : yaml);
 }
 // deep-link: a rev in the query opens that revision read-only. The doc
 // loads async AFTER mount — applying pickRevision before load() finishes
@@ -166,7 +167,7 @@ async function save(): Promise<void> {
   // yaml — saving here would silently overwrite the live case with old
   // content. Guard at the choke point (button, ⌘↵, switch-modal all
   // funnel here). Return to editing first.
-  if (viewingRev.value !== null) { pickRevision(null); return; }
+  if (viewingRev.value !== null && viewingRev.value !== 'current') { pickRevision('current'); return; }
   saving.value = true;
   msg.value = '';
   try {
@@ -253,18 +254,18 @@ const savedAgo = computed((): string | null => {
       <span class="spacer"></span>
       <button class="btn btn-sm" @click="maybeClose">esc · close</button>
       <button class="btn btn-sm" @click="copyYaml" title="copy the yaml to clipboard">&lt;/&gt; copy</button>
-      <button class="btn btn-sm btn-primary" :disabled="saving || loading || viewingRev !== null" :title="viewingRev !== null ? 'viewing a revision — back to editing to save' : undefined" @click="save">{{ saving ? 'saving…' : '⌘↵ save' }}</button>
+      <button class="btn btn-sm btn-primary" :disabled="saving || loading || (viewingRev !== null && viewingRev !== 'current')" :title="viewingRev !== null && viewingRev !== 'current' ? 'viewing a superseded state — back to current to save' : undefined" @click="save">{{ saving ? 'saving…' : '⌘↵ save' }}</button>
     </div>
 
     <!-- metadata: name / ticket / description / tags -->
-    <div class="ce-meta" :class="{ ro: viewingRev !== null }">
-      <label class="ce-field"><span>name</span><input v-model="name" :disabled="viewingRev !== null" @input="dirty = true" placeholder="case name" /></label>
-      <label class="ce-field"><span>ticket</span><input v-model="ticket" :disabled="viewingRev !== null" @input="dirty = true" placeholder="ticket key (e.g. LP-123)" /></label>
-      <label class="ce-field ce-wide"><span>description</span><input v-model="description" :disabled="viewingRev !== null" @input="dirty = true" placeholder="what this case verifies" /></label>
-      <label class="ce-field"><span>tags</span><input v-model="tags" :disabled="viewingRev !== null" @input="dirty = true" placeholder="smoke, login" title="comma list, max 8" /></label>
+    <div class="ce-meta" :class="{ ro: viewingRev !== null && viewingRev !== 'current' }">
+      <label class="ce-field"><span>name</span><input v-model="name" :disabled="viewingRev !== null && viewingRev !== 'current'" @input="dirty = true" placeholder="case name" /></label>
+      <label class="ce-field"><span>ticket</span><input v-model="ticket" :disabled="viewingRev !== null && viewingRev !== 'current'" @input="dirty = true" placeholder="ticket key (e.g. LP-123)" /></label>
+      <label class="ce-field ce-wide"><span>description</span><input v-model="description" :disabled="viewingRev !== null && viewingRev !== 'current'" @input="dirty = true" placeholder="what this case verifies" /></label>
+      <label class="ce-field"><span>tags</span><input v-model="tags" :disabled="viewingRev !== null && viewingRev !== 'current'" @input="dirty = true" placeholder="smoke, login" title="comma list, max 8" /></label>
     </div>
 
-    <div class="ce-body" :class="{ ro: viewingRev !== null }">
+    <div class="ce-body" :class="{ ro: viewingRev !== null && viewingRev !== 'current' }">
       <div class="outline">
         <div class="outline-title">steps<template v-if="outlineStale"> · <span style="color: var(--color-ember);">stale</span></template></div>
         <div v-for="s in outline" :key="s.idx" class="o-step" :title="s.detail">
@@ -277,16 +278,15 @@ const savedAgo = computed((): string | null => {
         </div>
       </div>
       <div class="editor">
-        <div v-if="viewingRev !== null" class="ro-banner">
-          viewing revision r{{ viewingRev }} — read-only
-          <span v-if="currentRevision !== null && viewingRev !== currentRevision" style="color: var(--color-steel);">(current is r{{ currentRevision }})</span>
-          · <span class="ro-link" @click="pickRevision(null)">back to editing</span>
+        <div v-if="viewingRev !== null && viewingRev !== 'current'" class="ro-banner">
+          viewing r{{ viewingRev }} — superseded state, read-only
+          · <span class="ro-link" @click="pickRevision('current')">back to current</span>
         </div>
         <div v-if="loading" class="empty" style="border: none; padding: var(--s-4);">loading case…</div>
-        <div v-show="!loading" ref="editorHost" class="cm-host" :class="{ ro: viewingRev !== null }"></div>
+        <div v-show="!loading" ref="editorHost" class="cm-host" :class="{ ro: viewingRev !== null && viewingRev !== 'current' }"></div>
       </div>
     </div>
-    <CaseVersions :template-id="templateId" :viewing="viewingRev" @pick="pickRevision" />
+    <CaseVersions :template-id="templateId" :viewing="viewingRev === null ? 'current' : viewingRev" @pick="pickRevision" />
     <div v-if="msg" class="ce-foot">{{ msg }}</div>
   </div>
 </template>
