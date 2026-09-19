@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>010-1 · Suites — sidebar + detail board</title>
+<style>
+:root {
+  --color-void:#000; --color-carbon:#111; --color-graphite:#191919; --color-iron:#202020;
+  --color-slate:#3a3a3a; --color-pewter:#505050;
+  --color-steel:#606060; --color-ash:#7e7e7e; --color-fog:#b4b4b4; --color-chalk:#d9d9d9; --color-paper:#eee;
+  --color-ember:#da5c2c; --color-ember-dim:#a04521;
+  --font-mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Monaco,monospace;
+  --r:2px;
+}
+* { box-sizing:border-box; margin:0; }
+body { background:var(--color-void); color:var(--color-paper); font-family:var(--font-mono); font-size:13px; padding:20px; }
+
+.layout { display:grid; grid-template-columns:250px 1fr; gap:14px; max-width:1180px; }
+
+/* ── sidebar: the suite list ── */
+.side { border:1px solid var(--color-iron); border-radius:var(--r); background:var(--color-carbon); padding:10px; }
+.side h2 { font-size:12px; color:var(--color-ash); font-weight:400; letter-spacing:.08em; text-transform:uppercase; padding:2px 4px 8px; display:flex; justify-content:space-between; }
+.side h2 button { font:inherit; font-size:11px; color:var(--color-ember); background:none; border:1px solid var(--color-iron); border-radius:var(--r); padding:1px 8px; cursor:pointer; }
+.sitem { display:block; width:100%; text-align:left; font:inherit; background:none; border:1px solid transparent; border-left:2px solid transparent; color:var(--color-fog); padding:8px; margin-bottom:4px; border-radius:var(--r); cursor:pointer; }
+.sitem .nm { color:var(--color-paper); display:flex; justify-content:space-between; gap:8px; }
+.sitem .nm .n { color:var(--color-steel); font-size:11px; }
+.sitem .roll { font-size:11px; margin-top:3px; }
+.sitem:hover { background:var(--color-graphite); }
+.sitem.sel { background:var(--color-graphite); border-left-color:var(--color-ember); }
+.ok{color:var(--color-fog)} .bad{color:var(--color-paper);border:1px dashed var(--color-paper);padding:0 4px;} .blk{color:var(--color-ash);font-style:italic}
+
+/* ── detail board ── */
+.board { border:1px solid var(--color-iron); border-radius:var(--r); background:var(--color-carbon); padding:14px; }
+.b-head { display:flex; align-items:baseline; gap:12px; border-bottom:1px solid var(--color-iron); padding-bottom:10px; margin-bottom:12px; }
+.b-head h1 { font-size:18px; font-weight:700; }
+.b-head .desc { color:var(--color-ash); font-size:12px; }
+.b-head .run { margin-left:auto; font:inherit; font-size:13px; color:var(--color-paper); background:var(--color-ember); border:none; border-radius:var(--r); padding:6px 14px; cursor:pointer; }
+.b-head .run:hover { background:var(--color-ember-dim); }
+
+/* rollup strip: one headline stat + supporting counts */
+.rollup { display:flex; gap:18px; align-items:baseline; padding:0 2px 12px; }
+.rollup .kpi { font-size:24px; }
+.rollup .kpi.bad { color:var(--color-paper); }
+.rollup .sub { color:var(--color-ash); font-size:12px; }
+.rollup .sub b { color:var(--color-fog); font-weight:400; }
+
+/* member rows — plain language; variant-subset chips inline */
+.mem { display:flex; align-items:center; gap:10px; padding:9px 10px; border:1px solid var(--color-iron); border-radius:var(--r); margin-bottom:6px; background:var(--color-graphite); }
+.mem:hover { border-color:var(--color-slate); }
+.mem .pos { color:var(--color-steel); font-size:11px; width:20px; }
+.mem .verdict { width:64px; font-size:11px; }
+.mem .name { color:var(--color-paper); }
+.mem .name .app { color:var(--color-steel); font-size:11px; }
+.vchips { margin-left:auto; display:flex; gap:4px; }
+.vchip { font-size:10px; color:var(--color-fog); border:1px solid var(--color-slate); border-radius:var(--r); padding:1px 6px; }
+.vchip.all { color:var(--color-ash); border-style:dashed; }
+.vchip.fail { color:var(--color-paper); border-color:var(--color-paper); border-style:dashed; }
+.vtrend { display:inline-flex; gap:2px; margin-left:2px; }
+.vtrend i { width:7px; height:7px; border-radius:1px; background:var(--color-slate); }
+.vtrend i.p { background:var(--color-fog); }
+.vtrend i.f { background:var(--color-paper); outline:1px dashed var(--color-paper); outline-offset:-1px; }
+
+.foot { color:var(--color-steel); font-size:11px; padding:8px 2px 0; border-top:1px solid var(--color-iron); margin-top:10px; display:flex; gap:14px; }
+.foot a { color:var(--color-ash); text-decoration:none; border-bottom:1px dotted var(--color-pewter); }
+.foot a:hover { color:var(--color-fog); }
+
+/* the collision resolution strip — shown as an inset note */
+.collision { margin-top:14px; max-width:1180px; border:1px dashed var(--color-pewter); border-radius:var(--r); padding:10px 12px; color:var(--color-ash); font-size:12px; }
+.collision b { color:var(--color-fog); font-weight:400; }
+.collision .was { text-decoration:line-through; color:var(--color-steel); }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <nav class="side">
+    <h2>suites <button>+ new</button></h2>
+    <button class="sitem sel">
+      <span class="nm">intl regression <span class="n">4 cases</span></span>
+      <span class="roll"><span class="ok">2 pass</span> · <span class="bad">1 fail</span> · <span class="blk">1 never</span></span>
+    </button>
+    <button class="sitem">
+      <span class="nm">smoke <span class="n">6 cases</span></span>
+      <span class="roll"><span class="ok">6 pass</span></span>
+    </button>
+    <button class="sitem">
+      <span class="nm">onboarding <span class="n">2 cases</span></span>
+      <span class="roll"><span class="ok">1 pass</span> · <span class="bad">1 fail</span></span>
+    </button>
+    <button class="sitem">
+      <span class="nm">checkout · nightly <span class="n">3 cases</span></span>
+      <span class="roll"><span class="blk">never run</span></span>
+    </button>
+  </nav>
+
+  <main class="board">
+    <div class="b-head">
+      <h1>intl regression</h1>
+      <span class="desc">countries coverage — pinned subsets, declaration order</span>
+      <button class="run">▶ run suite</button>
+    </div>
+
+    <div class="rollup">
+      <span class="kpi bad">1 failing</span>
+      <span class="sub">of <b>4 cases</b> · <b>2 passing</b> · <b>1 never run</b> · last run <b>2h ago · run_9f2</b></span>
+    </div>
+
+    <div class="mem">
+      <span class="pos">1</span>
+      <span class="verdict ok">pass</span>
+      <span class="name">check-rates country worlds <span class="app">· lp-intl</span></span>
+      <span class="vchips">
+        <span class="vchip all">all 3 · sg my empty</span>
+      </span>
+    </div>
+    <div class="mem">
+      <span class="pos">2</span>
+      <span class="verdict bad">fail</span>
+      <span class="name">tariff banner accepts id <span class="app">· lp-intl</span></span>
+      <span class="vchips">
+        <span class="vchip">sg <span class="vtrend"><i class="p"></i><i class="f"></i><i class="f"></i></span></span>
+        <span class="vchip fail">my <span class="vtrend"><i class="f"></i></span></span>
+      </span>
+    </div>
+    <div class="mem">
+      <span class="pos">3</span>
+      <span class="verdict ok">pass</span>
+      <span class="name">login · otp happy path <span class="app">· lp-consumer</span></span>
+      <span class="vchips">
+        <span class="vchip all">plain</span>
+      </span>
+    </div>
+    <div class="mem">
+      <span class="pos">4</span>
+      <span class="verdict blk">never</span>
+      <span class="name">track parcel · detail <span class="app">· lp-intl</span></span>
+      <span class="vchips">
+        <span class="vchip">sg</span><span class="vchip">my</span>
+      </span>
+    </div>
+
+    <div class="foot">
+      <a href="#">edit members →</a>
+      <a href="#">runs from this suite →</a>
+      <span>verdicts are live reads — the same truth as every board</span>
+    </div>
+  </main>
+</div>
+
+<div class="collision">
+  <b>wording (the / collision):</b> home's button becomes <b>▶ run all cases</b> <span class="was">run suite</span> —
+  the word <b>suite</b> now belongs to this page. Home keeps its board untouched otherwise.
+  Suites live at <b>/suites</b> in the sidebar nav.
+</div>
+</body>
+</html>
