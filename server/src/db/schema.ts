@@ -405,10 +405,13 @@ export function migrateM1(db: Database.Database): void {
     -- a snapshot (TestSuiteVersion forbidden by the brief); verdicts are
     -- computed from runs, never stored here. Membership dies with its case
     -- (CASCADE); a deleted suite's runs survive (runs.suite_id SET NULL).
+    -- Bundle scope: every member shares the suite's app_bundle_id (API-level
+    -- invariant — a suite answers "is THIS app ok", never a mixed bag).
     CREATE TABLE IF NOT EXISTS suites(
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
       description TEXT,
+      app_bundle_id TEXT,
       created_by TEXT NOT NULL DEFAULT 'qa',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
@@ -429,6 +432,20 @@ export function migrateM1(db: Database.Database): void {
   const has = (c: string): boolean => cols.some((x) => x.name === c);
   if (!has('created_by')) db.prepare('ALTER TABLE templates ADD COLUMN created_by TEXT').run();
   if (!has('updated_by')) db.prepare('ALTER TABLE templates ADD COLUMN updated_by TEXT').run();
+  // bundle-scope migration: suites gain app_bundle_id. Older DBs get it via
+  // guarded ALTER + truthful backfill from members (every pre-scope suite
+  // was API-forced homogeneous? no — but single-member suites and uniform
+  // packs backfill cleanly; a genuinely mixed legacy suite lands NULL,
+  // which is honest: it has no single app identity until edited).
+  const suiteCols = db.prepare("SELECT name FROM pragma_table_info('suites')").all() as Array<{ name: string }>;
+  if (!suiteCols.some((x) => x.name === 'app_bundle_id')) {
+    db.prepare('ALTER TABLE suites ADD COLUMN app_bundle_id TEXT').run();
+    db.prepare(`UPDATE suites SET app_bundle_id = (
+      SELECT t.app_bundle_id FROM suite_members m JOIN templates t ON t.id = m.template_id
+      WHERE m.suite_id = suites.id AND t.app_bundle_id IS NOT NULL
+      GROUP BY t.app_bundle_id ORDER BY COUNT(*) DESC LIMIT 1
+    )`).run();
+  }
   db.exec(`
   `);
 }

@@ -766,22 +766,36 @@ export function registerManualRoutes(
   // ── Phase D T3: suite play — membership read live at play time, handed
   //  to runBatch as an explicit case list (bypasses tag selection). Pinned
   //  variantIds play ONLY those variants; NULL = case default. T4: suiteId
-  //  stamps every spawned run. Same engine as play-all/plans. ──
+  //  stamps every spawned run. Same engine as play-all/plans.
+  //  Bundle drift: a member whose template's bundle was later edited away
+  //  from the suite's scope is SKIPPED with a named reason (no silent
+  //  deletion, no blocked run) — surfaced in the response so the board can
+  //  flag it. ──
   app.post('/api/suites/:id/play', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const row = db.prepare('SELECT * FROM suites WHERE id = ?').get(id) as { id: string; name: string } | undefined;
+    const row = db.prepare('SELECT * FROM suites WHERE id = ?').get(id) as { id: string; name: string; app_bundle_id: string | null } | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
     const members = (db.prepare('SELECT * FROM suite_members WHERE suite_id = ? ORDER BY position').all(id) as Array<{ template_id: string; variant_ids_json: string | null }>)
       .map((m) => ({ templateId: m.template_id, variantIds: m.variant_ids_json ? (JSON.parse(m.variant_ids_json) as string[]) : null }));
     if (members.length === 0) return reply.code(400).send({ error: 'suite has no members' });
+    // drift filter: template bundles that no longer match the suite scope
+    const bundleOf = db.prepare('SELECT app_bundle_id AS b FROM templates WHERE id = ?');
+    const drifted: string[] = [];
+    const inScope = members.filter((m) => {
+      const b = (bundleOf.get(m.templateId) as { b: string | null } | undefined)?.b ?? null;
+      const ok = row.app_bundle_id === null || b === row.app_bundle_id;
+      if (!ok) drifted.push(m.templateId);
+      return ok;
+    });
+    if (inScope.length === 0) return reply.code(409).send({ error: `every member drifted out of ${row.app_bundle_id ?? 'suite scope'}: ${drifted.join(', ')}`, code: 'BUNDLE_DRIFT', skipped: drifted });
     const b = (req.body ?? {}) as { udid?: string; triggeredBy?: string };
     const r = await runBatch({
-      cases: members,
+      cases: inScope,
       ...(b.udid !== undefined ? { udid: b.udid } : {}),
       triggeredBy: `suite:${row.name}`,
       suiteId: row.id,
     }, req.user);
     if (!r.ok) return reply.code(r.code).send({ error: r.error, code: r.code === 409 ? 'DEVICE_BUSY' : undefined, runIds: r.runIds });
-    return { runIds: r.runIds, count: r.count, batchId: r.batchId };
+    return { runIds: r.runIds, count: r.count, batchId: r.batchId, ...(drifted.length > 0 ? { skippedDrifted: drifted } : {}) };
   });
 }

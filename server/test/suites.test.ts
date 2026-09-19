@@ -15,11 +15,11 @@ import { migrateM1 } from '../src/db/schema.ts';
 let db: Database.Database;
 let app: FastifyInstance;
 
-const mkCase = (id: string, name: string, variants?: string[]): void => {
+const mkCase = (id: string, name: string, variants?: string[], bundle?: string): void => {
   db.prepare(
     `INSERT INTO templates(id, name, description, ticket_key, udid, logical_w, logical_h, steps_json, app_bundle_id, tags_json, created_by, created_at, updated_at, variants_json)
-     VALUES (?, ?, NULL, NULL, '', 428, 926, ?, 'com.lp.x', '[]', 't', 1, 1, ?)`,
-  ).run(id, name, JSON.stringify([{ tap: { selector: 'label == "Anything"' } }]), variants ? JSON.stringify(variants.map((v) => ({ id: v }))) : null);
+     VALUES (?, ?, NULL, NULL, '', 428, 926, ?, ?, '[]', 't', 1, 1, ?)`,
+  ).run(id, name, JSON.stringify([{ tap: { selector: 'label == "Anything"' } }]), bundle ?? 'com.lp.x', variants ? JSON.stringify(variants.map((v) => ({ id: v }))) : null);
 };
 
 beforeEach(async () => {
@@ -92,6 +92,65 @@ describe('T2 — suites CRUD + membership validation', () => {
     expect(got.members.map((m) => m.templateId)).toEqual(['tpl_f', 'tpl_e']);
     const conflict = await app.inject({ method: 'PATCH', url: `/api/suites/${sid}`, payload: { name: 'two' } });
     expect(conflict.statusCode).toBe(409);
+  });
+});
+
+describe("bundle scope — a suite is one app's pack", () => {
+  it('mixed-bundle members → 400 naming the offender; nothing inserted', async () => {
+    mkCase('tpl_lp', 'lp case');
+    mkCase('tpl_maps', 'maps case', undefined, 'com.apple.Maps');
+    const r = await app.inject({ method: 'POST', url: '/api/suites', payload: { name: 'mixed', members: [{ templateId: 'tpl_lp' }, { templateId: 'tpl_maps' }] } });
+    expect(r.statusCode).toBe(400);
+    expect((r.json() as { error: string }).error).toContain('com.apple.Maps');
+    expect(db.prepare('SELECT COUNT(*) c FROM suites').get()).toEqual({ c: 0 });
+  });
+
+  it('create derives bundle from members; homogeneous pack stamps it on the suite', async () => {
+    mkCase('tpl_g', 'G');
+    const r = await app.inject({ method: 'POST', url: '/api/suites', payload: { name: 'derived', members: [{ templateId: 'tpl_g' }] } });
+    expect(r.statusCode).toBe(201);
+    expect((r.json() as { appBundleId: string | null }).appBundleId).toBe('com.lp.x');
+  });
+
+  it('explicit appBundleId validates members against it (foreign member → 400)', async () => {
+    mkCase('tpl_h', 'H');
+    const bad = await app.inject({ method: 'POST', url: '/api/suites', payload: { name: 'scoped', appBundleId: 'com.apple.Maps', members: [{ templateId: 'tpl_h' }] } });
+    expect(bad.statusCode).toBe(400);
+    const good = await app.inject({ method: 'POST', url: '/api/suites', payload: { name: 'scoped', appBundleId: 'com.lp.x', members: [{ templateId: 'tpl_h' }] } });
+    expect(good.statusCode).toBe(201);
+    expect((good.json() as { appBundleId: string | null }).appBundleId).toBe('com.lp.x');
+  });
+
+  it('appBundleId immutable on PATCH; foreign member on PATCH → 400', async () => {
+    mkCase('tpl_i', 'I');
+    mkCase('tpl_maps2', 'maps2', undefined, 'com.apple.Maps');
+    const a = await app.inject({ method: 'POST', url: '/api/suites', payload: { name: 'fix', members: [{ templateId: 'tpl_i' }] } });
+    const sid = (a.json() as { id: string }).id;
+    const mut = await app.inject({ method: 'PATCH', url: `/api/suites/${sid}`, payload: { appBundleId: 'com.apple.Maps' } });
+    expect(mut.statusCode).toBe(400);
+    expect((mut.json() as { error: string }).error).toContain('immutable');
+    const foreign = await app.inject({ method: 'PATCH', url: `/api/suites/${sid}`, payload: { members: [{ templateId: 'tpl_maps2' }] } });
+    expect(foreign.statusCode).toBe(400);
+  });
+
+  it('play skips drifted members with named reason; all-drifted → 409 BUNDLE_DRIFT', async () => {
+    mkCase('tpl_j', 'J');
+    mkCase('tpl_k', 'K');
+    const a = await app.inject({ method: 'POST', url: '/api/suites', payload: { name: 'driftme', members: [{ templateId: 'tpl_j' }, { templateId: 'tpl_k' }] } });
+    const sid = (a.json() as { id: string }).id;
+    // template's bundle edited away from suite scope AFTER joining
+    db.prepare('UPDATE templates SET app_bundle_id = ? WHERE id = ?').run('com.apple.Maps', 'tpl_k');
+    // route-level harness: playback needs a device row — expect the honest
+    // DEVICE_BUSY-style failure (NOT 400 unknown / NOT silent run of drifted)
+    const r = await app.inject({ method: 'POST', url: `/api/suites/${sid}/play`, payload: {} });
+    // inScope = [tpl_j] only; drifted = [tpl_k] surfaced or blocked before playback
+    const body = r.json() as { skippedDrifted?: string[]; error?: string; code?: string };
+    expect(body.skippedDrifted ?? []).toContain('tpl_k');
+    // all drifted → 409 with code
+    db.prepare('UPDATE templates SET app_bundle_id = ? WHERE id = ?').run('com.apple.Maps', 'tpl_j');
+    const all = await app.inject({ method: 'POST', url: `/api/suites/${sid}/play`, payload: {} });
+    expect(all.statusCode).toBe(409);
+    expect((all.json() as { code?: string }).code).toBe('BUNDLE_DRIFT');
   });
 });
 

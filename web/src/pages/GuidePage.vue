@@ -256,6 +256,16 @@ const groups = computed(() => {
   </div>
 
   <div class="card">
+    <div class="meta-row"><span class="k">scope</span><b class="mono">one app per suite — bundle-locked</b></div>
+    <p style="color: var(--color-fog); font-size: var(--text-body); line-height: 1.6; margin: var(--s-2) 0 0;">
+      A suite answers "is <b>this app</b> OK" — so you pick the app (its bundle id) when you create the
+      suite, and only that app's cases can join. The scope locks at creation; a Lion Parcel suite can
+      never swallow a Maps case. If a case's app is <b>changed after joining</b>, the board flags it
+      <b>drifted</b> and the next run skips it with a named reason — nothing silently disappears.
+    </p>
+  </div>
+
+  <div class="card">
     <div class="meta-row"><span class="k">also</span><b class="mono">runs from this suite → the stamped history</b></div>
     <p style="color: var(--color-fog); font-size: var(--text-body); line-height: 1.6; margin: var(--s-2) 0 0;">
       Every run a suite spawns is stamped with it. <b>runs from this suite →</b> at the bottom of the board
