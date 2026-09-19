@@ -118,6 +118,54 @@ variant's own last 3 runs. Simple, no schema change.
 
 ---
 
+
+## Phase C0 — Networking groundwork (gated in 2026-09-19, runs BEFORE T1)
+
+*Gap analysis before Phase C exposed real holes — receipts: the pure
+matcher supports query/header guards (matcher.ts:51-63) but
+`presetRowToSpec` (matcher.ts:99-113) NEVER reads them and the presets
+table has NO guards column — guards are unreachable from real data. And
+the proxy matches BEFORE reading the request body (proxy.ts:44-48), so
+request-body state cannot differentiate variants. Also: `seq_json` is
+parsed with a lying cast (`Array<{status:number}>` — runtime keeps
+bodyPath, the type drops it).*
+
+### T0.1 — Guards persistence (fixes the unreachable matcher feature)
+- `presets` gains `guards_json` (guarded ALTER; `{query?, headers?}` shape).
+- `presetRowToSpec` parses it; forge preset CRUD (routes.ts write path +
+  validation) accepts `guards`; `match-test` route applies them.
+- **Tests**: preset with query guard round-trips DB → spec → match-test;
+  two presets same path, different query guard → correct one matches.
+
+### T0.2 — Request-body guard (`bodyContains`)
+- `Preset.guards` gains `bodyContains?: string[]` (ALL substrings must be
+  present in the decoded body — substring, not JSON-path: enough for
+  state tokens like `"status":"pending"`, no parser fragility).
+- `MatchRequest` gains `body?: string`; matcher checks guards.
+- **Proxy buffers the body BEFORE matching**: Fastify content-type parser
+  for json/urlencoded/text + a raw catch-all (buffer → utf8, size-capped
+  at 1MB; larger bodies skip body guards — honest degrade to no-body
+  matching, logged).
+- **Tests** (matcher unit + proxy route test): bodyContains narrows a
+  match; absent body + body guard → no match (never false-positive);
+  >1MB body skips body guards without erroring.
+
+### T0.3 — seq typing honesty
+- `presetRowToSpec` seq cast → `Array<{ status: number; bodyPath?: string; delayMs?: number }>`
+  (runtime already carries them; the type lied).
+
+### T0.4 — LP scenario library (verification content, not code)
+- Author the real account-state scenarios variants will reference
+  (account-active/pending/rejected against the actual LP endpoints —
+  query-guard or body-guard per endpoint shape). Ships as scenario+preset
+  rows in the dev DB + a documentation note; no schema change.
+- This is the "variants are only as good as their scenarios" item — done
+  as part of Phase C live verification, not a standalone gate.
+
+**C0 gates**: same as phase gates; matcher + forge suites green; live
+smoke: two query-guarded presets flip a real sim request's response.
+
+---
 ## Tasks
 
 ### T1 — Playback `variant` opt: env merge, scenario override, run stamp
