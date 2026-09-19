@@ -661,6 +661,11 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           }
           break;
         }
+        // selector env seam: the substituted selector becomes the step's
+        // truth for EVERY downstream consumer (expect countMatches, tap/
+        // type resolveSelector, probes) — merge over the raw selector so
+        // fields substitution doesn't know (ignoreCase) survive.
+        if (resolved.selector !== undefined && s.selector) s.selector = { ...s.selector, ...resolved.selector };
         try {
           // A7 expect: existence assertion — resolution IS the check. Never
           //  dispatches. Launch-settle window: a cold app takes ~2-3s to

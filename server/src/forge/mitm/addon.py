@@ -192,7 +192,11 @@ class ForgeRouter:
         if failure == "malformed":
             body = b"{not-json"
 
-        headers = {"content-type": "application/json"}
+        # no-store by default: a mocked 200 with no cache headers gets
+        # disk-cached by URLSession and served on later runs — the app
+        # then renders stale world data while the proxy sees no request
+        # (drill-found 2026-09-19). Preset headers may still override.
+        headers = {"content-type": "application/json", "cache-control": "no-store"}
         headers.update(preset.get("headers") or {})
         flow.response = http.Response.make(status, body, headers)
 

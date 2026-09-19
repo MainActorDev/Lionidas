@@ -27,3 +27,27 @@ describe('substituteStep', () => {
     expect(r.error).toBe('missing env: NOPE');
   });
 });
+
+describe('substituteStep selector env (variant-world assertions)', () => {
+  it('resolves ${env.X} inside expect contains', () => {
+    const r = substituteStep({ idx: 0, action: 'expect', selector: { labelContains: 'Shipping rates from ${env.CITY}' } }, { CITY: 'Kuala Lumpur' });
+    expect(r).toEqual({ idx: 0, action: 'expect', selector: { labelContains: 'Shipping rates from Kuala Lumpur' } });
+  });
+  it('resolves ${env.X} inside exact label', () => {
+    const r = substituteStep({ idx: 0, action: 'expect', selector: { label: '${env.TITLE}' } }, { TITLE: 'Account Active' });
+    expect(r).toEqual({ idx: 0, action: 'expect', selector: { label: 'Account Active' } });
+  });
+  it('fails closed on missing selector key — never asserts a half-resolved fragment', () => {
+    const r = substituteStep({ idx: 0, action: 'expect', selector: { labelContains: 'rate to ${env.WORLD}' } }, {});
+    expect(r.error).toBe('missing env: WORLD');
+    expect(r.selector).toBeUndefined();
+  });
+  it('identifier and type pass through untouched', () => {
+    const r = substituteStep({ idx: 0, action: 'tap', selector: { identifier: 'home_login_bar', type: 'Button' } }, { identifier: 'x' });
+    expect(r).toEqual({ idx: 0, action: 'tap', selector: { identifier: 'home_login_bar', type: 'Button' } });
+  });
+  it('plain selector without refs is byte-identical (backward compat)', () => {
+    const r = substituteStep({ idx: 0, action: 'expect', selector: { labelContains: 'Shipping rates from' } }, {});
+    expect(r).toEqual({ idx: 0, action: 'expect', selector: { labelContains: 'Shipping rates from' } });
+  });
+});
