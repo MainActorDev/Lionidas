@@ -94,7 +94,7 @@ function tip(item: { kind: 'rev'; v: VersionRow } | { kind: 'current'; runs: num
 
 <template>
   <div class="vfoot">
-    <span class="lbl">states</span>
+    <span class="lbl">versions</span>
     <span v-if="loading" class="cnt">loading…</span>
     <template v-else>
       <template v-for="item in items" :key="item.kind === 'current' ? 'cur' : item.v.id">
@@ -105,7 +105,7 @@ function tip(item: { kind: 'rev'; v: VersionRow } | { kind: 'current'; runs: num
           @click="pick(item)"
         >{{ item.kind === 'current' ? 'current' : `r${item.v.revision}` }}<span class="n">{{ (item.kind === 'current' ? item.runs : item.v.runCount) > 0 ? (item.kind === 'current' ? item.runs : item.v.runCount) : '·' }}</span></span>
       </template>
-      <span v-if="items.length === 1" class="cnt">current only — a state becomes rN when superseded</span>
+      <span v-if="items.length === 1" class="cnt">current only — a version becomes rN when superseded</span>
       <span v-else-if="viewing !== 'current' && viewing !== null" class="cnt stale">viewing r{{ viewing }} — superseded</span>
     </template>
   </div>
