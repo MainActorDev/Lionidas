@@ -14,6 +14,7 @@ import this file by relative path). Pure module: no node APIs, only
 import { parse, stringify } from 'yaml';
 import { parseAlertPolicy as parseAlertPolicyRaw, type AlertPolicy } from './alert-policy.ts';
 import { IDENTIFIER_RE } from './ax-tree.ts';
+import { parseVariants, type YamlVariant } from './yaml-variants.js';
 
 export interface YamlSelector { identifier?: string; label?: string; labelContains?: string; ignoreCase?: boolean; type?: string }
 export interface YamlStep {
@@ -42,6 +43,9 @@ export interface YamlCase {
   setup?: YamlStep[];
   /** Run-level system-dialog policy (absent = every dialog fails named) */
   alerts?: AlertPolicy;
+  /** State coverage (phase B): one flow, N deterministic worlds. The runner
+   *  expands these in phase C; parsing/storage/autocomplete ship first. */
+  variants?: YamlVariant[];
   steps: YamlStep[];
 }
 
@@ -111,6 +115,12 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
     else alerts = r.policy ?? undefined;
   }
 
+  // variants (phase B) — pure validation via the shared module
+  let variantsOut: YamlVariant[] | null = null;
+  if (c['variants'] !== undefined && c['variants'] !== null) {
+    variantsOut = parseVariants(c['variants'], errors);
+  }
+
   // setup (declared preconditions) — parsed by the same step machinery
   let setupOut: YamlStep[] | undefined;
   if (c['setup'] !== undefined) {
@@ -133,7 +143,7 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
     runFlowNames.push(...r.names);
   }
   if (errors.length > 0) return { ok: false, case: null, errors, runFlowNames };
-  return { ok: true, case: { name, tags, ...(app ? { app } : {}), ...(setupOut ? { setup: setupOut } : {}), ...(alerts ? { alerts } : {}), steps: stepsOut }, errors: [], runFlowNames };
+  return { ok: true, case: { name, tags, ...(app ? { app } : {}), ...(setupOut ? { setup: setupOut } : {}), ...(alerts ? { alerts } : {}), ...(variantsOut ? { variants: variantsOut } : {}), steps: stepsOut }, errors: [], runFlowNames };
 }
 
 /** One step list (steps: or setup:) → validated steps + runFlow name refs.
@@ -348,7 +358,7 @@ function attachWhen(step: YamlStep, b: Record<string, unknown>, section: 'setup'
 }
 
 /** steps_json rows → YAML text. Stable field order, guidance comments. */
-export function caseToYaml(t: { name: string; tags: string[]; app?: string | null; setup?: unknown[]; alerts?: unknown; steps: unknown[] }): string {
+export function caseToYaml(t: { name: string; tags: string[]; app?: string | null; setup?: unknown[]; alerts?: unknown; variants?: unknown[]; steps: unknown[] }): string {
   const lines: string[] = [];
   lines.push(`# ${t.name} — edit as yaml; save validates against the step schema`);
   lines.push(`name: ${yamlScalar(t.name)}`);
@@ -362,6 +372,18 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       } else {
         lines.push('alerts:');
         for (const [k, v] of a.entries) lines.push(`  ${k}: ${v}`);
+      }
+    }
+  }
+  if (Array.isArray(t.variants) && t.variants.length > 0) {
+    lines.push('variants:');
+    for (const rawV of t.variants as Array<Record<string, unknown>>) {
+      const v = rawV as unknown as { id: string; networkScenario?: string; env?: Record<string, string> };
+      lines.push(`  - id: ${yamlScalar(v.id)}`);
+      if (v.networkScenario !== undefined) lines.push(`    networkScenario: ${yamlScalar(v.networkScenario)}`);
+      if (v.env && Object.keys(v.env).length > 0) {
+        lines.push('    env:');
+        for (const [k, val] of Object.entries(v.env)) lines.push(`      ${k}: ${yamlScalar(val)}`);
       }
     }
   }
