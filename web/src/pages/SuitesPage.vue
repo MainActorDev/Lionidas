@@ -16,8 +16,9 @@ interface Member {
   lastAppVersion: string | null;
   trend: string | null;
   totalRuns: number;
-  name?: string;         // joined from templates at render
-  appName?: string | null;
+  /** phase D: joined at read time by the API — name/app/vocab for render */
+  name?: string | null;
+  appBundleId?: string | null;
   variantVocab?: string[];
 }
 interface Suite {
@@ -102,11 +103,11 @@ async function openEditor(s: Suite | null): Promise<void> {
   editorName.value = s?.name ?? '';
   editorDesc.value = s?.description ?? '';
   editorMembers.value = s?.members ? s.members.map((m) => ({ templateId: m.templateId, variantIds: m.variantIds })) : [];
-  const r = await fetch('/api/templates');
-  const b = (await r.json()) as { templates: Array<{ id: string; name: string; app_bundle_id: string | null; variants_json: string | null }> };
+  const tpl = await fetch('/api/templates');
+  const b = (await tpl.json()) as { templates: Array<{ id: string; name: string; appBundleId: string | null; appName?: string | null; variants?: string[] | null }> };
   allCases.value = b.templates.map((t) => ({
-    id: t.id, name: t.name, appName: t.app_bundle_id,
-    variantVocab: t.variants_json ? (JSON.parse(t.variants_json) as Array<{ id: string }>).map((v) => v.id) : [],
+    id: t.id, name: t.name, appName: t.appBundleId,
+    variantVocab: t.variants ?? [],
   }));
   showEditor.value = true;
 }
@@ -200,7 +201,7 @@ load();
           <span class="verdict" :class="m.lastStatus === 'passed' ? 'ok' : m.lastStatus != null ? 'bad' : 'blk'">
             {{ m.lastStatus === 'passed' ? 'pass' : m.lastStatus === 'failed' ? 'fail' : m.lastStatus === 'aborted' ? 'abort' : m.lastStatus != null ? m.lastStatus : 'never' }}
           </span>
-          <span class="name">{{ m.name ?? m.templateId }}<span v-if="m.appName" class="app"> · {{ m.appName }}</span></span>
+          <span class="name">{{ m.name ?? m.templateId }}<span v-if="m.appBundleId" class="app"> · {{ m.appBundleId }}</span></span>
           <span class="vchips">
             <span class="vchip" :class="{ all: vchipText(m).all }">{{ vchipText(m).text }}</span>
           </span>

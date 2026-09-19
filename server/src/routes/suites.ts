@@ -12,7 +12,23 @@ import { suiteVerdicts, type CaseVerdict } from '../db/suite.ts';
 interface SuiteRow { id: string; name: string; description: string | null; created_by: string; created_at: number; updated_at: number }
 interface MemberRow { suite_id: string; template_id: string; variant_ids_json: string | null; position: number }
 
-const suiteOut = (r: SuiteRow, members: MemberRow[], verdicts: Map<string, CaseVerdict>) => ({
+/** template join for member rendering: name, app, variant vocabulary. A
+ *  deleted case can't linger (FK cascade), so every id resolves — the
+ *  `?? null` arm only fires on unexpected states. */
+function tplMap(db: Database.Database, members: MemberRow[]): Map<string, { name: string; appBundleId: string | null; variantVocab: string[] }> {
+  const tpl = new Map<string, { name: string; appBundleId: string | null; variantVocab: string[] }>();
+  const stmt = db.prepare('SELECT id, name, app_bundle_id AS appBundleId, variants_json FROM templates WHERE id = ?');
+  for (const m of members) {
+    if (tpl.has(m.template_id)) continue;
+    const r = stmt.get(m.template_id) as { name: string; appBundleId: string | null; variants_json: string | null } | undefined;
+    tpl.set(m.template_id, r
+      ? { name: r.name, appBundleId: r.appBundleId, variantVocab: r.variants_json ? (JSON.parse(r.variants_json) as Array<{ id: string }>).map((v) => v.id) : [] }
+      : { name: m.template_id, appBundleId: null, variantVocab: [] });
+  }
+  return tpl;
+}
+
+const suiteOut = (r: SuiteRow, members: MemberRow[], verdicts: Map<string, CaseVerdict>, tpl: Map<string, { name: string; appBundleId: string | null; variantVocab: string[] }> = new Map()) => ({
   id: r.id,
   name: r.name,
   description: r.description,
@@ -24,6 +40,9 @@ const suiteOut = (r: SuiteRow, members: MemberRow[], verdicts: Map<string, CaseV
     .sort((a, b) => a.position - b.position)
     .map((m) => ({
       templateId: m.template_id,
+      name: tpl.get(m.template_id)?.name ?? null,
+      appBundleId: tpl.get(m.template_id)?.appBundleId ?? null,
+      variantVocab: tpl.get(m.template_id)?.variantVocab ?? [],
       variantIds: m.variant_ids_json ? (JSON.parse(m.variant_ids_json) as string[]) : null,
       position: m.position,
       ...(verdicts.get(m.template_id) ?? {
@@ -118,7 +137,8 @@ export function registerSuiteRoutes(app: FastifyInstance, db: Database.Database)
       }
     });
     try { tx(); } catch { return reply.code(409).send({ error: 'suite name already exists' }); }
-    return suiteOut(db.prepare('SELECT * FROM suites WHERE id = ?').get(id) as SuiteRow, db.prepare('SELECT * FROM suite_members WHERE suite_id = ?').all(id) as MemberRow[], suiteVerdicts(db));
+    const rows = db.prepare('SELECT * FROM suite_members WHERE suite_id = ?').all(id) as MemberRow[];
+    return suiteOut(db.prepare('SELECT * FROM suites WHERE id = ?').get(id) as SuiteRow, rows, suiteVerdicts(db), tplMap(db, rows));
   });
 
   app.delete('/api/suites/:id', async (req, reply) => {
@@ -132,6 +152,8 @@ export function registerSuiteRoutes(app: FastifyInstance, db: Database.Database)
     const { id } = req.params as { id: string };
     const row = db.prepare('SELECT * FROM suites WHERE id = ?').get(id) as SuiteRow | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
-    return suiteOut(row, db.prepare('SELECT * FROM suite_members WHERE suite_id = ?').all(id) as MemberRow[], suiteVerdicts(db));
+    const members = db.prepare('SELECT * FROM suite_members WHERE suite_id = ?').all(id) as MemberRow[];
+    const tpl = tplMap(db, members);
+    return suiteOut(row, members, suiteVerdicts(db), tpl);
   });
 }
