@@ -79,6 +79,11 @@ const groups = computed(() => {
       resolve the yaml, steps, and network setup that actually ran. A case's <b>history</b> (in its editor) lists
       each version; a run row shows which version it executed (⚠ when it's not the current one).
     </p>
+    <p style="color: var(--color-fog); font-size: var(--text-body); line-height: 1.6; margin: var(--s-2) 0 0;">
+      A case can also declare <b>variants</b> — one flow tested against several deterministic worlds. Add a
+      <b>variants:</b> block to the yaml (id + network scenario + env per variant; the editor autocompletes it).
+      Variants validate on save today; each variant executing as its own run arrives with the next phase.
+    </p>
   </div>
 
   <div class="section-label">3 · test bad network days</div>
