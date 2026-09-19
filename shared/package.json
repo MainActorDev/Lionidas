@@ -16,7 +16,8 @@
     "./engine-tree": "./src/engine-tree.ts",
     "./inspect-geometry": "./src/inspect-geometry.ts",
     "./frame-settle": "./src/frame-settle.ts",
-    "./view-tree": "./src/view-tree.ts"
+    "./view-tree": "./src/view-tree.ts",
+    "./yaml-variants": "./src/yaml-variants.ts"
   },
   "dependencies": {
     "yaml": "^2.9.0"
