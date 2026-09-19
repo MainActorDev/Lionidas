@@ -25,8 +25,8 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
     }
     const id = `p_${createHash('sha256').update(JSON.stringify(b)).digest('hex').slice(0, 8)}`;
     db.prepare(
-      `INSERT OR REPLACE INTO presets(id, method, path_pattern, match, status, headers_json, body_path, delay_ms, seq_json, failure, throttle_kbps, created_by, created_at, sha256)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO presets(id, method, path_pattern, match, status, headers_json, body_path, delay_ms, seq_json, failure, throttle_kbps, guards_json, created_by, created_at, sha256)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       (b['method'] as string) ?? '*',
@@ -39,6 +39,7 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
       b['seq'] ? JSON.stringify(b['seq']) : null,
       (b['failure'] as string) ?? null,
       (b['throttleKbps'] as number) ?? null,
+      b['guards'] ? JSON.stringify(b['guards']) : null,
       (b['createdBy'] as string) ?? 'api',
       Date.now(),
       createHash('sha256').update(JSON.stringify(b)).digest('hex'),

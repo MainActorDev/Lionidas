@@ -226,6 +226,10 @@ export function migrateM1(db: Database.Database): void {
     // Phase B — test variants: one flow, N deterministic worlds (scenario +
     // env per variant). NULL ≡ no variants (absence IS the value — no backfill).
     'ALTER TABLE templates ADD COLUMN variants_json TEXT',
+    // Phase C0 — preset guards persistence: the matcher supported query/
+    // header guards since the forge spike but nothing ever STORED them
+    // (presetRowToSpec never read them; no column existed). {query?, headers?}
+    'ALTER TABLE presets ADD COLUMN guards_json TEXT',
     'ALTER TABLE templates ADD COLUMN app_name TEXT',
     'ALTER TABLE templates ADD COLUMN app_version TEXT',
     // Maestro batch 1: template tags (filtered regression selection) + evaluated

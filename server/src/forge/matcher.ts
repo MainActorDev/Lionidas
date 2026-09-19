@@ -8,7 +8,7 @@ export interface Preset {
   method: string; // uppercase or '*'
   pathPattern: string;
   match: MatchKind;
-  guards?: { query?: Record<string, string>; headers?: Record<string, string> };
+  guards?: { query?: Record<string, string>; headers?: Record<string, string>; bodyContains?: string[] };
   status: number;
   headers?: Record<string, string>;
   bodyPath?: string;
@@ -23,6 +23,9 @@ export interface MatchRequest {
   path: string; // path only (no query)
   query: Record<string, string>;
   headers: Record<string, string>;
+  /** decoded request body; absent when not buffered (large/raw) — body
+   *  guards then fail CLOSED (no match), never false-positive. */
+  body?: string;
 }
 
 export interface MatchResult {
@@ -51,6 +54,16 @@ function guardsPass(preset: Preset, req: MatchRequest): boolean {
   if (g.query) {
     for (const [k, v] of Object.entries(g.query)) {
       if (req.query[k] !== v) return false;
+    }
+  }
+  if (g.bodyContains) {
+    // substring semantics (ALL must appear) — state tokens like
+    // "status":"pending", no JSON-path fragility. No buffered body ⇒ no
+    // match (fail closed): a body-guarded preset must not fire on a
+    // request whose body we didn't see.
+    if (req.body === undefined) return false;
+    for (const frag of g.bodyContains) {
+      if (!req.body.includes(frag)) return false;
     }
   }
   if (g.headers) {
@@ -106,8 +119,9 @@ export function presetRowToSpec(p: Record<string, unknown>): Preset {
     status: p['status'] as number,
     ...(p['body_path'] ? { bodyPath: p['body_path'] as string } : {}),
     ...(p['delay_ms'] ? { delayMs: p['delay_ms'] as number } : {}),
-    ...(p['seq_json'] ? { seq: JSON.parse(p['seq_json'] as string) as Array<{ status: number }> } : {}),
+    ...(p['seq_json'] ? { seq: JSON.parse(p['seq_json'] as string) as Array<{ status: number; bodyPath?: string; delayMs?: number }> } : {}),
     ...(p['throttle_kbps'] ? { throttleKbps: p['throttle_kbps'] as number } : {}),
     ...(p['failure'] ? { failure: p['failure'] as NonNullable<Preset['failure']> } : {}),
+    ...(p['guards_json'] ? { guards: JSON.parse(p['guards_json'] as string) as NonNullable<Preset['guards']> } : {}),
   };
 }

@@ -33,15 +33,34 @@ function hash(s: string): string {
 export async function startForgeProxy(deps: ForgeDeps, state: ForgeState, port = 0): Promise<{ port: number; close: () => Promise<void> }> {
   const app = Fastify({ logger: false });
 
+  // Phase C0 — buffer request bodies BEFORE matching so bodyContains guards
+  // can see them. Cap at 1MB: bigger bodies match without body guards
+  // (honest degrade — a guard cannot fire on a body we didn't read).
+  const BODY_CAP = 1024 * 1024;
+  const readBody = async (req: import('fastify').FastifyRequest): Promise<string | undefined> => {
+    try {
+      const buf = req.body as Buffer | string | undefined;
+      if (buf === undefined || buf === null) return req.method === 'GET' || req.method === 'HEAD' ? undefined : '';
+      const s = Buffer.isBuffer(buf) ? buf.toString('utf8') : typeof buf === 'string' ? buf : String(buf);
+      return s.length > BODY_CAP ? undefined : s;
+    } catch {
+      return undefined;
+    }
+  };
+  // register a catch-all content parser so non-JSON bodies arrive too
+  app.addContentTypeParser('*', { parseAs: 'buffer' }, (_req, body, done) => done(null, body));
+
   app.all('/*', async (req, reply) => {
     const url = new URL(req.url, 'http://forge.local');
     const query: Record<string, string> = {};
     url.searchParams.forEach((v, k) => (query[k] = v));
+    const body = await readBody(req);
     const mReq = {
       method: req.method,
       path: url.pathname,
       query,
       headers: req.headers as Record<string, string>,
+      ...(body !== undefined ? { body } : {}),
     };
 
     const hit = matchPreset(state.presets, mReq);
