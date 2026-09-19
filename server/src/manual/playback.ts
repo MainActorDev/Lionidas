@@ -320,8 +320,14 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
   // version is not evidence — snapshot failure aborts honestly.
   let version: ReturnType<typeof snapshotCaseVersion>;
   // D3: variant scenario overrides the invocation's (narrowest scope);
-  // variant without scenario INHERITS the invocation's
-  const scenarioId = opts.variant?.networkScenario ?? opts.scenarioId ?? null;
+  // variant without scenario INHERITS the invocation's.
+  // Variants carry scenario NAMES (phase B vocabulary validates names);
+  // snapshot + activation key on ids — resolve, and keep the raw CHOICE for
+  // run provenance (a deleted scenario still records what was requested).
+  const scenarioChoice = opts.variant?.networkScenario ?? opts.scenarioId ?? null;
+  const scenarioId = scenarioChoice
+    ? ((deps.db.prepare('SELECT id FROM scenarios WHERE id = ? OR name = ? LIMIT 1').get(scenarioChoice, scenarioChoice) as { id: string } | undefined)?.id ?? null)
+    : null;
   try {
     version = snapshotCaseVersion(deps.db, { templateId, scenarioId, variant: opts.variant ?? null, triggeredBy: opts.triggeredBy ?? null });
   } catch (err) {
@@ -330,7 +336,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
   deps.db
     .prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, note, template_id, app_version, case_version_id, scenario_id, scenario_sha, variant_id)
               VALUES (?, ?, 'manual', 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(runId, t.ticket_key ?? '-', opts.triggeredBy ?? 'qa', udid, Date.now(), `template:${templateId} ${t.name}${opts.variant ? ` / ${opts.variant.id}` : ''}`, templateId, appVersion, version.id, scenarioId, version.scenarioSha, opts.variant?.id ?? null);
+    .run(runId, t.ticket_key ?? '-', opts.triggeredBy ?? 'qa', udid, Date.now(), `template:${templateId} ${t.name}${opts.variant ? ` / ${opts.variant.id}` : ''}`, templateId, appVersion, version.id, scenarioChoice, version.scenarioSha, opts.variant?.id ?? null);
   deps.bus.emit('run.started', { runId, ticketKey: t.ticket_key ?? '-', udid, templateId });
   // latest-only evidence: this run replaces the previous run's artifacts —
   // UNLESS a sibling run of the same template is still RUNNING (parallel
@@ -356,10 +362,10 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     if (attribute) { try { forgeStateService(deps).setActiveRun(runId); } catch { /* attribution best-effort */ } }
     // network choice (phase 4): scenario presets active ONLY during the run
     let restorePresets: Array<Record<string, unknown>> | null = null; // non-null ⇒ scenario activated (service owns restore)
-    if (opts.scenarioId) {
+    if (scenarioId) {
       const presets = deps.db.prepare(
         `SELECT p.* FROM presets p JOIN scenario_overrides so ON so.preset_id = p.id WHERE so.scenario_id = ? AND so.enabled = 1`,
-      ).all(opts.scenarioId) as Array<Record<string, unknown>>;
+      ).all(scenarioId) as Array<Record<string, unknown>>;
       restorePresets = deps.db.prepare('SELECT * FROM presets ORDER BY created_at DESC').all() as Array<Record<string, unknown>>;
       try {
         forgeStateService(deps).activateScenario(presets);
