@@ -6,7 +6,7 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { overlayAt, type OverlayTap, type OverlayMarker } from '@crucible/shared/tap-overlay';
 
-const props = defineProps<{ templateId: string }>();
+const props = defineProps<{ templateId: string; variant?: string }>();
 const canvas = ref<HTMLCanvasElement | null>(null);
 const videoEl = ref<HTMLVideoElement | null>(null);
 
@@ -63,11 +63,14 @@ function syncSize(): void {
   }
 }
 
-watch(() => props.templateId, async (id) => {
+watch(() => [props.templateId, props.variant] as const, async ([id, variant]) => {
   taps = [];
   videoStartedAt = 0;
   try {
-    const r = await fetch(`/api/templates/${id}/run-taps`);
+    // variant scoping: undefined = legacy unscoped; a string (incl. '' for
+    // the variantless lane) scopes taps to that lane's run
+    const qs = variant === undefined ? '' : `?variant=${encodeURIComponent(variant)}`;
+    const r = await fetch(`/api/templates/${id}/run-taps${qs}`);
     if (!r.ok) return;                       // no anchor / no run ⇒ no overlay
     const b = (await r.json()) as { videoStartedAt: number; taps: OverlayTap[] };
     videoStartedAt = b.videoStartedAt;
@@ -83,7 +86,7 @@ onBeforeUnmount(() => { cancelAnimationFrame(raf); window.removeEventListener('r
 <template>
   <div class="tap-overlay-wrap">
     <video ref="videoEl" class="evidence-shot" controls preload="metadata"
-      :src="`/api/templates/${props.templateId}/evidence/video`" @loadedmetadata="syncSize"></video>
+      :src="`/api/templates/${props.templateId}/evidence/video${props.variant === undefined ? '' : `?variant=${encodeURIComponent(props.variant)}`}`" @loadedmetadata="syncSize"></video>
     <canvas ref="canvas" class="tap-overlay-canvas" aria-hidden="true"></canvas>
   </div>
 </template>

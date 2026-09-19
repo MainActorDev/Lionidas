@@ -98,11 +98,20 @@ function tagsToJson(input: unknown): string | null {
 
 /** Tier 2.2 — ONE selector for "which run's evidence are we serving":
  *  the newest FINISHED run of the template. Video route, taps route, and
- *  gallery all call this — they can never disagree. */
-function latestFinishedRun(db: Database.Database, templateId: string): { id: string } | undefined {
+ *  gallery all call this — they can never disagree.
+ *  Variants: `variant` scopes the pick to ONE lane — a real variant id
+ *  selects that lane's newest finished run; '' (empty query value) selects
+ *  the VARIANTLESS lane; undefined leaves it unscoped (legacy
+ *  latest-overall default, unchanged behavior). */
+function latestFinishedRun(db: Database.Database, templateId: string, variant?: string): { id: string } | undefined {
+  if (variant === undefined) {
+    return db.prepare(
+      `SELECT id FROM runs WHERE template_id = ? AND finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 1`,
+    ).get(templateId) as { id: string } | undefined;
+  }
   return db.prepare(
-    `SELECT id FROM runs WHERE template_id = ? AND finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 1`,
-  ).get(templateId) as { id: string } | undefined;
+    `SELECT id FROM runs WHERE template_id = ? AND finished_at IS NOT NULL AND variant_id IS ? ORDER BY started_at DESC LIMIT 1`,
+  ).get(templateId, variant === '' ? null : variant) as { id: string } | undefined;
 }
 
 export function registerTemplateRoutes(app: FastifyInstance, db: Database.Database, dispatchDeps?: unknown): void {
@@ -251,7 +260,8 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
    *  player falls back to plain video. */
   app.get('/api/templates/:id/run-taps', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const run = latestFinishedRun(db, id);
+    const { variant } = req.query as { variant?: string };
+    const run = latestFinishedRun(db, id, variant);
     if (!run) return reply.code(404).send({ error: 'template has no finished run' });
     const anchor = (db.prepare('SELECT video_started_at AS v FROM runs WHERE id = ?').get(run.id) as { v: number | null }).v;
     if (anchor == null) return reply.code(404).send({ error: 'no video for latest run — overlay unavailable' });
@@ -265,8 +275,9 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
    *  along). kind is an enum — the request never touches the filesystem. */
   app.get('/api/templates/:id/evidence/:kind', async (req, reply) => {
     const { id, kind } = req.params as { id: string; kind: string };
+    const { variant } = req.query as { variant?: string };
     if (kind !== 'screenshot' && kind !== 'video') return reply.code(404).send({ error: 'kind must be screenshot or video' });
-    const run = latestFinishedRun(db, id);
+    const run = latestFinishedRun(db, id, variant);
     if (!run) return reply.code(404).send({ error: 'template has no finished run' });
     let evId: string | undefined;
     if (kind === 'screenshot') {
@@ -294,38 +305,59 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     return reply.redirect(`/api/evidence/${evId}/file`);
   });
 
-  /** Evidence gallery for the lightbox: the newest finished run's step-labeled
-   *  screenshots (idx asc) + the whole-run video appended last. */
+  /** Evidence gallery for the lightbox, as ONE LANE PER VARIANT (phase C):
+ *  each lane = the newest FINISHED run in that (template, variant) lane —
+ *  exactly what retention keeps (latest-only per lane), so a lane never
+ *  needs more than one run. Lanes with no finished run are omitted;
+ *  a never-run template 404s as before. `?variant=` scopes the response
+ *  to a single lane (same id/'' semantics as the resolver). Legacy
+ *  single-run shape ({runId, items}) is GONE — the lightbox is the only
+ *  consumer and ships in the same change. */
   app.get('/api/templates/:id/evidence', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const run = db.prepare(
-      `SELECT id FROM runs WHERE template_id = ? AND finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 1`,
-    ).get(id) as { id: string } | undefined;
-    if (!run) return reply.code(404).send({ error: 'template has no finished run' });
-    const steps = db.prepare(
-      `SELECT idx, name, status, evidence_ids_json FROM run_steps WHERE run_id = ? AND evidence_ids_json != '[]' ORDER BY idx`,
-    ).all(run.id) as Array<{ idx: number; name: string; status: string; evidence_ids_json: string }>;
-    const items: Array<{ stepIdx: number; stepName: string; status: string; kind: string; evId: string }> = [];
-    for (const st of steps) {
-      for (const evId of JSON.parse(st.evidence_ids_json) as string[]) {
-        const ev = db.prepare('SELECT type FROM evidence WHERE id = ?').get(evId) as { type: string } | undefined;
-        if (ev) items.push({ stepIdx: st.idx, stepName: st.name, status: st.status, kind: ev.type, evId });
+    const { variant } = req.query as { variant?: string };
+    // scoped pick: variant given (id or ''=variantless lane) → that lane only;
+    // absent → every lane. Built conditionally — a (? IS NULL OR …) shape
+    // short-circuits TRUE for the '' case and leaks all lanes.
+    const scoped = variant !== undefined;
+    const laneRows = db.prepare(
+      `SELECT variant_id AS v, id FROM runs WHERE template_id = ? AND finished_at IS NOT NULL
+       ${scoped ? 'AND variant_id IS ?' : ''}
+       AND id IN (SELECT id FROM runs r2 WHERE r2.template_id = runs.template_id AND r2.variant_id IS runs.variant_id
+                  AND r2.finished_at IS NOT NULL ORDER BY r2.started_at DESC LIMIT 1)
+       ORDER BY variant_id`,
+    ).all(...(scoped ? [id, variant === '' ? null : variant] : [id])) as Array<{ v: string | null; id: string }>;
+    if (laneRows.length === 0) return reply.code(404).send({ error: 'template has no finished run' });
+
+    const itemsFor = (runId: string): Array<{ stepIdx: number; stepName: string; status: string; kind: string; evId: string }> => {
+      const steps = db.prepare(
+        `SELECT idx, name, status, evidence_ids_json FROM run_steps WHERE run_id = ? AND evidence_ids_json != '[]' ORDER BY idx`,
+      ).all(runId) as Array<{ idx: number; name: string; status: string; evidence_ids_json: string }>;
+      const items: Array<{ stepIdx: number; stepName: string; status: string; kind: string; evId: string }> = [];
+      for (const st of steps) {
+        for (const evId of JSON.parse(st.evidence_ids_json) as string[]) {
+          const ev = db.prepare('SELECT type FROM evidence WHERE id = ?').get(evId) as { type: string } | undefined;
+          if (ev) items.push({ stepIdx: st.idx, stepName: st.name, status: st.status, kind: ev.type, evId });
+        }
       }
-    }
-    const vid = db.prepare(`SELECT id FROM evidence WHERE bundle_id = ? AND type = 'video' LIMIT 1`).get(run.id) as { id: string } | undefined;
-    // zero-expect fallback: a run that failed before any expect step (gate
-    // abort, app-check fail, all steps skipped) still carries ONE final
-    // screenshot — the SAME fallback the thumbnail route uses. Without this
-    // the thumbnail shows evidence and the lightbox shows an empty gallery.
-    if (!items.some((i) => i.kind === 'screenshot')) {
-      const shot = db.prepare(`SELECT id FROM evidence WHERE bundle_id = ? AND type = 'screenshot' ORDER BY created_at DESC LIMIT 1`).get(run.id) as { id: string } | undefined;
-      if (shot) {
-        const runRow = db.prepare('SELECT status FROM runs WHERE id = ?').get(run.id) as { status: string } | undefined;
-        items.push({ stepIdx: -1, stepName: 'run end — no expect steps reached', status: runRow?.status === 'failed' ? 'fail' : 'info', kind: 'screenshot', evId: shot.id });
+      const vid = db.prepare(`SELECT id FROM evidence WHERE bundle_id = ? AND type = 'video' LIMIT 1`).get(runId) as { id: string } | undefined;
+      // zero-expect fallback: a run that failed before any expect step (gate
+      // abort, app-check fail, all steps skipped) still carries ONE final
+      // screenshot — the SAME fallback the thumbnail route uses. Without this
+      // the thumbnail shows evidence and the lightbox shows an empty gallery.
+      if (!items.some((i) => i.kind === 'screenshot')) {
+        const shot = db.prepare(`SELECT id FROM evidence WHERE bundle_id = ? AND type = 'screenshot' ORDER BY created_at DESC LIMIT 1`).get(runId) as { id: string } | undefined;
+        if (shot) {
+          const runRow = db.prepare('SELECT status FROM runs WHERE id = ?').get(runId) as { status: string } | undefined;
+          items.push({ stepIdx: -1, stepName: 'run end — no expect steps reached', status: runRow?.status === 'failed' ? 'fail' : 'info', kind: 'screenshot', evId: shot.id });
+        }
       }
-    }
-    if (vid) items.push({ stepIdx: -1, stepName: 'whole run', status: 'info', kind: 'video', evId: vid.id });
-    return { runId: run.id, items };
+      if (vid) items.push({ stepIdx: -1, stepName: 'whole run', status: 'info', kind: 'video', evId: vid.id });
+      return items;
+    };
+
+    const lanes = laneRows.map((l) => ({ variantId: l.v, runId: l.id, items: itemsFor(l.id) }));
+    return { templateId: id, lanes };
   });
 
   app.delete('/api/templates/:id', async (req, reply) => {

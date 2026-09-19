@@ -195,8 +195,59 @@ describe('evidence resolver — per-expect preference', () => {
     db.prepare(`INSERT INTO evidence(id, bundle_id, type, path, sha256, bytes, moov_ok, created_at)
                 VALUES ('ev-gvid', 'r-' || 'tp-g', 'video', '/tmp/v.mp4', 'h', 1, NULL, 0)`).run();
     const res = await app.inject({ method: 'GET', url: '/api/templates/tp-g/evidence' });
-    const b = res.json() as { items: Array<{ stepIdx: number; kind: string; evId: string }> };
-    expect(b.items.map((i) => i.evId)).toEqual(['ev-g1', 'ev-gvid']);
-    expect(b.items[1]!.stepIdx).toBe(-1);
+    const b = res.json() as { lanes: Array<{ variantId: string | null; runId: string; items: Array<{ stepIdx: number; kind: string; evId: string }> }> };
+    expect(b.lanes).toHaveLength(1);
+    expect(b.lanes[0]!.variantId).toBeNull();          // variantless lane
+    expect(b.lanes[0]!.runId).toBe('r-tp-g');
+    expect(b.lanes[0]!.items.map((i) => i.evId)).toEqual(['ev-g1', 'ev-gvid']);
+    expect(b.lanes[0]!.items[1]!.stepIdx).toBe(-1);
+  });
+
+  it('gallery groups ONE LANE PER VARIANT — each lane its newest finished run', async () => {
+    seedRunWithSteps('tp-vg', [{ idx: 0, name: 'expect A', status: 'pass', ev: 'ev-vg1' }]);
+    // two variant runs: my newer than sg (same template)
+    db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, finished_at, note, template_id, variant_id)
+                VALUES ('r-vg-sg', 'T', 'manual', 'passed', 'qa', 's', 100, 200, 'n', 'tp-vg', 'sg')`).run();
+    db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, finished_at, note, template_id, variant_id)
+                VALUES ('r-vg-my', 'T', 'manual', 'passed', 'qa', 's', 300, 400, 'n', 'tp-vg', 'my')`).run();
+    // an OLDER sg run — must NOT appear (lane keeps newest only)
+    db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, finished_at, note, template_id, variant_id)
+                VALUES ('r-vg-sg-old', 'T', 'manual', 'passed', 'qa', 's', 10, 20, 'n', 'tp-vg', 'sg')`).run();
+    const res = await app.inject({ method: 'GET', url: '/api/templates/tp-vg/evidence' });
+    const b = res.json() as { lanes: Array<{ variantId: string | null; runId: string }> };
+    expect(b.lanes.map((l) => l.variantId)).toEqual([null, 'my', 'sg']);   // ORDER BY variant_id: NULL first
+    expect(b.lanes.find((l) => l.variantId === 'sg')!.runId).toBe('r-vg-sg');
+    expect(b.lanes.find((l) => l.variantId === 'my')!.runId).toBe('r-vg-my');
+  });
+
+  it('?variant= scopes gallery to ONE lane ("" = variantless)', async () => {
+    seedRunWithSteps('tp-vs', [{ idx: 0, name: 'expect A', status: 'pass', ev: 'ev-vs1' }]);
+    db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, finished_at, note, template_id, variant_id)
+                VALUES ('r-vs-sg', 'T', 'manual', 'passed', 'qa', 's', 100, 200, 'n', 'tp-vs', 'sg')`).run();
+    const only = await app.inject({ method: 'GET', url: '/api/templates/tp-vs/evidence?variant=sg' });
+    expect(((only.json() as { lanes: Array<{ variantId: string | null }> }).lanes).map((l) => l.variantId)).toEqual(['sg']);
+    const base = await app.inject({ method: 'GET', url: '/api/templates/tp-vs/evidence?variant=' });
+    expect(((base.json() as { lanes: Array<{ variantId: string | null }> }).lanes).map((l) => l.variantId)).toEqual([null]);
+    const missing = await app.inject({ method: 'GET', url: '/api/templates/tp-vs/evidence?variant=nope' });
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it('resolver + run-taps honor ?variant= lanes (same run per lane)', async () => {
+    seedRunWithSteps('tp-rv', [{ idx: 0, name: 'expect A', status: 'pass', ev: 'ev-rv1' }]);
+    db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, finished_at, note, template_id, variant_id, video_started_at)
+                VALUES ('r-rv-sg', 'T', 'manual', 'passed', 'qa', 's', 100, 200, 'n', 'tp-rv', 'sg', 150)`).run();
+    // my lane newer than sg lane overall — unscoped picks my; ?variant=sg must still pick sg
+    db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, finished_at, note, template_id, variant_id, video_started_at)
+                VALUES ('r-rv-my', 'T', 'manual', 'passed', 'qa', 's', 300, 400, 'n', 'tp-rv', 'my', 350)`).run();
+    db.prepare(`INSERT INTO run_steps(run_id, idx, flow_name, kind, name, status, started_at, duration_ms, evidence_ids_json)
+                VALUES ('r-rv-sg', 0, 't', 'expect', 'expect A', 'pass', 0, 0, '["ev-rv1"]')`).run();
+    const unscoped = await app.inject({ method: 'GET', url: '/api/templates/tp-rv/evidence/screenshot' });
+    expect(unscoped.statusCode).toBe(404);   // legacy unscoped = latest overall (my) — that lane has no shots
+    const sg = await app.inject({ method: 'GET', url: '/api/templates/tp-rv/evidence/screenshot?variant=sg' });
+    expect(sg.headers['location']).toBe('/api/evidence/ev-rv1/file');
+    const tapsSg = await app.inject({ method: 'GET', url: '/api/templates/tp-rv/run-taps?variant=sg' });
+    expect((tapsSg.json() as { runId: string }).runId).toBe('r-rv-sg');
+    const tapsMy = await app.inject({ method: 'GET', url: '/api/templates/tp-rv/run-taps?variant=my' });
+    expect((tapsMy.json() as { runId: string }).runId).toBe('r-rv-my');
   });
 });
