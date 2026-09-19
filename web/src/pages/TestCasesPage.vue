@@ -11,7 +11,7 @@ import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import CaseEditorPanel from '../components/CaseEditorPanel.vue';
 import RunPanel from '../components/RunPanel.vue';
-import TapOverlayVideo from '../components/TapOverlayVideo.vue';
+import EvidenceSheet, { type EvidenceLane } from '../components/EvidenceSheet.vue';
 import { initActiveRuns, useActiveRuns } from '../composables/activeRuns.ts';
 
 interface Step { idx: number; action: string; x?: number; y?: number; direction?: string; text?: string; optional?: boolean; selector?: { identifier?: string; label?: string; type?: string }; templateId?: string }
@@ -222,51 +222,25 @@ function artifactLabel(a: { path: string; version: string | null; source: string
 // ── run companion panel (R1 observer dock) ──
 const runPanel = ref<{ runId: string; templateId: string; caseName: string; udid: string } | null>(null);
 
-// evidence lightbox: which case's screenshot/video is open (null = closed)
-interface EvidenceItem { stepIdx: number; stepName: string; status: string; kind: string; evId: string }
-interface EvidenceLane { variantId: string | null; runId: string; items: EvidenceItem[] }
-const evidenceView = ref<{ templateId: string; caseName: string; lanes: EvidenceLane[]; lane: number; sel: number; mode: 'shot' | 'video' } | null>(null);
-/** variant label for a lane — null lane is the plain (variantless) case */
-function laneLabel(l: EvidenceLane): string { return l.variantId ?? 'plain'; }
+// evidence sheet (sketch 008-C): open state is just templateId + lanes —
+// all filtering/cinema state lives inside EvidenceSheet
+const evidenceView = ref<{ templateId: string; caseName: string; lanes: EvidenceLane[] } | null>(null);
 async function openEvidence(t: Template): Promise<void> {
   let lanes: EvidenceLane[] = [];
   try {
     const r = await fetch(`/api/templates/${t.id}/evidence`);
     if (r.ok) lanes = ((await r.json()) as { lanes: EvidenceLane[] }).lanes;
   } catch { /* gallery fetch best-effort — 404 for never-run */ }
-  if (lanes.length === 0) { evidenceView.value = { templateId: t.id, caseName: t.name, lanes: [], lane: 0, sel: 0, mode: 'shot' }; return; }
-  // failed-lane first, else first lane; within the lane, failed expect's shot
-  // first, else the last shot
-  const laneIdx = Math.max(0, lanes.findIndex((l) => l.items.some((i) => i.status === 'fail')));
-  const shots = lanes[laneIdx]!.items.filter((i) => i.kind === 'screenshot');
-  const failedIdx = shots.findIndex((i) => i.status === 'fail');
-  const preferred = failedIdx >= 0 ? failedIdx : shots.length - 1;
-  const hasVideo = lanes.some((l) => l.items.some((i) => i.kind === 'video'));
-  evidenceView.value = { templateId: t.id, caseName: t.name, lanes, lane: laneIdx, sel: preferred >= 0 ? preferred : 0, mode: hasVideo && shots.length === 0 ? 'video' : 'shot' };
+  evidenceView.value = { templateId: t.id, caseName: t.name, lanes };
 }
-/** select a lane: re-derive sel/mode for that lane's items */
-function selectLane(i: number): void {
-  const ev = evidenceView.value;
-  if (!ev || i === ev.lane || !ev.lanes[i]) return;
-  const shots = ev.lanes[i]!.items.filter((x) => x.kind === 'screenshot');
-  const failedIdx = shots.findIndex((x) => x.status === 'fail');
-  ev.lane = i;
-  ev.sel = failedIdx >= 0 ? failedIdx : Math.max(0, shots.length - 1);
-  if (shots.length === 0 && ev.lanes[i]!.items.some((x) => x.kind === 'video')) ev.mode = 'video';
-}
-const evidenceShots = computed(() => (evidenceView.value?.lanes[evidenceView.value.lane]?.items ?? []).filter((i) => i.kind === 'screenshot'));
-const evidenceLane = computed(() => evidenceView.value?.lanes[evidenceView.value.lane] ?? null);
-/** lane query suffix — variantless lane = '' (the server treats it as the
- *  NULL lane); scoped routes get no suffix only when no lane exists */
-const laneQuery = computed(() => {
-  const l = evidenceLane.value;
-  return l ? `?variant=${encodeURIComponent(l.variantId ?? '')}` : '';
-});
 function closeEvidence(): void { evidenceView.value = null; }
 function onKey(e: KeyboardEvent): void {
   if (e.key === 'Escape') {
+    // evidence sheet owns Escape while open (its own window listener uses
+    // stopImmediatePropagation and closes itself / the cinema) — touching
+    // evidence state here too would close the sheet out from under the cinema
+    if (evidenceView.value) return;
     if (runMenuOpen.value !== null) { runMenuOpen.value = null; runMenuPos.value = null; return; }
-    closeEvidence();
   }
 }
 onMounted(() => window.addEventListener('keydown', onKey));
@@ -828,37 +802,11 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
         </button>
       </div>
     </Teleport>
-    <!-- evidence lightbox: per-variant lanes + screenshot/video toggle -->
-    <div v-if="evidenceView" class="evidence-lightbox" @click.self="closeEvidence">
-      <div class="evidence-card">
-        <div class="evidence-head">
-          <b>{{ evidenceView.caseName }}</b>
-          <span v-if="evidenceView.lanes.length > 1" class="lane-strip">
-            <button v-for="(l, i) in evidenceView.lanes" :key="l.runId" class="btn btn-sm lane-chip"
-              :class="{ 'lane-sel': i === evidenceView.lane, 'lane-fail': l.items.some((x) => x.status === 'fail') }"
-              @click="selectLane(i)">{{ laneLabel(l) }}</button>
-          </span>
-          <span class="evidence-actions">
-            <button v-if="evidenceLane && evidenceLane.items.some((i) => i.kind === 'video')" class="btn btn-sm" :class="{ 'btn-ghost': evidenceView.mode === 'shot' }" @click="evidenceView!.mode = 'video'">&#9654; video</button>
-            <button class="btn btn-sm" :class="{ 'btn-ghost': evidenceView.mode === 'video' }" @click="evidenceView!.mode = 'shot'">screenshots</button>
-            <button class="btn btn-sm btn-ghost" @click="closeEvidence">close</button>
-          </span>
-        </div>
-        <template v-if="evidenceView.mode === 'shot'">
-          <div v-if="evidenceShots.length === 0" class="evidence-empty">no step screenshots for this run</div>
-          <img v-else class="evidence-shot" alt="run screenshot"
-            :src="`/api/evidence/${evidenceShots[evidenceView.sel]?.evId}/file`" />
-          <div v-if="evidenceShots.length > 0" class="evidence-strip">
-            <button v-for="(it, i) in evidenceShots" :key="it.evId" class="evidence-chip" :class="{ sel: i === evidenceView.sel, fail: it.status === 'fail' }"
-              @click="evidenceView!.sel = i" :title="`${it.stepName} — ${it.status}`">
-              <img :src="`/api/evidence/${it.evId}/file`" alt="" loading="lazy" />
-              <span class="evidence-chip-label">{{ it.stepName }}</span>
-            </button>
-          </div>
-        </template>
-        <TapOverlayVideo v-else :template-id="evidenceView.templateId" :variant="evidenceLane?.variantId ?? ''" :key="`lane-${evidenceView.lane}`" />
-      </div>
-    </div>
+    <!-- evidence sheet: sketch 008-C contact sheet (user pick) — per-variant
+         lanes grouped as contact rows; card click → cinema view -->
+    <EvidenceSheet :open="!!evidenceView" :case-name="evidenceView?.caseName ?? ''"
+      :template-id="evidenceView?.templateId ?? ''" :lanes="evidenceView?.lanes ?? []"
+      @close="closeEvidence" />
   </section>
 </template>
 
@@ -996,23 +944,4 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
-.evidence-lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: flex; align-items: center; justify-content: center; z-index: 200; }
-.evidence-card { background: var(--color-graphite, #1b1b1f); border-radius: 12px; padding: 12px; max-width: min(92vw, 560px); max-height: 92vh; display: flex; flex-direction: column; gap: 8px; }
-.evidence-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.evidence-actions { display: flex; gap: 6px; }
-.evidence-shot { max-width: 100%; max-height: calc(92vh - 64px); border-radius: 8px; object-fit: contain; }
-
-.evidence-empty { color: var(--color-steel, #888); font-size: 12px; padding: 24px 0; }
-.evidence-strip { display: flex; gap: 6px; overflow-x: auto; padding-top: 4px; }
-.evidence-chip { position: relative; flex: none; width: 64px; height: 64px; border-radius: 8px; overflow: hidden; border: 2px solid transparent; background: none; padding: 0; cursor: pointer; }
-.evidence-chip img { width: 100%; height: 100%; object-fit: cover; }
-.evidence-chip.sel { border-color: var(--color-accent, #e5484d); }
-.evidence-chip.fail { outline: 2px solid #e5484d; outline-offset: -4px; }
-.evidence-chip-label { position: absolute; bottom: 0; left: 0; right: 0; font-size: 8px; background: rgba(0,0,0,.65); color: #fff; padding: 1px 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
-/* per-variant lane tabs — same accent as run-row variant chips (violet);
-   selected lane filled, a lane holding a failed step gets a dashed ring */
-.lane-strip { display: inline-flex; gap: 4px; margin-left: var(--s-2); }
-.lane-chip { border: 1px solid var(--color-violet, #8b5cf6); color: var(--color-violet, #8b5cf6); }
-.lane-chip.lane-sel { background: var(--color-violet, #8b5cf6); color: #fff; }
-.lane-chip.lane-fail:not(.lane-sel) { border-style: dashed; }
 </style>

@@ -320,14 +320,27 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     // absent → every lane. Built conditionally — a (? IS NULL OR …) shape
     // short-circuits TRUE for the '' case and leaks all lanes.
     const scoped = variant !== undefined;
+    // lane headers need the run's own status + time; env deltas come from the
+    // template's variant definitions (variants_json), not the run
     const laneRows = db.prepare(
-      `SELECT variant_id AS v, id FROM runs WHERE template_id = ? AND finished_at IS NOT NULL
+      `SELECT variant_id AS v, id, status, started_at FROM runs WHERE template_id = ? AND finished_at IS NOT NULL
        ${scoped ? 'AND variant_id IS ?' : ''}
        AND id IN (SELECT id FROM runs r2 WHERE r2.template_id = runs.template_id AND r2.variant_id IS runs.variant_id
                   AND r2.finished_at IS NOT NULL ORDER BY r2.started_at DESC LIMIT 1)
        ORDER BY variant_id`,
-    ).all(...(scoped ? [id, variant === '' ? null : variant] : [id])) as Array<{ v: string | null; id: string }>;
+    ).all(...(scoped ? [id, variant === '' ? null : variant] : [id])) as Array<{ v: string | null; id: string; status: string; started_at: number }>;
     if (laneRows.length === 0) return reply.code(404).send({ error: 'template has no finished run' });
+
+    /** env delta for a lane, from the template's variant definitions —
+     *  variants_json holds [{id, networkScenario, env}]; the variantless
+     *  lane and unknown ids get null (rendered as —) */
+    const variantEnv = (tplId: string, vId: string | null): Record<string, string> | null => {
+      if (vId === null) return null;
+      const row = db.prepare('SELECT variants_json FROM templates WHERE id = ?').get(tplId) as { variants_json: string | null } | undefined;
+      if (!row?.variants_json) return null;
+      const def = (JSON.parse(row.variants_json) as Array<{ id: string; env?: Record<string, string> }>).find((x) => x.id === vId);
+      return def?.env ?? null;
+    };
 
     const itemsFor = (runId: string): Array<{ stepIdx: number; stepName: string; status: string; kind: string; evId: string }> => {
       const steps = db.prepare(
@@ -356,7 +369,10 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       return items;
     };
 
-    const lanes = laneRows.map((l) => ({ variantId: l.v, runId: l.id, items: itemsFor(l.id) }));
+    const lanes = laneRows.map((l) => {
+      const env = variantEnv(id, l.v);
+      return { variantId: l.v, runId: l.id, runStatus: l.status, startedAt: l.started_at, env, items: itemsFor(l.id) };
+    });
     return { templateId: id, lanes };
   });
 

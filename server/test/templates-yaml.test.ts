@@ -195,10 +195,12 @@ describe('evidence resolver — per-expect preference', () => {
     db.prepare(`INSERT INTO evidence(id, bundle_id, type, path, sha256, bytes, moov_ok, created_at)
                 VALUES ('ev-gvid', 'r-' || 'tp-g', 'video', '/tmp/v.mp4', 'h', 1, NULL, 0)`).run();
     const res = await app.inject({ method: 'GET', url: '/api/templates/tp-g/evidence' });
-    const b = res.json() as { lanes: Array<{ variantId: string | null; runId: string; items: Array<{ stepIdx: number; kind: string; evId: string }> }> };
+    const b = res.json() as { lanes: Array<{ variantId: string | null; runId: string; runStatus: string; startedAt: number; items: Array<{ stepIdx: number; kind: string; evId: string }> }> };
     expect(b.lanes).toHaveLength(1);
     expect(b.lanes[0]!.variantId).toBeNull();          // variantless lane
     expect(b.lanes[0]!.runId).toBe('r-tp-g');
+    expect(b.lanes[0]!.runStatus).toBe('passed');      // lane header fields (008-C)
+    expect(typeof b.lanes[0]!.startedAt).toBe('number');
     expect(b.lanes[0]!.items.map((i) => i.evId)).toEqual(['ev-g1', 'ev-gvid']);
     expect(b.lanes[0]!.items[1]!.stepIdx).toBe(-1);
   });
