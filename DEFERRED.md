@@ -287,19 +287,19 @@ columns finally written. Remaining phases + decisions:*
 - **Phase E** — case status lifecycle; publish act (rejected for v1 —
   implicit snapshot-on-run covers the brief; revisit on demand).
 
-## H. Phase B shipped 2026-09-19 — variants parse/store/autocomplete; runner expansion next
+## H. Phase C shipped 2026-09-19 — variant execution live end-to-end
 
 *Source: phase B plan `docs/plans/2026-09-18-phase-b-variants.md`. SHIPPED
 (T1–T5): `variants:` yaml key (9 line-carrying validation rules), storage
 (templates.variants_json, save-time scenario-name validation), vocabulary +
 3 autocomplete slots (variant-id/variant-key/scenario-name). 750/750 suite.
-Honest interim: a variants case RUNS ONCE today, variants ignored —
-documented in the guide. Remaining:*
+Honest interim RESOLVED by phase C (below): variant cases now expand to
+one run per variant at play/play-all, with variant-scoped retention and
+runs-page chips. Remaining:*
 
-- **Phase C — runner expansion**: case × variant at fan-out, env precedence
-  via mergeVariantEnv (already tested), runs.variant_id writes, per-variant
-  provenance versioning, variant × runFlow policy (flows inherit env),
-  cost estimation ×N, variant chips on runs page.
+- **Phase D — suite × variant surfaces**: suites referencing variant
+  subsets, per-variant trend/history columns on the case table,
+  `?variant=` filter on runs page (cheap later).
 - **Unknown-top-key strictness** — parseCaseYaml still silently ignores
   unrecognized top-level keys (pre-existing; variants closed the
   silent-drop path for THIS key only). Revisit as a whole-format change.
