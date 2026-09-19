@@ -9,6 +9,9 @@
  *  evidence by templateId and a same-template overlap would delete it). */
 export interface PlanCase {
   templateId: string;
+  /** Phase C: which variant of the case this execution runs (undefined =
+   *  the variantless/plain execution). Dedupe keys on BOTH. */
+  variantId?: string;
   /** last-run total duration; null = unknown → default weight */
   costMs: number | null;
 }
@@ -36,11 +39,13 @@ export function planLanes(input: {
   const devices = input.maxLanes !== undefined ? input.devices.slice(0, Math.max(1, input.maxLanes)) : input.devices;
   const lanes: Lane[] = devices.map((device) => ({ device, cases: [], costMs: 0 }));
 
-  // dedupe by templateId (first occurrence wins) — deterministic input order
+  // dedupe by templateId+variantId (first occurrence wins) — deterministic
+  // input order. Variant executions of one case are DISTINCT lane entries.
   const seen = new Set<string>();
   const unique = input.cases.filter((c) => {
-    if (seen.has(c.templateId)) return false;
-    seen.add(c.templateId);
+    const key = `${c.templateId}|${c.variantId ?? ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 

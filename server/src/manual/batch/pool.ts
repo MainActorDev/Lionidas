@@ -28,6 +28,8 @@ type RunOne = (
   templateId: string,
   udid: string,
   opts: Record<string, unknown>,
+  /** Phase C: variant id when this lane entry is a variant execution */
+  variantId?: string,
 ) => Promise<{ runId: string; udid: string; done: Promise<void> }>;
 
 interface PoolDeps { db: unknown; bus: { emit: (t: string, p: unknown) => void }; forgeState: { activeRunId: string | null } }
@@ -76,14 +78,14 @@ export async function runParallelBatch(
     for (const c of lane.cases) {
       if (controller.aborted) { result.skipped.push(c.templateId); continue; }
       try {
-        const started = await input.runOne(c.templateId, lane.device.udid, { ...input.opts, udid: lane.device.udid });
+        const started = await input.runOne(c.templateId, lane.device.udid, { ...input.opts, udid: lane.device.udid }, c.variantId);
         result.runIds.push(started.runId);
         await started.done; // lane is serial — next case only after settle
       } catch (err) {
         const code = (err as { code?: string }).code;
         const msg = err instanceof Error ? err.message : String(err);
         if (code && HALT_CODES.has(code)) {
-          result.haltedAt = c.templateId;
+          result.haltedAt = c.variantId ? `${c.templateId}/${c.variantId}` : c.templateId;
           result.haltedReason = msg;
           for (const rest of lane.cases.slice(lane.cases.indexOf(c) + 1)) result.skipped.push(rest.templateId);
           break;

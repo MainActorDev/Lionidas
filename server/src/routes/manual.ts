@@ -562,9 +562,26 @@ export function registerManualRoutes(
       return r.ms > 0 ? r.ms : null;
     };
 
+    // Phase C: variant expansion — a variants case becomes one lane entry
+    // per variant (the variantless/plain execution never mingles with them).
+    // Malformed variants_json degrades to plain (honest, vocabulary rule).
+    const variantsOf = (templateId: string): Array<{ id: string; networkScenario?: string; env?: Record<string, string> }> => {
+      const row = db.prepare('SELECT variants_json FROM templates WHERE id = ?').get(templateId) as { variants_json: string | null } | undefined;
+      if (!row?.variants_json) return [];
+      try { return JSON.parse(row.variants_json) as Array<{ id: string; networkScenario?: string; env?: Record<string, string> }>; } catch { return []; }
+    };
+    const batchCases = sel.flatMap((t) => {
+      const vs = variantsOf(t.id);
+      const cost = costFor(t.id) ?? null;
+      if (vs.length === 0) return [{ templateId: t.id, costMs: cost }];
+      // cost ×N estimate until per-variant history exists (deterministic,
+      // monotone — no invented averaging)
+      return vs.map((v) => ({ templateId: t.id, variantId: v.id, costMs: cost !== null ? cost * vs.length : null }));
+    });
+
     const maxLanes = Number(process.env['CRUCIBLE_BATCH_MAX_LANES'] ?? '0') || undefined;
     const lanes = planLanes({
-      cases: sel.map((t) => ({ templateId: t.id, costMs: costFor(t.id) ?? null })),
+      cases: batchCases,
       devices,
       ...(maxLanes !== undefined ? { maxLanes } : {}),
     });
@@ -585,12 +602,14 @@ export function registerManualRoutes(
         {
           lanes,
           opts: batchOpts,
-          runOne: async (templateId, udid, o) =>
-            runTemplatePlayback(
-              { db, bus: deps.bus, dispatchDeps: deps.dispatchDeps, artifactsDir: deps.artifactsDir, forgeState: deps.forgeState },
+          runOne: async (templateId, udid, o, variantId) => {
+            const variant = variantId !== undefined ? variantsOf(templateId).find((v) => v.id === variantId) ?? null : null;
+            return runTemplatePlayback(
+              { db, bus: deps.bus, dispatchDeps: deps.dispatchDeps, artifactsDir: deps.artifactsDir, forgeState: deps.forgeState, ...(process.env['VITEST'] ? { awaitStreamLive: null } : {}) },
               templateId,
-              o as never,
-            ),
+              { ...(o as Record<string, unknown>), ...(variant ? { variant } : {}) },
+            );
+          },
         },
       );
     } catch (err) {
