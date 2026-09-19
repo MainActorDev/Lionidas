@@ -22,6 +22,7 @@ import { registerManualRoutes } from './routes/manual.ts';
 import { stopMitmIfRunning } from './forge/mitm/manager.ts';
 import { healStaleProxies } from './forge/sim-routing.ts';
 import { registerTemplateRoutes } from './routes/templates.ts';
+import { registerSuiteRoutes } from './routes/suites.ts';
 import { registerFlakeRoutes } from './routes/flakes.ts';
 import { registerEventsWs } from './routes/events-ws.ts';
 import { startGcLoop } from './gc/retention.ts';
@@ -96,6 +97,7 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
     get dispatchDeps() { return runtimeMod.alloyDispatchDepsSync(); },
   } as never);
   registerTemplateRoutes(app, db.raw);
+  registerSuiteRoutes(app, db.raw);
   registerFlakeRoutes(app, db.raw, bus);
   app.decorate('crucibleBus', bus);
 

@@ -535,13 +535,23 @@ export function registerManualRoutes(
   // Shared by play-all AND plans (one engine). ──
   // authenticated identity wins for attribution; body triggeredBy only for
   // bots/agents whose user IS the machine. Mirrors the manual-session rule.
-  async function runBatch(b: { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string> }, reqUser?: { name: string } | null):
+  async function runBatch(b: { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string>; cases?: Array<{ templateId: string; variantIds?: string[] | null }>; suiteId?: string }, reqUser?: { name: string } | null):
     Promise<{ ok: true; runIds: string[]; count: number; batchId?: string; lanes?: Array<{ device: { udid: string; name: string | null }; runIds: string[]; skipped: string[]; haltedAt?: string; haltedReason?: string }> } | { ok: false; code: 400 | 409; error: string; runIds: string[]; appBundleId?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null }> {
     const { selectTemplates } = await import('./templates.ts');
     const { planLanes } = await import('../manual/batch/plan.ts');
     const { runParallelBatch, ParallelScenarioError } = await import('../manual/batch/pool.ts');
-    const rows = db.prepare('SELECT * FROM templates ORDER BY updated_at DESC').all() as Array<{ id: string; app_bundle_id: string | null; tags_json: string | null }>;
-    const sel = selectTemplates(rows as never, { tags: b.tags, app: b.app });
+    // Phase D T3: explicit case list (suites) bypasses tag selection — the
+    // caller already resolved membership. Ghost templateId (stale cached
+    // client list; DB membership FK-cascades) → honest 400, never a 500.
+    let sel: Array<{ id: string }>;
+    if (b.cases !== undefined) {
+      const ghosts = b.cases.map((c) => c.templateId).filter((tid) => db.prepare('SELECT 1 FROM templates WHERE id = ?').get(tid) == null);
+      if (ghosts.length > 0) return { ok: false, code: 400, error: `unknown template: ${ghosts.join(', ')}`, runIds: [] };
+      sel = b.cases.map((c) => ({ id: c.templateId }));
+    } else {
+      const rows = db.prepare('SELECT * FROM templates ORDER BY updated_at DESC').all() as Array<{ id: string; app_bundle_id: string | null; tags_json: string | null }>;
+      sel = selectTemplates(rows as never, { tags: b.tags, app: b.app });
+    }
     if (sel.length === 0) return { ok: false, code: 400, error: 'no templates match', runIds: [] };
 
     // device lanes: explicit udid pins one device (today's behavior);
@@ -570,8 +580,15 @@ export function registerManualRoutes(
       if (!row?.variants_json) return [];
       try { return JSON.parse(row.variants_json) as Array<{ id: string; networkScenario?: string; env?: Record<string, string> }>; } catch { return []; }
     };
+    // Phase C: variant expansion — a variants case becomes one lane entry
+    // per variant (the variantless/plain execution never mingles with them).
+    // Malformed variants_json degrades to plain (honest, vocabulary rule).
+    // Phase D T3: a suite member's pinned subset plays ONLY those variants;
+    // NULL = the case's default (all variants / plain).
+    const pinned = new Map((b.cases ?? []).map((c) => [c.templateId, c.variantIds ?? null] as const));
     const batchCases = sel.flatMap((t) => {
-      const vs = variantsOf(t.id);
+      const all = variantsOf(t.id);
+      const vs = pinned.get(t.id) != null ? all.filter((v) => (pinned.get(t.id) as string[]).includes(v.id)) : all;
       const cost = costFor(t.id) ?? null;
       if (vs.length === 0) return [{ templateId: t.id, costMs: cost }];
       // cost ×N estimate until per-variant history exists (deterministic,
@@ -592,6 +609,7 @@ export function registerManualRoutes(
       ...(by !== undefined ? { triggeredBy: by } : {}),
       ...(b.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}),
       ...(b.env !== undefined ? { env: b.env } : {}),
+      ...(b.suiteId !== undefined ? { suiteId: b.suiteId } : {}), // T4: stamp runs with their spawning suite
       ...(multiLane ? { forgeAttribution: false } : {}), // proxy can't tell sims apart
     };
 
@@ -649,12 +667,22 @@ export function registerManualRoutes(
   });
 
   // ── plans (B4): remembered suite invocations — tag filter + device + app +
-  // scenario + env, replayed through runBatch. CRUD lives with templates —
-  // a plan IS a saved templates-page state, not a separate world. ──
-  const planRow = (r: { id: string; name: string; tags_json: string; udid: string | null; app_bundle_id: string | null; scenario_id: string | null; env_json: string; created_by: string; created_at: number; updated_at: number }) => ({
-    id: r.id, name: r.name, tags: JSON.parse(r.tags_json) as string[], udid: r.udid, appBundleId: r.app_bundle_id, scenarioId: r.scenario_id, env: JSON.parse(r.env_json) as Record<string, string>, createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
+  //  scenario + env, replayed through runBatch. CRUD lives with templates —
+  //  a plan IS a saved templates-page state, not a separate world.
+  //  Phase D T5: a plan may instead reference a SUITE as its case source
+  //  (exactly-one-of tags|suite — empty tags + suiteId, never both). ──
+  const planRow = (r: { id: string; name: string; tags_json: string; udid: string | null; app_bundle_id: string | null; scenario_id: string | null; env_json: string; created_by: string; created_at: number; updated_at: number; suite_id: string | null }) => ({
+    id: r.id, name: r.name, tags: JSON.parse(r.tags_json) as string[], udid: r.udid, appBundleId: r.app_bundle_id, scenarioId: r.scenario_id, env: JSON.parse(r.env_json) as Record<string, string>, suiteId: r.suite_id, createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
   });
   const normalizeTags = (raw: unknown): string[] => [...new Set((Array.isArray(raw) ? raw : []).map((t) => String(t).trim()).filter(Boolean))].slice(0, 8);
+  // exactly-one-of: a suite-sourced plan carries NO tags; a tag plan carries
+  // no suite. Returns the (tags, suiteId) pair to persist or an error.
+  const resolveSource = (tags: unknown, suiteId: unknown): { tags: string[]; suiteId: string | null } | { error: string } => {
+    const t = normalizeTags(tags);
+    const s = typeof suiteId === 'string' && suiteId ? suiteId : null;
+    if (s !== null && t.length > 0) return { error: 'plan source is exactly-one-of tags|suite — set only one' };
+    return { tags: t, suiteId: s };
+  };
 
   app.get('/api/plans', async () => {
     const rows = db.prepare('SELECT * FROM plans ORDER BY updated_at DESC').all() as never[];
@@ -662,34 +690,45 @@ export function registerManualRoutes(
   });
 
   app.post('/api/plans', async (req, reply) => {
-    const b = (req.body ?? {}) as { name?: string; tags?: string[]; udid?: string; appBundleId?: string; scenarioId?: string; env?: Record<string, string>; createdBy?: string };
+    const b = (req.body ?? {}) as { name?: string; tags?: string[]; udid?: string; appBundleId?: string; scenarioId?: string; env?: Record<string, string>; createdBy?: string; suiteId?: string | null };
     if (!b.name?.trim()) return reply.code(400).send({ error: 'name required' });
+    const src = resolveSource(b.tags, b.suiteId);
+    if ('error' in src) return reply.code(400).send({ error: src.error });
+    if (src.suiteId !== null && db.prepare('SELECT 1 FROM suites WHERE id = ?').get(src.suiteId) == null) return reply.code(400).send({ error: `unknown suite: ${src.suiteId}` });
     const id = `plan_${randomUUID().slice(0, 8)}`;
     const now = Date.now();
     try {
-      db.prepare(`INSERT INTO plans(id, name, tags_json, udid, app_bundle_id, scenario_id, env_json, created_by, created_at, updated_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(id, b.name.trim(), JSON.stringify(normalizeTags(b.tags)), b.udid ?? null, b.appBundleId ?? null, b.scenarioId ?? null, JSON.stringify(b.env ?? {}), b.createdBy ?? 'qa', now, now);
+      db.prepare(`INSERT INTO plans(id, name, tags_json, udid, app_bundle_id, scenario_id, env_json, created_by, created_at, updated_at, suite_id)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(id, b.name.trim(), JSON.stringify(src.tags), b.udid ?? null, b.appBundleId ?? null, b.scenarioId ?? null, JSON.stringify(b.env ?? {}), b.createdBy ?? 'qa', now, now, src.suiteId);
     } catch { return reply.code(409).send({ error: 'plan name already exists' }); }
     return planRow(db.prepare('SELECT * FROM plans WHERE id = ?').get(id) as never);
   });
 
   app.patch('/api/plans/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const b = (req.body ?? {}) as { name?: string; tags?: string[]; udid?: string | null; appBundleId?: string | null; scenarioId?: string | null; env?: Record<string, string> };
+    const b = (req.body ?? {}) as { name?: string; tags?: string[]; udid?: string | null; appBundleId?: string | null; scenarioId?: string | null; env?: Record<string, string>; suiteId?: string | null };
     const row = db.prepare('SELECT * FROM plans WHERE id = ?').get(id) as { id: string } | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
     if (b.name !== undefined && !b.name.trim()) return reply.code(400).send({ error: 'name cannot be empty' });
-    const prev = db.prepare('SELECT * FROM plans WHERE id = ?').get(id) as { name: string; tags_json: string; udid: string | null; app_bundle_id: string | null; scenario_id: string | null; env_json: string };
-    db.prepare(`UPDATE plans SET name = ?, tags_json = ?, udid = ?, app_bundle_id = ?, scenario_id = ?, env_json = ?, updated_at = ? WHERE id = ?`)
+    const prev = db.prepare('SELECT * FROM plans WHERE id = ?').get(id) as { name: string; tags_json: string; udid: string | null; app_bundle_id: string | null; scenario_id: string | null; env_json: string; suite_id: string | null };
+    // T5: source flips between tags and suite via exactly-one-of. When only
+    // one side is sent, the OTHER falls back to the row's current value —
+    // but a suite-sourced row's tags are [] so the pair stays exclusive.
+    const nextTags = b.tags !== undefined ? b.tags : JSON.parse(prev.tags_json) as string[];
+    const nextSuite = b.suiteId !== undefined ? b.suiteId : prev.suite_id;
+    const src = resolveSource(nextTags, nextSuite);
+    if ('error' in src) return reply.code(400).send({ error: src.error });
+    if (src.suiteId !== null && db.prepare('SELECT 1 FROM suites WHERE id = ?').get(src.suiteId) == null) return reply.code(400).send({ error: `unknown suite: ${src.suiteId}` });
+    db.prepare(`UPDATE plans SET name = ?, tags_json = ?, udid = ?, app_bundle_id = ?, scenario_id = ?, env_json = ?, updated_at = ?, suite_id = ? WHERE id = ?`)
       .run(
         b.name !== undefined ? b.name.trim() : prev.name,
-        b.tags !== undefined ? JSON.stringify(normalizeTags(b.tags)) : prev.tags_json,
+        JSON.stringify(src.tags),
         b.udid !== undefined ? b.udid : prev.udid,
         b.appBundleId !== undefined ? b.appBundleId : prev.app_bundle_id,
         b.scenarioId !== undefined ? b.scenarioId : prev.scenario_id,
         b.env !== undefined ? JSON.stringify(b.env) : prev.env_json,
-        Date.now(), id,
+        Date.now(), id, src.suiteId,
       );
     return planRow(db.prepare('SELECT * FROM plans WHERE id = ?').get(id) as never);
   });
@@ -703,18 +742,46 @@ export function registerManualRoutes(
 
   app.post('/api/plans/:id/run', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const row = db.prepare('SELECT * FROM plans WHERE id = ?').get(id) as { tags_json: string; udid: string | null; app_bundle_id: string | null; scenario_id: string | null; env_json: string } | undefined;
+    const row = db.prepare('SELECT * FROM plans WHERE id = ?').get(id) as { tags_json: string; udid: string | null; app_bundle_id: string | null; scenario_id: string | null; env_json: string; suite_id: string | null } | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
     const p = planRow({ ...row, id, name: '', created_by: 'qa', created_at: 0, updated_at: 0 });
+    // T5: suite-sourced plan → members resolved LIVE at run time (no stale
+    // snapshot); tag plan → tags as today. suiteId stamps the runs (T4).
+    const memberRows = p.suiteId !== null
+      ? db.prepare('SELECT * FROM suite_members WHERE suite_id = ? ORDER BY position').all(p.suiteId) as Array<{ template_id: string; variant_ids_json: string | null }>
+      : [];
     const r = await runBatch({
-      tags: (p.tags as string[]).join(','),
+      ...(p.suiteId !== null
+        ? { cases: memberRows.map((m) => ({ templateId: m.template_id, variantIds: m.variant_ids_json ? (JSON.parse(m.variant_ids_json) as string[]) : null })), suiteId: p.suiteId, triggeredBy: `suite-plan:${p.name || id}` }
+        : { tags: (p.tags as string[]).join(','), triggeredBy: `plan:${p.name || id}` }),
       ...(p.appBundleId !== null ? { app: p.appBundleId } : {}),
       ...(p.udid !== null ? { udid: p.udid } : {}),
       ...(p.scenarioId !== null ? { scenarioId: p.scenarioId } : {}),
       env: p.env,
-      triggeredBy: `plan:${p.name || id}`,
     }, req.user); // session user wins for run attribution
     if (!r.ok) return reply.code(r.code).send({ error: r.error, code: r.code === 409 ? 'DEVICE_BUSY' : undefined, runIds: r.runIds });
     return { runIds: r.runIds, count: r.count };
+  });
+
+  // ── Phase D T3: suite play — membership read live at play time, handed
+  //  to runBatch as an explicit case list (bypasses tag selection). Pinned
+  //  variantIds play ONLY those variants; NULL = case default. T4: suiteId
+  //  stamps every spawned run. Same engine as play-all/plans. ──
+  app.post('/api/suites/:id/play', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const row = db.prepare('SELECT * FROM suites WHERE id = ?').get(id) as { id: string; name: string } | undefined;
+    if (!row) return reply.code(404).send({ error: 'not found' });
+    const members = (db.prepare('SELECT * FROM suite_members WHERE suite_id = ? ORDER BY position').all(id) as Array<{ template_id: string; variant_ids_json: string | null }>)
+      .map((m) => ({ templateId: m.template_id, variantIds: m.variant_ids_json ? (JSON.parse(m.variant_ids_json) as string[]) : null }));
+    if (members.length === 0) return reply.code(400).send({ error: 'suite has no members' });
+    const b = (req.body ?? {}) as { udid?: string; triggeredBy?: string };
+    const r = await runBatch({
+      cases: members,
+      ...(b.udid !== undefined ? { udid: b.udid } : {}),
+      triggeredBy: `suite:${row.name}`,
+      suiteId: row.id,
+    }, req.user);
+    if (!r.ok) return reply.code(r.code).send({ error: r.error, code: r.code === 409 ? 'DEVICE_BUSY' : undefined, runIds: r.runIds });
+    return { runIds: r.runIds, count: r.count, batchId: r.batchId };
   });
 }

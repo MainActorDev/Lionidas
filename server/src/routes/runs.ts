@@ -73,13 +73,22 @@ export function registerRunRoutes(app: FastifyInstance, db: Database.Database, b
   });
 
   app.get('/api/runs', async (req) => {
-    const q = req.query as { ticket?: string; limit?: string; template?: string; app_version?: string };
+    const q = req.query as { ticket?: string; limit?: string; template?: string; app_version?: string; suite?: string; variant?: string };
     const limit = Math.min(Number.parseInt(q.limit ?? '50', 10) || 50, 200);
     const where: string[] = [];
     const params: unknown[] = [];
     if (q.ticket) { where.push('ticket_key = ?'); params.push(q.ticket); }
     if (q.template) { where.push('template_id = ?'); params.push(q.template); }
     if (q.app_version) { where.push('app_version = ?'); params.push(q.app_version); }
+    // Phase D T7: suite filter. A suite id matches its stamped runs even
+    // after the suite is deleted (honest history; name renders as
+    // <deleted>). 'unassigned' matches both null suite_id AND null
+    // variant_id runs (pre-D / ad-hoc plays). Composable with variant.
+    if (q.suite !== undefined) {
+      if (q.suite === 'unassigned') where.push('suite_id IS NULL');
+      else { where.push('suite_id = ?'); params.push(q.suite); }
+    }
+    if (q.variant !== undefined) { where.push('variant_id = ?'); params.push(q.variant); }
     const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const rows = db.prepare(`SELECT * FROM runs ${clause} ORDER BY started_at DESC LIMIT ?`).all(...params, limit);
     // Phase A breadcrumb: the revision each run executed + whether it is the
