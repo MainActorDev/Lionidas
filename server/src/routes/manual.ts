@@ -395,13 +395,45 @@ export function registerManualRoutes(
   // ── template playback ──
   app.post('/api/templates/:id/play', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const b = req.body as { udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string> } | null;
+    const b = req.body as { udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string>; variant?: string } | null;
     try {
-      const { runId, udid } = await runTemplatePlayback(
-        { db, bus: deps.bus, dispatchDeps: deps.dispatchDeps, artifactsDir: deps.artifactsDir, forgeState: deps.forgeState },
-        id,
-        { ...(b?.udid !== undefined ? { udid: b.udid } : {}), ...(req.user?.name !== undefined ? { triggeredBy: req.user.name } : (b?.triggeredBy !== undefined ? { triggeredBy: b.triggeredBy } : {})), ...(b?.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}), ...(b?.env !== undefined ? { env: b.env } : {}) },
-      );
+      // Phase C: variants expand HERE (single-play entry point). A variants
+      // case runs ONCE PER VARIANT, sequentially (declaration order — proxy
+      // state is device-global). `variant: 'id'` runs exactly one.
+      const row = db.prepare('SELECT variants_json FROM templates WHERE id = ?').get(id) as { variants_json: string | null } | undefined;
+      let variants: Array<{ id: string; networkScenario?: string; env?: Record<string, string> }> = [];
+      if (row?.variants_json) {
+        try { variants = JSON.parse(row.variants_json) as typeof variants; } catch { variants = []; /* malformed — honest degrade */ }
+      }
+      const baseOpts = { ...(b?.udid !== undefined ? { udid: b.udid } : {}), ...(req.user?.name !== undefined ? { triggeredBy: req.user.name } : (b?.triggeredBy !== undefined ? { triggeredBy: b.triggeredBy } : {})), ...(b?.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}), ...(b?.env !== undefined ? { env: b.env } : {}) };
+      // VITEST builds skip the stream gate (no device stream exists in unit
+      // tests; the gate would burn its full 30s budget per run). Prod keeps it.
+      const pbDeps = { db, bus: deps.bus, dispatchDeps: deps.dispatchDeps, artifactsDir: deps.artifactsDir, forgeState: deps.forgeState, ...(process.env['VITEST'] ? { awaitStreamLive: null } : {}) };
+      if (b?.variant !== undefined) {
+        const one = variants.find((v) => v.id === b.variant);
+        if (!one) {
+          return reply.code(422).send({ error: `case has no variant "${b.variant}"${variants.length ? ` (has: ${variants.map((v) => v.id).join(', ')})` : ' (case has no variants)'}` });
+        }
+        const { runId, udid } = await runTemplatePlayback(pbDeps, id, { ...baseOpts, variant: one });
+        return { runId, udid, variants: [{ id: one.id, runId }] };
+      }
+      if (variants.length > 0) {
+        // Sequential CONTRACT: each variant runs to completion before the
+        // next starts — proxy state is device-global and the B5 device-busy
+        // guard would 409 a back-to-back start anyway. await done here.
+        const runIds: string[] = [];
+        const perVariant: Array<{ id: string; runId: string }> = [];
+        let firstUdid = '';
+        for (const v of variants) {
+          const { runId, udid, done } = await runTemplatePlayback(pbDeps, id, { ...baseOpts, variant: v });
+          if (!firstUdid) firstUdid = udid;
+          runIds.push(runId);
+          perVariant.push({ id: v.id, runId });
+          await done;
+        }
+        return { runId: runIds[0] ?? null, runIds, udid: firstUdid, variants: perVariant };
+      }
+      const { runId, udid } = await runTemplatePlayback(pbDeps, id, baseOpts);
       return { runId, udid };
     } catch (err) {
       if (err instanceof PlaybackError && err.code === 'DEVICE_BUSY') return reply.code(409).send({ error: err.message, code: err.code });
