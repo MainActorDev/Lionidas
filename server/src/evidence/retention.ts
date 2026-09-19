@@ -14,7 +14,7 @@ export interface RetentionDeps {
 }
 
 export type RetentionKey =
-  | { templateId: string }
+  | { templateId: string; variantId?: string | null }
   | { ticketKey: string };
 
 /** Prune the most recent FINISHED run's artifacts under the same key, keeping
@@ -22,12 +22,16 @@ export type RetentionKey =
  *  pruned — its evidence is being written right now. Missing dirs are
  *  best-effort. Returns the pruned run id or null. */
 export function prunePreviousRunArtifacts(deps: RetentionDeps, key: RetentionKey, keepRunId: string): string | null {
-  const where = 'templateId' in key
-    ? 'template_id = ? AND kind = \'manual\''
+  const templateScoped = 'templateId' in key;
+  const where = templateScoped
+    ? 'template_id = ? AND kind = \'manual\' AND variant_id IS ?'
     : 'ticket_key = ? AND template_id IS NULL AND kind = \'automated\'';
+  const params: unknown[] = templateScoped
+    ? [key.templateId, (key as { variantId?: string | null }).variantId ?? null, keepRunId]
+    : [key.ticketKey, keepRunId];
   const prev = deps.db.prepare(
     `SELECT id FROM runs WHERE ${where} AND id != ? AND finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 1`,
-  ).get('templateId' in key ? key.templateId : key.ticketKey, keepRunId) as { id: string } | undefined;
+  ).get(...params) as { id: string } | undefined;
   if (!prev) return null;
 
   // files: the run's artifact directory (screenshot + video land there)

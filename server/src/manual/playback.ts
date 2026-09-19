@@ -339,7 +339,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
   const runningSibling = deps.db
     .prepare(`SELECT 1 FROM runs WHERE template_id = ? AND status IN ('queued','running') AND id != ? LIMIT 1`)
     .get(templateId, runId);
-  if (!runningSibling) prunePreviousRunArtifacts({ db: deps.db, artifactsDir: deps.artifactsDir }, { templateId }, runId);
+  if (!runningSibling) prunePreviousRunArtifacts({ db: deps.db, artifactsDir: deps.artifactsDir }, { templateId, variantId: opts.variant?.id ?? null }, runId);
 
   // background execution — route returns immediately; done settles at finish
   const done = (async () => {
