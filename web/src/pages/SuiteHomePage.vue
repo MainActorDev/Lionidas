@@ -81,7 +81,7 @@ function openCase(c: { verdict: { lastRunId: string | null } | null; id: string 
       </div>
       <div class="sh-actions">
         <button class="btn" :disabled="runningSuite || cases.length === 0" @click="runSuite" title="run every case sequentially — verdicts update live">
-          {{ runningSuite ? 'starting…' : '▶ run suite' }}
+          {{ runningSuite ? 'starting…' : '▶ run all cases' }}
         </button>
         <RouterLink class="btn btn-ghost" to="/templates" title="the full case table — edit, tags, steps">all cases →</RouterLink>
       </div>

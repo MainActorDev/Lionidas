@@ -13,11 +13,13 @@ import MonitoringPage from './pages/MonitoringPage.vue';
 import LoginPage from './pages/LoginPage.vue';
 import UsersPage from './pages/UsersPage.vue';
 import GuidePage from './pages/GuidePage.vue';
+import SuitesPage from './pages/SuitesPage.vue';
 
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', name: 'suite', component: SuiteHomePage, meta: { title: 'suite' } },
+    { path: '/suites', name: 'suites', component: SuitesPage, meta: { title: 'suites' } },
     { path: '/devices', name: 'wall', component: WallPage, meta: { title: 'devices' } },
     { path: '/runs', name: 'runs', component: RunsPage, meta: { title: 'runs' } },
     { path: '/runs/:id', name: 'runDetail', component: RunDetailPage, meta: { title: 'run' } },

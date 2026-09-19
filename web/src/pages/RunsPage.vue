@@ -18,7 +18,9 @@ const live = useLiveEvents();
 let poll: ReturnType<typeof setInterval> | null = null;
 
 async function load(): Promise<void> {
-  const res = await fetch('/api/runs?limit=50');
+  const suite = router.currentRoute.value.query.suite;
+  const url = typeof suite === 'string' && suite ? `/api/runs?limit=50&suite=${encodeURIComponent(suite)}` : '/api/runs?limit=50';
+  const res = await fetch(url);
   runs.value = (await res.json() as { runs: RunRow[] }).runs;
 }
 function ago(ts: number | null): string {
