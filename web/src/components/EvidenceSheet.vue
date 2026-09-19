@@ -102,11 +102,13 @@ watch(() => props.open, (o) => { if (!o) { cinema.value = null; filter.value = '
           </div>
           <div class="row">
             <button v-for="item in l.items" :key="item.evId" class="card"
-              :class="{ fail: item.status === 'fail', vid: item.kind === 'video' }"
+              :class="{ fail: item.status === 'fail' }"
               :title="`${item.stepName} — ${item.status}`" @click="openCinema(li, item)">
-              <img v-if="item.kind !== 'video'" class="thumb" alt="" loading="lazy"
+              <video v-if="item.kind === 'video'" class="thumb vid-thumb" muted playsinline preload="metadata"
+                :src="`/api/evidence/${item.evId}/file#t=0.1`"></video>
+              <img v-else class="thumb" alt="" loading="lazy"
                 :src="`/api/evidence/${item.evId}/file`" />
-              <span v-else class="vid-inner"><span class="tri"></span>whole run</span>
+              <span v-if="item.kind === 'video'" class="vid-play"><span class="tri"></span></span>
               <span class="stamp" :class="{ fail: item.status === 'fail' }">{{ item.kind === 'video' ? 'video' : (item.status === 'fail' ? 'fail' : 'expect') }}</span>
               <span class="cap"><span class="ix">#{{ item.stepIdx >= 0 ? item.stepIdx + 1 : '·' }}</span>
                 <span class="nm">{{ item.stepName }}</span></span>
@@ -175,6 +177,9 @@ watch(() => props.open, (o) => { if (!o) { cinema.value = null; filter.value = '
 .card { position: relative; border: 1px solid var(--color-iron); border-radius: var(--r); background: var(--color-carbon); padding: 0; overflow: hidden; text-align: left; transition: border-color var(--t); }
 .card:hover { border-color: var(--color-chalk); }
 .card .thumb { aspect-ratio: 390 / 844; width: 100%; background: var(--color-graphite); object-fit: cover; object-position: top; display: block; }
+.vid-thumb { pointer-events: none; }   /* the frame is a poster — clicks belong to the card */
+.vid-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.vid-play .tri { width: 0; height: 0; border-left: 18px solid rgba(238, 238, 238, 0.9); border-top: 11px solid transparent; border-bottom: 11px solid transparent; filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.8)); }
 .card .cap { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-top: 1px solid var(--color-iron); }
 .card .cap .nm { flex: 1; min-width: 0; font-size: 11px; color: var(--color-fog); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card .cap .ix { color: var(--color-steel); font-size: 10px; }
@@ -182,8 +187,6 @@ watch(() => props.open, (o) => { if (!o) { cinema.value = null; filter.value = '
 .card.fail .cap .nm { color: var(--color-paper); }
 .card .stamp { position: absolute; top: 6px; left: 6px; font-size: 9px; background: rgba(0, 0, 0, 0.75); color: var(--color-fog); padding: 1px 5px; border-radius: var(--r); }
 .card .stamp.fail { color: var(--color-paper); border: 1px dashed var(--color-paper); }
-.card.vid { display: flex; }
-.card.vid .vid-inner { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--color-ash); font-size: 11px; aspect-ratio: 390 / 822; width: 100%; }
 .tri { width: 0; height: 0; border-left: 12px solid var(--color-fog); border-top: 7px solid transparent; border-bottom: 7px solid transparent; }
 
 /* ── cinema overlay ── */
