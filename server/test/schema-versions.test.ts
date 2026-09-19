@@ -94,3 +94,64 @@ describe('case_versions schema — real file (WAL parity with buildApp)', () => 
     }
   });
 });
+
+describe('suites schema (Phase D T1)', () => {
+  it('fresh DB: suites + suite_members tables, runs/plans gain suite_id, index exists', () => {
+    const db = new Database(':memory:');
+    migrateM1(db);
+    for (const c of ['id', 'name', 'description', 'created_by', 'created_at', 'updated_at']) {
+      expect(cols(db, 'suites')).toContain(c);
+    }
+    for (const c of ['suite_id', 'template_id', 'variant_ids_json', 'position']) {
+      expect(cols(db, 'suite_members')).toContain(c);
+    }
+    expect(cols(db, 'runs')).toContain('suite_id');
+    expect(cols(db, 'plans')).toContain('suite_id');
+    const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_suite_members_suite'").get();
+    expect(idx).toBeTruthy();
+  });
+
+  it('existing DB (pre-suite era) migrates in place — ALTER loop adds both suite_id columns', () => {
+    // simulate an older DB: create the pre-D shapes (only what the shared
+    // CREATE exec's INDEX statements touch on runs — the block must survive),
+    // then run the full migration
+    const db = new Database(':memory:');
+    db.exec(`CREATE TABLE runs(id TEXT PRIMARY KEY, ticket_key TEXT NOT NULL, kind TEXT NOT NULL,
+              status TEXT NOT NULL, triggered_by TEXT NOT NULL, device_udid TEXT NOT NULL, note TEXT,
+              started_at INTEGER, app_version TEXT, template_id TEXT)`);
+    db.exec(`CREATE TABLE plans(id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, tags_json TEXT NOT NULL DEFAULT '[]',
+              udid TEXT, app_bundle_id TEXT, scenario_id TEXT, env_json TEXT NOT NULL DEFAULT '{}',
+              created_by TEXT NOT NULL DEFAULT 'qa', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`);
+    migrateM1(db);
+    expect(cols(db, 'runs')).toContain('suite_id');
+    expect(cols(db, 'plans')).toContain('suite_id');
+  });
+
+  it('membership dies with its case (CASCADE); suite deletion nulls runs.suite_id (SET NULL)', () => {
+    const db = new Database(':memory:');
+    migrateM1(db);
+    seedTemplate(db, 'tpl_m');
+    db.prepare(`INSERT INTO suites(id, name, created_by, created_at, updated_at) VALUES ('st_1', 's1', 'qa', 1, 1)`).run();
+    db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, note, suite_id)
+                VALUES ('run_s1', 'T', 'manual', 'passed', 'qa', 'sim-1', NULL, 'st_1')`).run();
+    db.prepare(`INSERT INTO suite_members(suite_id, template_id, variant_ids_json, position) VALUES ('st_1', 'tpl_m', NULL, 0)`).run();
+    // case deleted → membership row gone, suite survives
+    db.prepare('DELETE FROM templates WHERE id = ?').run('tpl_m');
+    expect(db.prepare('SELECT COUNT(*) n FROM suite_members WHERE suite_id = ?').get('st_1')).toMatchObject({ n: 0 });
+    expect(db.prepare('SELECT COUNT(*) n FROM suites WHERE id = ?').get('st_1')).toMatchObject({ n: 1 });
+    // suite deleted → run row survives with suite_id nulled
+    db.prepare('DELETE FROM suites WHERE id = ?').run('st_1');
+    const run = db.prepare('SELECT suite_id FROM runs WHERE id = ?').get('run_s1') as { suite_id: string | null };
+    expect(run.suite_id).toBeNull();
+  });
+
+  it('UNIQUE(suite_id, template_id) and UNIQUE suites.name are enforced', () => {
+    const db = new Database(':memory:');
+    migrateM1(db);
+    seedTemplate(db, 'tpl_u');
+    db.prepare(`INSERT INTO suites(id, name, created_by, created_at, updated_at) VALUES ('st_1', 'dup', 'qa', 1, 1)`).run();
+    expect(() => db.prepare(`INSERT INTO suites(id, name, created_by, created_at, updated_at) VALUES ('st_2', 'dup', 'qa', 1, 1)`).run()).toThrow();
+    db.prepare(`INSERT INTO suite_members(suite_id, template_id, variant_ids_json, position) VALUES ('st_1', 'tpl_u', NULL, 0)`).run();
+    expect(() => db.prepare(`INSERT INTO suite_members(suite_id, template_id, variant_ids_json, position) VALUES ('st_1', 'tpl_u', NULL, 1)`).run()).toThrow();
+  });
+});

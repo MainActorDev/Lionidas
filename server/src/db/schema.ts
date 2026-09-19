@@ -261,6 +261,11 @@ export function migrateM1(db: Database.Database): void {
     // migration era stays one; nothing writes it yet.
     'ALTER TABLE runs ADD COLUMN case_version_id TEXT',
     'ALTER TABLE runs ADD COLUMN variant_id TEXT',
+    // Phase D — suites: runs name the suite that spawned them (survives suite
+    // deletion: SET NULL renders `suite: <deleted>` honestly); plans may
+    // reference a suite as their case source (exactly-one-of tags|suite, T5).
+    'ALTER TABLE runs ADD COLUMN suite_id TEXT REFERENCES suites(id) ON DELETE SET NULL',
+    'ALTER TABLE plans ADD COLUMN suite_id TEXT REFERENCES suites(id) ON DELETE SET NULL',
   ]) {
     try { db.exec(col); } catch { /* column exists */ }
   }
@@ -338,7 +343,11 @@ export function migrateM1(db: Database.Database): void {
       env_json TEXT NOT NULL DEFAULT '{}',
       created_by TEXT NOT NULL DEFAULT 'qa',
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      -- Phase D: a plan may name a suite as its case source (T5 —
+      -- exactly-one-of tags|suite validated at the route). In the CREATE so
+      -- fresh DBs get it natively; the guarded ALTER covers pre-D DBs.
+      suite_id TEXT REFERENCES suites(id) ON DELETE SET NULL
     );
     CREATE TABLE IF NOT EXISTS app_catalog(
       bundle_id TEXT PRIMARY KEY,
@@ -391,6 +400,29 @@ export function migrateM1(db: Database.Database): void {
       event TEXT NOT NULL,            -- login | login_failed | logout | session_killed
       detail TEXT
     );
+    -- Phase D — suites: a named, ordered collection of case memberships,
+    -- each membership one case + an optional variant subset. Live read, not
+    -- a snapshot (TestSuiteVersion forbidden by the brief); verdicts are
+    -- computed from runs, never stored here. Membership dies with its case
+    -- (CASCADE); a deleted suite's runs survive (runs.suite_id SET NULL).
+    CREATE TABLE IF NOT EXISTS suites(
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      created_by TEXT NOT NULL DEFAULT 'qa',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS suite_members(
+      suite_id TEXT NOT NULL REFERENCES suites(id) ON DELETE CASCADE,
+      template_id TEXT NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+      -- NULL = the case's default play semantics (variants case → all
+      -- variants; plain case → plain). ["sg","my"] = pinned subset.
+      variant_ids_json TEXT,
+      position INTEGER NOT NULL,
+      UNIQUE(suite_id, template_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_suite_members_suite ON suite_members(suite_id, position);
   `);
   // additive auth-era columns (older DBs migrate in place)
   const cols = db.prepare("SELECT name FROM pragma_table_info('templates')").all() as Array<{ name: string }>;
