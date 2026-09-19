@@ -230,6 +230,11 @@ export function migrateM1(db: Database.Database): void {
     // header guards since the forge spike but nothing ever STORED them
     // (presetRowToSpec never read them; no column existed). {query?, headers?}
     'ALTER TABLE presets ADD COLUMN guards_json TEXT',
+    // Phase C — case_versions variant identity. NO-OP on fresh DBs (table
+    // created below WITH the columns; the loop's catch swallows the missing
+    // table) and EFFECTIVE on DBs whose case_versions predates Phase C.
+    'ALTER TABLE case_versions ADD COLUMN variant_id TEXT',
+    'ALTER TABLE case_versions ADD COLUMN variant_env_json TEXT',
     'ALTER TABLE templates ADD COLUMN app_name TEXT',
     'ALTER TABLE templates ADD COLUMN app_version TEXT',
     // Maestro batch 1: template tags (filtered regression selection) + evaluated
@@ -274,6 +279,11 @@ export function migrateM1(db: Database.Database): void {
       source TEXT NOT NULL CHECK(source IN ('run','backfill')) DEFAULT 'run',
       created_by TEXT,
       created_at INTEGER NOT NULL,
+      -- Phase C: variant identity — label + the env that differentiates two
+      -- variants of the same steps (in the CREATE because the guarded-ALTER
+      -- loop above runs BEFORE this table exists on fresh DBs).
+      variant_id TEXT,
+      variant_env_json TEXT,
       UNIQUE(template_id, revision)
     );
   `);

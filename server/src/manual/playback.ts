@@ -42,6 +42,7 @@ import { setLocation, clearLocation, prodExecute } from './location.ts';
 import { ensureLocationGrant } from './location-tcc.ts';
 import { internalAuthHeaders } from '../auth/roles.ts';
 import { snapshotCaseVersion } from './case-versions.ts';
+import { mergeVariantEnv, type YamlVariant } from '@crucible/shared/yaml-variants';
 
 const defaultListApps = (udid: string): Promise<Array<{ bundleId: string }>> =>
   listSimulatorApps(udid).then((apps) => apps.map((a) => ({ bundleId: a.bundleId })));
@@ -233,7 +234,7 @@ async function withWatchdog<T>(runId: string, dispatch: Promise<T>, stepNameForE
 }
 
 
-export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string; bundleId?: string; env?: Record<string, string>; forgeAttribution?: boolean }): Promise<{ runId: string; udid: string; done: Promise<void> }> {
+export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string; bundleId?: string; env?: Record<string, string>; forgeAttribution?: boolean; variant?: YamlVariant | null }): Promise<{ runId: string; udid: string; done: Promise<void> }> {
   const t = deps.db.prepare('SELECT id, name, ticket_key, udid, steps_json, setup_json, alerts_policy, app_bundle_id, logical_w, logical_h FROM templates WHERE id = ?').get(templateId) as TemplateRow | undefined;
   if (!t) throw new Error(`template ${templateId} not found`);
   const tpl: TemplateRow = t;
@@ -318,15 +319,18 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
   // the NEXT run's revision, never this one's). A run that cannot name its
   // version is not evidence — snapshot failure aborts honestly.
   let version: ReturnType<typeof snapshotCaseVersion>;
+  // D3: variant scenario overrides the invocation's (narrowest scope);
+  // variant without scenario INHERITS the invocation's
+  const scenarioId = opts.variant?.networkScenario ?? opts.scenarioId ?? null;
   try {
-    version = snapshotCaseVersion(deps.db, { templateId, scenarioId: opts.scenarioId ?? null, triggeredBy: opts.triggeredBy ?? null });
+    version = snapshotCaseVersion(deps.db, { templateId, scenarioId, variant: opts.variant ?? null, triggeredBy: opts.triggeredBy ?? null });
   } catch (err) {
     throw new PlaybackError('VERSION_SNAPSHOT_FAILED', `case-version snapshot failed: ${err instanceof Error ? err.message : String(err)}`, { appBundleId: appToLaunch, udid });
   }
   deps.db
-    .prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, note, template_id, app_version, case_version_id, scenario_id, scenario_sha)
-              VALUES (?, ?, 'manual', 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(runId, t.ticket_key ?? '-', opts.triggeredBy ?? 'qa', udid, Date.now(), `template:${templateId} ${t.name}`, templateId, appVersion, version.id, opts.scenarioId ?? null, version.scenarioSha);
+    .prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, note, template_id, app_version, case_version_id, scenario_id, scenario_sha, variant_id)
+              VALUES (?, ?, 'manual', 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(runId, t.ticket_key ?? '-', opts.triggeredBy ?? 'qa', udid, Date.now(), `template:${templateId} ${t.name}${opts.variant ? ` / ${opts.variant.id}` : ''}`, templateId, appVersion, version.id, scenarioId, version.scenarioSha, opts.variant?.id ?? null);
   deps.bus.emit('run.started', { runId, ticketKey: t.ticket_key ?? '-', udid, templateId });
   // latest-only evidence: this run replaces the previous run's artifacts —
   // UNLESS a sibling run of the same template is still RUNNING (parallel
@@ -640,7 +644,9 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
         // key fails the step deterministically; never type a half-resolved
         // string. Even optional steps hard-fail on missing env: a missing
         // credential is a config error, not a transient UI miss.
-        const resolved = substituteStep(s, opts.env ?? {});
+        // Phase C: variant env merges at the ONE resolution seam —
+        // variant > invocation (narrowest scope wins; mergeVariantEnv tested in phase B T1)
+        const resolved = substituteStep(s, mergeVariantEnv(opts.variant ?? null, opts.env ?? {}));
         if (resolved.error) {
           runStatus = 'failed';
           insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', resolved.error, t0, 0, '[]', JSON.stringify(resolved));

@@ -17,6 +17,7 @@ import type Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { caseToYaml } from '@crucible/shared/case-yaml';
+import type { YamlVariant } from '@crucible/shared/yaml-variants';
 
 export interface VersionSnapshot {
   id: string;
@@ -87,6 +88,10 @@ export function scenarioSnapshot(db: Database.Database, scenarioId: string): { p
 export function snapshotCaseVersion(db: Database.Database, args: {
   templateId: string;
   scenarioId?: string | null;
+  /** Phase C: the variant this execution runs — env joins the version
+   *  IDENTITY (two variants with different env are different inputs);
+   *  variant without env shares the variantless version honestly. */
+  variant?: YamlVariant | null;
   triggeredBy?: string | null;
 }): VersionSnapshot {
   const t = db.prepare(
@@ -96,16 +101,20 @@ export function snapshotCaseVersion(db: Database.Database, args: {
 
   const stepsSha = createHash('sha256').update(t.steps_json).digest('hex');
   const scenarioId = args.scenarioId ?? null;
+  const variantEnvJson = args.variant?.env ? JSON.stringify(args.variant.env) : '';
+  /** latest row's variant env as a comparable string ('' = none). */
+  const latestVariantEnvJson = (row: { variant_env_json?: string | null }): string =>
+    row.variant_env_json ?? '';
   const snap = scenarioId ? scenarioSnapshot(db, scenarioId) : null;
   const snapshotJson = snap ? JSON.stringify(snap) : null;
   const scenarioSha = snapshotJson ? createHash('sha256').update(snapshotJson).digest('hex') : null;
 
   // Reuse when executable content + scenario CHOICE match the latest version.
   const latest = db.prepare(
-    'SELECT id, revision, steps_sha256, scenario_id, yaml_canonical FROM case_versions WHERE template_id = ? ORDER BY revision DESC LIMIT 1',
-  ).get(args.templateId) as { id: string; revision: number; steps_sha256: string; scenario_id: string | null; yaml_canonical: string } | undefined;
+    'SELECT id, revision, steps_sha256, scenario_id, scenario_snapshot_json, variant_id, variant_env_json FROM case_versions WHERE template_id = ? ORDER BY revision DESC LIMIT 1',
+  ).get(args.templateId) as { id: string; revision: number; steps_sha256: string; scenario_id: string | null; scenario_snapshot_json: string | null; variant_id: string | null; variant_env_json: string | null; yaml_canonical: string } | undefined;
 
-  if (latest && latest.steps_sha256 === stepsSha && latest.scenario_id === scenarioId) {
+  if (latest && latest.steps_sha256 === stepsSha && latest.scenario_id === scenarioId && latestVariantEnvJson(latest) === variantEnvJson) {
     // Backfill rows carry empty yaml — fill it now that we can (same
     // content, richer record; not a new revision).
     if (latest.yaml_canonical === '') {
@@ -123,9 +132,9 @@ export function snapshotCaseVersion(db: Database.Database, args: {
     const id = `cv_${randomUUID().slice(0, 12)}`;
     try {
       db.prepare(
-        `INSERT INTO case_versions(id, template_id, revision, steps_sha256, yaml_canonical, scenario_id, scenario_snapshot_json, source, created_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'run', ?, ?)`,
-      ).run(id, args.templateId, revision, stepsSha, canonicalYaml(t), scenarioId, snapshotJson, args.triggeredBy ?? null, Date.now());
+        `INSERT INTO case_versions(id, template_id, revision, steps_sha256, yaml_canonical, scenario_id, scenario_snapshot_json, source, created_by, created_at, variant_id, variant_env_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'run', ?, ?, ?, ?)`,
+      ).run(id, args.templateId, revision, stepsSha, canonicalYaml(t), scenarioId, snapshotJson, args.triggeredBy ?? null, Date.now(), args.variant?.id ?? null, variantEnvJson);
       return { id, revision, isNew: true, scenarioSha };
     } catch (err) {
       if (attempt < 1 && String((err as Error).message).includes('UNIQUE')) continue; // lost the race — reuse winner
