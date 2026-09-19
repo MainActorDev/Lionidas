@@ -7,6 +7,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { crucibleAlloy } from '../alloy/client.ts';
 import { initAlloyRuntime } from '../alloy/runtime.ts';
 import { parseCaseYaml, caseToYaml } from '@crucible/shared/case-yaml';
+import { VARIANT_ID_RE as VARIANT_ID_RE_LOCAL } from '@crucible/shared/yaml-variants';
 import { tapsForRun } from '../evidence/taps-store.ts';
 
 interface TemplateRow {
@@ -345,17 +346,25 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
    *  plus case names (runFlow targets), bundle ids, tags. One fetch per
    *  editor open; pure aggregation, no device contact. */
   app.get('/api/templates/vocabulary', async () => {
-    const rows = db.prepare('SELECT name, steps_json, app_bundle_id, tags_json FROM templates').all() as
-      Array<{ name: string; steps_json: string; app_bundle_id: string | null; tags_json: string | null }>;
+    const rows = db.prepare('SELECT name, steps_json, app_bundle_id, tags_json, variants_json FROM templates').all() as
+      Array<{ name: string; steps_json: string; app_bundle_id: string | null; tags_json: string | null; variants_json: string | null }>;
     const selMap = new Map<string, { value: string; kind: 'label' | 'identifier'; uses: number; cases: Set<string> }>();
     const caseNames: string[] = [];
     const apps = new Set<string>();
     const tags = new Set<string>();
+    const variantIds = new Set<string>();
     for (const r of rows) {
       caseNames.push(r.name);
       if (r.app_bundle_id) apps.add(r.app_bundle_id);
       for (const t of JSON.parse(r.tags_json ?? '[]') as unknown[]) {
         if (typeof t === 'string' && t.trim()) tags.add(t.trim());
+      }
+      if (r.variants_json) {
+        try {
+          for (const v of JSON.parse(r.variants_json) as Array<{ id?: unknown }>) {
+            if (typeof v['id'] === 'string' && VARIANT_ID_RE_LOCAL.test(v['id'])) variantIds.add(v['id']);
+          }
+        } catch { /* malformed variants_json — tolerated */ }
       }
       try {
         for (const s of JSON.parse(r.steps_json) as Array<Record<string, unknown>>) {
@@ -380,6 +389,10 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       caseNames,
       apps: [...apps],
       tags: [...tags],
+      // phase B — variant completions (malformed variants_json tolerated,
+      // same rule as malformed steps: skip the row's variants, keep the rest)
+      scenarios: (db.prepare('SELECT name FROM scenarios ORDER BY name').all() as Array<{ name: string }>).map((r) => r.name),
+      variantIds: [...variantIds],
     };
   });
 

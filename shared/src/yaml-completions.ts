@@ -15,6 +15,10 @@ export interface EditorVocabulary {
   caseNames: string[];
   apps: string[];
   tags: string[];
+  /** phase B — variant completions; optional so old callers degrade to
+   *  grammar-only exactly like a missing vocabulary does. */
+  scenarios?: string[];
+  variantIds?: string[];
 }
 
 export interface VocabCompletion {
@@ -44,6 +48,7 @@ export function buildCompletions(slot: YamlSlot, vocab: EditorVocabulary, _typed
         { label: 'steps', detail: 'the recorded steps', apply: 'steps:\n  - ', type: 'keyword' },
         { label: 'setup', detail: 'declared preconditions — guarded steps that no-op when already satisfied', apply: 'setup:\n  - tap: { point: [0, 0], on: \'\', when: \'\' }\nsteps:\n  - ', type: 'keyword' },
         { label: 'alerts', detail: 'how system dialogs are answered run-wide: accept, dismiss, or fail (default)', apply: 'alerts: dismiss', type: 'keyword' },
+        { label: 'variants', detail: 'state coverage — one flow, N deterministic worlds (scenario + env per variant)', apply: 'variants:\n  - id: \n    networkScenario: \n    env:\n      key: value', type: 'keyword' },
       ];
     case 'step-action':
       return [
@@ -55,6 +60,16 @@ export function buildCompletions(slot: YamlSlot, vocab: EditorVocabulary, _typed
         { label: 'alert', detail: 'accept or dismiss a system alert (no-op when none is up)', apply: 'alert: dismiss', type: 'keyword' },
         { label: 'location', detail: 'set the simulated GPS position (lat/lon)', apply: 'location: { latitude: -6.1754, longitude: 106.8272 }', type: 'keyword' },
       ];
+    case 'variant-key':
+      return [
+        { label: 'id', detail: 'variant identifier ([a-z][a-z0-9_-]*)', apply: 'id: ', type: 'keyword' },
+        { label: 'networkScenario', detail: 'network scenario name (deterministic responses for this variant)', apply: 'networkScenario: ', type: 'keyword' },
+        { label: 'env', detail: 'env values for ${…} refs in steps', apply: 'env:\n      key: value', type: 'keyword' },
+      ];
+    case 'scenario-name':
+      return (vocab.scenarios ?? []).map((sc) => ({ label: sc, detail: 'network scenario', apply: sc, type: 'text' as const }));
+    case 'variant-id':
+      return (vocab.variantIds ?? []).map((id) => ({ label: id, detail: 'variant id (used in another case)', apply: id, type: 'text' as const }));
     case 'direction':
       return (['up', 'down', 'left', 'right'] as const).map((d) => ({ label: d, apply: d, type: 'keyword' as const }));
     case 'alert-value':

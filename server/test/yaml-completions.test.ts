@@ -13,9 +13,9 @@ const vocab: EditorVocabulary = {
 };
 
 describe('buildCompletions', () => {
-  it('top-key offers the four top-level keys with detail text', () => {
+  it('top-key offers the top-level keys with detail text', () => {
     const cs = buildCompletions('top-key', vocab, '');
-    expect(cs.map((c) => c.label)).toEqual(['name', 'tags', 'app', 'steps', 'setup', 'alerts']);
+    expect(cs.map((c) => c.label)).toEqual(['name', 'tags', 'app', 'steps', 'setup', 'alerts', 'variants']);
     expect(cs.every((c) => c.detail)).toBe(true);
   });
 

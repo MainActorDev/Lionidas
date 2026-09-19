@@ -15,6 +15,9 @@ export type YamlSlot =
   | 'runflow-name'   // after "runFlow: { name: " or "- runFlow: "
   | 'app-value'      // after "app: "
   | 'tag-value'      // inside tags: [ … ]
+  | 'variant-id'     // right after "- " inside the variants: block
+  | 'variant-key'    // a sibling key line inside a variant entry (4-space indent)
+  | 'scenario-name'  // after "networkScenario: "
   | 'none';
 
 export function slotAt(doc: string, cursor: number): YamlSlot {
@@ -26,6 +29,29 @@ export function slotAt(doc: string, cursor: number): YamlSlot {
 
   // inside a top-level tags list? (runs first: step lines never contain "tags:")
   if (/\btags:\s*\[[^\]]*$/.test(before)) return 'tag-value';
+
+  // variants block scope: the nearest preceding top-level key above us is
+  // "variants:" (scan backwards for a column-0 key line; stop at any other
+  // top-level key — the variants block ends there).
+  {
+    let ls = lineStart;
+    let inVariants = false;
+    while (ls > 0) {
+      const prevStart = doc.lastIndexOf('\n', ls - 2) + 1;
+      const prevLine = doc.slice(prevStart, ls - 1);
+      const m = /^([a-z][a-zA-Z]*):/.exec(prevLine);
+      if (m) { inVariants = m[1] === 'variants'; break; }
+      ls = prevStart;
+    }
+    if (inVariants) {
+      // value side of networkScenario (cursor anywhere after the key on
+      // this line — including mid-typed scenario names)
+      if (/networkScenario:/.test(before)) return 'scenario-name';
+      if (/^\s*-\s*$/.test(before) || /^\s*-\s*[a-z0-9_-]*$/.test(before)) return 'variant-id';
+      if (/^\s{4}[a-zA-Z]*$/.test(before) && !before.includes(':')) return 'variant-key';
+      return 'none';
+    }
+  }
 
   // step context
   const stepMatch = /^(\s*)-\s?/.exec(before);
