@@ -139,6 +139,32 @@ describe('user management (admin)', () => {
     expect((dead.json() as { user: unknown }).user).toBeNull();
   });
 
+  it('admin mutations leave an audit trail in auth_log (actor, target, event)', async () => {
+    await app.inject({ method: 'POST', url: '/api/users', headers: H(), payload: { email: 'audit@x.com', name: 'audit', role: 'viewer', password: 'viewerpass1' } });
+    const row = db.prepare("SELECT id FROM users WHERE email = 'audit@x.com'").get() as { id: string };
+    // role change → logged
+    await app.inject({ method: 'PATCH', url: `/api/users/${row.id}`, headers: H(), payload: { role: 'operator' } });
+    // password reset → logged, value never appears
+    await app.inject({ method: 'PATCH', url: `/api/users/${row.id}`, headers: H(), payload: { password: 'rotated-pass-9' } });
+    // deactivate → logged
+    await app.inject({ method: 'PATCH', url: `/api/users/${row.id}`, headers: H(), payload: { active: false } });
+    const events = db.prepare('SELECT event, detail, email FROM auth_log WHERE user_id = ? ORDER BY id').all(row.id) as Array<{ event: string; detail: string; email: string }>;
+    const names = events.map((e) => e.event);
+    expect(names).toContain('role_changed');
+    expect(names).toContain('password_changed');
+    expect(names).toContain('active_changed');
+    // detail names actor and transition, never the secret
+    const pw = events.find((e) => e.event === 'password_changed')!;
+    expect(pw.detail).toContain('by admin');
+    expect(pw.detail).not.toContain('rotated-pass-9');
+    // target identity recorded on every row
+    for (const e of events) expect(e.email).toBe('audit@x.com');
+    // no-op PATCH (same role) → not logged
+    await app.inject({ method: 'PATCH', url: `/api/users/${row.id}`, headers: H(), payload: { role: 'operator' } });
+    const again = db.prepare("SELECT COUNT(*) AS c FROM auth_log WHERE user_id = ? AND event = 'role_changed'").get(row.id) as { c: number };
+    expect(again.c).toBe(1);
+  });
+
   it('bootstrap admin cannot be deactivated', async () => {
     const r = await app.inject({ method: 'PATCH', url: '/api/users/usr_admin01', headers: H(), payload: { active: false } });
     expect(r.statusCode).toBe(400);

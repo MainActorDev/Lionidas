@@ -397,7 +397,8 @@ export function migrateM1(db: Database.Database): void {
       at INTEGER NOT NULL,
       email TEXT,
       user_id TEXT,
-      event TEXT NOT NULL,            -- login | login_failed | logout | session_killed
+      event TEXT NOT NULL,            -- login | login_failed | logout | session_killed | approved | unapproved
+                                      -- | role_changed | active_changed | password_changed | bot_token_rotated
       detail TEXT
     );
     -- Phase D — suites: a named, ordered collection of case memberships,

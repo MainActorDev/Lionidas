@@ -176,21 +176,31 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
     const b = req.body as { role?: Role; active?: boolean; approved?: boolean; password?: string; botToken?: string } | null;
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
     if (!user) return reply.code(404).send({ error: 'not found' });
+    // audit trail: admin credential/account mutations leave a named trace.
+    // actor = the admin session that did it; target = the user row changed.
+    // (found live: a silent password rotation left no way to answer "who changed it")
+    const audit = (event: string, detail: string): void => {
+      db.prepare('INSERT INTO auth_log(at, email, user_id, event, detail) VALUES (?, ?, ?, ?, ?)')
+        .run(Date.now(), user.email, id, event, `${detail} by ${req.user?.name ?? 'unknown'}`);
+    };
     if (b?.role && ['viewer', 'operator', 'admin'].includes(b.role)) {
+      if (b.role !== user.role) audit('role_changed', `role ${user.role} → ${b.role}`);
       db.prepare('UPDATE users SET role = ? WHERE id = ?').run(b.role, id);
     }
     if (typeof b?.approved === 'boolean') {
+      if (b.approved !== !!user.approved) audit(b.approved ? 'approved' : 'unapproved', `approved ${user.approved ? 1 : 0} → ${b.approved ? 1 : 0}`);
       db.prepare('UPDATE users SET approved = ? WHERE id = ?').run(b.approved ? 1 : 0, id);
-      if (b.approved) db.prepare('INSERT INTO auth_log(at, user_id, event, detail) VALUES (?, ?, ?, ?)').run(Date.now(), id, 'approved', `by ${req.user?.name ?? 'admin'}`);
-      return { user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow) };
+      if (b.approved) return { user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow) };
     }
     if (typeof b?.active === 'boolean') {
       if (user.id === 'usr_admin01' && b.active === false) return reply.code(400).send({ error: 'cannot deactivate the bootstrap admin' });
+      if (b.active !== !!user.active) audit('active_changed', `active ${user.active ? 1 : 0} → ${b.active ? 1 : 0}`);
       db.prepare('UPDATE users SET active = ? WHERE id = ?').run(b.active ? 1 : 0, id);
       if (!b.active) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id); // deactivate kills sessions
     }
     if (b?.password) {
       if (b.password.length < 8) return reply.code(400).send({ error: 'password min 8 chars' });
+      audit('password_changed', 'password reset'); // never log the value itself
       db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(b.password), id);
       db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id); // reset forces re-login
     }
@@ -198,6 +208,7 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
       // issue/rotate a per-bot agent token (bot rows only) — the value is returned ONCE here
       if (user.role !== 'bot') return reply.code(400).send({ error: 'botToken applies to bot users only' });
       if (b.botToken.length < 8) return reply.code(400).send({ error: 'token min 8 chars' });
+      audit('bot_token_rotated', `token rotated for ${user.name}`);
       db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(b.botToken), id);
       return { user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow), botToken: `${user.name}-${b.botToken}` };
     }
