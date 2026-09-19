@@ -133,7 +133,7 @@ rows with variant-subset chips, rollup summary, run button, and what the
 HOME page's button says now (collision resolution). NEW FILE per option;
 no trimming to "just the diff". **Pick → then T6/T7 UI build 1:1.**
 
-### T1 — Schema (receipt 1)
+### T1 — Schema (receipt 1) — ✅ SHIPPED `27e0365`
 CREATE block: `suites(id, name UNIQUE, description, created_by, created_at,
 updated_at)` + `suite_members(suite_id, template_id, variant_ids_json,
 position, UNIQUE(suite_id, template_id))`. Guarded ALTERs: `runs ADD
@@ -142,7 +142,7 @@ CREATE statements and the ALTER loop (phase C dead-DDL lesson). Index
 `idx_runs_suite(suite_id, started_at DESC)`. Tests: fresh-DB + existing-DB
 migration (column present both paths), CASCADE/SET NULL behavior.
 
-### T2 — Suites CRUD + membership (`routes/suites.ts`)
+### T2 — Suites CRUD + membership (`routes/suites.ts`) — ✅ SHIPPED `5f5e323`
 `GET /api/suites` (list + member counts + rollup from D3 map),
 `GET /api/suites/:id` (members with verdicts), `POST`, `PATCH`
 (name/description/members replace), `DELETE`. Name UNIQUE → 409 (existing
@@ -152,7 +152,7 @@ class as expansion-time scenario errors); plain case with a subset → 400;
 empty subset array → 400 ("omit for all"). Tests: CRUD round-trip, 409
 dup name, all four validation 400s, member order = position.
 
-### T3 — runBatch `cases` param + suite play route (receipts 3, 8)
+### T3 — runBatch `cases` param + suite play route (receipts 3, 8) — ✅ SHIPPED `5f5e323`
 `runBatch` accepts `cases`; expansion: plain member → 1 entry; variants
 member NULL-subset → all variants (existing flatMap); subset → pinned
 entries only. `POST /api/suites/:id/play` → resolve members → `runBatch`
@@ -163,12 +163,12 @@ expansion COUNT (3-variant case, subset of 2 → exactly 2 runs), all-variant
 member, plain member stays plain (variant_id NULL), suite_id on every run,
 halt reason names case+variant (phase C shape), DEVICE_BUSY payload reuse.
 
-### T4 — Playback `suiteId` opt (receipt 4)
+### T4 — Playback `suiteId` opt (receipt 4) — ✅ SHIPPED `5f5e323` + `18ab5e6` (staging fix)
 opts.suiteId → INSERT column (playback.ts:337 site); runs payload carries
 `suiteId` + suite NAME resolved at read time (join on the runs route, no
 denormalization). Tests: stamped when present, NULL for non-suite runs.
 
-### T5 — plans-reference-suites (receipts 2, 8)
+### T5 — plans-reference-suites (receipts 2, 8) — ✅ SHIPPED `5f5e323`
 `plans.suite_id` in planRow payload + create/update validation
 (exactly-one-of tags|suite → 400 both-set and neither-set). Plan run:
 suite branch resolves members → D2 param (suite wins; tags ignored by
@@ -176,20 +176,20 @@ construction since validation forbade both). Deleted suite → 400 honest at
 run. Tests: validation 400s, plan-with-suite runs the members, 400 on
 deleted suite.
 
-### T6 — Per-variant verdict partition (receipt 6) — UI sketch-gated
+### T6 — Per-variant verdict partition (receipt 6) — UI sketch-gated — ✅ SHIPPED `d9bbea4` + `f3fb411` (010-1 sidebar+board; per-variant chips in editor + board)
 `suiteVerdicts` variant partition (NULL = plain); case payload gains
 `variants: […]`; case table renders per-variant trend inside the case row
 (cell list, not one column per variant — 12-variant cases must not break
 layout; exact shape from the picked sketch). Tests: mixed plain+variant
 history partitions correctly; variantless case has no `variants` array.
 
-### T7 — `?variant=` runs filter + chip click-through (receipt 5)
+### T7 — `?variant=` runs filter + chip click-through (receipt 5) — ✅ SHIPPED `5f5e323` (server `?suite=`/`?variant=`) + `d9bbea4` (RunsPage deep-link)
 Route: `variant_id = ?` param; RunsPage chip links `?variant=<id>`.
 Exact-id only; filtering plain runs (`variant_id IS NULL`) is OUT (cheap
 later, needs a reserved token decision). Tests: filter matches only that
 variant's runs; absent param unchanged.
 
-### T8 — Docs + DEFERRED + gates
+### T8 — Docs + DEFERRED + gates — ✅ SHIPPED `fc3bbef` (guide section) · **phase D COMPLETE 2026-09-20**, live play drill verified (stamped runs, board verdicts, deep-link)
 Guide: suites section (create → pin variants → run → read rollup; plan
 pinning), variants paragraph gains subset mention. DEFERRED: strike the
 Phase D lines from §G/§H, note what's still carried (per-flow variants,
