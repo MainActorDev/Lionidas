@@ -201,7 +201,7 @@ load();
           <span class="verdict" :class="m.lastStatus === 'passed' ? 'ok' : m.lastStatus != null ? 'bad' : 'blk'">
             {{ m.lastStatus === 'passed' ? 'pass' : m.lastStatus === 'failed' ? 'fail' : m.lastStatus === 'aborted' ? 'abort' : m.lastStatus != null ? m.lastStatus : 'never' }}
           </span>
-          <span class="name">{{ m.name ?? m.templateId }}<span v-if="m.appBundleId" class="app"> · {{ m.appBundleId }}</span></span>
+          <span class="name">{{ m.name ?? m.templateId }}<span v-if="m.appBundleId" class="bundle"> · {{ m.appBundleId }}</span></span>
           <span class="vchips">
             <span class="vchip" :class="{ all: vchipText(m).all }">{{ vchipText(m).text }}</span>
           </span>
@@ -292,7 +292,7 @@ load();
 .mem .pos { color: var(--color-steel); font-size: 11px; width: 20px; }
 .mem .verdict { width: 64px; font-size: 11px; }
 .mem .name { color: var(--color-paper); }
-.mem .name .app { color: var(--color-steel); font-size: 11px; }
+.mem .name .bundle { color: var(--color-steel); font-size: 11px; }
 .verdict.ok { color: var(--color-fog); }
 .verdict.bad { color: var(--color-paper); }
 .verdict.blk { color: var(--color-ash); font-style: italic; }
