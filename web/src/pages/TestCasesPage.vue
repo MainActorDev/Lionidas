@@ -234,6 +234,17 @@ async function openEvidence(t: Template): Promise<void> {
   evidenceView.value = { templateId: t.id, caseName: t.name, lanes };
 }
 function closeEvidence(): void { evidenceView.value = null; }
+
+/** a lane was purged via the sheet — drop it from the open view; empty sheet
+ *  closes itself. Gallery thumbs on the row refresh via the templates refetch
+ *  below (keeps the run-outcome cells in sync with what evidence remains). */
+function onLaneDeleted(variantId: string | null): void {
+  if (!evidenceView.value) return;
+  const lanes = evidenceView.value.lanes.filter((l) => l.variantId !== variantId);
+  if (lanes.length === 0) { closeEvidence(); void load(); return; }
+  evidenceView.value = { ...evidenceView.value, lanes };
+  void load();
+}
 function onKey(e: KeyboardEvent): void {
   if (e.key === 'Escape') {
     // evidence sheet owns Escape while open (its own window listener uses
@@ -806,7 +817,7 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
          lanes grouped as contact rows; card click → cinema view -->
     <EvidenceSheet :open="!!evidenceView" :case-name="evidenceView?.caseName ?? ''"
       :template-id="evidenceView?.templateId ?? ''" :lanes="evidenceView?.lanes ?? []"
-      @close="closeEvidence" />
+      @close="closeEvidence" @lane-deleted="onLaneDeleted" />
   </section>
 </template>
 

@@ -4,6 +4,8 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { randomUUID, createHash } from 'node:crypto';
+import { rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { crucibleAlloy } from '../alloy/client.ts';
 import { initAlloyRuntime } from '../alloy/runtime.ts';
 import { parseCaseYaml, caseToYaml } from '@crucible/shared/case-yaml';
@@ -381,6 +383,31 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     const r = db.prepare('DELETE FROM templates WHERE id = ?').run(id);
     if (r.changes === 0) return reply.code(404).send({ error: 'not found' });
     return { ok: true };
+  });
+
+  /** Purge ONE variant lane's artifacts: files + evidence rows + step refs +
+   *  run rows (all finished runs in the lane). Refuses with 409 while any run
+   *  in the lane is live (unfinished) — its evidence is being written right
+   *  now. Same cleanup recipe as retention's prunePreviousRunArtifacts. */
+  app.delete('/api/templates/:id/runs', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const q = req.query as { variant?: string };
+    if (q.variant === undefined) return reply.code(400).send({ error: 'variant query param required ("" for the variantless lane)' });
+    const lane = q.variant === '' ? null : q.variant;
+
+    const live = db.prepare('SELECT id FROM runs WHERE template_id = ? AND variant_id IS ? AND finished_at IS NULL').get(id, lane);
+    if (live) return reply.code(409).send({ error: 'lane has a live run', runId: (live as { id: string }).id });
+
+    const victims = db.prepare('SELECT id FROM runs WHERE template_id = ? AND variant_id IS ?').all(id, lane) as Array<{ id: string }>;
+    if (victims.length === 0) return reply.code(404).send({ error: 'lane has no runs' });
+    const artifactsDir = process.env['CRUCIBLE_ARTIFACTS_DIR'] ?? './artifacts';
+    for (const v of victims) {
+      try { rmSync(join(artifactsDir, v.id), { recursive: true, force: true }); } catch { /* best-effort */ }
+      db.prepare('DELETE FROM evidence WHERE bundle_id = ?').run(v.id);
+    }
+    db.prepare('DELETE FROM run_steps WHERE run_id IN (SELECT id FROM runs WHERE template_id = ? AND variant_id IS ?)').run(id, lane);
+    db.prepare('DELETE FROM runs WHERE template_id = ? AND variant_id IS ?').run(id, lane);
+    return { deleted: victims.length };
   });
 
   // ── YAML authoring (the ONE format definition lives in web/src/shared/

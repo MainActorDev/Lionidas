@@ -234,6 +234,40 @@ describe('evidence resolver — per-expect preference', () => {
     expect(missing.statusCode).toBe(404);
   });
 
+  it('DELETE /runs?variant= purges a lane: evidence, step refs, run rows; other lanes untouched', async () => {
+    seedRunWithSteps('tp-dl', [{ idx: 0, name: 'expect A', status: 'pass', ev: 'ev-dl1' }]);
+    db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, finished_at, note, template_id, variant_id)
+                VALUES ('r-dl-sg', 'T', 'manual', 'passed', 'qa', 's', 100, 200, 'n', 'tp-dl', 'sg')`).run();
+    db.prepare(`INSERT INTO run_steps(run_id, idx, flow_name, kind, name, status, started_at, duration_ms, evidence_ids_json)
+                VALUES ('r-dl-sg', 0, 't', 'expect', 'sg step', 'pass', 0, 0, '["ev-dl-vid"]')`).run();
+    db.prepare(`INSERT INTO evidence(id, bundle_id, type, path, sha256, bytes, moov_ok, created_at)
+                VALUES ('ev-dl-vid', 'r-dl-sg', 'video', '/tmp/v.mp4', 'h', 1, NULL, 0)`).run();
+    // a variantless run on the SAME template must survive
+    const before = (await app.inject({ method: 'GET', url: '/api/templates/tp-dl/evidence' })).json() as { lanes: Array<{ variantId: string | null; runId: string }> };
+    expect(before.lanes.map((l) => l.variantId)).toEqual([null, 'sg']);
+
+    const res = await app.inject({ method: 'DELETE', url: '/api/templates/tp-dl/runs?variant=sg' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ deleted: 1 });
+    expect(db.prepare('SELECT COUNT(*) c FROM runs WHERE template_id = ? AND variant_id = ?').get('tp-dl', 'sg') as { c: number }).toEqual({ c: 0 });
+    expect(db.prepare('SELECT COUNT(*) c FROM evidence WHERE bundle_id = ?').get('r-dl-sg') as { c: number }).toEqual({ c: 0 });
+    expect(db.prepare(`SELECT COUNT(*) c FROM run_steps WHERE run_id = ?`).get('r-dl-sg') as { c: number }).toEqual({ c: 0 });
+    // variantless lane untouched — its run + evidence still there
+    const after = (await app.inject({ method: 'GET', url: '/api/templates/tp-dl/evidence' })).json() as { lanes: Array<{ variantId: string | null; runId: string }> };
+    expect(after.lanes.map((l) => l.variantId)).toEqual([null]);
+    expect(after.lanes[0]!.runId).toBe('r-tp-dl');
+    expect(db.prepare('SELECT COUNT(*) c FROM evidence WHERE bundle_id = ?').get('r-tp-dl') as { c: number }).toEqual({ c: 1 });
+  });
+
+  it('DELETE /runs?variant= refuses a lane holding a LIVE (unfinished) run — 409', async () => {
+    seedRunWithSteps('tp-live', [{ idx: 0, name: 'expect A', status: 'pass', ev: 'ev-lv1' }]);
+    db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, finished_at, note, template_id, variant_id)
+                VALUES ('r-live-sg', 'T', 'manual', 'running', 'qa', 's', 100, NULL, 'n', 'tp-live', 'sg')`).run();
+    const res = await app.inject({ method: 'DELETE', url: '/api/templates/tp-live/runs?variant=sg' });
+    expect(res.statusCode).toBe(409);
+    expect(db.prepare('SELECT COUNT(*) c FROM runs WHERE id = ?').get('r-live-sg') as { c: number }).toEqual({ c: 1 });
+  });
+
   it('resolver + run-taps honor ?variant= lanes (same run per lane)', async () => {
     seedRunWithSteps('tp-rv', [{ idx: 0, name: 'expect A', status: 'pass', ev: 'ev-rv1' }]);
     db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, finished_at, note, template_id, variant_id, video_started_at)

@@ -15,7 +15,7 @@ export interface EvidenceLane {
 }
 
 const props = defineProps<{ open: boolean; caseName: string; templateId: string; lanes: EvidenceLane[] }>();
-const emit = defineEmits<{ close: [] }>();
+const emit = defineEmits<{ close: []; 'lane-deleted': [variantId: string | null] }>();
 
 // ── filter pills: 'all' | 'failed' | '' (plain lane) | variant id ──
 const filter = ref<string>('all');
@@ -26,6 +26,21 @@ const visibleLanes = computed(() => {
 });
 function laneLabel(l: EvidenceLane): string { return l.variantId ?? 'plain'; }
 function laneFailed(l: EvidenceLane): boolean { return l.runStatus === 'failed' || l.items.some((i) => i.status === 'fail'); }
+
+/** per-lane artifact purge — DELETE /api/templates/:id/runs?variant=<lane>.
+ *  Destroys files + evidence + run rows for the WHOLE lane (all runs, not
+ *  just the newest); server refuses (409) if a live run is in it. */
+async function deleteLane(l: EvidenceLane): Promise<void> {
+  const label = l.variantId ?? 'plain';
+  if (!window.confirm(`delete ALL artifacts for variant "${label}"?\n(run ${l.runId} + every earlier run in this lane — files, evidence, run rows. This cannot be undone.)`)) return;
+  const res = await fetch(`/api/templates/${props.templateId}/runs?variant=${encodeURIComponent(l.variantId ?? '')}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string };
+    window.alert(`delete failed (${res.status}): ${body.error ?? res.statusText}`);
+    return;
+  }
+  emit('lane-deleted', l.variantId);
+}
 function envText(l: EvidenceLane): string {
   if (!l.env) return '—';
   return Object.entries(l.env).map(([k, v]) => `${k}=${v}`).join(' · ');
@@ -99,6 +114,8 @@ watch(() => props.open, (o) => { if (!o) { cinema.value = null; filter.value = '
               <span v-if="shotCount(l)"> · <b>{{ shotCount(l) }} shot{{ shotCount(l) === 1 ? '' : 's' }}</b></span>
               <span v-if="hasVideo(l)"> · <b>video</b></span>
             </span>
+            <button class="grp-del" title="delete this variant lane's artifacts"
+              @click.stop="deleteLane(l)">delete lane</button>
           </div>
           <div class="row">
             <button v-for="item in l.items" :key="item.evId" class="card"
@@ -171,6 +188,8 @@ watch(() => props.open, (o) => { if (!o) { cinema.value = null; filter.value = '
 .grp-status { margin-left: auto; color: var(--color-ash); font-size: 11px; }
 .grp-status b { font-weight: 400; color: var(--color-fog); }
 .grp-verb.fail { color: var(--color-paper); border: 1px dashed var(--color-paper); padding: 0 6px; }
+.grp-del { margin-left: var(--s-3); font-size: 10px; color: var(--color-steel); background: none; border: 1px solid var(--color-iron); border-radius: var(--r); padding: 2px 8px; cursor: pointer; transition: color var(--t), border-color var(--t); }
+.grp-del:hover { color: var(--color-paper); border-color: var(--color-paper); }
 
 /* ── contact cards ── */
 .row { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
