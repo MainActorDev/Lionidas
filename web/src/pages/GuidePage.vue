@@ -82,7 +82,10 @@ const groups = computed(() => {
     <p style="color: var(--color-fog); font-size: var(--text-body); line-height: 1.6; margin: var(--s-2) 0 0;">
       A case can also declare <b>variants</b> — one flow tested against several deterministic worlds. Add a
       <b>variants:</b> block to the yaml (id + network scenario + env per variant; the editor autocompletes it).
-      Variants validate on save today; each variant executing as its own run arrives with the next phase.
+      Playing the case runs <b>every variant, sequentially — each is its own run</b>: its own evidence, its own
+      version pin, its own verdict. Play-all expands variant cases the same way, and the runs page tags each
+      variant run with a <code>▸ variant</code> chip. One variant alone? Play with
+      <code>?variant=its-id</code> (or the picker next to Play).
     </p>
   </div>
 
