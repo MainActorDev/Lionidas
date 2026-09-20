@@ -780,14 +780,34 @@ export function registerManualRoutes(
     if (members.length === 0) return reply.code(400).send({ error: 'suite has no members' });
     // drift filter: template bundles that no longer match the suite scope
     const bundleOf = db.prepare('SELECT app_bundle_id AS b FROM templates WHERE id = ?');
+    const variantsOfTpl = db.prepare('SELECT variants_json FROM templates WHERE id = ?');
     const drifted: string[] = [];
+    const ghostPins: Array<{ templateId: string; dead: string[] }> = [];
     const inScope = members.filter((m) => {
       const b = (bundleOf.get(m.templateId) as { b: string | null } | undefined)?.b ?? null;
       const ok = row.app_bundle_id === null || b === row.app_bundle_id;
       if (!ok) drifted.push(m.templateId);
+      if (ok && m.variantIds != null) {
+        // dead-variant pin: pinned ids missing from the case's CURRENT vocab.
+        // All-dead → skip the member (never silently play a plain run);
+        // partial → play survivors, name the dead in the response.
+        const vocab = (() => { try { return JSON.parse((variantsOfTpl.get(m.templateId) as { variants_json: string | null } | undefined)?.variants_json ?? 'null') as Array<{ id: string }> | null; } catch { return null; } })();
+        const dead = m.variantIds.filter((v) => !(vocab ?? []).some((x) => x.id === v));
+        if (dead.length > 0) {
+          const alive = m.variantIds.filter((v) => !dead.includes(v));
+          if (alive.length === 0) { ghostPins.push({ templateId: m.templateId, dead }); return false; }
+          m.variantIds = alive;
+          ghostPins.push({ templateId: m.templateId, dead });
+        }
+      }
       return ok;
     });
-    if (inScope.length === 0) return reply.code(409).send({ error: `every member drifted out of ${row.app_bundle_id ?? 'suite scope'}: ${drifted.join(', ')}`, code: 'BUNDLE_DRIFT', skipped: drifted });
+    if (ghostPins.length > 0) req.log.warn(`suite play ghost variant pins: ${JSON.stringify(ghostPins)}`);
+    const allSkipped = inScope.length === 0;
+    if (allSkipped) {
+      const drift = drifted.length > 0 ? `every member drifted out of ${row.app_bundle_id ?? 'suite scope'}: ${drifted.join(', ')}` : `every member has only dead variant pins: ${ghostPins.map((g) => `${g.templateId}(${g.dead.join(',')})`).join('; ')}`;
+      return reply.code(409).send({ error: drift, code: drifted.length > 0 ? 'BUNDLE_DRIFT' : 'DEAD_VARIANTS', skipped: [...drifted, ...ghostPins.map((g) => g.templateId)] });
+    }
     const b = (req.body ?? {}) as { udid?: string; triggeredBy?: string };
     const r = await runBatch({
       cases: inScope,
@@ -796,6 +816,6 @@ export function registerManualRoutes(
       suiteId: row.id,
     }, req.user);
     if (!r.ok) return reply.code(r.code).send({ error: r.error, code: r.code === 409 ? 'DEVICE_BUSY' : undefined, runIds: r.runIds });
-    return { runIds: r.runIds, count: r.count, batchId: r.batchId, ...(drifted.length > 0 ? { skippedDrifted: drifted } : {}) };
+    return { runIds: r.runIds, count: r.count, batchId: r.batchId, ...(drifted.length > 0 ? { skippedDrifted: drifted } : {}), ...(ghostPins.length > 0 ? { skippedDeadVariants: ghostPins } : {}) };
   });
 }

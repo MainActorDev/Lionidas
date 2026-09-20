@@ -176,6 +176,27 @@ describe('T3/T4 — suite play honest failures (full playback lives in batch-var
   });
 });
 
+describe('T8 — dead-variant pins at play', () => {
+  it('all-dead pin → member skipped with named reason; all members dead → 409 DEAD_VARIANTS', async () => {
+    mkCase('tpl_v1', 'V1', ['sg', 'my']);
+    mkCase('tpl_v2', 'V2');
+    const s = await app.inject({ method: 'POST', url: '/api/suites', payload: { name: 'pins', members: [{ templateId: 'tpl_v1', variantIds: ['sg'] }, { templateId: 'tpl_v2' }] } });
+    const sid = (s.json() as { id: string }).id;
+    // 'sg' deleted from the case vocab after the pin
+    db.prepare('UPDATE templates SET variants_json = ? WHERE id = ?').run(JSON.stringify([{ id: 'my' }]), 'tpl_v1');
+    const r = await app.inject({ method: 'POST', url: `/api/suites/${sid}/play`, payload: {} });
+    const body = r.json() as { skippedDeadVariants?: Array<{ templateId: string; dead: string[] }>; error?: string; code?: string };
+    // route-level harness (no device): honest playback failure, but the skip
+    // must be named BEFORE playback — never a silent plain run
+    expect(JSON.stringify(body.skippedDeadVariants ?? [])).toContain('sg');
+    // now the only member is all-dead → 409 with code
+    db.prepare('DELETE FROM suite_members WHERE suite_id = ? AND template_id = ?').run(sid, 'tpl_v2');
+    const all = await app.inject({ method: 'POST', url: `/api/suites/${sid}/play`, payload: {} });
+    expect(all.statusCode).toBe(409);
+    expect((all.json() as { code?: string }).code).toBe('DEAD_VARIANTS');
+  });
+});
+
 describe('T5 — plans exactly-one-of tags|suite', () => {
   it('both set → 400; unknown suite → 400; suite-sourced plan is suiteId-only', async () => {
     mkCase('tpl_h', 'H', ['sg']);

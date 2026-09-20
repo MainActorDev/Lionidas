@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { suiteVerdicts, type CaseVerdict } from '../db/suite.ts';
+import { lastSuitePlay, memberFreshness, suiteRunning } from '../db/suite-play-state.ts';
 
 interface SuiteRow { id: string; name: string; description: string | null; app_bundle_id: string | null; created_by: string; created_at: number; updated_at: number }
 interface MemberRow { suite_id: string; template_id: string; variant_ids_json: string | null; position: number }
@@ -28,7 +29,21 @@ function tplMap(db: Database.Database, members: MemberRow[]): Map<string, { name
   return tpl;
 }
 
-const suiteOut = (r: SuiteRow, members: MemberRow[], verdicts: Map<string, CaseVerdict>, tpl: Map<string, { name: string; appBundleId: string | null; variantVocab: string[] }> = new Map()) => ({
+/** Play-state enrichment: lastPlay batch (as it happened) + running flag +
+ *  per-member freshness (stale content / ghost variant pins). Computed at
+ *  read time like everything here — nothing stored. */
+function playState(db: Database.Database, r: SuiteRow, members: MemberRow[], tpl: Map<string, { name: string; appBundleId: string | null; variantVocab: string[] }>) {
+  const current = members.map((m) => ({ templateId: m.template_id, variantIds: m.variant_ids_json ? (JSON.parse(m.variant_ids_json) as string[]) : null }));
+  const lastPlay = lastSuitePlay(db, r.id, current);
+  const running = suiteRunning(db, r.id);
+  const fresh = new Map<string, { stale: boolean; staleVariants: string[] }>();
+  for (const m of members) {
+    fresh.set(m.template_id, memberFreshness(db, r.id, m.template_id, m.variant_ids_json ? (JSON.parse(m.variant_ids_json) as string[]) : null, tpl.get(m.template_id)?.variantVocab ?? []));
+  }
+  return { lastPlay, running, fresh };
+}
+
+const suiteOut = (r: SuiteRow, members: MemberRow[], verdicts: Map<string, CaseVerdict>, tpl: Map<string, { name: string; appBundleId: string | null; variantVocab: string[] }> = new Map(), ps?: ReturnType<typeof playState>) => ({
   id: r.id,
   name: r.name,
   description: r.description,
@@ -36,6 +51,7 @@ const suiteOut = (r: SuiteRow, members: MemberRow[], verdicts: Map<string, CaseV
   createdBy: r.created_by,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
+  ...(ps ? { lastPlay: ps.lastPlay, running: ps.running } : {}),
   members: members
     .slice()
     .sort((a, b) => a.position - b.position)
@@ -46,6 +62,7 @@ const suiteOut = (r: SuiteRow, members: MemberRow[], verdicts: Map<string, CaseV
       variantVocab: tpl.get(m.template_id)?.variantVocab ?? [],
       variantIds: m.variant_ids_json ? (JSON.parse(m.variant_ids_json) as string[]) : null,
       position: m.position,
+      ...(ps ? ps.fresh.get(m.template_id) ?? { stale: false, staleVariants: [] as string[] } : {}),
       ...(verdicts.get(m.template_id) ?? {
         lastRunId: null, lastStatus: null, lastBlocked: 0, lastFinishedAt: null, lastAppVersion: null, trend: null, totalRuns: 0,
       }),
@@ -61,9 +78,10 @@ export function registerSuiteRoutes(app: FastifyInstance, db: Database.Database)
     return {
       suites: rows.map((r) => {
         const members = memberStmt.all(r.id) as MemberRow[];
+        const tpl = tplMap(db, members);
         // suite-scoped: each suite gets its own verdict map (last play of
         // each member BY THIS SUITE) — shared members never leak across.
-        const s = suiteOut(r, members, suiteVerdicts(db, r.id), tplMap(db, members));
+        const s = suiteOut(r, members, suiteVerdicts(db, r.id), tpl, playState(db, r, members, tpl));
         // members stay in — the parity table computes per-member glyphs,
         // verdict rollup and drift flags client-side from live reads.
         return { ...s, memberCount: s.members.length };
@@ -134,7 +152,10 @@ export function registerSuiteRoutes(app: FastifyInstance, db: Database.Database)
       members.forEach((m, i) => ins.run(id, m.templateId, m.variantIds ? JSON.stringify(m.variantIds) : null, i));
     });
     try { tx(); } catch { return reply.code(409).send({ error: 'suite name already exists' }); }
-    return reply.code(201).send(suiteOut(db.prepare('SELECT * FROM suites WHERE id = ?').get(id) as SuiteRow, db.prepare('SELECT * FROM suite_members WHERE suite_id = ?').all(id) as MemberRow[], suiteVerdicts(db, id)));
+    const members2 = db.prepare('SELECT * FROM suite_members WHERE suite_id = ?').all(id) as MemberRow[];
+    const tpl2 = tplMap(db, members2);
+    const created = db.prepare('SELECT * FROM suites WHERE id = ?').get(id) as SuiteRow;
+    return reply.code(201).send(suiteOut(created, members2, suiteVerdicts(db, id), tpl2, playState(db, created, members2, tpl2)));
   });
 
   // ── patch: name/description/members. members REPLACE wholesale
@@ -163,7 +184,9 @@ export function registerSuiteRoutes(app: FastifyInstance, db: Database.Database)
     });
     try { tx(); } catch { return reply.code(409).send({ error: 'suite name already exists' }); }
     const rows = db.prepare('SELECT * FROM suite_members WHERE suite_id = ?').all(id) as MemberRow[];
-    return suiteOut(db.prepare('SELECT * FROM suites WHERE id = ?').get(id) as SuiteRow, rows, suiteVerdicts(db, id), tplMap(db, rows));
+    const tpl = tplMap(db, rows);
+    const updated = db.prepare('SELECT * FROM suites WHERE id = ?').get(id) as SuiteRow;
+    return suiteOut(updated, rows, suiteVerdicts(db, id), tpl, playState(db, updated, rows, tpl));
   });
 
   app.delete('/api/suites/:id', async (req, reply) => {
@@ -179,6 +202,6 @@ export function registerSuiteRoutes(app: FastifyInstance, db: Database.Database)
     if (!row) return reply.code(404).send({ error: 'not found' });
     const members = db.prepare('SELECT * FROM suite_members WHERE suite_id = ?').all(id) as MemberRow[];
     const tpl = tplMap(db, members);
-    return suiteOut(row, members, suiteVerdicts(db, id), tpl);
+    return suiteOut(row, members, suiteVerdicts(db, id), tpl, playState(db, row, members, tpl));
   });
 }
