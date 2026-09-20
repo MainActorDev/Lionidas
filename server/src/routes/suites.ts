@@ -63,7 +63,9 @@ export function registerSuiteRoutes(app: FastifyInstance, db: Database.Database)
       suites: rows.map((r) => {
         const members = memberStmt.all(r.id) as MemberRow[];
         const s = suiteOut(r, members, verdicts);
-        return { ...s, memberCount: s.members.length, members: undefined };
+        // members stay in — the parity table computes per-member glyphs,
+        // verdict rollup and drift flags client-side from live reads.
+        return { ...s, memberCount: s.members.length };
       }),
     };
   });
