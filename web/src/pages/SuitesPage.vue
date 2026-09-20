@@ -4,7 +4,7 @@
  *  edit is an explicit button that swaps the panel to the editor. Suite
  *  verdicts are suite-scoped reads; markers name the gap between the last
  *  play and the current pack. */
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { RouterLink } from 'vue-router';
 
 interface Member {
@@ -81,19 +81,6 @@ function statusClass(s: Suite): string {
   const k = kind(s);
   return k === 'green' ? 'status-pass' : k === 'red' ? 'status-fail' : k === 'blocked' ? 'status-blocked' : 'status-none';
 }
-/** verdict bar — one block per member, position order. Scales where glyph
- *  strings soup up; block n = member n (same order the preview lists). */
-function memberBlocks(s: Suite): Array<{ cls: string; title: string }> {
-  return (s.members ?? []).map((m) => {
-    const nm = m.name ?? m.templateId;
-    const t = m.lastStatus;
-    if (t === 'passed') return { cls: 'b-pass', title: `${nm} · pass` };
-    if (t == null) return { cls: 'b-none', title: `${nm} · never` };
-    if (m.lastBlocked === 1) return { cls: 'b-blocked', title: `${nm} · blocked` };
-    if (t === 'aborted') return { cls: 'b-abort', title: `${nm} · abort` };
-    return { cls: 'b-fail', title: `${nm} · fail` };
-  });
-}
 function verdictLabel(s: Suite): string {
   const k = kind(s);
   const ms = s.members ?? [];
@@ -128,17 +115,15 @@ function shortBundle(b: string | null): string {
 // ── panel — preview (read) below the row; edit is explicit ──
 const openId = ref<string | null>(null); // suite id or 'draft'
 const mode = ref<'preview' | 'edit'>('preview');
-const highlight = ref<string | null>(null); // templateId — from verdict-bar click
 
 function togglePanel(s: Suite): void {
   if (openId.value === s.id) { openId.value = null; return; }
   if (openId.value !== null && mode.value === 'edit' && isDirty() && !window.confirm('discard unsaved changes?')) return;
   openId.value = s.id;
   mode.value = 'preview';
-  highlight.value = null;
 }
 function closePanel(): void {
-  openId.value = null; editing.value = null; mode.value = 'preview'; highlight.value = null;
+  openId.value = null; editing.value = null; mode.value = 'preview';
 }
 function startEdit(s: Suite): void {
   if (s.running) return;
@@ -152,21 +137,10 @@ function startEdit(s: Suite): void {
 /** row 'edit' button — opens edit directly (empty suite skips preview) */
 function startEditFromRow(s: Suite): void {
   if ((s.members?.length ?? 0) === 0) { openId.value = s.id; startEdit(s); return; }
-  if (openId.value !== s.id) { openId.value = s.id; mode.value = 'preview'; highlight.value = null; }
+  if (openId.value !== s.id) { openId.value = s.id; mode.value = 'preview'; }
   startEdit(s);
 }
 
-/** verdict-bar block click → open preview scrolled to that member */
-async function jumpToMember(s: Suite, templateId: string): Promise<void> {
-  if (!templateId) return;
-  if (openId.value !== s.id) {
-    if (openId.value !== null && mode.value === 'edit' && isDirty() && !window.confirm('discard unsaved changes?')) return;
-    openId.value = s.id; mode.value = 'preview';
-  }
-  highlight.value = templateId;
-  await nextTick();
-  document.querySelector(`.pv-mem[data-tpl="${templateId}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-}
 function memberVerdictPill(m: Member): { cls: string; label: string } {
   if (m.lastStatus === 'passed') return { cls: 'status-pass', label: 'pass' };
   if (m.lastStatus == null) return { cls: 'status-none', label: 'never' };
@@ -371,12 +345,8 @@ async function saveEditor(): Promise<void> {
         <div class="su-row" @click="togglePanel(s)" :title="openId === s.id ? 'click to collapse' : 'click to preview members'">
           <span class="su-name">{{ s.name }}</span>
           <span class="su-bundle" :title="s.appBundleId ?? 'no app'">{{ shortBundle(s.appBundleId) }}</span>
-          <span class="su-members" :title="`${s.members?.length ?? s.memberCount ?? 0} members — block n = member n, play order`">
+          <span class="su-members" :title="`${s.members?.length ?? s.memberCount ?? 0} members`">
             {{ s.members?.length ?? s.memberCount ?? 0 }}
-            <span v-if="memberBlocks(s).length" class="su-bar" role="img" aria-label="member verdicts">
-              <span v-for="(b, i) in memberBlocks(s)" :key="i" class="su-block" :class="b.cls" :title="b.title"
-                @click.stop="jumpToMember(s, (s.members ?? [])[i]?.templateId ?? '')"></span>
-            </span>
             <span v-if="driftCount(s)" class="su-drift" :title="`${driftCount(s)} member(s) drifted out of ${s.appBundleId} — skipped at play`">drift</span>
           </span>
           <span class="su-updated" :title="new Date(s.updatedAt).toLocaleString()">{{ ago(s.updatedAt) }}</span>
@@ -407,7 +377,7 @@ async function saveEditor(): Promise<void> {
             </div>
             <div class="pv-body">
               <div v-if="(s.members?.length ?? 0) === 0" class="pv-empty">no members</div>
-              <div v-for="(m, i) in s.members ?? []" :key="m.templateId" class="pv-mem" :data-tpl="m.templateId" :class="{ hl: highlight === m.templateId }">
+              <div v-for="(m, i) in s.members ?? []" :key="m.templateId" class="pv-mem" :data-tpl="m.templateId">
                 <span class="ed-pos">{{ i + 1 }}</span>
                 <span class="pv-name" :title="m.templateId">{{ m.name ?? m.templateId }}</span>
                 <span class="pv-variants" :title="m.variantIds ? 'pinned subset' : 'all variants (default)'">{{ m.variantIds ? m.variantIds.join(' · ') : 'all' }}</span>
@@ -512,16 +482,6 @@ async function saveEditor(): Promise<void> {
 .su-actions { display: flex; gap: 4px; justify-content: flex-end; }
 .su-empty { color: var(--color-steel); text-align: center; padding: var(--s-7) 0; font-size: 12px; }
 
-/* verdict bar — one block per member, position order */
-.su-bar { display: inline-flex; gap: 2px; align-items: center; }
-.su-block { width: 7px; height: 12px; border-radius: 1px; cursor: pointer; flex: none; }
-.su-block.b-pass { background: var(--color-ember); }
-.su-block.b-fail { background: var(--color-paper); }
-.su-block.b-blocked { background: var(--color-ash); }
-.su-block.b-abort { background: var(--color-pewter); }
-.su-block.b-none { background: none; border: 1px solid var(--color-slate); box-sizing: border-box; }
-.su-block:hover { outline: 1px solid var(--color-chalk); }
-
 /* panel — preview + editor, the yaml-panel slot below the row */
 .su-editor { margin: 0 var(--s-2) var(--s-2); border: 1px solid var(--color-slate); border-radius: var(--r-sm); background: var(--color-graphite); }
 .pv-head, .ed-head { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--color-iron); }
@@ -529,7 +489,6 @@ async function saveEditor(): Promise<void> {
 .pv-last { color: var(--color-steel); font-size: 11px; }
 .pv-body { padding: var(--s-3); }
 .pv-mem { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-2); border: 1px solid var(--color-iron); border-radius: var(--r-sm); margin-bottom: 6px; background: var(--color-carbon); }
-.pv-mem.hl { border-color: var(--color-ember); }
 .pv-name { color: var(--color-paper); font-size: 12px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pv-variants { color: var(--color-steel); font-size: 11px; flex: none; }
 .pv-ago { color: var(--color-steel); font-size: 11px; width: 64px; text-align: right; flex: none; }
