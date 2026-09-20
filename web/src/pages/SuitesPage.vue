@@ -403,11 +403,10 @@ async function saveEditor(): Promise<void> {
               <span v-if="s.lastPlay?.membersChanged" class="status status-changes-pending" title="membership edited after the last play — run to refresh">members changed</span>
               <span class="su-spacer"></span>
               <RouterLink class="ed-runs" :to="{ path: '/runs', query: { suite: s.id } }">runs</RouterLink>
-              <button v-if="(s.members?.length ?? 0) > 0" class="btn btn-sm btn-ghost" @click="startEdit(s)" :disabled="s.running" :title="s.running ? 'suite is running' : 'edit members'">edit</button>
               <button class="btn btn-sm btn-ghost" @click="closePanel()">✕</button>
             </div>
             <div class="pv-body">
-              <div v-if="(s.members?.length ?? 0) === 0" class="pv-empty">no members — <a @click="startEdit(s)">edit</a></div>
+              <div v-if="(s.members?.length ?? 0) === 0" class="pv-empty">no members</div>
               <div v-for="(m, i) in s.members ?? []" :key="m.templateId" class="pv-mem" :data-tpl="m.templateId" :class="{ hl: highlight === m.templateId }">
                 <span class="ed-pos">{{ i + 1 }}</span>
                 <span class="pv-name" :title="m.templateId">{{ m.name ?? m.templateId }}</span>
