@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>trend A — momentum dots</title>
+<style>
+  :root {
+    --color-void: #000000; --color-carbon: #111111; --color-graphite: #191919;
+    --color-iron: #202020; --color-slate: #3a3a3a; --color-pewter: #505050;
+    --color-steel: #606060; --color-ash: #7e7e7e; --color-fog: #b4b4b4;
+    --color-chalk: #d9d9d9; --color-paper: #eeeeee;
+    --color-ember: #da5c2c; --color-ember-dim: #a04521;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    --r-sm: 2px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--color-void); color: var(--color-paper);
+    font-family: var(--font-mono); font-size: 13px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased; padding: 24px;
+  }
+  h1 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+  .sub { color: var(--color-steel); font-size: 11px; margin-bottom: 20px; }
+  table { border-collapse: collapse; width: 100%; max-width: 1080px; }
+  th {
+    text-align: left; color: var(--color-steel); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase; font-weight: 400;
+    padding: 6px 10px; border-bottom: 1px solid var(--color-iron);
+    position: sticky; top: 0; background: var(--color-void);
+  }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--color-iron); vertical-align: middle; }
+  .case { color: var(--color-paper); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
+  .bundle { color: var(--color-fog); font-size: 11px; }
+  .verdict { font-size: 11px; border: 1px solid; border-radius: var(--r-sm); padding: 1px 7px; white-space: nowrap; }
+  .v-pass { color: var(--color-ember); border-color: var(--color-ember); }
+  .v-fail { color: var(--color-paper); border-color: var(--color-paper); }
+  .v-none { color: var(--color-steel); border-color: var(--color-slate); }
+
+  /* ── A: momentum dots — last 3 runs as dots, then a delta arrow ── */
+  .trend { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
+  .dots { display: inline-flex; gap: 5px; align-items: center; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; cursor: default; }
+  .dot.d-pass { background: var(--color-ember); }
+  .dot.d-fail { background: var(--color-paper); }
+  .dot.d-block { background: var(--color-ash); }
+  .dot.d-abort { border: 1px solid var(--color-slate); box-sizing: border-box; }
+  .delta { font-size: 11px; width: 14px; text-align: center; flex: none; }
+  .delta.up { color: var(--color-ember); }
+  .delta.flat { color: var(--color-steel); }
+  .delta.down { color: var(--color-paper); }
+  .trend.none { color: var(--color-steel); }
+
+  .note { margin-top: 20px; color: var(--color-steel); font-size: 11px; max-width: 720px; }
+  .note b { color: var(--color-fog); font-weight: 400; }
+  tr:hover td { background: var(--color-carbon); }
+</style>
+</head>
+<body>
+  <h1>test cases</h1>
+  <div class="sub">trend column — option A · momentum dots</div>
+  <table>
+    <thead><tr>
+      <th>case</th><th>app</th><th>verdict</th><th title="dots = last 3 runs (oldest → newest) · arrow = last 3 vs prior 3">trend</th><th>last</th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td class="case">privacy policy</td>
+        <td class="bundle">com.lioparcel.services.consumer.int-dev</td>
+        <td><span class="verdict v-pass">pass</span></td>
+        <td>
+          <span class="trend" title="last 5: ✓✓✓✓✓ — last 3: 3 pass · prior 3: 3 pass">
+            <span class="dots"><span class="dot d-pass"></span><span class="dot d-pass"></span><span class="dot d-pass"></span></span>
+            <span class="delta flat">→</span>
+          </span>
+        </td>
+        <td class="bundle">2h ago</td>
+      </tr>
+      <tr>
+        <td class="case">intl drill — check-rates country worlds</td>
+        <td class="bundle">com.lioparcel.services.consumer.int-dev</td>
+        <td><span class="verdict v-fail">fail</span></td>
+        <td>
+          <span class="trend" title="last 5: ✓✓✓✗✗ — last 3: 2 pass 1 fail · prior 3: 3 pass — heading down">
+            <span class="dots"><span class="dot d-pass"></span><span class="dot d-pass"></span><span class="dot d-fail"></span></span>
+            <span class="delta down">↓</span>
+          </span>
+        </td>
+        <td class="bundle">10h ago</td>
+      </tr>
+      <tr>
+        <td class="case">test-record</td>
+        <td class="bundle">com.lioparcel.services.consumer.int-dev</td>
+        <td><span class="verdict v-fail">fail</span></td>
+        <td>
+          <span class="trend" title="last 5: ✓✓✓✓✗ — last 3: 2 pass 1 fail · prior 3: 3 pass — heading down">
+            <span class="dots"><span class="dot d-pass"></span><span class="dot d-pass"></span><span class="dot d-fail"></span></span>
+            <span class="delta down">↓</span>
+          </span>
+        </td>
+        <td class="bundle">1d ago</td>
+      </tr>
+      <tr>
+        <td class="case">tnc</td>
+        <td class="bundle">com.lioparcel.services.consumer.int-dev</td>
+        <td><span class="verdict v-fail">fail</span></td>
+        <td>
+          <span class="trend" title="last 5: ◌◆✗✗✗ — last 3: 3 fail · prior 3: 1 pass 2 fail — heading down">
+            <span class="dots"><span class="dot d-fail"></span><span class="dot d-fail"></span><span class="dot d-fail"></span></span>
+            <span class="delta down">↓</span>
+          </span>
+        </td>
+        <td class="bundle">3d ago</td>
+      </tr>
+      <tr>
+        <td class="case">Maps opens centered on Batam</td>
+        <td class="bundle">com.apple.Maps</td>
+        <td><span class="verdict v-pass">pass</span></td>
+        <td>
+          <span class="trend" title="last 5: ◆◆✗◆✓ — last 3: 1 pass 2 blocked · prior 3: 3 blocked — heading up">
+            <span class="dots"><span class="dot d-block"></span><span class="dot d-block"></span><span class="dot d-pass"></span></span>
+            <span class="delta up">↑</span>
+          </span>
+        </td>
+        <td class="bundle">2d ago</td>
+      </tr>
+      <tr>
+        <td class="case">fresh case — no runs</td>
+        <td class="bundle">com.lioparcel.services.consumer.int-dev</td>
+        <td><span class="verdict v-none">never</span></td>
+        <td><span class="trend none">—</span></td>
+        <td class="bundle">—</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="note">
+    <b>reading:</b> dots = last 3 runs (oldest → newest; fill = pass/fail, gray = blocked, hollow = aborted) · arrow = last 3 vs prior 3 (↑ improving · → steady · ↓ degrading) · hover = the full 5-run glyph string.
+  </div>
+</body>
+</html>

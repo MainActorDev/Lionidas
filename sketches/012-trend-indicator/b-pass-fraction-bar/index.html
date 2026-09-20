@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>trend B — pass-fraction bar</title>
+<style>
+  :root {
+    --color-void: #000000; --color-carbon: #111111; --color-graphite: #191919;
+    --color-iron: #202020; --color-slate: #3a3a3a; --color-pewter: #505050;
+    --color-steel: #606060; --color-ash: #7e7e7e; --color-fog: #b4b4b4;
+    --color-chalk: #d9d9d9; --color-paper: #eeeeee;
+    --color-ember: #da5c2c; --color-ember-dim: #a04521;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    --r-sm: 2px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--color-void); color: var(--color-paper);
+    font-family: var(--font-mono); font-size: 13px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased; padding: 24px;
+  }
+  h1 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+  .sub { color: var(--color-steel); font-size: 11px; margin-bottom: 20px; }
+  table { border-collapse: collapse; width: 100%; max-width: 1080px; }
+  th {
+    text-align: left; color: var(--color-steel); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase; font-weight: 400;
+    padding: 6px 10px; border-bottom: 1px solid var(--color-iron);
+    position: sticky; top: 0; background: var(--color-void);
+  }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--color-iron); vertical-align: middle; }
+  .case { color: var(--color-paper); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
+  .bundle { color: var(--color-fog); font-size: 11px; }
+  .verdict { font-size: 11px; border: 1px solid; border-radius: var(--r-sm); padding: 1px 7px; white-space: nowrap; }
+  .v-pass { color: var(--color-ember); border-color: var(--color-ember); }
+  .v-fail { color: var(--color-paper); border-color: var(--color-paper); }
+  .v-none { color: var(--color-steel); border-color: var(--color-slate); }
+
+  /* ── B: pass-fraction bar — one bar, 10 slots, fails as ticks ── */
+  .trend { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .bar {
+    position: relative; width: 70px; height: 10px; flex: none;
+    border: 1px solid var(--color-slate); border-radius: var(--r-sm);
+    background: var(--color-ember); overflow: hidden; cursor: default;
+  }
+  .bar .seg { position: absolute; top: 0; bottom: 0; }
+  .seg.s-fail { background: var(--color-paper); }
+  .seg.s-block { background: var(--color-ash); }
+  .seg.s-abort { background: var(--color-void); }
+  .frac { font-size: 11px; color: var(--color-fog); width: 34px; flex: none; }
+  .trend.none { color: var(--color-steel); }
+
+  .note { margin-top: 20px; color: var(--color-steel); font-size: 11px; max-width: 720px; }
+  .note b { color: var(--color-fog); font-weight: 400; }
+  tr:hover td { background: var(--color-carbon); }
+</style>
+</head>
+<body>
+  <h1>test cases</h1>
+  <div class="sub">trend column — option B · pass-fraction bar</div>
+  <table>
+    <thead><tr>
+      <th>case</th><th>app</th><th>verdict</th><th title="bar = last 10 runs; ember fill = pass, white = fail, gray = blocked, black = aborted · N/10 = pass count">trend</th><th>last</th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td class="case">privacy policy</td>
+        <td class="bundle">com.lioparcel.services.consumer.int-dev</td>
+        <td><span class="verdict v-pass">pass</span></td>
+        <td>
+          <span class="trend" title="last 10: ✓✓✓✓✓✓✓✓✓✓ — 10/10 pass">
+            <span class="bar" style="background: var(--color-ember);"></span>
+            <span class="frac">10/10</span>
+          </span>
+        </td>
+        <td class="bundle">2h ago</td>
+      </tr>
+      <tr>
+        <td class="case">intl drill — check-rates country worlds</td>
+        <td class="bundle">com.lioparcel.services.consumer.int-dev</td>
+        <td><span class="verdict v-fail">fail</span></td>
+        <td>
+          <span class="trend" title="last 10: ✓✓✓✓✓✓✓✗✗✗ — 7/10 pass, the last 3 all failing">
+            <span class="bar">
+              <span class="seg s-fail" style="left: 70%; width: 30%;"></span>
+            </span>
+            <span class="frac">7/10</span>
+          </span>
+        </td>
+        <td class="bundle">10h ago</td>
+      </tr>
+      <tr>
+        <td class="case">test-record</td>
+        <td class="bundle">com.lioparcel.services.consumer.int-dev</td>
+        <td><span class="verdict v-fail">fail</span></td>
+        <td>
+          <span class="trend" title="last 10: ✓✓✗✓✗✓✓✓✓✗ — 7/10 pass, fails scattered (flaky-shaped)">
+            <span class="bar">
+              <span class="seg s-fail" style="left: 20%; width: 10%;"></span>
+              <span class="seg s-fail" style="left: 40%; width: 10%;"></span>
+              <span class="seg s-fail" style="left: 90%; width: 10%;"></span>
+            </span>
+            <span class="frac">7/10</span>
+          </span>
+        </td>
+        <td class="bundle">1d ago</td>
+      </tr>
+      <tr>
+        <td class="case">tnc</td>
+        <td class="bundle">com.lioparcel.services.consumer.int-dev</td>
+        <td><span class="verdict v-fail">fail</span></td>
+        <td>
+          <span class="trend" title="last 10: ◌◆✗✗✗✗✗✗✗✗ — 1/10 pass, collapsed after r12 (app update)">
+            <span class="bar">
+              <span class="seg s-abort" style="left: 0%; width: 10%;"></span>
+              <span class="seg s-block" style="left: 10%; width: 10%;"></span>
+              <span class="seg s-fail" style="left: 20%; width: 80%;"></span>
+            </span>
+            <span class="frac">1/10</span>
+          </span>
+        </td>
+        <td class="bundle">3d ago</td>
+      </tr>
+      <tr>
+        <td class="case">Maps opens centered on Batam</td>
+        <td class="bundle">com.apple.Maps</td>
+        <td><span class="verdict v-pass">pass</span></td>
+        <td>
+          <span class="trend" title="last 10: ◆◆✗◆✓◆◆✗✓✓ — 4/10 pass, blocked-heavy (environment)">
+            <span class="bar">
+              <span class="seg s-block" style="left: 0%; width: 10%;"></span>
+              <span class="seg s-block" style="left: 10%; width: 10%;"></span>
+              <span class="seg s-fail" style="left: 20%; width: 10%;"></span>
+              <span class="seg s-block" style="left: 30%; width: 10%;"></span>
+              <span class="seg s-block" style="left: 50%; width: 10%;"></span>
+              <span class="seg s-block" style="left: 60%; width: 10%;"></span>
+              <span class="seg s-fail" style="left: 70%; width: 10%;"></span>
+            </span>
+            <span class="frac">4/10</span>
+          </span>
+        </td>
+        <td class="bundle">2d ago</td>
+      </tr>
+      <tr>
+        <td class="case">fresh case — no runs</td>
+        <td class="bundle">com.lioparcel.services.consumer.int-dev</td>
+        <td><span class="verdict v-none">never</span></td>
+        <td><span class="trend none">—</span></td>
+        <td class="bundle">—</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="note">
+    <b>reading:</b> one bar = last 10 runs, left → right oldest → newest. ember = pass (the fill), white = fail, gray = blocked, black = aborted. the N/10 label states the pass count; position of the non-ember segments says WHERE the trouble sits — bunched at the right edge = currently broken, scattered = flaky. hover = full glyph string.
+  </div>
+</body>
+</html>

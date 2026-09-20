@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>011-2 · suites — parity table + drawer editor</title>
+<style>
+:root {
+  --color-void:#000; --color-carbon:#111; --color-graphite:#191919; --color-iron:#202020;
+  --color-slate:#3a3a3a; --color-pewter:#505050;
+  --color-steel:#606060; --color-ash:#7e7e7e; --color-fog:#b4b4b4; --color-chalk:#d9d9d9; --color-paper:#eee;
+  --color-ember:#da5c2c; --color-ember-dim:#a04521;
+  --font-mono:'JetBrains Mono','BerkeleyMono',ui-monospace,SFMono-Regular,Menlo,Monaco,monospace;
+  --text-caption:12px; --text-body:14px; --text-label:13px; --text-heading-sm:18px;
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px;
+  --r:2px; --t:120ms cubic-bezier(0.4,0,0.2,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+button{background:none;border:none;color:inherit;font:inherit;cursor:pointer}
+body{background:var(--color-void);color:var(--color-paper);font-family:var(--font-mono);font-size:var(--text-body);line-height:1.5}
+
+.page{max-width:1200px;margin:0 auto;padding:var(--s-4) var(--s-5)}
+
+/* header — same chrome as test cases */
+.head{display:flex;align-items:baseline;gap:14px;flex:none;padding-bottom:var(--s-4)}
+.page-title{font-size:var(--text-body);letter-spacing:.08em;text-transform:lowercase}
+.desc{color:var(--color-ash);font-size:var(--text-caption)}
+.sym{color:var(--color-fog);font-size:var(--text-caption)}
+.spacer{flex:1}
+.search{background:var(--color-carbon);border:1px solid var(--color-iron);border-radius:var(--r);color:var(--color-paper);font:inherit;font-size:var(--text-label);padding:5px 10px;width:230px}
+.search::placeholder{color:var(--color-steel)}
+.btn{border:1px solid var(--color-slate);border-radius:var(--r);color:var(--color-fog);padding:5px 12px;font-size:var(--text-label);background:var(--color-carbon)}
+.btn:hover{color:var(--color-paper);border-color:var(--color-chalk)}
+.btn-ember{background:var(--color-ember);border-color:var(--color-ember);color:#000;font-weight:700}
+.btn-ember:hover{background:var(--color-ember-dim);border-color:var(--color-ember-dim);color:#000}
+.btn-ghost{border-color:transparent;background:none;color:var(--color-ash)}
+.btn-ghost:hover{color:var(--color-paper)}
+.btn-sm{padding:2px 8px;font-size:var(--text-caption)}
+
+/* table */
+.table{border-top:1px solid var(--color-iron)}
+.thead,.row{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1.2fr) minmax(0,72px) minmax(0,92px) minmax(0,110px) minmax(0,235px) minmax(0,200px);gap:var(--s-2);align-items:center}
+.thead{padding:var(--s-2) 0;color:var(--color-ash);font-size:var(--text-caption);text-transform:lowercase;letter-spacing:.05em;border-bottom:1px solid var(--color-iron)}
+.row-card{border-bottom:1px solid var(--color-iron)}
+.row-card.editing .row{background:color-mix(in srgb,var(--color-ember) 6%,transparent)}
+.row{padding:var(--s-3) 0;cursor:pointer}
+.row:hover{background:var(--color-carbon)}
+.c-name{font-size:var(--text-label);color:var(--color-paper);display:flex;flex-direction:column;gap:2px}
+.c-sub{color:var(--color-steel);font-size:var(--text-caption)}
+.c-bundle{display:flex;align-items:center;gap:var(--s-2);min-width:0}
+.app-icon{width:18px;height:18px;border-radius:3px;background:var(--color-slate);flex:none}
+.c-bundle .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-fog);font-size:var(--text-caption)}
+.c-members{color:var(--color-fog);font-size:var(--text-label)}
+.drift{color:var(--color-paper);border:1px dashed var(--color-paper);padding:0 4px;font-size:var(--text-caption)}
+.c-updated{color:var(--color-ash);font-size:var(--text-caption)}
+.trend span{margin-right:2px}
+.t-pass{color:var(--color-fog)} .t-fail{color:var(--color-paper);border:1px solid var(--color-paper);padding:0 3px} .t-blocked{color:var(--color-ash)} .t-abort{color:var(--color-steel)}
+.status{font-size:var(--text-caption);color:var(--color-fog)}
+.status-fail{color:var(--color-paper);border:1px dashed var(--color-paper);padding:0 5px}
+.status-pass{color:var(--color-fog)}
+.c-actions{display:flex;gap:var(--s-1);justify-content:flex-end}
+.run-menu{display:inline-flex}
+.run-menu .btn-sm:first-child{border-right:none}
+.empty{color:var(--color-steel);text-align:center;padding:48px 0}
+
+/* drawer: right-side overlay, table stays put */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.55);opacity:0;pointer-events:none;transition:opacity var(--t)}
+.scrim.show{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:-560px;width:520px;height:100vh;background:var(--color-carbon);border-left:1px solid var(--color-slate);transition:right 260ms cubic-bezier(0.4,0,0.2,1);display:flex;flex-direction:column;z-index:10}
+.drawer.show{right:0}
+.d-head{display:flex;align-items:center;gap:var(--s-3);padding:var(--s-3) var(--s-4);border-bottom:1px solid var(--color-iron)}
+.d-title{font-size:var(--text-heading-sm);font-weight:400}
+.d-scope{margin-left:auto}
+.scope-lock{color:var(--color-ash);font-size:var(--text-caption);border:1px solid var(--color-iron);border-radius:var(--r);padding:2px 8px}
+.scope-lock b{color:var(--color-fog);font-weight:400}
+.d-body{flex:1;overflow-y:auto;padding:var(--s-4)}
+.d-fields{display:grid;grid-template-columns:1fr;gap:var(--s-2);margin-bottom:var(--s-4)}
+.d-fields label{font-size:var(--text-caption);color:var(--color-ash);display:flex;flex-direction:column;gap:3px}
+.d-fields input{background:var(--color-graphite);border:1px solid var(--color-iron);border-radius:var(--r);color:var(--color-paper);font:inherit;font-size:var(--text-label);padding:5px 8px}
+.members-label{font-size:var(--text-caption);color:var(--color-ash);text-transform:lowercase;letter-spacing:.05em;margin-bottom:var(--s-2)}
+.mem{display:flex;align-items:center;gap:var(--s-2);padding:var(--s-2);border:1px solid var(--color-iron);border-radius:var(--r);margin-bottom:6px;background:var(--color-graphite)}
+.mem .idx{color:var(--color-steel);font-size:var(--text-caption);width:16px;text-align:right}
+.mem select{background:var(--color-void);border:1px solid var(--color-slate);border-radius:var(--r);color:var(--color-paper);font:inherit;font-size:var(--text-label);padding:4px 6px;flex:1;min-width:0}
+.mem .chips{display:flex;gap:4px;flex:none}
+.chip{border:1px solid var(--color-slate);border-radius:var(--r);padding:0 7px;font-size:var(--text-caption);color:var(--color-fog);cursor:pointer}
+.chip.on{border-color:var(--color-ember);color:var(--color-ember)}
+.chip.off{opacity:.45;text-decoration:line-through}
+.mem .ord{display:flex;gap:2px;flex:none}
+.d-add{width:100%;border:1px dashed var(--color-slate);border-radius:var(--r);color:var(--color-ash);padding:var(--s-2);font-size:var(--text-label)}
+.d-add:hover{color:var(--color-paper);border-color:var(--color-chalk)}
+.d-foot{display:flex;align-items:center;gap:var(--s-2);padding:var(--s-3) var(--s-4);border-top:1px solid var(--color-iron)}
+.d-note{color:var(--color-steel);font-size:var(--text-caption)}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="head">
+    <span class="page-title">test suites</span>
+    <span class="desc">2 suites · 2 bundles</span>
+    <span class="sym" title="passing">✓1</span>
+    <span class="sym" title="failing">✕1</span>
+    <span class="spacer"></span>
+    <input class="search" placeholder="search suites…  ⌘F">
+    <button class="btn">+ suite</button>
+    <button class="btn">▶ run filtered</button>
+  </header>
+
+  <div class="table">
+    <div class="thead">
+      <span>suite</span><span>bundle</span><span>members</span><span>updated</span><span title="last 5 suite runs">trend</span><span>verdict</span><span></span>
+    </div>
+
+    <div class="row-card editing">
+      <div class="row" onclick="openDrawer('smoke pack', 'consumer.int-dev')">
+        <span class="c-name">smoke pack</span>
+        <span class="c-bundle"><span class="app-icon"></span><span class="nm">consumer.int-dev</span></span>
+        <span class="c-members">3 <span class="drift" title="1 member's template drifted out of this bundle — skipped at play">1 drifted</span></span>
+        <span class="c-updated">2h ago</span>
+        <span class="trend"><span class="t-pass">✓</span><span class="t-pass">✓</span><span class="t-fail">✕</span><span class="t-pass">✓</span><span class="t-pass">✓</span></span>
+        <span><span class="status status-pass" title="last suite run · 2h ago">pass · 2h ago</span></span>
+        <span class="c-actions" onclick="event.stopPropagation()">
+          <span class="run-menu"><button class="btn btn-sm">run</button><button class="btn btn-sm">▾</button></span>
+          <button class="btn btn-sm btn-ghost">edit</button>
+          <button class="btn btn-sm btn-ghost">delete</button>
+        </span>
+      </div>
+    </div>
+
+    <div class="row-card">
+      <div class="row" onclick="openDrawer('intl regression', 'Maps')">
+        <span class="c-name">intl regression</span>
+        <span class="c-bundle"><span class="app-icon" style="border-radius:50%"></span><span class="nm">Maps</span></span>
+        <span class="c-members">2</span>
+        <span class="c-updated">9h ago</span>
+        <span class="trend"><span class="t-pass">✓</span><span class="t-blocked">◆</span><span class="t-blocked">◆</span></span>
+        <span><span class="status status-fail" title="1 lane failed: expect contains Johor">fail (my lane) · 9h ago</span></span>
+        <span class="c-actions" onclick="event.stopPropagation()">
+          <span class="run-menu"><button class="btn btn-sm">run</button><button class="btn btn-sm">▾</button></span>
+          <button class="btn btn-sm btn-ghost">edit</button>
+          <button class="btn btn-sm btn-ghost">delete</button>
+        </span>
+      </div>
+    </div>
+
+    <div class="empty"></div>
+  </div>
+</div>
+
+<!-- drawer -->
+<div class="scrim" id="scrim" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer">
+  <div class="d-head">
+    <span class="d-title" id="dtitle">smoke pack</span>
+    <span class="d-scope">
+      <span class="scope-lock" title="a suite is one app's pack — scope locks at creation">scope: <b id="dscope">consumer.int-dev</b> 🔒</span>
+    </span>
+    <button class="btn btn-sm btn-ghost" onclick="closeDrawer()">✕</button>
+  </div>
+  <div class="d-body">
+    <div class="d-fields">
+      <label>name<input value="smoke pack"></label>
+    </div>
+    <div class="members-label">members</div>
+    <div class="mem">
+      <span class="idx">1</span>
+      <select><option selected>intl drill — login, book, track</option><option>privacy policy view</option><option>shipment detail pull-refresh</option></select>
+      <span class="chips"><span class="chip on">sg</span><span class="chip off">my</span><span class="chip on">empty</span></span>
+      <span class="ord"><button class="btn btn-sm btn-ghost">↑</button><button class="btn btn-sm btn-ghost">↓</button><button class="btn btn-sm btn-ghost">✕</button></span>
+    </div>
+    <div class="mem">
+      <span class="idx">2</span>
+      <select><option selected>privacy policy view</option><option>intl drill — login, book, track</option><option>shipment detail pull-refresh</option></select>
+      <span class="chips"><span class="chip on">sg</span><span class="chip on">my</span></span>
+      <span class="ord"><button class="btn btn-sm btn-ghost">↑</button><button class="btn btn-sm btn-ghost">↓</button><button class="btn btn-sm btn-ghost">✕</button></span>
+    </div>
+    <div class="mem">
+      <span class="idx">3</span>
+      <select><option selected>shipment detail pull-refresh</option><option>intl drill — login, book, track</option><option>privacy policy view</option></select>
+      <span class="chips"><span class="chip on">all 4</span></span>
+      <span class="ord"><button class="btn btn-sm btn-ghost">↑</button><button class="btn btn-sm btn-ghost">↓</button><button class="btn btn-sm btn-ghost">✕</button></span>
+    </div>
+    <button class="d-add">+ member</button>
+  </div>
+  <div class="d-foot">
+    <button class="btn btn-ember">save</button>
+    <button class="btn">abort</button>
+    <span class="d-note">2 changed · members reordered</span>
+  </div>
+</aside>
+
+<script>
+function openDrawer(name, scope){
+  document.getElementById('dtitle').textContent = name;
+  document.getElementById('dscope').textContent = scope;
+  document.getElementById('drawer').classList.add('show');
+  document.getElementById('scrim').classList.add('show');
+}
+function closeDrawer(){
+  document.getElementById('drawer').classList.remove('show');
+  document.getElementById('scrim').classList.remove('show');
+}
+document.querySelectorAll('.chip').forEach(ch => ch.addEventListener('click', () => {
+  if (ch.classList.contains('on')) { ch.classList.remove('on'); ch.classList.add('off'); }
+}));
+</script>
+</body>
+</html>

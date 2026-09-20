@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>011-3 · suites — parity table, bundle-grouped with expandable members</title>
+<style>
+:root {
+  --color-void:#000; --color-carbon:#111; --color-graphite:#191919; --color-iron:#202020;
+  --color-slate:#3a3a3a; --color-pewter:#505050;
+  --color-steel:#606060; --color-ash:#7e7e7e; --color-fog:#b4b4b4; --color-chalk:#d9d9d9; --color-paper:#eee;
+  --color-ember:#da5c2c; --color-ember-dim:#a04521;
+  --font-mono:'JetBrains Mono','BerkeleyMono',ui-monospace,SFMono-Regular,Menlo,Monaco,monospace;
+  --text-caption:12px; --text-body:14px; --text-label:13px; --text-heading-sm:18px;
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px;
+  --r:2px; --t:120ms cubic-bezier(0.4,0,0.2,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+button{background:none;border:none;color:inherit;font:inherit;cursor:pointer}
+body{background:var(--color-void);color:var(--color-paper);font-family:var(--font-mono);font-size:var(--text-body);line-height:1.5}
+
+.page{max-width:1200px;margin:0 auto;padding:var(--s-4) var(--s-5)}
+
+/* header — same chrome as test cases */
+.head{display:flex;align-items:baseline;gap:14px;flex:none;padding-bottom:var(--s-4)}
+.page-title{font-size:var(--text-body);letter-spacing:.08em;text-transform:lowercase}
+.desc{color:var(--color-ash);font-size:var(--text-caption)}
+.sym{color:var(--color-fog);font-size:var(--text-caption)}
+.spacer{flex:1}
+.search{background:var(--color-carbon);border:1px solid var(--color-iron);border-radius:var(--r);color:var(--color-paper);font:inherit;font-size:var(--text-label);padding:5px 10px;width:230px}
+.search::placeholder{color:var(--color-steel)}
+.btn{border:1px solid var(--color-slate);border-radius:var(--r);color:var(--color-fog);padding:5px 12px;font-size:var(--text-label);background:var(--color-carbon)}
+.btn:hover{color:var(--color-paper);border-color:var(--color-chalk)}
+.btn-ember{background:var(--color-ember);border-color:var(--color-ember);color:#000;font-weight:700}
+.btn-ember:hover{background:var(--color-ember-dim);border-color:var(--color-ember-dim);color:#000}
+.btn-ghost{border-color:transparent;background:none;color:var(--color-ash)}
+.btn-ghost:hover{color:var(--color-paper)}
+.btn-sm{padding:2px 8px;font-size:var(--text-caption)}
+
+/* table */
+.table{border-top:1px solid var(--color-iron)}
+.thead,.row{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1.2fr) minmax(0,72px) minmax(0,92px) minmax(0,110px) minmax(0,235px) minmax(0,200px);gap:var(--s-2);align-items:center}
+.thead{padding:var(--s-2) 0;color:var(--color-ash);font-size:var(--text-caption);text-transform:lowercase;letter-spacing:.05em;border-bottom:1px solid var(--color-iron)}
+.row-card{border-bottom:1px solid var(--color-iron)}
+.row-card.editing .row{background:color-mix(in srgb,var(--color-ember) 6%,transparent)}
+.row{padding:var(--s-3) 0;cursor:pointer}
+.row:hover{background:var(--color-carbon)}
+.c-name{font-size:var(--text-label);color:var(--color-paper);display:flex;flex-direction:column;gap:2px}
+.c-sub{color:var(--color-steel);font-size:var(--text-caption)}
+.c-bundle{display:flex;align-items:center;gap:var(--s-2);min-width:0}
+.app-icon{width:18px;height:18px;border-radius:3px;background:var(--color-slate);flex:none}
+.c-bundle .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-fog);font-size:var(--text-caption)}
+.c-members{color:var(--color-fog);font-size:var(--text-label)}
+.drift{color:var(--color-paper);border:1px dashed var(--color-paper);padding:0 4px;font-size:var(--text-caption)}
+.c-updated{color:var(--color-ash);font-size:var(--text-caption)}
+.trend span{margin-right:2px}
+.t-pass{color:var(--color-fog)} .t-fail{color:var(--color-paper);border:1px solid var(--color-paper);padding:0 3px} .t-blocked{color:var(--color-ash)} .t-abort{color:var(--color-steel)}
+.status{font-size:var(--text-caption);color:var(--color-fog)}
+.status-fail{color:var(--color-paper);border:1px dashed var(--color-paper);padding:0 5px}
+.status-pass{color:var(--color-fog)}
+.c-actions{display:flex;gap:var(--s-1);justify-content:flex-end}
+.run-menu{display:inline-flex}
+.run-menu .btn-sm:first-child{border-right:none}
+.empty{color:var(--color-steel);text-align:center;padding:48px 0}
+
+/* ── THE MODIFICATION: bundle group band + expandable member list ── */
+.band{display:flex;align-items:center;gap:var(--s-3);padding:var(--s-2) 0;margin-top:var(--s-4);color:var(--color-ash);font-size:var(--text-caption);letter-spacing:.05em;border-bottom:1px solid var(--color-pewter)}
+.band:first-of-type{margin-top:0}
+.band .cnt{color:var(--color-steel)}
+.band .new-here{margin-left:auto;color:var(--color-ember);font-size:var(--text-caption)}
+
+/* member sub-rows: lighter, indented — the suite's cases live IN the table */
+.members{display:none}
+.members.show{display:block}
+.mrow{display:grid;grid-template-columns:24px minmax(0,1.4fr) minmax(0,1.2fr) minmax(0,72px) minmax(0,1fr) minmax(0,200px);gap:var(--s-2);align-items:center;padding:5px 0 5px var(--s-4);color:var(--color-fog);font-size:var(--text-caption);border-left:1px solid var(--color-iron);margin-left:6px}
+.mrow:hover{color:var(--color-paper)}
+.mrow .idx{color:var(--color-steel)}
+.mrow .mname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mrow .mver{display:flex;gap:4px}
+.mrow .mver .chip{border:1px solid var(--color-slate);border-radius:var(--r);padding:0 6px;color:var(--color-fog);font-size:11px}
+.mrow .mver .chip.sub{border-color:var(--color-ember);color:var(--color-ember)}
+.mrow .mdrift{color:var(--color-paper);border:1px dashed var(--color-paper);padding:0 4px}
+.mrow .mverdict{color:var(--color-steel)}
+.mrow .mverdict.pass{color:var(--color-fog)}
+.mrow .mverdict.fail{color:var(--color-paper);border:1px dashed var(--color-paper);padding:0 4px}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="head">
+    <span class="page-title">test suites</span>
+    <span class="desc">2 suites · 2 bundles</span>
+    <span class="sym" title="passing">✓1</span>
+    <span class="sym" title="failing">✕1</span>
+    <span class="spacer"></span>
+    <input class="search" placeholder="search suites…  ⌘F">
+    <button class="btn">+ suite</button>
+    <button class="btn">▶ run filtered</button>
+  </header>
+
+  <div class="table">
+    <div class="thead">
+      <span>suite</span><span>bundle</span><span>members</span><span>updated</span><span title="last 5 suite runs">trend</span><span>verdict</span><span></span>
+    </div>
+
+    <!-- bundle band 1 -->
+    <div class="band">
+      <span class="app-icon"></span> com.lioparcel.services.consumer.int-dev <span class="cnt">· 1 suite</span>
+      <button class="new-here">+</button>
+    </div>
+
+    <div class="row-card editing">
+      <div class="row" onclick="toggle('m1', this)">
+        <span class="c-name">smoke pack</span>
+        <span class="c-bundle"><span class="nm">consumer.int-dev</span></span>
+        <span class="c-members">3 <span class="drift">1 drifted</span></span>
+        <span class="c-updated">2h ago</span>
+        <span class="trend"><span class="t-pass">✓</span><span class="t-pass">✓</span><span class="t-fail">✕</span><span class="t-pass">✓</span><span class="t-pass">✓</span></span>
+        <span><span class="status status-pass">pass · 2h ago</span></span>
+        <span class="c-actions" onclick="event.stopPropagation()">
+          <span class="run-menu"><button class="btn btn-sm">run</button><button class="btn btn-sm">▾</button></span>
+          <button class="btn btn-sm btn-ghost">edit</button>
+          <button class="btn btn-sm btn-ghost">delete</button>
+        </span>
+      </div>
+
+      <!-- members expand INLINE — like the yaml panel, but read-only rows -->
+      <div class="members show" id="m1">
+        <div class="mrow">
+          <span class="idx">1</span>
+          <span class="mname">intl drill — login, book, track</span>
+          <span class="mver"><span class="chip sub">sg</span><span class="chip sub">empty</span><span class="chip" style="opacity:.4;text-decoration:line-through">my</span></span>
+          <span></span>
+          <span class="mverdict pass">✓ pass · 2h ago</span>
+          <span></span>
+        </div>
+        <div class="mrow">
+          <span class="idx">2</span>
+          <span class="mname">privacy policy view</span>
+          <span class="mver"><span class="chip sub">sg</span><span class="chip sub">my</span></span>
+          <span></span>
+          <span class="mverdict pass">✓ pass · 2h ago</span>
+          <span></span>
+        </div>
+        <div class="mrow">
+          <span class="idx">3</span>
+          <span class="mname">shipment detail pull-refresh</span>
+          <span class="mver"><span class="chip">all 4</span></span>
+          <span><span class="mdrift" title="template's bundle was edited away — skipped at play">drifted</span></span>
+          <span class="mverdict">— skipped</span>
+          <span></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- bundle band 2 -->
+    <div class="band">
+      <span class="app-icon" style="border-radius:50%"></span> com.apple.Maps <span class="cnt">· 1 suite</span>
+      <button class="new-here">+</button>
+    </div>
+
+    <div class="row-card">
+      <div class="row" onclick="toggle('m2', this)">
+        <span class="c-name">intl regression</span>
+        <span class="c-bundle"><span class="nm">Maps</span></span>
+        <span class="c-members">2</span>
+        <span class="c-updated">9h ago</span>
+        <span class="trend"><span class="t-pass">✓</span><span class="t-blocked">◆</span><span class="t-blocked">◆</span></span>
+        <span><span class="status status-fail">fail (my lane) · 9h ago</span></span>
+        <span class="c-actions" onclick="event.stopPropagation()">
+          <span class="run-menu"><button class="btn btn-sm">run</button><button class="btn btn-sm">▾</button></span>
+          <button class="btn btn-sm btn-ghost">edit</button>
+          <button class="btn btn-sm btn-ghost">delete</button>
+        </span>
+      </div>
+      <div class="members" id="m2">
+        <div class="mrow">
+          <span class="idx">1</span>
+          <span class="mname">directions — multi-stop route</span>
+          <span class="mver"><span class="chip">all 2</span></span>
+          <span></span>
+          <span class="mverdict pass">✓ pass · 9h ago</span>
+          <span></span>
+        </div>
+        <div class="mrow">
+          <span class="idx">2</span>
+          <span class="mname">search — transit lanes</span>
+          <span class="mver"><span class="chip sub">sg</span></span>
+          <span></span>
+          <span class="mverdict fail">✕ fail · 9h ago</span>
+          <span></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="empty"></div>
+  </div>
+</div>
+
+<script>
+function toggle(id, row){ document.getElementById(id).classList.toggle('show'); }
+</script>
+</body>
+</html>
