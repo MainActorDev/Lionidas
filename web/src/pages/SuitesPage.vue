@@ -163,6 +163,8 @@ function isDirty(): boolean {
 }
 
 async function openEditor(s: Suite | null): Promise<void> {
+  // same-row click toggles closed — the cases-page yaml motion
+  if (s && openId.value === s.id) { openId.value = null; editing.value = null; return; }
   if (openId.value !== null && isDirty() && !window.confirm('discard unsaved changes?')) return;
   editing.value = s;
   editorName.value = s?.name ?? '';
