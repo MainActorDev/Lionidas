@@ -117,9 +117,7 @@ function ago(ts: number | null): string {
   return `${Math.floor(d / 86_400_000)}d ago`;
 }
 function shortBundle(b: string | null): string {
-  if (!b) return '—';
-  const parts = b.split('.');
-  return parts[parts.length - 1] || b;
+  return b ?? '—';
 }
 
 async function run(id: string): Promise<void> {
