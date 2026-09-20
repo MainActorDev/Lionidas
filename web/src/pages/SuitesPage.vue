@@ -1,10 +1,10 @@
 <script setup lang="ts">
-/** /suites — the test-cases anatomy, natively (011 option-1 pick).
- *  Same chrome: one-row header (title · count · verdict glyphs · ⌘F search),
- *  sticky-head table of row-cards, editor opens INLINE below its row — the
- *  yaml-panel motion. Suite verdicts are live reads from member rollups;
- *  bundle scope locks at creation. */
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+/** /suites — the test-cases anatomy (011 option-1), preview-first.
+ *  Row click opens a READ-ONLY preview (per-member latest status, markers);
+ *  edit is an explicit button that swaps the panel to the editor. Suite
+ *  verdicts are suite-scoped reads; markers name the gap between the last
+ *  play and the current pack. */
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { RouterLink } from 'vue-router';
 
 interface Member {
@@ -21,12 +21,15 @@ interface Member {
   name?: string | null;
   appBundleId?: string | null;
   variantVocab?: string[];
+  stale?: boolean;
+  staleVariants?: string[];
 }
+interface LastPlay { at: number | null; runIds: string[]; membersChanged: boolean }
 interface Suite {
   id: string; name: string; description: string | null; appBundleId: string | null;
   createdBy: string; createdAt: number; updatedAt: number;
-  members?: Member[];
-  memberCount?: number;
+  members?: Member[]; memberCount?: number;
+  lastPlay?: LastPlay; running?: boolean;
 }
 
 const suites = ref<Suite[]>([]);
@@ -78,15 +81,17 @@ function statusClass(s: Suite): string {
   const k = kind(s);
   return k === 'green' ? 'status-pass' : k === 'red' ? 'status-fail' : k === 'blocked' ? 'status-blocked' : 'status-none';
 }
-/** one glyph per member, position order — the suite's shape at a glance */
-function memberGlyphs(s: Suite): Array<{ g: string; cls: string; title: string }> {
+/** verdict bar — one block per member, position order. Scales where glyph
+ *  strings soup up; block n = member n (same order the preview lists). */
+function memberBlocks(s: Suite): Array<{ cls: string; title: string }> {
   return (s.members ?? []).map((m) => {
+    const nm = m.name ?? m.templateId;
     const t = m.lastStatus;
-    if (t === 'passed') return { g: '✓', cls: 't-pass', title: m.name ?? m.templateId };
-    if (t == null) return { g: '·', cls: 't-none', title: m.name ?? m.templateId };
-    if (m.lastBlocked === 1) return { g: '◆', cls: 't-blocked', title: m.name ?? m.templateId };
-    if (t === 'aborted') return { g: '◌', cls: 't-abort', title: m.name ?? m.templateId };
-    return { g: '✕', cls: 't-fail', title: m.name ?? m.templateId };
+    if (t === 'passed') return { cls: 'b-pass', title: `${nm} · pass` };
+    if (t == null) return { cls: 'b-none', title: `${nm} · never` };
+    if (m.lastBlocked === 1) return { cls: 'b-blocked', title: `${nm} · blocked` };
+    if (t === 'aborted') return { cls: 'b-abort', title: `${nm} · abort` };
+    return { cls: 'b-fail', title: `${nm} · fail` };
   });
 }
 function verdictLabel(s: Suite): string {
@@ -120,27 +125,64 @@ function shortBundle(b: string | null): string {
   return b ?? '—';
 }
 
-async function run(id: string): Promise<void> {
-  running.value = id;
-  error.value = '';
-  try {
-    const r = await fetch(`/api/suites/${id}/play`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}) });
-    if (!r.ok) {
-      const b = (await r.json().catch(() => ({}))) as { error?: string };
-      error.value = b.error ?? `play failed (${r.status})`;
-    }
-  } finally { running.value = null; }
-}
-
-async function remove(id: string): Promise<void> {
-  if (!window.confirm('delete this suite? runs it spawned survive.')) return;
-  await fetch(`/api/suites/${id}`, { method: 'DELETE' });
-  if (openId.value === id) openId.value = null;
-  await load();
-}
-
-// ── inline editor — ONE open at a time, opens below its row ──
+// ── panel — preview (read) below the row; edit is explicit ──
 const openId = ref<string | null>(null); // suite id or 'draft'
+const mode = ref<'preview' | 'edit'>('preview');
+const highlight = ref<string | null>(null); // templateId — from verdict-bar click
+
+function togglePanel(s: Suite): void {
+  if (openId.value === s.id) { openId.value = null; return; }
+  if (openId.value !== null && mode.value === 'edit' && isDirty() && !window.confirm('discard unsaved changes?')) return;
+  openId.value = s.id;
+  mode.value = 'preview';
+  highlight.value = null;
+}
+function closePanel(): void {
+  openId.value = null; editing.value = null; mode.value = 'preview'; highlight.value = null;
+}
+function startEdit(s: Suite): void {
+  if (s.running) return;
+  editing.value = s;
+  editorName.value = s.name;
+  editorBundle.value = s.appBundleId ?? '';
+  editorMembers.value = s.members ? s.members.map((m) => ({ templateId: m.templateId, variantIds: m.variantIds })) : [];
+  mode.value = 'edit';
+  void refreshAllCases().then(() => { snapshot = JSON.stringify({ n: editorName.value, b: editorBundle.value, m: editorMembers.value }); });
+}
+/** row 'edit' button — opens edit directly (empty suite skips preview) */
+function startEditFromRow(s: Suite): void {
+  if ((s.members?.length ?? 0) === 0) { openId.value = s.id; startEdit(s); return; }
+  if (openId.value !== s.id) { openId.value = s.id; mode.value = 'preview'; highlight.value = null; }
+  startEdit(s);
+}
+
+/** verdict-bar block click → open preview scrolled to that member */
+async function jumpToMember(s: Suite, templateId: string): Promise<void> {
+  if (!templateId) return;
+  if (openId.value !== s.id) {
+    if (openId.value !== null && mode.value === 'edit' && isDirty() && !window.confirm('discard unsaved changes?')) return;
+    openId.value = s.id; mode.value = 'preview';
+  }
+  highlight.value = templateId;
+  await nextTick();
+  document.querySelector(`.pv-mem[data-tpl="${templateId}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+function memberVerdictPill(m: Member): { cls: string; label: string } {
+  if (m.lastStatus === 'passed') return { cls: 'status-pass', label: 'pass' };
+  if (m.lastStatus == null) return { cls: 'status-none', label: 'never' };
+  if (m.lastBlocked === 1) return { cls: 'status-blocked', label: 'blocked' };
+  if (m.lastStatus === 'aborted') return { cls: 'status-aborted', label: 'aborted' };
+  return { cls: 'status-fail', label: 'fail' };
+}
+function memberMarkers(m: Member, s: Suite): string[] {
+  const out: string[] = [];
+  if (m.appBundleId != null && s.appBundleId != null && m.appBundleId !== s.appBundleId) out.push('drift');
+  if (m.stale) out.push('stale');
+  if ((m.staleVariants ?? []).length > 0) out.push(`ghost: ${(m.staleVariants ?? []).join(',')}`);
+  return out;
+}
+
+// ── editor state (mode='edit') ──
 const editing = ref<Suite | null>(null); // null = creating
 const editorName = ref('');
 const editorBundle = ref('');
@@ -158,27 +200,46 @@ const scopedCases = computed(() => {
 const editorRows = computed(() => editorMembers.value.map((m) => ({ ...m, case: allCases.value.find((c) => c.id === m.templateId) })));
 const bundleCases = computed(() => allCases.value.filter((c) => c.bundle === editorBundle.value));
 
+async function refreshAllCases(): Promise<void> {
+  const r = await fetch('/api/templates');
+  const b = (await r.json()) as { templates: Array<{ id: string; name: string; appBundleId: string | null; variants?: string[] | null }> };
+  allCases.value = b.templates.map((t) => ({ id: t.id, name: t.name, bundle: t.appBundleId, variantVocab: t.variants ?? [] }));
+}
+
 function isDirty(): boolean {
   return JSON.stringify({ n: editorName.value, b: editorBundle.value, m: editorMembers.value }) !== snapshot;
 }
 
-async function openEditor(s: Suite | null): Promise<void> {
-  // same-row click toggles closed — the cases-page yaml motion
-  if (s && openId.value === s.id) { openId.value = null; editing.value = null; return; }
-  if (openId.value !== null && isDirty() && !window.confirm('discard unsaved changes?')) return;
-  editing.value = s;
-  editorName.value = s?.name ?? '';
-  editorBundle.value = s?.appBundleId ?? '';
-  editorMembers.value = s?.members ? s.members.map((m) => ({ templateId: m.templateId, variantIds: m.variantIds })) : [];
-  if (allCases.value.length === 0 || s === null) {
-    const r = await fetch('/api/templates');
-    const b = (await r.json()) as { templates: Array<{ id: string; name: string; appBundleId: string | null; variants?: string[] | null }> };
-    allCases.value = b.templates.map((t) => ({ id: t.id, name: t.name, bundle: t.appBundleId, variantVocab: t.variants ?? [] }));
-  }
+async function openDraft(): Promise<void> {
+  if (openId.value !== null && mode.value === 'edit' && isDirty() && !window.confirm('discard unsaved changes?')) return;
+  editing.value = null;
+  editorName.value = '';
+  editorBundle.value = '';
+  editorMembers.value = [];
+  openId.value = 'draft';
+  mode.value = 'edit';
+  await refreshAllCases();
   snapshot = JSON.stringify({ n: editorName.value, b: editorBundle.value, m: editorMembers.value });
-  openId.value = s ? s.id : 'draft';
 }
-function closeEditor(): void { openId.value = null; editing.value = null; }
+
+async function run(id: string): Promise<void> {
+  running.value = id;
+  error.value = '';
+  try {
+    const r = await fetch(`/api/suites/${id}/play`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}) });
+    if (!r.ok) {
+      const b = (await r.json().catch(() => ({}))) as { error?: string };
+      error.value = b.error ?? `play failed (${r.status})`;
+    } else { await load(); }
+  } finally { running.value = null; }
+}
+
+async function remove(id: string): Promise<void> {
+  if (!window.confirm('delete this suite? runs it spawned survive.')) return;
+  await fetch(`/api/suites/${id}`, { method: 'DELETE' });
+  if (openId.value === id) closePanel();
+  await load();
+}
 
 function addMember(): void {
   const c = scopedCases.value[0];
@@ -231,8 +292,7 @@ async function saveEditor(): Promise<void> {
       error.value = b.error ?? `save failed (${r.status})`;
       return;
     }
-    openId.value = null;
-    editing.value = null;
+    openId.value = null; editing.value = null; mode.value = 'preview';
     await load();
   } finally { busy.value = false; }
 }
@@ -249,7 +309,7 @@ async function saveEditor(): Promise<void> {
       </span>
       <span class="su-spacer"></span>
       <input ref="filterEl" v-model="filter" class="su-search" placeholder="search suites…  ⌘F" />
-      <button class="btn" @click="openEditor(null)">+ suite</button>
+      <button class="btn" @click="openDraft()">+ suite</button>
     </header>
 
     <div v-if="error" class="su-err">{{ error }}</div>
@@ -276,7 +336,7 @@ async function saveEditor(): Promise<void> {
               <option value="" disabled>app…</option>
               <option v-for="b in bundleOptions" :key="b" :value="b">{{ b }}</option>
             </select>
-            <button class="btn btn-sm btn-ghost" @click="closeEditor">✕</button>
+            <button class="btn btn-sm btn-ghost" @click="closePanel()">✕</button>
           </div>
           <div v-if="editorBundle" class="ed-body">
             <div v-for="(m, i) in editorRows" :key="i" class="ed-mem">
@@ -301,69 +361,101 @@ async function saveEditor(): Promise<void> {
           <div class="ed-foot">
             <span v-if="error" class="ed-err">{{ error }}</span>
             <span class="su-spacer"></span>
-            <button class="btn btn-ghost" @click="closeEditor">cancel</button>
-            <button class="btn btn-primary" :disabled="busy || !editorName.trim() || !editorBundle" @click="saveEditor">{{ busy ? 'saving…' : 'save' }}</button>
+            <button class="btn btn-ghost" @click="closePanel()">cancel</button>
+            <button class="btn btn-primary" :disabled="busy || !editorName.trim() || !editorBundle" @click="saveEditor()">{{ busy ? 'saving…' : 'save' }}</button>
           </div>
         </div>
       </article>
 
       <article v-for="s in shown()" :key="s.id" class="su-row-card" :class="{ editing: openId === s.id }">
-        <div class="su-row" @click="openEditor(s)" title="click to edit this suite">
+        <div class="su-row" @click="togglePanel(s)" :title="openId === s.id ? 'click to collapse' : 'click to preview members'">
           <span class="su-name">{{ s.name }}</span>
           <span class="su-bundle" :title="s.appBundleId ?? 'no app'">{{ shortBundle(s.appBundleId) }}</span>
-          <span class="su-members" :title="`${s.members?.length ?? s.memberCount ?? 0} members`">
+          <span class="su-members" :title="`${s.members?.length ?? s.memberCount ?? 0} members — block n = member n, play order`">
             {{ s.members?.length ?? s.memberCount ?? 0 }}
-            <span v-if="memberGlyphs(s).length" class="su-glyphs" title="per-member last verdict, play order (✓ pass · ✕ fail · ◆ blocked · ◌ aborted)">
-              <span v-for="(g, i) in memberGlyphs(s)" :key="i" :class="g.cls">{{ g.g }}</span>
+            <span v-if="memberBlocks(s).length" class="su-bar" role="img" aria-label="member verdicts">
+              <span v-for="(b, i) in memberBlocks(s)" :key="i" class="su-block" :class="b.cls" :title="b.title"
+                @click.stop="jumpToMember(s, (s.members ?? [])[i]?.templateId ?? '')"></span>
             </span>
             <span v-if="driftCount(s)" class="su-drift" :title="`${driftCount(s)} member(s) drifted out of ${s.appBundleId} — skipped at play`">drift</span>
           </span>
           <span class="su-updated" :title="new Date(s.updatedAt).toLocaleString()">{{ ago(s.updatedAt) }}</span>
           <span class="su-verdict">
-            <span :class="`status ${statusClass(s)}`">{{ verdictLabel(s) }}</span>
+            <span v-if="s.running" class="status status-running">running</span>
+            <span v-else :class="`status ${statusClass(s)}`">{{ verdictLabel(s) }}</span>
+            <span v-if="s.lastPlay?.membersChanged" class="status status-changes-pending" title="membership edited after the last play — run to refresh">members changed</span>
           </span>
           <span class="su-actions" @click.stop>
             <button class="btn btn-sm" :disabled="running === s.id" @click.stop="run(s.id)" title="play every member, in order">{{ running === s.id ? 'starting…' : 'run' }}</button>
-            <button class="btn btn-sm btn-ghost" @click.stop="openEditor(s)">edit</button>
+            <button class="btn btn-sm btn-ghost" @click.stop="startEditFromRow(s)" :disabled="s.running" :title="s.running ? 'suite is running' : 'edit members'">edit</button>
             <button class="btn btn-sm btn-ghost" @click.stop="remove(s.id)">delete</button>
           </span>
         </div>
 
-        <!-- editor opens INLINE below the row — the yaml-panel motion -->
+        <!-- panel opens INLINE below the row: preview (read) or edit -->
         <div v-if="openId === s.id" class="su-editor">
-          <div class="ed-head">
-            <input v-model="editorName" class="ed-name" />
-            <span class="ed-lock" :title="`scope locked at creation — ${editorBundle}`">{{ shortBundle(editorBundle) }} 🔒</span>
-            <span class="su-spacer"></span>
-            <RouterLink class="ed-runs" :to="{ path: '/runs', query: { suite: s.id } }">runs</RouterLink>
-            <button class="btn btn-sm btn-ghost" @click="closeEditor">✕</button>
-          </div>
-          <div class="ed-body">
-            <div v-for="(m, i) in editorRows" :key="m.templateId" class="ed-mem" :class="{ drifted: editing?.appBundleId != null && m.case && m.case.bundle !== editing?.appBundleId }">
-              <span class="ed-pos">{{ i + 1 }}</span>
-              <select class="ed-case" :value="m.templateId" @change="setMemberCase(i, ($event.target as HTMLSelectElement).value)">
-                <option v-for="c in bundleCases" :key="c.id" :value="c.id">{{ c.name }}</option>
-              </select>
-              <span class="ed-chips">
-                <button v-for="v in m.case?.variantVocab ?? []" :key="v" class="ed-v"
-                  :class="{ on: m.variantIds == null || m.variantIds.includes(v) }"
-                  :title="m.variantIds == null ? 'all variants (default)' : (m.variantIds.includes(v) ? 'in subset' : 'off — all off reverts to all')"
-                  @click="toggleVariant(m.templateId, v)">{{ v }}</button>
-                <span v-if="editing?.appBundleId != null && m.case && m.case.bundle !== editing?.appBundleId" class="su-drift">drifted</span>
-              </span>
-              <span class="ed-ops">
-                <button class="btn btn-sm btn-ghost" :disabled="i === 0" @click="moveMember(i, -1)">↑</button>
-                <button class="btn btn-sm btn-ghost" :disabled="i === editorRows.length - 1" @click="moveMember(i, 1)">↓</button>
-                <button class="btn btn-sm btn-ghost" @click="removeMember(i)">✕</button>
-              </span>
+          <!-- preview mode -->
+          <div v-if="mode === 'preview'" class="pv-panel">
+            <div class="pv-head">
+              <span class="pv-title">{{ s.name }}</span>
+              <span class="ed-lock" :title="`scope locked at creation — ${s.appBundleId ?? 'none'}`">{{ shortBundle(s.appBundleId) }} 🔒</span>
+              <span v-if="s.lastPlay?.at != null" class="pv-last" :title="`${s.lastPlay.runIds.length} runs in the last play`">last play {{ ago(s.lastPlay.at) }}</span>
+              <span v-if="s.lastPlay?.membersChanged" class="status status-changes-pending" title="membership edited after the last play — run to refresh">members changed</span>
+              <span class="su-spacer"></span>
+              <RouterLink class="ed-runs" :to="{ path: '/runs', query: { suite: s.id } }">runs</RouterLink>
+              <button v-if="(s.members?.length ?? 0) > 0" class="btn btn-sm btn-ghost" @click="startEdit(s)" :disabled="s.running" :title="s.running ? 'suite is running' : 'edit members'">edit</button>
+              <button class="btn btn-sm btn-ghost" @click="closePanel()">✕</button>
             </div>
-            <button class="ed-add" :disabled="scopedCases.length === 0" @click="addMember">+ member</button>
+            <div class="pv-body">
+              <div v-if="(s.members?.length ?? 0) === 0" class="pv-empty">no members — <a @click="startEdit(s)">edit</a></div>
+              <div v-for="(m, i) in s.members ?? []" :key="m.templateId" class="pv-mem" :data-tpl="m.templateId" :class="{ hl: highlight === m.templateId }">
+                <span class="ed-pos">{{ i + 1 }}</span>
+                <span class="pv-name" :title="m.templateId">{{ m.name ?? m.templateId }}</span>
+                <span class="pv-variants" :title="m.variantIds ? 'pinned subset' : 'all variants (default)'">{{ m.variantIds ? m.variantIds.join(' · ') : 'all' }}</span>
+                <span :class="['status', memberVerdictPill(m).cls]">{{ memberVerdictPill(m).label }}</span>
+                <span class="pv-ago">{{ m.lastFinishedAt != null ? ago(m.lastFinishedAt) : '' }}</span>
+                <span v-for="mk in memberMarkers(m, s)" :key="mk" class="su-drift" :title="mk.startsWith('ghost') ? 'pinned variants deleted from the case — skipped at play' : mk === 'stale' ? 'case edited since this play — run to refresh' : 'member bundle drifted out of the suite scope'">{{ mk }}</span>
+                <RouterLink v-if="m.lastRunId" class="ed-runs" :to="`/runs/${m.lastRunId}`">run</RouterLink>
+              </div>
+            </div>
           </div>
-          <div class="ed-foot">
-            <span v-if="error" class="ed-err">{{ error }}</span>
-            <span class="su-spacer"></span>
-            <button class="btn btn-ghost" @click="closeEditor">cancel</button>
-            <button class="btn btn-primary" :disabled="busy || !editorName.trim()" @click="saveEditor">{{ busy ? 'saving…' : 'save' }}</button>
+
+          <!-- edit mode -->
+          <div v-else class="ed-panel">
+            <div class="ed-head">
+              <input v-model="editorName" class="ed-name" />
+              <span class="ed-lock" :title="`scope locked at creation — ${editorBundle}`">{{ shortBundle(editorBundle) }} 🔒</span>
+              <span class="su-spacer"></span>
+              <RouterLink class="ed-runs" :to="{ path: '/runs', query: { suite: s.id } }">runs</RouterLink>
+              <button class="btn btn-sm btn-ghost" @click="closePanel()">✕</button>
+            </div>
+            <div class="ed-body">
+              <div v-for="(m, i) in editorRows" :key="m.templateId" class="ed-mem" :class="{ drifted: editing?.appBundleId != null && m.case && m.case.bundle !== editing?.appBundleId }">
+                <span class="ed-pos">{{ i + 1 }}</span>
+                <select class="ed-case" :value="m.templateId" @change="setMemberCase(i, ($event.target as HTMLSelectElement).value)">
+                  <option v-for="c in bundleCases" :key="c.id" :value="c.id">{{ c.name }}</option>
+                </select>
+                <span class="ed-chips">
+                  <button v-for="v in m.case?.variantVocab ?? []" :key="v" class="ed-v"
+                    :class="{ on: m.variantIds == null || m.variantIds.includes(v) }"
+                    :title="m.variantIds == null ? 'all variants (default)' : (m.variantIds.includes(v) ? 'in subset' : 'off — all off reverts to all')"
+                    @click="toggleVariant(m.templateId, v)">{{ v }}</button>
+                  <span v-if="editing?.appBundleId != null && m.case && m.case.bundle !== editing?.appBundleId" class="su-drift">drifted</span>
+                </span>
+                <span class="ed-ops">
+                  <button class="btn btn-sm btn-ghost" :disabled="i === 0" @click="moveMember(i, -1)">↑</button>
+                  <button class="btn btn-sm btn-ghost" :disabled="i === editorRows.length - 1" @click="moveMember(i, 1)">↓</button>
+                  <button class="btn btn-sm btn-ghost" @click="removeMember(i)">✕</button>
+                </span>
+              </div>
+              <button class="ed-add" :disabled="scopedCases.length === 0" @click="addMember">+ member</button>
+            </div>
+            <div class="ed-foot">
+              <span v-if="error" class="ed-err">{{ error }}</span>
+              <span class="su-spacer"></span>
+              <button class="btn btn-ghost" @click="closePanel()">cancel</button>
+              <button class="btn btn-primary" :disabled="busy || !editorName.trim()" @click="saveEditor()">{{ busy ? 'saving…' : 'save' }}</button>
+            </div>
           </div>
         </div>
       </article>
@@ -398,7 +490,7 @@ async function saveEditor(): Promise<void> {
 }
 .su-thead, .su-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 110px) minmax(0, 92px) minmax(0, 1.2fr) minmax(0, 190px);
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 150px) minmax(0, 92px) minmax(0, 1.2fr) minmax(0, 170px);
   gap: var(--s-2); align-items: center;
 }
 .su-thead {
@@ -414,22 +506,36 @@ async function saveEditor(): Promise<void> {
 .su-name { color: var(--color-paper); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .su-newname { color: var(--color-ash); font-style: italic; }
 .su-bundle { color: var(--color-fog); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.su-members { color: var(--color-fog); font-size: 12px; white-space: nowrap; }
+.su-members { color: var(--color-fog); font-size: 12px; white-space: nowrap; overflow: hidden; display: flex; align-items: center; gap: 6px; }
 .su-drift { color: var(--color-paper); border: 1px dashed var(--color-paper); padding: 0 4px; font-size: 10px; margin-left: 4px; }
 .su-updated { color: var(--color-fog); font-size: 12px; }
 .su-verdict { display: flex; align-items: center; gap: var(--s-2); overflow: hidden; }
-.su-glyphs { font-size: 11px; letter-spacing: 1px; white-space: nowrap; }
-.t-pass { color: var(--color-fog); }
-.t-fail { color: var(--color-paper); }
-.t-blocked { color: var(--color-ash); }
-.t-abort { color: var(--color-steel); }
-.t-none { color: var(--color-steel); }
 .su-actions { display: flex; gap: 4px; justify-content: flex-end; }
 .su-empty { color: var(--color-steel); text-align: center; padding: var(--s-7) 0; font-size: 12px; }
 
-/* inline editor — the yaml-panel slot below the row */
+/* verdict bar — one block per member, position order */
+.su-bar { display: inline-flex; gap: 2px; align-items: center; }
+.su-block { width: 7px; height: 12px; border-radius: 1px; cursor: pointer; flex: none; }
+.su-block.b-pass { background: var(--color-ember); }
+.su-block.b-fail { background: var(--color-paper); }
+.su-block.b-blocked { background: var(--color-ash); }
+.su-block.b-abort { background: var(--color-pewter); }
+.su-block.b-none { background: none; border: 1px solid var(--color-slate); box-sizing: border-box; }
+.su-block:hover { outline: 1px solid var(--color-chalk); }
+
+/* panel — preview + editor, the yaml-panel slot below the row */
 .su-editor { margin: 0 var(--s-2) var(--s-2); border: 1px solid var(--color-slate); border-radius: var(--r-sm); background: var(--color-graphite); }
-.ed-head { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--color-iron); }
+.pv-head, .ed-head { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--color-iron); }
+.pv-title { color: var(--color-paper); font-size: 13px; font-weight: 600; }
+.pv-last { color: var(--color-steel); font-size: 11px; }
+.pv-body { padding: var(--s-3); }
+.pv-mem { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-2); border: 1px solid var(--color-iron); border-radius: var(--r-sm); margin-bottom: 6px; background: var(--color-carbon); }
+.pv-mem.hl { border-color: var(--color-ember); }
+.pv-name { color: var(--color-paper); font-size: 12px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-variants { color: var(--color-steel); font-size: 11px; flex: none; }
+.pv-ago { color: var(--color-steel); font-size: 11px; width: 64px; text-align: right; flex: none; }
+.pv-empty { color: var(--color-steel); font-size: 12px; padding: var(--s-3); }
+.pv-empty a { color: var(--color-fog); cursor: pointer; text-decoration: underline; }
 .ed-name { background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font: inherit; font-size: 13px; padding: 4px 8px; width: 240px; }
 .ed-name:focus { outline: none; border-color: var(--color-ember); }
 .ed-scope {
