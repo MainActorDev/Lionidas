@@ -506,11 +506,27 @@ function stepsTitle(t: Template): string {
   return `${base} — ${bare} step(s) use bare coordinates only: one layout change can break them. Re-record with selectors (or add identifiers in the app) to harden.`;
 }
 
-/** trend glyph → (symbol, system class) — mirrors .status-* semantics */
-function trendGlyphs(t: Template): Array<{ g: string; cls: string }> {
+/** trend → momentum dots (last 3 runs) + delta arrow (last 3 vs prior 3).
+ *  Chosen over the 5-glyph string (012 sketch A): direction is the question
+ *  this column answers; full glyph history stays in the tooltip. */
+function trendDots(t: Template): { dots: Array<{ cls: string; tip: string }>; delta: 'up' | 'flat' | 'down' | null; tip: string } {
   const trend = t.verdict?.trend;
-  if (!trend) return [];
-  return trend.split('').map((g) => ({ g: g === 'p' ? '✓' : g === 'F' ? '◆' : g === 'f' ? '✕' : '◌', cls: g === 'p' ? 't-pass' : g === 'F' ? 't-blocked' : g === 'f' ? 't-fail' : 't-abort' }));
+  if (!trend) return { dots: [], delta: null, tip: '' };
+  const glyph = (g: string): string => (g === 'p' ? '✓' : g === 'F' ? '◆' : g === 'f' ? '✕' : '◌');
+  const name = (g: string): string => (g === 'p' ? 'pass' : g === 'F' ? 'blocked' : g === 'f' ? 'fail' : 'abort');
+  // trend arrives oldest → newest
+  const last6 = trend.slice(-6);
+  const last3 = last6.slice(-3);
+  const prior3 = last6.slice(0, Math.max(0, last6.length - 3));
+  const dots = last3.split('').map((g) => ({ cls: g === 'p' ? 'd-pass' : g === 'F' ? 'd-block' : g === 'f' ? 'd-fail' : 'd-abort', tip: name(g) }));
+  let delta: 'up' | 'flat' | 'down' | null = null;
+  if (prior3.length === 3) {
+    const score = (g: string): number => (g === 'p' ? 1 : 0);
+    const d = last3.split('').reduce((a, g) => a + score(g), 0) - prior3.split('').reduce((a, g) => a + score(g), 0);
+    delta = d > 0 ? 'up' : d < 0 ? 'down' : 'flat';
+  }
+  const tip = `last ${last6.length} run${last6.length === 1 ? '' : 's'}: ${last6.split('').map(glyph).join('')}${delta ? ` — ${delta === 'up' ? 'improving' : delta === 'down' ? 'degrading' : 'steady'}` : ''}`;
+  return { dots, delta, tip };
 }
 const suiteSummary = computed(() => {
   const ks = templates.value.map(verdictKind);
@@ -636,7 +652,7 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
         <span class="col-app">app</span>
         <span class="col-steps">steps</span>
         <span class="col-updated">updated</span>
-        <span class="col-trend" title="last 5 runs, oldest → newest (✓ pass · ✕ fail · ◆ blocked · ◌ aborted)">trend</span>
+        <span class="col-trend" title="last 3 runs (dots) + direction vs prior 3 (↑ → ↓)">trend</span>
         <span class="col-evidence" title="latest run evidence — screenshot of the expect that proved (or broke) the case">evidence</span>
         <span class="col-verdict">verdict</span>
         <span class="col-actions"></span>
@@ -654,7 +670,7 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
               <img v-if="t.udid" class="a2-app-icon" alt=""
                 :src="`/api/devices/${t.udid}/apps/${encodeURIComponent(t.appBundleId)}/icon`"
                 @error="(e: Event) => (e.target as HTMLImageElement).style.display = 'none'" />
-              <span class="a2-app-name">{{ t.appName ?? t.appBundleId }}</span>
+              <span class="a2-app-name">{{ t.appBundleId ?? '—' }}</span>
               <span v-if="t.appVersion" class="a2-app-ver">v{{ t.appVersion }}</span>
             </template>
             <span v-else class="a2-app-none">no app</span>
@@ -666,8 +682,11 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
           </span>
           <span class="col-updated" :title="new Date(t.updatedAt).toLocaleString()">{{ relTime(t.updatedAt) }}</span>
           <span class="col-trend">
-            <span v-if="t.verdict?.trend" class="trend" title="last 5 runs, oldest → newest">
-              <span v-for="(g, i) in trendGlyphs(t)" :key="i" :class="g.cls">{{ g.g }}</span>
+            <span v-if="t.verdict?.trend" class="trend" :title="trendDots(t).tip">
+              <span class="dots">
+                <span v-for="(d, i) in trendDots(t).dots" :key="i" class="dot" :class="d.cls" :title="d.tip"></span>
+              </span>
+              <span v-if="trendDots(t).delta" class="delta" :class="trendDots(t).delta">{{ trendDots(t).delta === 'up' ? '↑' : trendDots(t).delta === 'down' ? '↓' : '→' }}</span>
             </span>
             <span v-else class="a2-trend-none">—</span>
           </span>
@@ -719,11 +738,8 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
             :position="yamlPosition.pos"
             :total="yamlPosition.total"
             :updated-at="t.updatedAt"
-            :created-by="t.createdBy"
             :updated-by="t.updatedBy ?? null"
             :description="t.description"
-            :ticket-key="t.ticketKey"
-            :tags="t.tags ?? []"
             :deep-rev="yamlOpenId === t.id ? deepRev : null"
             @close="yamlOpenId = null; deepRev = null"
             @saved="() => void load()"

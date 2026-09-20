@@ -4,7 +4,7 @@ import { parseCaseYaml } from '@crucible/shared/case-yaml';
 import { useYamlEditor } from '../composables/useYamlEditor.ts';
 import CaseVersions from './CaseVersions.vue';
 
-/** The ONE case editor: metadata (name / ticket / description / tags) above,
+/** The ONE case editor: metadata (name / description) above,
  *  yaml steps below — a single component, a single save, a single dirty flag.
  *  Opens inline under its row; the page guards switching via isDirty. */
 
@@ -19,11 +19,8 @@ const props = defineProps<{
   /** last-saved timestamp (ms) — rendered as "· saved Xm/h ago" */
   updatedAt?: number;
   /** attribution — who authored / last edited this case */
-  createdBy?: string | null;
   updatedBy?: string | null;
   description: string | null;
-  ticketKey: string | null;
-  tags: string[];
   /** deep-link: open history on this revision (from a run's version chip) */
   deepRev?: number | null;
 }>();
@@ -35,9 +32,7 @@ const emit = defineEmits<{
 
 // ── metadata ──
 const name = ref('');
-const ticket = ref('');
 const description = ref('');
-const tags = ref('');
 
 // ── version history (option A quiet footer): revisions strip, always
 // visible; picking one flips the yaml column read-only. No disclosure. ──
@@ -134,9 +129,7 @@ async function load(): Promise<void> {
     if (!res.ok) { msg.value = 'case not found'; return; }
     const { yaml } = (await res.json()) as { yaml: string };
     name.value = props.caseName;
-    ticket.value = props.ticketKey ?? '';
     description.value = props.description ?? '';
-    tags.value = props.tags.join(', ');
     await nextTick();
     if (!editorHost.value) return;
     if (!ed.ready.value) {
@@ -159,8 +152,9 @@ async function load(): Promise<void> {
   }
 }
 
-/** ONE save: metadata first (name/ticket/description/tags via the template
- *  PATCH route), then the yaml (PUT :id/yaml validates + persists steps). */
+/** ONE save: metadata first (name/description via the template PATCH route;
+ *  tags ride the yaml — the PUT persists them from the parsed document),
+ *  then the yaml (PUT :id/yaml validates + persists steps). */
 async function save(): Promise<void> {
   if (saving.value) return;
   // Viewing an old revision read-only: the editor shows the SNAPSHOT's
@@ -175,9 +169,7 @@ async function save(): Promise<void> {
       method: 'PATCH', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         name: name.value.trim() || props.caseName,
-        ticketKey: ticket.value.trim() || null,
         description: description.value.trim() || null,
-        tags: tags.value.split(',').map((x) => x.trim()).filter(Boolean),
       }),
     });
     if (!meta.ok) { msg.value = `metadata save failed (${meta.status})`; return; }
@@ -245,7 +237,7 @@ const savedAgo = computed((): string | null => {
   <div class="ce-panel">
     <div class="ce-head">
       <span class="fname">{{ caseName }}</span>
-      <span class="meta">{{ stepsCount }} step{{ stepsCount === 1 ? '' : 's' }}<template v-if="savedAgo"> · saved {{ savedAgo }}</template><template v-if="updatedBy"> · by {{ updatedBy }}</template><template v-if="createdBy && createdBy !== updatedBy"> · created {{ createdBy }}</template><template v-if="dirty"> · <span style="color: var(--color-ember);">unsaved</span></template></span>
+      <span class="meta">{{ stepsCount }} step{{ stepsCount === 1 ? '' : 's' }}<template v-if="savedAgo"> · saved {{ savedAgo }}</template><template v-if="updatedBy"> · by {{ updatedBy }}</template><template v-if="dirty"> · <span style="color: var(--color-ember);">unsaved</span></template></span>
       <span v-if="total > 1" class="hop">
         <button class="btn btn-sm" :disabled="position <= 1" title="previous case in filter" @click="hop(-1)">‹</button>
         <span class="meta">{{ position }} / {{ total }}</span>
@@ -257,12 +249,11 @@ const savedAgo = computed((): string | null => {
       <button class="btn btn-sm btn-primary" :disabled="saving || loading || (viewingRev !== null && viewingRev !== 'current')" :title="viewingRev !== null && viewingRev !== 'current' ? 'viewing a superseded state — back to current to save' : undefined" @click="save">{{ saving ? 'saving…' : '⌘↵ save' }}</button>
     </div>
 
-    <!-- metadata: name / ticket / description / tags -->
+    <!-- metadata: name / description (tags live in the yaml; ticket dropped
+         until a Jira tie-in earns the field back) -->
     <div class="ce-meta" :class="{ ro: viewingRev !== null && viewingRev !== 'current' }">
       <label class="ce-field"><span>name</span><input v-model="name" :disabled="viewingRev !== null && viewingRev !== 'current'" @input="dirty = true" placeholder="case name" /></label>
-      <label class="ce-field"><span>ticket</span><input v-model="ticket" :disabled="viewingRev !== null && viewingRev !== 'current'" @input="dirty = true" placeholder="ticket key (e.g. LP-123)" /></label>
       <label class="ce-field ce-wide"><span>description</span><input v-model="description" :disabled="viewingRev !== null && viewingRev !== 'current'" @input="dirty = true" placeholder="what this case verifies" /></label>
-      <label class="ce-field"><span>tags</span><input v-model="tags" :disabled="viewingRev !== null && viewingRev !== 'current'" @input="dirty = true" placeholder="smoke, login" title="comma list, max 8" /></label>
     </div>
 
     <div class="ce-body" :class="{ ro: viewingRev !== null && viewingRev !== 'current' }">

@@ -41,13 +41,17 @@ const superseded = computed(() => versions.value.filter((v) =>
 const liveRevision = computed(() =>
   liveSha.value === null ? null : versions.value.find((v) => v.stepsSha === liveSha.value) ?? null);
 
-/** items in strip order: superseded revisions asc, then `current` last. */
+/** items in strip order: newest 5 superseded revisions asc, then `current`
+ *  last. With long histories the full strip bloats the footer irrecoverably
+ *  (not scrollable); the tail is the working set. Older revisions stay
+ *  reachable: deep-link `#r<N>` or the runs page's version filter. */
 const items = computed<Array<{ kind: 'rev'; v: VersionRow } | { kind: 'current'; runs: number }>>(() => {
   const runs = liveRevision.value?.runCount ?? 0;
   return [
     ...superseded.value
       .slice()
       .sort((a, b) => a.revision - b.revision)
+      .slice(-5)
       .map((v) => ({ kind: 'rev' as const, v })),
     { kind: 'current' as const, runs },
   ];
@@ -105,6 +109,7 @@ function tip(item: { kind: 'rev'; v: VersionRow } | { kind: 'current'; runs: num
           @click="pick(item)"
         >{{ item.kind === 'current' ? 'current' : `r${item.v.revision}` }}<span class="n">{{ (item.kind === 'current' ? item.runs : item.v.runCount) > 0 ? (item.kind === 'current' ? item.runs : item.v.runCount) : '·' }}</span></span>
       </template>
+      <span v-if="superseded.length > 5" class="cnt" :title="`${superseded.length - 5} older revisions — open a run from /runs to inspect its version`">+{{ superseded.length - 5 }}</span>
       <span v-if="items.length === 1" class="cnt">current only — a version becomes rN when superseded</span>
       <span v-else-if="viewing !== 'current' && viewing !== null" class="cnt stale">viewing r{{ viewing }} — superseded</span>
     </template>

@@ -188,18 +188,27 @@ a.chip:hover, button.chip:hover, .chip-click:hover { color: var(--color-paper); 
 .chip .chip-x { color: var(--color-steel); padding: 0 var(--s-1); }
 .chip .chip-x:hover { color: var(--color-paper); }
 
-/* ─── Trend (run-history glyphs; symbols carry status per Axiom — p ✓, f ✕, F ◆ dashed, a ◌) ─── */
+/* ─── Trend (momentum dots: last 3 runs as dots, delta vs prior 3; 012-A) ─── */
 .trend {
   font-family: var(--font-mono);
   font-size: var(--text-caption);
   letter-spacing: 0.12em;
   color: var(--color-steel);
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
-.trend .t-pass { color: var(--color-fog); }
-.trend .t-fail { color: var(--color-paper); }
-.trend .t-blocked { color: var(--color-fog); text-decoration: underline dotted; }
-.trend .t-abort { color: var(--color-steel); }
+.trend .dots { display: inline-flex; gap: 5px; align-items: center; }
+.trend .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.trend .dot.d-pass { background: var(--color-ember); }
+.trend .dot.d-fail { background: var(--color-paper); }
+.trend .dot.d-block { background: var(--color-ash); }
+.trend .dot.d-abort { background: none; border: 1px solid var(--color-slate); box-sizing: border-box; }
+.trend .delta { width: 14px; text-align: center; }
+.trend .delta.up { color: var(--color-ember); }
+.trend .delta.flat { color: var(--color-steel); }
+.trend .delta.down { color: var(--color-paper); }
 
 /* ─── Stat summary (page-head count chips: "N · ✓a ✕b ◆c") ─── */
 .stat-summary {
