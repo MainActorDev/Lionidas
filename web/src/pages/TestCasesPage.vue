@@ -142,18 +142,20 @@ async function play(t: Template, mode: RunMode = 'watch'): Promise<void> {
         ...(Object.keys(env).length ? { env } : {}),
       }),
     });
-    const b = (await r.json()) as { runId?: string; udid?: string; error?: string; code?: string; appBundleId?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null };
+    // no "running · run_x" status line — the row's progress pill and the
+    // dock (watch mode) are the live surfaces; playMsg stays for ERRORS
+    // (device ambiguity, app-not-installed, failures) and batch results.
+    // Variant plays: laneCount tells the dock to follow lanes (run.started
+    // events) instead of settling on lane 1 — the response now returns
+    // after lane 1 STARTS, not after the whole play finishes.
+    const b = (await r.json()) as { runId?: string; runIds?: string[]; laneCount?: number; udid?: string; error?: string; code?: string; appBundleId?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null };
     if (b.code === 'DEVICE_AMBIGUOUS') {
       playMsg.value = 'several devices booted — pick one (device selector in advanced controls)';
       advancedOpen.value = true;
       await loadBootedDevices();
     } else if (b.runId) {
-      // no "running · run_x" status line — the row's progress pill and the
-      // dock (watch mode) are the live surfaces; playMsg stays for ERRORS
-      // (device ambiguity, app-not-installed, failures) and batch results.
-      // server-resolved device (falls back to the template's recorded udid)
       if (mode === 'watch') {
-        runPanel.value = { runId: b.runId, templateId: t.id, caseName: t.name, udid: b.udid ?? t.udid };
+        runPanel.value = { runId: b.runId, templateId: t.id, caseName: t.name, udid: b.udid ?? t.udid, laneCount: (b.laneCount ?? (b.runIds?.length || 0)) || 1 };
       }
       installHint.value = null;
     } else if (b.code === 'APP_NOT_INSTALLED') {
@@ -220,7 +222,7 @@ function artifactLabel(a: { path: string; version: string | null; source: string
 }
 
 // ── run companion panel (R1 observer dock) ──
-const runPanel = ref<{ runId: string; templateId: string; caseName: string; udid: string } | null>(null);
+const runPanel = ref<{ runId: string; templateId: string; caseName: string; udid: string; laneCount?: number } | null>(null);
 
 // evidence sheet (sketch 008-C): open state is just templateId + lanes —
 // all filtering/cinema state lives inside EvidenceSheet
@@ -813,6 +815,7 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
       :template-id="runPanel.templateId"
       :case-name="runPanel.caseName"
       :udid="runPanel.udid"
+      :lane-count="runPanel.laneCount ?? 1"
       @close="runPanel = null"
       @open-run="(id) => $router.push(`/runs/${id}`)"
     />

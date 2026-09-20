@@ -24,6 +24,11 @@ const props = defineProps<{
   templateId: string;
   caseName: string;
   udid: string;
+  /** variant plays run N sequential lanes on one device; the dock follows
+   *  lanes via run.started events (matched by templateId+udid) and stays
+   *  locked until the LAST lane finishes, showing worst-of-lanes. 0/omitted
+   *  = single-run watch (today's behavior). */
+  laneCount?: number;
 }>();
 
 const emit = defineEmits<{ (e: 'close'): void; (e: 'open-run', runId: string): void }>();
@@ -33,6 +38,15 @@ const stream = useDeviceStream();
 
 const rows = ref<Row[]>([]);
 const status = ref<'running' | 'passed' | 'failed' | 'aborted'>('running');
+/** variant-lane state: the dock follows the play's lanes (run.started
+ *  events matched by templateId+udid), resetting per-lane UI when a lane
+ *  adopts. Single-run watch (no lanes) keeps today's behavior. */
+const lanes = ref<Array<{ runId: string; status: 'running' | 'passed' | 'failed' | 'aborted' }>>([]);
+const laneIdx = ref(0);
+const followLanes = computed(() => (props.laneCount ?? 0) > 1);
+/** lanes still to come — the dock stays locked while any lane runs */
+const lanesDone = computed(() => followLanes.value && laneIdx.value + 1 >= (props.laneCount ?? 1));
+const activeRunId = computed(() => lanes.value[laneIdx.value]?.runId ?? props.runId);
 /** readiness gate phase — 'stream' → 'app' → 'steps' (run.phase events);
  *  null once steps begin (plan/step events take over) */
 const gate = ref<'stream' | 'app' | 'steps' | null>('stream');
@@ -85,7 +99,20 @@ async function hydrate(): Promise<void> {
 function onEvent(ev: { type: string; payload: Record<string, unknown> }): void {
   const p = ev.payload;
   const rid = p['runId'] as string | undefined;
-  if (!rid || rid !== props.runId) return;
+  if (ev.type === 'run.started' && followLanes.value) {
+    // lane hand-off: a NEW run of the same case+device = the next variant
+    // lane starting (the server chains lanes sequentially). Adopt it: the
+    // per-lane UI resets (steps/gate/clock) while the stream keeps playing.
+    const t = p['templateId'] as string | undefined;
+    const u = p['udid'] as string | undefined;
+    if (rid && t === props.templateId && u === props.udid && rid !== activeRunId.value) {
+      lanes.value.push({ runId: rid, status: 'running' });
+      laneIdx.value = lanes.value.length - 1;
+      adoptLane(rid);
+    }
+    return;
+  }
+  if (!rid || rid !== activeRunId.value) return;
   if (ev.type === 'run.phase') {
     gate.value = (p['phase'] as typeof gate.value) ?? null;
   } else if (ev.type === 'step.tap') {
@@ -121,16 +148,81 @@ function onEvent(ev: { type: string; payload: Record<string, unknown> }): void {
     // click-time abort ack (Task 0): settle immediately — running steps
     // ended with the run; the record flip follows in the run's finally.
     for (const r of rows.value) if (r.status === 'running') r.status = 'skip';
+    if (followLanes.value) {
+      // abort stops the WHOLE play (server cascade): mark the active lane,
+      // treat un-started lanes as aborted, settle on worst-of-lanes now
+      if (lanes.value[laneIdx.value]) lanes.value[laneIdx.value]!.status = 'aborted';
+      while (lanes.value.length < (props.laneCount ?? 1)) lanes.value.push({ runId: '', status: 'aborted' });
+      status.value = worstLane();
+      finishedAt.value = Date.now();
+      return;
+    }
     status.value = 'aborted';
     finishedAt.value = Date.now();
     void hydrate();
   } else if (ev.type === 'run.finished') {
     // any step still 'running' ended with the run — settle it as skip
     for (const r of rows.value) if (r.status === 'running') r.status = 'skip';
-    status.value = (p['status'] as typeof status.value) ?? 'aborted';
+    const st = (p['status'] as typeof status.value) ?? 'aborted';
+    if (followLanes.value) {
+      // per-lane bookkeeping; the panel settles only when the LAST lane
+      // finishes — worst lane wins, mirroring the verdict pill
+      if (lanes.value[laneIdx.value]) lanes.value[laneIdx.value]!.status = st;
+      if (lanesDone.value) {
+        status.value = worstLane();
+        finishedAt.value = Date.now();
+        void hydrateActive();
+      }
+      return;
+    }
+    status.value = st;
     finishedAt.value = Date.now();
-    void hydrate(); // blocked/note come from the run row
+    void hydrate();
   }
+}
+
+/** worst-of-lanes: failed > aborted > passed (mirrors the verdict pill) */
+function worstLane(): 'passed' | 'failed' | 'aborted' {
+  const st = lanes.value.map((l) => l.status);
+  if (st.some((s) => s === 'failed')) return 'failed';
+  if (st.some((s) => s === 'aborted')) return 'aborted';
+  return 'passed';
+}
+
+/** adopt a new lane: reset the per-lane UI, keep the stream + case name */
+function adoptLane(rid: string): void {
+  rows.value = [];
+  gate.value = 'stream';
+  taps.value = [];
+  startedAt.value = Date.now();
+  finishedAt.value = null;
+  note.value = '';
+  blocked.value = false;
+  status.value = 'running';
+  clock.value = '00:00';
+  void hydrateActive();
+}
+
+/** hydrate the ACTIVE lane's run row (shared by lane adoption + finish) */
+async function hydrateActive(): Promise<void> {
+  try {
+    const r = await fetch(`/api/runs/${activeRunId.value}`);
+    const b = (await r.json()) as { run?: { status: string; blocked: number; note: string | null; started_at: number | null; finished_at: number | null } };
+    if (b.run) {
+      startedAt.value = b.run.started_at;
+      if (b.run.status !== 'queued' && b.run.status !== 'running') {
+        if (lanes.value[laneIdx.value]) {
+          lanes.value[laneIdx.value]!.status = b.run.status as 'passed' | 'failed' | 'aborted';
+        }
+      }
+      if (followLanes.value && lanesDone.value && b.run.status !== 'queued' && b.run.status !== 'running') {
+        status.value = worstLane();
+        finishedAt.value = b.run.finished_at;
+        blocked.value = b.run.blocked === 1;
+        note.value = b.run.note ?? '';
+      }
+    }
+  } catch { /* hydrate best-effort — live events take over */ }
 }
 
 const unwatch = watch(
@@ -179,6 +271,7 @@ let ro: ResizeObserver | null = null;
 onMounted(() => {
   live.connect();
   stream.start(props.udid);
+  if (followLanes.value) lanes.value = [{ runId: props.runId, status: 'running' }];
   void hydrate();
   clockTimer = setInterval(tick, 500);
   // keep the phone box fitted through window resizes / dock relayouts
@@ -226,9 +319,15 @@ async function requestAbort(): Promise<void> {
   if (status.value !== 'running' || aborting.value) return;
   aborting.value = true;
   try {
-    await fetch(`/api/runs/${props.runId}/abort`, { method: 'POST' });
-    status.value = 'aborted';
-    emit('close');
+    // abort the ACTIVE lane; the server's abort cascade stops later lanes
+    // of the play (an aborted lane means the user stopped the play)
+    await fetch(`/api/runs/${activeRunId.value}/abort`, { method: 'POST' });
+    if (!followLanes.value) {
+      status.value = 'aborted';
+      emit('close');
+    }
+    // lane mode: run.aborted lands via events; the panel settles through
+    // worstLane() when the last lane reports — no manual close here
   } catch { /* hydrate/poll will surface terminal state anyway */ }
   finally { aborting.value = false; }
 }
@@ -239,7 +338,8 @@ async function requestAbort(): Promise<void> {
     <header class="rp-head">
       <span class="rp-name">{{ caseName }}</span>
       <span class="rp-live" :class="{ done: status !== 'running' }">{{ status === 'running' ? '● live' : '● finished' }}</span>
-      <span class="rp-meta">{{ runId }} · {{ udid.slice(0, 8) }}…</span>
+      <span class="rp-meta">{{ activeRunId }} · {{ udid.slice(0, 8) }}…</span>
+      <span v-if="followLanes" class="rp-lanes" :title="`variant lanes: ${lanes.map((l) => l.status).join(' · ')}`">lane {{ laneIdx + 1 }}/{{ laneCount }}</span>
       <span class="rp-lock" :title="status === 'running' ? 'the panel stays open until the run finishes' : 'run finished — panel can be closed'">
         {{ status === 'running' ? '🔒 until done' : 'unlocked' }}
       </span>
@@ -328,6 +428,7 @@ async function requestAbort(): Promise<void> {
 .rp-live.done { color: var(--color-steel); }
 .rp-meta { color: var(--color-steel); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
 .rp-lock { color: var(--color-steel); font-size: 10px; border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 1px 6px; flex: none; }
+.rp-lanes { color: var(--color-fog); font-size: 10px; border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 1px 6px; flex: none; white-space: nowrap; }
 
 .rp-stream { position: relative; border-right: 1px solid var(--color-iron); background: #000; display: flex; align-items: center; justify-content: center; padding: 16px; overflow: hidden; min-height: 0; }
 /* canvas sizing must come from the BOX, not the intrinsic 300×150 backing

@@ -418,20 +418,48 @@ export function registerManualRoutes(
         return { runId, udid, variants: [{ id: one.id, runId }] };
       }
       if (variants.length > 0) {
-        // Sequential CONTRACT: each variant runs to completion before the
-        // next starts — proxy state is device-global and the B5 device-busy
-        // guard would 409 a back-to-back start anyway. await done here.
+        // Sequential CONTRACT preserved: each lane runs to completion before
+        // the next starts — proxy state is device-global and the B5 device-
+        // busy guard would 409 a back-to-back start anyway. But the RESPONSE
+        // no longer awaits the whole play: it used to hang for minutes (one
+        // full play per lane), and the watch dock only opens after the
+        // response — so variant plays "ran in the background". Start lane 1,
+        // chain the rest detached, return the planned lane order; the dock
+        // follows lanes via run.started events.
         const runIds: string[] = [];
-        const perVariant: Array<{ id: string; runId: string }> = [];
-        let firstUdid = '';
-        for (const v of variants) {
+        const perVariant: Array<{ id: string; runId: string | null }> =
+          variants.map((v) => ({ id: v.id, runId: null }));
+        const laneStatus = (rid: string): string | null =>
+          (db.prepare('SELECT status FROM runs WHERE id = ?').get(rid) as { status: string } | undefined)?.status ?? null;
+        // start ≠ done: resolve when the run row exists (watch dock opens
+        // NOW), done settles when the lane finishes (chain sequencing)
+        const startLane = async (v: { id: string; networkScenario?: string; env?: Record<string, string> }): Promise<{ runId: string; done: Promise<unknown> }> => {
           const { runId, udid, done } = await runTemplatePlayback(pbDeps, id, { ...baseOpts, variant: v });
-          if (!firstUdid) firstUdid = udid;
           runIds.push(runId);
-          perVariant.push({ id: v.id, runId });
-          await done;
-        }
-        return { runId: runIds[0] ?? null, runIds, udid: firstUdid, variants: perVariant };
+          perVariant.find((p) => p.id === v.id)!.runId = runId;
+          if (!firstUdid) firstUdid = udid;
+          done.catch(() => { /* per-lane failures land on the run row */ });
+          return { runId, done };
+        };
+        let firstUdid = '';
+        const first = await startLane(variants[0]!);
+        // abort cascade: an aborted lane means the user stopped the PLAY —
+        // remaining lanes must not start. Chain errors (e.g. DEVICE_BUSY on
+        // a later lane) stop the chain the same way; they must not reject an
+        // already-answered request.
+        void (async () => {
+          await first.done.catch(() => { /* lane 1 verdict lands on its run row */ });
+          if (laneStatus(first.runId) === 'aborted') return;
+          for (let i = 1; i < variants.length; i++) {
+            const lane = await startLane(variants[i]!).catch(() => null);
+            if (lane === null) return;
+            await lane.done.catch(() => { /* verdict lands on the run row */ });
+            if (laneStatus(lane.runId) === 'aborted') return;
+          }
+        })();
+        // runIds/perVariant carry only STARTED lanes at response time — ids
+        // arrive as lanes start; laneCount is the full plan
+        return { runId: first.runId, runIds, udid: firstUdid, laneCount: variants.length, variants: perVariant };
       }
       const { runId, udid } = await runTemplatePlayback(pbDeps, id, baseOpts);
       return { runId, udid };

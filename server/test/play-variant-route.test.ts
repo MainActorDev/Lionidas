@@ -96,14 +96,28 @@ describe('POST /api/templates/:id/play — variant expansion', () => {
     expect(db.prepare('SELECT COUNT(*) n FROM runs WHERE template_id = ?').get('tpl_s1')).toMatchObject({ n: 1 });
   });
 
-  it('3 variants → 3 runs, declaration order, each stamped; response carries runIds + per-variant map', { timeout: 90_000 }, async () => {
+  it('3 variants → lane 1 starts, response returns immediately (watch dock opens now), lanes chain sequentially; response carries laneCount + lane order', { timeout: 90_000 }, async () => {
     seedTemplate('tpl_s2', STEPS, THREE);
+    const t0 = Date.now();
     const r = await app.app.inject({ method: 'POST', url: '/api/templates/tpl_s2/play', payload: {} });
     expect(r.statusCode).toBe(200);
-    const body = r.json() as { runIds: string[]; variants: Array<{ id: string; runId: string }> };
-    expect(body.runIds).toHaveLength(3);
+    // the response returns after lane 1 STARTS (run row exists) — NOT after
+    // it finishes; real lanes run minutes, so any await-done here is a bug.
+    // 20s bound: covers app install/stream gate in slow CI, still << lane time.
+    expect(Date.now() - t0).toBeLessThan(20_000);
+    const body = r.json() as { runId: string; laneCount: number; runIds: string[]; variants: Array<{ id: string; runId: string | null }> };
+    expect(body.laneCount).toBe(3);
+    expect(body.runId).toBeTruthy();
     expect(body.variants.map((v) => v.id)).toEqual(['active', 'pending', 'rejected']);
-    const rows = db.prepare('SELECT variant_id FROM runs WHERE template_id = ? ORDER BY started_at').all('tpl_s2') as Array<{ variant_id: string | null }>;
+    expect(body.variants[0]!.runId).toBe(body.runId);
+    // lanes 2..N start later, sequentially — wait for all three to exist
+    const deadline = Date.now() + 60_000;
+    let rows: Array<{ variant_id: string | null }> = [];
+    while (Date.now() < deadline) {
+      rows = db.prepare('SELECT variant_id FROM runs WHERE template_id = ? ORDER BY started_at').all('tpl_s2') as typeof rows;
+      if (rows.length === 3) break;
+      await new Promise((res) => setTimeout(res, 100));
+    }
     expect(rows.map((x) => x.variant_id)).toEqual(['active', 'pending', 'rejected']);
   });
 
