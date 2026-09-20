@@ -232,4 +232,20 @@ describe('T7 — runs ?suite= filter', () => {
     const rest = (await app.inject({ method: 'GET', url: '/api/runs?suite=unassigned' })).json() as { runs: Array<{ id: string }> };
     expect(rest.runs.map((r) => r.id)).toEqual(['run_x']);
   });
+
+  it('?status= filters rows — exact match, and "active" = running|queued (the param was silently ignored before)', async () => {
+    mkCase('tpl_st', 'ST');
+    const ins = db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, note, template_id)
+                            VALUES (?, 'T', 'manual', ?, 'qa', 'sim', ?, '', 'tpl_st')`);
+    ins.run('run_run', 'running', 100);
+    ins.run('run_q', 'queued', 200);
+    ins.run('run_pass', 'passed', 300);
+    ins.run('run_fail', 'failed', 400);
+    const active = (await app.inject({ method: 'GET', url: '/api/runs?status=active' })).json() as { runs: Array<{ id: string }> };
+    expect([...active.runs.map((r) => r.id)].sort()).toEqual(['run_q', 'run_run']);
+    const failed = (await app.inject({ method: 'GET', url: '/api/runs?status=failed' })).json() as { runs: Array<{ id: string }> };
+    expect(failed.runs.map((r) => r.id)).toEqual(['run_fail']);
+    const running = (await app.inject({ method: 'GET', url: '/api/runs?status=running' })).json() as { runs: Array<{ id: string }> };
+    expect(running.runs.map((r) => r.id)).toEqual(['run_run']);
+  });
 });

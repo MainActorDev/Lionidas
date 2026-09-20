@@ -73,13 +73,18 @@ export function registerRunRoutes(app: FastifyInstance, db: Database.Database, b
   });
 
   app.get('/api/runs', async (req) => {
-    const q = req.query as { ticket?: string; limit?: string; template?: string; app_version?: string; suite?: string; variant?: string };
+    const q = req.query as { ticket?: string; limit?: string; template?: string; app_version?: string; suite?: string; variant?: string; status?: string };
     const limit = Math.min(Number.parseInt(q.limit ?? '50', 10) || 50, 200);
     const where: string[] = [];
     const params: unknown[] = [];
     if (q.ticket) { where.push('ticket_key = ?'); params.push(q.ticket); }
     if (q.template) { where.push('template_id = ?'); params.push(q.template); }
     if (q.app_version) { where.push('app_version = ?'); params.push(q.app_version); }
+    // status: exact match, plus the 'active' pseudo-status (running OR queued)
+    // — the non-terminal set activeRuns seeds from. Previously this param was
+    // silently ignored (every caller got "recent runs" regardless).
+    if (q.status === 'active') { where.push("status IN ('running','queued')"); }
+    else if (q.status) { where.push('status = ?'); params.push(q.status); }
     // Phase D T7: suite filter. A suite id matches its stamped runs even
     // after the suite is deleted (honest history; name renders as
     // <deleted>). 'unassigned' matches both null suite_id AND null

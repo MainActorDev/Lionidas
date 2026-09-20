@@ -52,7 +52,9 @@ function removeRun(runId: string): void {
 /** Fetch all non-terminal runs once. `fetchFn` injectable for tests. */
 export async function seedActiveRuns(fetchFn: typeof fetch = fetch): Promise<void> {
   try {
-    const r = await fetchFn('/api/runs?status=running&limit=100');
+    // 'active' = running OR queued — server-side pseudo-status; the client
+    // guard stays as a belt-and-braces filter (status vocab may grow)
+    const r = await fetchFn('/api/runs?status=active&limit=100');
     if (!r.ok) return;
     const b = (await r.json()) as { runs?: Array<{ id: string; template_id: string | null; started_at: number | null; status: string }> };
     for (const row of b.runs ?? []) {
