@@ -28,14 +28,19 @@ export interface HistoryRow {
 }
 
 /** One row per template that has runs: latest verdict + trend, in one query.
- *  Templates with zero runs are ABSENT here — callers render "never run". */
-export function suiteVerdicts(db: Database.Database): Map<string, CaseVerdict> {
+ *  Templates with zero runs are ABSENT here — callers render "never run".
+ *  suiteId filters to runs stamped with that suite: a member's verdict is the
+ *  last time THIS suite played it, not the case's last run anywhere (shared
+ *  members must not leak status across suites). Null/omitted = all runs
+ *  (cases-page semantics). */
+export function suiteVerdicts(db: Database.Database, suiteId?: string | null): Map<string, CaseVerdict> {
   const rows = db.prepare(`
     WITH ranked AS (
       SELECT r.*,
              ROW_NUMBER() OVER (PARTITION BY r.template_id ORDER BY r.started_at DESC) AS rn,
              COUNT(*) OVER (PARTITION BY r.template_id) AS total
       FROM runs r WHERE r.template_id IS NOT NULL
+      ${suiteId ? 'AND r.suite_id = ?' : ''}
     )
     SELECT template_id,
            (SELECT id FROM ranked l WHERE l.template_id = ranked.template_id AND l.rn = 1) AS last_run_id,
@@ -57,7 +62,7 @@ export function suiteVerdicts(db: Database.Database): Map<string, CaseVerdict> {
               ORDER BY t2.started_at DESC LIMIT 5
            )) AS trend_desc
     FROM ranked WHERE rn = 1
-  `).all() as Array<{
+  `).all(...(suiteId ? [suiteId] : [])) as Array<{
     template_id: string; last_run_id: string; last_status: string; last_blocked: number;
     last_finished_at: number | null; last_app_version: string | null; total: number; trend_desc: string | null;
   }>;

@@ -34,16 +34,17 @@ beforeEach(async () => {
 afterEach(async () => { await app.close(); db.close(); });
 
 describe('T2 — suites CRUD + membership validation', () => {
-  it('create + read back: members ordered, verdicts from runs, null variantIds = default', async () => {
+  it('create + read back: members ordered, suite-scoped verdicts (unstamped runs do not count), null variantIds = default', async () => {
     mkCase('tpl_a', 'A');
     mkCase('tpl_b', 'B', ['sg', 'my']);
+    // a run with NO suite stamp: case-level truth, but not this suite's play
     db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, note, template_id)
                 VALUES ('run_a1', 'T', 'manual', 'passed', 'qa', 'sim', 100, '', 'tpl_a')`).run();
     const res = await app.inject({ method: 'POST', url: '/api/suites', payload: { name: 'smoke', members: [{ templateId: 'tpl_a' }, { templateId: 'tpl_b', variantIds: ['sg'] }] } });
     expect(res.statusCode).toBe(201);
     const s = res.json() as { id: string; members: Array<{ templateId: string; variantIds: string[] | null; lastStatus: string | null; totalRuns: number }> };
     expect(s.members).toHaveLength(2);
-    expect(s.members[0]).toMatchObject({ templateId: 'tpl_a', variantIds: null, lastStatus: 'passed', totalRuns: 1 });
+    expect(s.members[0]).toMatchObject({ templateId: 'tpl_a', variantIds: null, lastStatus: null, totalRuns: 0 });
     expect(s.members[1]).toMatchObject({ templateId: 'tpl_b', variantIds: ['sg'] });
     const got = await app.inject({ method: 'GET', url: `/api/suites/${s.id}` });
     expect(got.statusCode).toBe(200);

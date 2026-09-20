@@ -101,3 +101,51 @@ describe('runTrend + history filter', () => {
     expect(rows.map((r) => r.id)).toEqual(['r2', 'r1']);
   });
 });
+
+describe('suiteVerdicts — suite scope (shared members never leak)', () => {
+  function seedSuite(id: string, members: string[]): void {
+    db.prepare(`INSERT INTO suites(id, name, created_by, created_at, updated_at) VALUES (?, ?, 'qa', 0, 0)`).run(id, id);
+    members.forEach((t, i) => db.prepare('INSERT INTO suite_members(suite_id, template_id, position) VALUES (?, ?, ?)').run(id, t, i));
+  }
+  function seedSuiteRun(id: string, tpl: string, status: string, suite: string, at: number): void {
+    db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, finished_at, template_id, suite_id)
+                VALUES (?, 'T', 'manual', ?, 'qa', 'sim', ?, ?, ?, ?)`)
+      .run(id, status, at, at + 1000, tpl, suite);
+  }
+
+  it('running one suite does not change the other suite sharing the same member cases', () => {
+    seedTpl('t1', 'login');
+    seedSuite('s1', ['t1']);
+    seedSuite('s2', ['t1']); // same case, different pack
+    seedSuiteRun('r1', 't1', 'passed', 's1', 1000);
+    // s2 has NO runs of t1 stamped with s2 — its verdict must stay absent
+    expect(suiteVerdicts(db, 's1').get('t1')?.lastStatus).toBe('passed');
+    expect(suiteVerdicts(db, 's2').has('t1')).toBe(false);
+  });
+
+  it('suite-scoped trend counts only runs stamped with this suite', () => {
+    seedTpl('t1', 'login');
+    seedSuite('s1', ['t1']);
+    seedSuite('s2', ['t1']);
+    seedSuiteRun('r1', 't1', 'passed', 's1', 1000);
+    seedSuiteRun('r2', 't1', 'failed', 's2', 2000);
+    seedSuiteRun('r3', 't1', 'passed', 's1', 3000);
+    const v1 = suiteVerdicts(db, 's1').get('t1')!;
+    expect(v1.lastStatus).toBe('passed');      // r3 — s1's own last play
+    expect(v1.totalRuns).toBe(2);              // r1, r3 — not s2's r2
+    const v2 = suiteVerdicts(db, `s2`).get('t1')!;
+    expect(v2.lastStatus).toBe('failed');      // s2's own last play
+    expect(v2.totalRuns).toBe(1);
+  });
+
+  it('no suiteId = case-level semantics (cases page unchanged)', () => {
+    seedTpl('t1', 'login');
+    seedSuite('s1', ['t1']);
+    seedSuite('s2', ['t1']);
+    seedSuiteRun('r1', 't1', 'passed', 's1', 1000);
+    seedSuiteRun('r2', 't1', 'failed', 's2', 2000);
+    const v = suiteVerdicts(db).get('t1')!; // all runs
+    expect(v.lastStatus).toBe('failed');
+    expect(v.totalRuns).toBe(2);
+  });
+});

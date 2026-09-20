@@ -57,12 +57,13 @@ export function registerSuiteRoutes(app: FastifyInstance, db: Database.Database)
   //  from suiteVerdicts; no filters yet — the rail is short. ──
   app.get('/api/suites', async () => {
     const rows = db.prepare('SELECT * FROM suites ORDER BY updated_at DESC').all() as SuiteRow[];
-    const verdicts = suiteVerdicts(db);
     const memberStmt = db.prepare('SELECT * FROM suite_members WHERE suite_id = ? ORDER BY position');
     return {
       suites: rows.map((r) => {
         const members = memberStmt.all(r.id) as MemberRow[];
-        const s = suiteOut(r, members, verdicts);
+        // suite-scoped: each suite gets its own verdict map (last play of
+        // each member BY THIS SUITE) — shared members never leak across.
+        const s = suiteOut(r, members, suiteVerdicts(db, r.id), tplMap(db, members));
         // members stay in — the parity table computes per-member glyphs,
         // verdict rollup and drift flags client-side from live reads.
         return { ...s, memberCount: s.members.length };
@@ -133,7 +134,7 @@ export function registerSuiteRoutes(app: FastifyInstance, db: Database.Database)
       members.forEach((m, i) => ins.run(id, m.templateId, m.variantIds ? JSON.stringify(m.variantIds) : null, i));
     });
     try { tx(); } catch { return reply.code(409).send({ error: 'suite name already exists' }); }
-    return reply.code(201).send(suiteOut(db.prepare('SELECT * FROM suites WHERE id = ?').get(id) as SuiteRow, db.prepare('SELECT * FROM suite_members WHERE suite_id = ?').all(id) as MemberRow[], suiteVerdicts(db)));
+    return reply.code(201).send(suiteOut(db.prepare('SELECT * FROM suites WHERE id = ?').get(id) as SuiteRow, db.prepare('SELECT * FROM suite_members WHERE suite_id = ?').all(id) as MemberRow[], suiteVerdicts(db, id)));
   });
 
   // ── patch: name/description/members. members REPLACE wholesale
@@ -162,7 +163,7 @@ export function registerSuiteRoutes(app: FastifyInstance, db: Database.Database)
     });
     try { tx(); } catch { return reply.code(409).send({ error: 'suite name already exists' }); }
     const rows = db.prepare('SELECT * FROM suite_members WHERE suite_id = ?').all(id) as MemberRow[];
-    return suiteOut(db.prepare('SELECT * FROM suites WHERE id = ?').get(id) as SuiteRow, rows, suiteVerdicts(db), tplMap(db, rows));
+    return suiteOut(db.prepare('SELECT * FROM suites WHERE id = ?').get(id) as SuiteRow, rows, suiteVerdicts(db, id), tplMap(db, rows));
   });
 
   app.delete('/api/suites/:id', async (req, reply) => {
@@ -178,6 +179,6 @@ export function registerSuiteRoutes(app: FastifyInstance, db: Database.Database)
     if (!row) return reply.code(404).send({ error: 'not found' });
     const members = db.prepare('SELECT * FROM suite_members WHERE suite_id = ?').all(id) as MemberRow[];
     const tpl = tplMap(db, members);
-    return suiteOut(row, members, suiteVerdicts(db), tpl);
+    return suiteOut(row, members, suiteVerdicts(db, id), tpl);
   });
 }
