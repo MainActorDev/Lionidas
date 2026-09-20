@@ -23,10 +23,10 @@ function seedTpl(id: string, name: string): void {
   db.prepare(`INSERT INTO templates(id, name, udid, steps_json, created_by, created_at, updated_at)
               VALUES (?, ?, 'sim', '[]', 'qa', 0, 0)`).run(id, name);
 }
-function seedRun(id: string, tpl: string | null, status: string, blocked: number, at: number, appVersion: string | null = null): void {
-  db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, finished_at, template_id, app_version, blocked)
-              VALUES (?, 'T', 'manual', ?, 'qa', 'sim', ?, ?, ?, ?, ?)`)
-    .run(id, status, at, at + 1000, tpl, appVersion, blocked);
+function seedRun(id: string, tpl: string | null, status: string, blocked: number, at: number, appVersion: string | null = null, variantId: string | null = null): void {
+  db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, finished_at, template_id, app_version, blocked, variant_id)
+              VALUES (?, 'T', 'manual', ?, 'qa', 'sim', ?, ?, ?, ?, ?, ?)`)
+    .run(id, status, at, at + 1000, tpl, appVersion, blocked, variantId);
 }
 
 describe('suiteVerdicts (last verdict + trend per case)', () => {
@@ -59,6 +59,34 @@ describe('suiteVerdicts (last verdict + trend per case)', () => {
     expect(v.lastStatus).toBe('aborted');
   });
 
+  it('lane-aware verdict: multi-variant play fails when any variant lane fails', () => {
+    seedTpl('t1', 'rates');
+    // one play, three variant lanes — my failed, sg+empty passed
+    seedRun('m1', 't1', 'failed', 0, 1000, null, 'my');
+    seedRun('s1', 't1', 'passed', 0, 1005, null, 'sg');
+    seedRun('e1', 't1', 'passed', 0, 1010, null, 'empty');
+    const v = suiteVerdicts(db).get('t1')!;
+    expect(v.lastStatus).toBe('failed');
+  });
+
+  it('lane-aware verdict: sequential re-runs of the same variant supersede — newest wins', () => {
+    seedTpl('t1', 'login');
+    // same variant re-run twice within the window: failed then passed
+    seedRun('r1', 't1', 'failed', 0, 1000, null, 'sg');
+    seedRun('r2', 't1', 'passed', 0, 1010, null, 'sg');
+    const v = suiteVerdicts(db).get('t1')!;
+    expect(v.lastStatus).toBe('passed');
+  });
+
+  it('lane-aware verdict: blocked lane surfaces through worst-of-batch', () => {
+    seedTpl('t1', 'login');
+    seedRun('r1', 't1', 'passed', 0, 1000, null, 'sg');
+    seedRun('r2', 't1', 'passed', 1, 1005, null, 'my');
+    const v = suiteVerdicts(db).get('t1')!;
+    expect(v.lastStatus).toBe('passed');
+    expect(v.lastBlocked).toBe(1);
+  });
+
   it('blocked renders uppercase glyph + lastBlocked set', () => {
     seedTpl('t1', 'login');
     seedRun('r1', 't1', 'failed', 1, 1000);
@@ -67,11 +95,11 @@ describe('suiteVerdicts (last verdict + trend per case)', () => {
     expect(v.lastBlocked).toBe(1);
   });
 
-  it('trend window capped at 5 (oldest dropped), totalRuns keeps counting', () => {
+  it('trend window capped at 6 (oldest dropped — last 3 + prior 3 feed the momentum delta), totalRuns keeps counting', () => {
     seedTpl('t1', 'login');
     for (let i = 0; i < 13; i++) seedRun(`r${i}`, 't1', 'passed', 0, 1000 + i * 10);
     const v = suiteVerdicts(db).get('t1')!;
-    expect(v.trend!.length).toBe(5);
+    expect(v.trend!.length).toBe(6);
     expect(v.totalRuns).toBe(13);
   });
 

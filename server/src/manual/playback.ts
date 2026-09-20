@@ -337,6 +337,14 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     .prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, note, template_id, app_version, case_version_id, scenario_id, scenario_sha, variant_id, suite_id)
               VALUES (?, ?, 'manual', 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(runId, t.ticket_key ?? '-', opts.triggeredBy ?? 'qa', udid, Date.now(), `template:${templateId} ${t.name}${opts.variant ? ` / ${opts.variant.id}` : ''}`, templateId, appVersion, version.id, scenarioChoice, version.scenarioSha, opts.variant?.id ?? null, opts.suiteId ?? null);
+  // the runner just observed this bundle's INSTALLED version — write it
+  // through so the cases list always shows the last runner context, not a
+  // value frozen at record/create time
+  if (appVersion != null) {
+    deps.db
+      .prepare('UPDATE templates SET app_version = ? WHERE id = ? AND (app_version IS NULL OR app_version != ?)')
+      .run(appVersion, templateId, appVersion);
+  }
   deps.bus.emit('run.started', { runId, ticketKey: t.ticket_key ?? '-', udid, templateId });
   // latest-only evidence: this run replaces the previous run's artifacts —
   // UNLESS a sibling run of the same template is still RUNNING (parallel

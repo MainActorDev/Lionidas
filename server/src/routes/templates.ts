@@ -53,7 +53,7 @@ export function selectTemplates(rows: TemplateRow[], filter: { tags?: string | u
   });
 }
 
-function rowToTemplate(r: TemplateRow): Record<string, unknown> {
+function rowToTemplate(db: Database.Database, r: TemplateRow): Record<string, unknown> {
   return {
     id: r.id,
     name: r.name,
@@ -69,7 +69,13 @@ function rowToTemplate(r: TemplateRow): Record<string, unknown> {
     defaultPresetId: r.default_preset_id,
     appBundleId: r.app_bundle_id,
     appName: r.app_name,
-    appVersion: r.app_version,
+    appVersion: (db.prepare(
+      // ALWAYS the last runner context: the newest run of this template
+      // observed the INSTALLED app version — fresher than any value frozen
+      // at record/create time. Falls back to the recorded value when the
+      // case has never been played.
+      'SELECT app_version FROM runs WHERE template_id = ? AND app_version IS NOT NULL ORDER BY started_at DESC LIMIT 1',
+    ).get(r.id) as { app_version: string } | undefined)?.app_version ?? r.app_version,
     tags: parseTags(r.tags_json),
     createdBy: r.created_by,
     updatedBy: r.updated_by ?? null,
@@ -122,7 +128,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     let rows: TemplateRow[];
     if (q.ticket) rows = db.prepare('SELECT * FROM templates WHERE ticket_key = ? ORDER BY updated_at DESC').all(q.ticket) as TemplateRow[];
     else rows = db.prepare('SELECT * FROM templates ORDER BY updated_at DESC').all() as TemplateRow[];
-    const sel = selectTemplates(rows, { tags: q.tags, app: q.app }).map(rowToTemplate) as Array<Record<string, unknown> & { id: string }>;
+    const sel = selectTemplates(rows, { tags: q.tags, app: q.app }).map((r) => rowToTemplate(db, r)) as Array<Record<string, unknown> & { id: string }>;
     // B4: attach last-verdict + trend per case (absent = never run)
     const { suiteVerdicts } = await import('../db/suite.ts');
     const verdicts = suiteVerdicts(db);
@@ -167,7 +173,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     const { id } = req.params as { id: string };
     const row = db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
-    return rowToTemplate(row);
+    return rowToTemplate(db, row);
   });
 
   /** Save current recording as a template (sidebar "save as template"). */
@@ -214,7 +220,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(id, b.name.trim(), b.description ?? null, b.ticketKey ?? null, sess.udid, sess.logical_w, sess.logical_h, JSON.stringify(steps), appBundleId, appName, appVersion, tagsToJson(b.tags), b.createdBy ?? sess.operator, now, now);
     const row = db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow;
-    return rowToTemplate(row);
+    return rowToTemplate(db, row);
   });
 
   app.post('/api/templates', async (req, reply) => {
@@ -226,7 +232,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       `INSERT INTO templates(id, name, description, ticket_key, udid, logical_w, logical_h, steps_json, app_bundle_id, app_name, app_version, tags_json, created_by, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(id, b.name.trim(), b.description ?? null, b.ticket_key ?? b.ticketKey ?? null, b.udid ?? '', b.logical_w ?? null, b.logical_h ?? null, JSON.stringify(b.steps ?? []), b.appBundleId ?? null, b.app_name ?? null, b.app_version ?? null, tagsToJson(b.tags), req.user?.name ?? b.created_by ?? 'unknown', now, now);
-    return rowToTemplate(db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow);
+    return rowToTemplate(db, db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow);
   });
 
   app.patch('/api/templates/:id', async (req, reply) => {
@@ -253,7 +259,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       req.user?.name ?? null,
       id,
     );
-    return rowToTemplate(db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow);
+    return rowToTemplate(db, db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow);
   });
 
   /** Tier 2.2 — tap overlay data for the evidence player: the SAME run the
@@ -552,7 +558,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     db.prepare(
       `UPDATE templates SET name = ?, steps_json = ?, setup_json = ?, alerts_policy = ?, variants_json = ?, tags_json = ?, app_bundle_id = COALESCE(?, app_bundle_id), updated_at = ?, updated_by = ? WHERE id = ?`,
     ).run(r.case.name, JSON.stringify(r.case.steps), r.case.setup ? JSON.stringify(r.case.setup) : null, r.case.alerts ? JSON.stringify(r.case.alerts) : null, r.case.variants ? JSON.stringify(r.case.variants) : null, tagsToJson(r.case.tags), r.case.app ?? null, Date.now(), req.user?.name ?? null, id);
-    return rowToTemplate(db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow);
+    return rowToTemplate(db, db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow);
   });
 
   // ── Phase A: case versions (immutable run provenance) ──────────────────
