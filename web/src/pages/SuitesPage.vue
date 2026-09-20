@@ -313,13 +313,13 @@ async function saveEditor(): Promise<void> {
           <span class="su-bundle" :title="s.appBundleId ?? 'no app'">{{ shortBundle(s.appBundleId) }}</span>
           <span class="su-members" :title="`${s.members?.length ?? s.memberCount ?? 0} members`">
             {{ s.members?.length ?? s.memberCount ?? 0 }}
-            <span v-if="driftCount(s)" class="su-drift" :title="`${driftCount(s)} member(s) drifted out of ${s.appBundleId} — skipped at play`">{{ driftCount(s) }} drifted</span>
+            <span v-if="memberGlyphs(s).length" class="su-glyphs" title="per-member last verdict, play order (✓ pass · ✕ fail · ◆ blocked · ◌ aborted)">
+              <span v-for="(g, i) in memberGlyphs(s)" :key="i" :class="g.cls">{{ g.g }}</span>
+            </span>
+            <span v-if="driftCount(s)" class="su-drift" :title="`${driftCount(s)} member(s) drifted out of ${s.appBundleId} — skipped at play`">drift</span>
           </span>
           <span class="su-updated" :title="new Date(s.updatedAt).toLocaleString()">{{ ago(s.updatedAt) }}</span>
           <span class="su-verdict">
-            <span v-if="memberGlyphs(s).length" class="su-glyphs">
-              <span v-for="(g, i) in memberGlyphs(s)" :key="i" :class="g.cls" :title="g.title">{{ g.g }}</span>
-            </span>
             <span :class="`status ${statusClass(s)}`">{{ verdictLabel(s) }}</span>
           </span>
           <span class="su-actions" @click.stop>
