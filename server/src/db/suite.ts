@@ -4,7 +4,11 @@
  *
  *  Trend glyphs (single source of truth, rendered as-is):
  *    p = passed · f = failed · a = aborted · uppercase = blocked (infra)
- *  Window: last 10 runs, ordered oldest → newest. */
+ *  One glyph per PLAY (batched like the verdict — runs of one play start
+ *  within 120s of the play's newest lane; worst lane wins). A per-run
+ *  trend let the last-finishing lane mask a failed sibling lane, so the
+ *  pill said fail while the last dot said pass. Window: last 6 plays,
+ *  ordered oldest → newest. */
 import type Database from 'better-sqlite3';
 
 export interface CaseVerdict {
@@ -25,6 +29,45 @@ export interface HistoryRow {
   finished_at: number | null;
   app_version: string | null;
   note: string | null;
+}
+
+/** One glyph per PLAY, batched with the same semantics as the verdict:
+ *  descending from the newest run, a play is the runs starting within
+ *  120s of its newest lane; within a play each variant is one lane
+ *  (newest run of that variant wins — sequential retries supersede) and
+ *  the play's glyph is the worst lane (failed > blocked > newest lane).
+ *  Null-variant runs collapse to a single lane, mirroring the verdict. */
+function playTrend(db: Database.Database, templateId: string, suiteId: string | null): string | null {
+  const runs = db.prepare(
+    `SELECT status, blocked, variant_id, started_at FROM runs
+     WHERE template_id = ? AND started_at IS NOT NULL ${suiteId ? 'AND suite_id = ?' : ''}
+     ORDER BY started_at DESC LIMIT 90`,
+  ).all(...(suiteId ? [templateId, suiteId] : [templateId])) as Array<{
+    status: string; blocked: number; variant_id: string | null; started_at: number;
+  }>;
+  if (runs.length === 0) return null;
+  const glyphs: string[] = []; // newest → oldest
+  let i = 0;
+  while (i < runs.length && glyphs.length < 6) {
+    const anchor = runs[i]!.started_at;
+    const lanes = new Map<string, { status: string; blocked: number }>();
+    let j = i;
+    while (j < runs.length && runs[j]!.started_at >= anchor - 120_000) {
+      const key = runs[j]!.variant_id ?? '\u0000null';
+      if (!lanes.has(key)) lanes.set(key, { status: runs[j]!.status, blocked: runs[j]!.blocked }); // DESC: first seen = newest
+      j++;
+    }
+    const laneList = [...lanes.values()];
+    // precedence mirrors the verdict: a failed lane wins over a blocked one
+    // (fail = the case is broken; blocked = infra), else the newest lane
+    const g = laneList.some((l) => l.status === 'failed') ? 'f'
+      : laneList.some((l) => l.blocked === 1) ? 'F'
+      : laneList[0]!.status === 'passed' ? 'p'
+      : laneList[0]!.status === 'aborted' ? 'a' : '?';
+    glyphs.push(g);
+    i = j;
+  }
+  return glyphs.reverse().join(''); // oldest → newest
 }
 
 /** One row per template that has runs: latest verdict + trend, in one query.
@@ -79,18 +122,7 @@ export function suiteVerdicts(db: Database.Database, suiteId?: string | null): M
            (SELECT finished_at FROM ranked l WHERE l.template_id = ranked.template_id AND l.rn = 1) AS last_finished_at,
            (SELECT app_version FROM ranked l WHERE l.template_id = ranked.template_id AND l.rn = 1) AS last_app_version,
            total,
-           (SELECT group_concat(g, '') FROM (
-              SELECT CASE
-                WHEN status = 'passed' THEN 'p'
-                WHEN blocked = 1 THEN 'F'
-                WHEN status = 'failed' THEN 'f'
-                WHEN status = 'aborted' THEN 'a'
-                ELSE '?'
-              END AS g
-              FROM ranked t2
-              WHERE t2.template_id = ranked.template_id
-              ORDER BY t2.started_at DESC LIMIT 6
-           )) AS trend_desc
+           NULL AS trend_desc
     FROM ranked WHERE rn = 1
   `).all(...(suiteId ? [suiteId] : [])) as Array<{
     template_id: string; last_run_id: string; last_status: string; last_blocked: number;
@@ -104,7 +136,7 @@ export function suiteVerdicts(db: Database.Database, suiteId?: string | null): M
       lastBlocked: r.last_blocked,
       lastFinishedAt: r.last_finished_at,
       lastAppVersion: r.last_app_version,
-      trend: r.trend_desc ? r.trend_desc.split('').reverse().join('') : null, // stored newest→oldest
+      trend: playTrend(db, r.template_id, suiteId ?? null),
       totalRuns: r.total,
     });
   }

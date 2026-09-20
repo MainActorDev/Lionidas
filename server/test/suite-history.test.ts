@@ -47,12 +47,12 @@ describe('suiteVerdicts (last verdict + trend per case)', () => {
     expect(v.totalRuns).toBe(1);
   });
 
-  it('trend ordered oldest→newest, last 10, distinct glyphs', () => {
+  it('trend ordered oldest→newest, distinct glyphs (one glyph per play — plays spaced beyond the batch window)', () => {
     seedTpl('t1', 'login');
     // statuses: passed/failed/aborted; skipped shows as steps not run status — use aborted
     let t = 1000;
     for (const [st] of [['passed'], ['failed'], ['passed'], ['passed'], ['aborted']] as Array<[string]>) {
-      seedRun(`r${t}`, 't1', st, 0, t); t += 10;
+      seedRun(`r${t}`, 't1', st, 0, t); t += 200_000;
     }
     const v = suiteVerdicts(db).get('t1')!;
     expect(v.trend).toBe('pfppa');
@@ -87,20 +87,53 @@ describe('suiteVerdicts (last verdict + trend per case)', () => {
     expect(v.lastBlocked).toBe(1);
   });
 
-  it('blocked renders uppercase glyph + lastBlocked set', () => {
+  it('blocked renders uppercase glyph + lastBlocked set (blocked lane that passed asserts)', () => {
     seedTpl('t1', 'login');
-    seedRun('r1', 't1', 'failed', 1, 1000);
+    // blocked+passed lane → uppercase F, blocked flag surfaced
+    seedRun('r1', 't1', 'passed', 1, 1000);
     const v = suiteVerdicts(db).get('t1')!;
     expect(v.trend![0]).toBe('F');
     expect(v.lastBlocked).toBe(1);
   });
 
-  it('trend window capped at 6 (oldest dropped — last 3 + prior 3 feed the momentum delta), totalRuns keeps counting', () => {
+  it('failed+blocked lane renders as fail (mirrors verdict precedence) while lastBlocked still surfaces', () => {
     seedTpl('t1', 'login');
-    for (let i = 0; i < 13; i++) seedRun(`r${i}`, 't1', 'passed', 0, 1000 + i * 10);
+    seedRun('r1', 't1', 'failed', 1, 1000);
+    const v = suiteVerdicts(db).get('t1')!;
+    expect(v.trend![0]).toBe('f');
+    expect(v.lastBlocked).toBe(1);
+  });
+
+  it('trend window capped at 6 plays (oldest dropped — last 3 + prior 3 feed the momentum delta), totalRuns keeps counting', () => {
+    seedTpl('t1', 'login');
+    for (let i = 0; i < 13; i++) seedRun(`r${i}`, 't1', 'passed', 0, 1000 + i * 200_000);
     const v = suiteVerdicts(db).get('t1')!;
     expect(v.trend!.length).toBe(6);
     expect(v.totalRuns).toBe(13);
+  });
+
+  it('trend is play-batched: worst lane owns the play glyph — the last dot always agrees with the verdict pill', () => {
+    seedTpl('t1', 'rates');
+    // play 1: two lanes, both pass
+    seedRun('a1', 't1', 'passed', 0, 1000, null, 'sg');
+    seedRun('a2', 't1', 'passed', 0, 1005, null, 'my');
+    // play 2 (newest): my FAILS mid-batch, empty passes and finishes last —
+    // the masking case: a per-run trend ends on the last finisher's pass
+    seedRun('b1', 't1', 'failed', 0, 300_000, null, 'my');
+    seedRun('b2', 't1', 'passed', 0, 300_010, null, 'sg');
+    seedRun('b3', 't1', 'passed', 0, 300_020, null, 'empty');
+    const v = suiteVerdicts(db).get('t1')!;
+    expect(v.lastStatus).toBe('failed');
+    expect(v.trend).toBe('pf');
+    expect(v.trend!.slice(-1)).toBe('f');
+  });
+
+  it('sequential re-runs within one play collapse to a single trend glyph (newest attempt wins)', () => {
+    seedTpl('t1', 'login');
+    seedRun('r1', 't1', 'failed', 0, 1000, null, 'sg');
+    seedRun('r2', 't1', 'passed', 0, 1010, null, 'sg');
+    const v = suiteVerdicts(db).get('t1')!;
+    expect(v.trend).toBe('p');
   });
 
   it('runs without template_id are not attributed to any case', () => {

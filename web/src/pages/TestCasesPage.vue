@@ -525,7 +525,7 @@ function trendDots(t: Template): { dots: Array<{ cls: string; tip: string }>; de
     const d = last3.split('').reduce((a, g) => a + score(g), 0) - prior3.split('').reduce((a, g) => a + score(g), 0);
     delta = d > 0 ? 'up' : d < 0 ? 'down' : 'flat';
   }
-  const tip = `last ${last6.length} run${last6.length === 1 ? '' : 's'}: ${last6.split('').map(glyph).join('')}${delta ? ` — ${delta === 'up' ? 'improving' : delta === 'down' ? 'degrading' : 'steady'}` : ''}`;
+  const tip = `last ${last6.length} play${last6.length === 1 ? '' : 's'}: ${last6.split('').map(glyph).join('')}${delta ? ` — ${delta === 'up' ? 'improving' : delta === 'down' ? 'degrading' : 'steady'}` : ''}`;
   return { dots, delta, tip };
 }
 const suiteSummary = computed(() => {
