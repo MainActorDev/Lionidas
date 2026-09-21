@@ -411,6 +411,15 @@ const groups = computed(() => {
           <div class="meta-row"><span class="k">expand</span><b>click a row — steps with kind chips (tap/scroll/type/assert/flow), per-step switches: "param" turns typed text into a play-time secret, "optional" makes a miss a skip instead of a failure; + subflow / + assert append steps</b></div>
         </div>
 
+        <div class="section-label">case lifecycle</div>
+        <div class="card">
+          <div class="meta-row"><span class="k">draft</span><b>unfinished — written but not trusted yet. Still runs in batches; the dashed pill marks it</b></div>
+          <div class="meta-row"><span class="k">active</span><b>the default — every case starts here and runs everywhere</b></div>
+          <div class="meta-row"><span class="k">deprecated</span><b>retired — run filtered and suites skip it (with a named reason, never silently). Pressing run on the row still works: manual intent beats lifecycle</b></div>
+          <div class="meta-row"><span class="k">⋯ kebab</span><b>each row's status menu — mark draft, restore to active, deprecate. Deprecated rows dim and keep their history</b></div>
+          <div class="meta-row"><span class="k">chips</span><b>the header's all / active / draft / deprecated chips filter the table; counts come from the server so they can't lie</b></div>
+        </div>
+
         <div class="section-label">missing app</div>
         <div class="card">
           <div class="meta-row"><span class="k">pre-check</span><b>a case whose app is not installed on the booted simulator refuses to start — no wasted run, no cryptic engine error</b></div>

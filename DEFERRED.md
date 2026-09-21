@@ -284,8 +284,22 @@ columns finally written. Remaining phases + decisions:*
   `runs.variant_id` column already exists, unwritten.
 - **Phase D** — suites (⚠ concept-first + sketches BEFORE any UI);
   plans-reference-suites follow-up.
-- **Phase E** — case status lifecycle; publish act (rejected for v1 —
-  implicit snapshot-on-run covers the brief; revisit on demand).
+- **Phase E — case status lifecycle: SHIPPED 2026-09-20** — `templates.status`
+  (draft|active|deprecated, guarded ALTER + NULL→active backfill; fresh DBs
+  carry the CHECK), PATCH validation, batch surfaces exclude deprecated
+  (`selectTemplates` two-knob design: exact `status` filter vs
+  `excludeDeprecated`; suite play skips deprecated members with
+  `skippedDeprecated` + all-deprecated → 409 `DEPRECATED`), chips + kebab UI
+  (sketch 013-A, user pick), guide section. Single `/play` deliberately allows
+  any status — manual intent beats lifecycle. Test-case-management arc
+  **COMPLETE** (A→E).
+  - **Evidence retention decision — still OPEN** (product call): versions make
+    historical runs resolve their INPUTS, but artifacts stay latest-only per
+    case. Disk-vs-history tradeoff flagged at every phase gate; decide on
+    first real demand for "show me last week's screenshot".
+  - **Publish act — rejected for v1** (revisit on demand): implicit
+    snapshot-on-run covers the brief's "executed for the first time after
+    changing".
 
 ## H. Phase C shipped 2026-09-19 — variant execution live end-to-end
 
