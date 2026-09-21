@@ -577,8 +577,8 @@ export function registerManualRoutes(
       if (ghosts.length > 0) return { ok: false, code: 400, error: `unknown template: ${ghosts.join(', ')}`, runIds: [] };
       sel = b.cases.map((c) => ({ id: c.templateId }));
     } else {
-      const rows = db.prepare('SELECT * FROM templates ORDER BY updated_at DESC').all() as Array<{ id: string; app_bundle_id: string | null; tags_json: string | null }>;
-      sel = selectTemplates(rows as never, { tags: b.tags, app: b.app });
+      const rows = db.prepare('SELECT * FROM templates ORDER BY updated_at DESC').all() as Array<{ id: string; app_bundle_id: string | null; tags_json: string | null; status: string | null }>;
+      sel = selectTemplates(rows as never, { tags: b.tags, app: b.app, excludeDeprecated: true });
     }
     if (sel.length === 0) return { ok: false, code: 400, error: 'no templates match', runIds: [] };
 
@@ -807,12 +807,17 @@ export function registerManualRoutes(
       .map((m) => ({ templateId: m.template_id, variantIds: m.variant_ids_json ? (JSON.parse(m.variant_ids_json) as string[]) : null }));
     if (members.length === 0) return reply.code(400).send({ error: 'suite has no members' });
     // drift filter: template bundles that no longer match the suite scope
-    const bundleOf = db.prepare('SELECT app_bundle_id AS b FROM templates WHERE id = ?');
+    // (Phase E) + deprecated members — skipped with a named reason, never a
+    // silent deletion. Same honest-response shape as bundle drift.
+    const bundleOf = db.prepare('SELECT app_bundle_id AS b, status AS st FROM templates WHERE id = ?');
     const variantsOfTpl = db.prepare('SELECT variants_json FROM templates WHERE id = ?');
     const drifted: string[] = [];
+    const deprecatedSkipped: string[] = [];
     const ghostPins: Array<{ templateId: string; dead: string[] }> = [];
     const inScope = members.filter((m) => {
-      const b = (bundleOf.get(m.templateId) as { b: string | null } | undefined)?.b ?? null;
+      const t = (bundleOf.get(m.templateId) as { b: string | null; st: string | null } | undefined);
+      if (t?.st === 'deprecated') { deprecatedSkipped.push(m.templateId); return false; }
+      const b = t?.b ?? null;
       const ok = row.app_bundle_id === null || b === row.app_bundle_id;
       if (!ok) drifted.push(m.templateId);
       if (ok && m.variantIds != null) {
@@ -833,8 +838,15 @@ export function registerManualRoutes(
     if (ghostPins.length > 0) req.log.warn(`suite play ghost variant pins: ${JSON.stringify(ghostPins)}`);
     const allSkipped = inScope.length === 0;
     if (allSkipped) {
-      const drift = drifted.length > 0 ? `every member drifted out of ${row.app_bundle_id ?? 'suite scope'}: ${drifted.join(', ')}` : `every member has only dead variant pins: ${ghostPins.map((g) => `${g.templateId}(${g.dead.join(',')})`).join('; ')}`;
-      return reply.code(409).send({ error: drift, code: drifted.length > 0 ? 'BUNDLE_DRIFT' : 'DEAD_VARIANTS', skipped: [...drifted, ...ghostPins.map((g) => g.templateId)] });
+      // three honest dead-ends, each with its own code+message (phase E added
+      // the deprecated case — the old two-way ternary would have LIED here)
+      const drift = drifted.length > 0
+        ? `every member drifted out of ${row.app_bundle_id ?? 'suite scope'}: ${drifted.join(', ')}`
+        : deprecatedSkipped.length > 0
+          ? `every member is deprecated: ${deprecatedSkipped.join(', ')}`
+          : `every member has only dead variant pins: ${ghostPins.map((g) => `${g.templateId}(${g.dead.join(',')})`).join('; ')}`;
+      const code = drifted.length > 0 ? 'BUNDLE_DRIFT' : deprecatedSkipped.length > 0 ? 'DEPRECATED' : 'DEAD_VARIANTS';
+      return reply.code(409).send({ error: drift, code, skipped: [...drifted, ...deprecatedSkipped, ...ghostPins.map((g) => g.templateId)] });
     }
     const b = (req.body ?? {}) as { udid?: string; triggeredBy?: string };
     const r = await runBatch({
@@ -844,6 +856,6 @@ export function registerManualRoutes(
       suiteId: row.id,
     }, req.user);
     if (!r.ok) return reply.code(r.code).send({ error: r.error, code: r.code === 409 ? 'DEVICE_BUSY' : undefined, runIds: r.runIds });
-    return { runIds: r.runIds, count: r.count, batchId: r.batchId, ...(drifted.length > 0 ? { skippedDrifted: drifted } : {}), ...(ghostPins.length > 0 ? { skippedDeadVariants: ghostPins } : {}) };
+    return { runIds: r.runIds, count: r.count, batchId: r.batchId, ...(drifted.length > 0 ? { skippedDrifted: drifted } : {}), ...(deprecatedSkipped.length > 0 ? { skippedDeprecated: deprecatedSkipped } : {}), ...(ghostPins.length > 0 ? { skippedDeadVariants: ghostPins } : {}) };
   });
 }

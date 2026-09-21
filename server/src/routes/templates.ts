@@ -43,11 +43,17 @@ function parseTags(raw: string | null | undefined): string[] {
 
 /** Shared template selection (A2): comma-list tags with AND semantics +
  *  optional app bundle filter. Used by the list route and play-all — one
- *  definition of "which templates match a regression selection". */
-export function selectTemplates(rows: TemplateRow[], filter: { tags?: string | undefined; app?: string | undefined }): TemplateRow[] {
+ *  definition of "which templates match a regression selection".
+ *  Phase E: TWO orthogonal status knobs — `status` is an exact match (chips),
+ *  `excludeDeprecated` is the batch-safety flag (play-all/plans pass true;
+ *  the list route never does — chips' "all" must show deprecated rows). */
+export function selectTemplates(rows: TemplateRow[], filter: { tags?: string | undefined; app?: string | undefined; status?: 'draft' | 'active' | 'deprecated'; excludeDeprecated?: boolean }): TemplateRow[] {
   const wantTags = (filter.tags ?? '').split(',').map((t) => t.trim()).filter(Boolean);
   return rows.filter((r) => {
     if (filter.app && r.app_bundle_id !== filter.app) return false;
+    const st = r.status ?? 'active'; // legacy NULL reads active
+    if (filter.status !== undefined && st !== filter.status) return false;
+    if (filter.excludeDeprecated === true && st === 'deprecated') return false;
     if (wantTags.length === 0) return true;
     const have = parseTags(r.tags_json);
     return wantTags.every((t) => have.includes(t));
