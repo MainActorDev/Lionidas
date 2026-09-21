@@ -29,6 +29,7 @@ interface TemplateRow {
   app_name: string | null;
   app_version: string | null;
   tags_json: string | null;
+  status: string | null;
   created_by: string;
   updated_by?: string | null;
   created_at: number;
@@ -57,6 +58,7 @@ function rowToTemplate(db: Database.Database, r: TemplateRow): Record<string, un
   return {
     id: r.id,
     name: r.name,
+    status: r.status ?? 'active', // legacy NULL rows read active (phase E)
     description: r.description,
     ticketKey: r.ticket_key,
     udid: r.udid,
@@ -237,13 +239,18 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
 
   app.patch('/api/templates/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const b = req.body as { name?: string; description?: string | null; ticketKey?: string | null; defaultPresetId?: string | null; steps?: unknown[]; setup?: unknown[] | null; alerts?: unknown | null; tags?: string[]; appBundleId?: string | null };
+    const b = (req.body ?? {}) as { name?: string; description?: string | null; ticketKey?: string | null; defaultPresetId?: string | null; steps?: unknown[]; setup?: unknown[] | null; alerts?: unknown | null; tags?: string[]; appBundleId?: string | null; status?: string };
     const row = db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
     if (b.name !== undefined && !b.name.trim()) return reply.code(400).send({ error: 'name cannot be empty' });
+    // Phase E: lifecycle validation at the API seam (ALTER'd legacy tables
+    // carry no CHECK — this is the one write gate).
+    if (b.status !== undefined && !['draft', 'active', 'deprecated'].includes(b.status)) {
+      return reply.code(400).send({ error: 'status must be draft|active|deprecated' });
+    }
     db.prepare(
       `UPDATE templates SET
-         name = ?, description = ?, ticket_key = ?, default_preset_id = ?, steps_json = ?, setup_json = ?, alerts_policy = ?, tags_json = ?, app_bundle_id = ?, updated_at = ?, updated_by = ?
+         name = ?, description = ?, ticket_key = ?, default_preset_id = ?, steps_json = ?, setup_json = ?, alerts_policy = ?, tags_json = ?, app_bundle_id = ?, status = ?, updated_at = ?, updated_by = ?
        WHERE id = ?`,
     ).run(
       b.name !== undefined ? b.name.trim() : row.name,
@@ -255,6 +262,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       b.alerts !== undefined ? (b.alerts === null ? null : JSON.stringify(b.alerts)) : row.alerts_policy,
       b.tags !== undefined ? tagsToJson(b.tags) : row.tags_json,
       b.appBundleId !== undefined ? b.appBundleId : row.app_bundle_id,
+      b.status !== undefined ? b.status : (row.status ?? 'active'),
       Date.now(),
       req.user?.name ?? null,
       id,
