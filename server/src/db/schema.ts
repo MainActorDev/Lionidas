@@ -142,6 +142,9 @@ export function migrateM1(db: Database.Database): void {
       logical_w INTEGER, logical_h INTEGER,
       steps_json TEXT NOT NULL,
       default_preset_id TEXT REFERENCES presets(id) ON DELETE SET NULL,
+      -- Phase E: case lifecycle. API validates; the CHECK is fresh-DB-only
+      -- (guarded ALTERs cannot add constraints — house pattern).
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('draft','active','deprecated')),
       created_by TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
@@ -266,9 +269,16 @@ export function migrateM1(db: Database.Database): void {
     // reference a suite as their case source (exactly-one-of tags|suite, T5).
     'ALTER TABLE runs ADD COLUMN suite_id TEXT REFERENCES suites(id) ON DELETE SET NULL',
     'ALTER TABLE plans ADD COLUMN suite_id TEXT REFERENCES suites(id) ON DELETE SET NULL',
+    // Phase E — case status lifecycle: draft | active | deprecated. NULL only
+    // on pre-E DBs between ALTER and the backfill below; backfill normalizes.
+    'ALTER TABLE templates ADD COLUMN status TEXT',
   ]) {
     try { db.exec(col); } catch { /* column exists */ }
   }
+  // Phase E: legacy rows must READ active, not NULL. ALTER DEFAULT only
+  // covers new inserts; normalize once. Idempotent (WHERE status IS NULL —
+  // explicit draft/deprecated survive re-migrates).
+  try { db.prepare("UPDATE templates SET status = 'active' WHERE status IS NULL").run(); } catch { /* table shape unexpected — tests pin the happy path */ }
   // Phase A — immutable case-version snapshots. Deliberately NO FK on
   // template_id: a version must survive its template's deletion (historical
   // runs keep resolving their inputs). Identity = (template, revision).
