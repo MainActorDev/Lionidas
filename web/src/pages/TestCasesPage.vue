@@ -21,7 +21,7 @@ interface Verdict {
   trend: string | null; totalRuns: number;
 }
 interface Template {
-  id: string; name: string; description: string | null; ticketKey: string | null;
+  id: string; name: string; status?: string; description: string | null; ticketKey: string | null;
   udid: string; logicalW: number | null; logicalH: number | null;
   steps: Step[]; defaultPresetId: string | null;
   appBundleId: string | null; appName: string | null; appVersion: string | null;
@@ -253,6 +253,7 @@ function onKey(e: KeyboardEvent): void {
     // stopImmediatePropagation and closes itself / the cinema) — touching
     // evidence state here too would close the sheet out from under the cinema
     if (evidenceView.value) return;
+    if (statusMenuOpen.value !== null) { closeStatusMenu(); return; }
     if (runMenuOpen.value !== null) { runMenuOpen.value = null; runMenuPos.value = null; return; }
   }
 }
@@ -260,12 +261,13 @@ onMounted(() => window.addEventListener('keydown', onKey));
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
 // run menu: click anywhere outside closes it (no per-row portals)
 function onMenuScatter(e: MouseEvent): void {
-  if (runMenuOpen.value === null) return;
+  if (runMenuOpen.value === null && statusMenuOpen.value === null) return;
   // the menu lives at body level now (Teleport) — check both anchors
   const t = e.target as HTMLElement;
-  if (!t.closest?.('.run-menu') && !t.closest?.('.run-menu-pop')) {
+  if (!t.closest?.('.run-menu') && !t.closest?.('.run-menu-pop') && !t.closest?.('.kebab')) {
     runMenuOpen.value = null;
     runMenuPos.value = null;
+    closeStatusMenu();
   }
 }
 onMounted(() => window.addEventListener('click', onMenuScatter));
@@ -349,7 +351,8 @@ async function editTags(t: Template): Promise<void> {
 async function load(): Promise<void> {
   loading.value = true;
   try {
-    const r = await fetch('/api/templates');
+    const qs = statusFilter.value ? `?status=${encodeURIComponent(statusFilter.value)}` : '';
+    const r = await fetch(`/api/templates${qs}`);
     const b = (await r.json()) as { templates?: Template[] };
     templates.value = b.templates ?? [];
     error.value = '';
@@ -388,6 +391,61 @@ const shown = (): Template[] => {
   return templates.value.filter((t) =>
     t.name.toLowerCase().includes(f) || (t.ticketKey ?? '').toLowerCase().includes(f) || (t.tags ?? []).some((tg) => tg.toLowerCase().includes(f)));
 };
+
+// ── phase E: status lifecycle — chips (server-filtered), pill, kebab actions ──
+type Lifecycle = 'draft' | 'active' | 'deprecated';
+const statusFilter = ref<'' | Lifecycle>('');
+watch(statusFilter, () => void load());
+/** counts for the chips come from the SERVER's unfiltered view — chip math on
+ *  the client would lie the moment a status filter narrows `templates`. */
+const statusCounts = ref<Record<Lifecycle | 'all', number>>({ all: 0, active: 0, draft: 0, deprecated: 0 });
+let statusCountsDirty = true;
+function recountStatuses(): void {
+  if (!statusCountsDirty) return;
+  // recount only when the full list is loaded (no status filter active)
+  void (async () => {
+    try {
+      const r = await fetch('/api/templates');
+      const b = (await r.json()) as { templates?: Template[] };
+      const all = b.templates ?? [];
+      statusCounts.value = {
+        all: all.length,
+        active: all.filter((t) => (t.status ?? 'active') === 'active').length,
+        draft: all.filter((t) => t.status === 'draft').length,
+        deprecated: all.filter((t) => t.status === 'deprecated').length,
+      };
+      statusCountsDirty = false;
+    } catch { /* counts stay stale — chips show nothing rather than lie */ }
+  })();
+}
+const statusMenuOpen = ref<string | null>(null); // kebab's open template id
+const statusMenuPos = ref<{ top: number; left: number } | null>(null);
+function toggleStatusMenu(id: string, ev: Event): void {
+  if (statusMenuOpen.value === id) { statusMenuOpen.value = null; statusMenuPos.value = null; return; }
+  const r = (ev.target as HTMLElement).getBoundingClientRect();
+  const MENU_W = 150;
+  const left = Math.min(Math.round(r.right - MENU_W), window.innerWidth - MENU_W - 8);
+  statusMenuPos.value = { top: Math.round(r.bottom + 4), left: Math.max(8, left) };
+  statusMenuOpen.value = id;
+}
+function closeStatusMenu(): void { statusMenuOpen.value = null; statusMenuPos.value = null; }
+const setStatusBusy = ref<string | null>(null);
+async function setStatus(t: Template, to: Lifecycle): Promise<void> {
+  closeStatusMenu();
+  setStatusBusy.value = t.id;
+  try {
+    const r = await fetch(`/api/templates/${t.id}`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: to }),
+    });
+    if (r.ok) {
+      // optimistic row update + chip counts go stale (server owns the truth)
+      t.status = to;
+      statusCountsDirty = true;
+      recountStatuses();
+    }
+  } finally { setStatusBusy.value = null; }
+}
 
 // ── A2 yaml split panel: the page's native editing surface ──
 const yamlOpenId = ref<string | null>(null);
@@ -443,7 +501,7 @@ function onCmdF(ev: KeyboardEvent): void {
 onMounted(() => window.addEventListener('keydown', onCmdF));
 onBeforeUnmount(() => { window.removeEventListener('keydown', onCmdF); });
 
-onMounted(() => { void load().then(() => void adoptRunningRun()); void loadPlans(); void loadBootedDevices(); initActiveRuns(); });
+onMounted(() => { void load().then(() => void adoptRunningRun()); void loadPlans(); void loadBootedDevices(); initActiveRuns(); recountStatuses(); });
 // deep-link from a run's version chip: /templates?case=<id>&rev=<n> —
 // opens that case's editor with the history disclosure on that revision.
 const route = useRoute();
@@ -607,6 +665,12 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
         <span v-if="suiteSummary.never" class="sym" title="never run">◌{{ suiteSummary.never }}</span>
       </span>
       <span class="a2-spacer"></span>
+      <span class="a2-chips" v-if="!editing">
+        <button v-for="s in ([['', 'all'], ['active', 'active'], ['draft', 'draft'], ['deprecated', 'deprecated']] as Array<['' | Lifecycle, string]>)"
+          :key="s[1]" class="chip status-chip" :class="{ on: statusFilter === s[0], dep: s[0] === 'deprecated' }"
+          :title="s[0] === '' ? 'every case regardless of lifecycle' : `lifecycle: ${s[1]} (deprecated never runs in batches)`"
+          @click="statusFilter = s[0]">{{ s[1] }} <span class="n">{{ statusCountsDirty ? '·' : statusCounts[s[0] === '' ? 'all' : s[0]] }}</span></button>
+      </span>
       <input ref="filterEl" v-model="filter" class="a2-search" placeholder="search cases…  ⌘F" />
       <button class="btn" :disabled="playingAll" @click="createCaseYaml" title="hand-author a new case as yaml — opens the editor with a minimal starter">+ case (yaml)</button>
       <button v-if="!editing" class="btn" :disabled="playingAll || shown().length === 0" @click="playAll()" title="sequentially run every case matching the filter">
@@ -660,10 +724,12 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
         <span class="col-actions"></span>
       </div>
 
-      <article v-for="t in shown()" :key="t.id" class="a2-row-card" :class="{ editing: yamlOpenId === t.id }">
+      <article v-for="t in shown()" :key="t.id" class="a2-row-card" :class="{ editing: yamlOpenId === t.id, deprecated: t.status === 'deprecated' }">
         <div class="a2-row" @click="openYaml(t)" title="click to edit this case">
           <span class="col-case">
             <span class="a2-name">{{ t.name }}</span>
+            <span v-if="t.status === 'draft'" class="lifecycle-pill lifecycle-draft" title="draft — unfinished; still runs in batches">draft</span>
+            <span v-else-if="t.status === 'deprecated'" class="lifecycle-pill lifecycle-deprecated" title="deprecated — skipped by run filtered + suites; manual run still allowed">deprecated</span>
             <span v-if="t.ticketKey" class="a2-ticket">{{ t.ticketKey }}</span>
             <span v-for="tg in t.tags ?? []" :key="tg" class="chip" title="click to filter by this tag" @click.stop="filter = tg">{{ tg }}</span>
           </span>
@@ -728,6 +794,9 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
             </template>
             <button class="btn btn-sm btn-ghost" @click.stop="openYaml(t)" title="edit this case — metadata + yaml">edit</button>
             <button class="btn btn-sm btn-ghost" @click.stop="remove(t.id)">delete</button>
+            <button class="btn btn-sm btn-ghost kebab" :class="{ open: statusMenuOpen === t.id }" :disabled="setStatusBusy === t.id"
+              aria-haspopup="menu" :aria-expanded="statusMenuOpen === t.id" title="case status — draft / active / deprecated"
+              @click.stop="toggleStatusMenu(t.id, $event)">{{ setStatusBusy === t.id ? '…' : '⋯' }}</button>
           </span>
         </div>
 
@@ -831,6 +900,19 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
           <b>run · background</b><span>no panel — progress in the row</span>
         </button>
       </div>
+      <!-- phase E: status kebab menu (same teleport + scatter pattern) -->
+      <div v-if="statusMenuOpen && statusMenuPos" class="run-menu-pop status-menu-pop" role="menu" :style="{ top: `${statusMenuPos.top}px`, left: `${statusMenuPos.left}px` }" @click.stop>
+        <div class="menu-label">status</div>
+        <button v-if="templateById(statusMenuOpen).status !== 'draft'" role="menuitem" @click="setStatus(templateById(statusMenuOpen), 'draft')">
+          <b>mark draft</b><span>unfinished — still runs in batches</span>
+        </button>
+        <button v-if="templateById(statusMenuOpen).status !== 'active'" role="menuitem" @click="setStatus(templateById(statusMenuOpen), 'active')">
+          <b>restore to active</b><span>normal — runs everywhere</span>
+        </button>
+        <button v-if="templateById(statusMenuOpen).status !== 'deprecated'" role="menuitem" class="warn" @click="setStatus(templateById(statusMenuOpen), 'deprecated')">
+          <b>deprecate</b><span>retired — skipped by batches, manual run still allowed</span>
+        </button>
+      </div>
     </Teleport>
     <!-- evidence sheet: sketch 008-C contact sheet (user pick) — per-variant
          lanes grouped as contact rows; card click → cinema view -->
@@ -864,6 +946,35 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
   color: var(--color-fog); font: inherit; font-size: 12px; padding: 4px 10px; width: 220px;
 }
 .a2-search:focus { outline: none; border-color: var(--color-ember); }
+
+/* ── phase E: status lifecycle (sketch 013-A chips + kebab, 1:1) ── */
+.a2-chips { display: inline-flex; gap: 6px; align-items: center; }
+.status-chip {
+  font-size: 11px; color: var(--color-ash); border: 1px solid var(--color-slate);
+  border-radius: var(--r-sm); padding: 2px 9px; cursor: pointer; background: none;
+  font-family: inherit;
+}
+.status-chip .n { color: var(--color-pewter); margin-left: 4px; }
+.status-chip.on { color: var(--color-ember); border-color: var(--color-ember); }
+.status-chip.on .n { color: var(--color-ember-dim); }
+.status-chip:hover { color: var(--color-fog); }
+.status-chip.on:hover { color: var(--color-ember); }
+.lifecycle-pill {
+  font-size: 11px; border: 1px solid var(--color-slate); color: var(--color-ash);
+  border-radius: var(--r-sm); padding: 1px 7px; white-space: nowrap; margin-left: 6px;
+}
+.lifecycle-draft { color: var(--color-fog); border-color: var(--color-pewter); border-style: dashed; }
+.lifecycle-deprecated { color: var(--color-pewter); }
+article.a2-row-card.deprecated .a2-name { color: var(--color-ash); }
+article.a2-row-card.deprecated .a2-row { opacity: 0.55; }
+article.a2-row-card.deprecated .a2-row:hover { opacity: 0.8; }
+button.kebab { letter-spacing: 1px; padding: 2px 7px; }
+button.kebab.open { color: var(--color-ember); border-color: var(--color-ember); }
+.status-menu-pop .menu-label {
+  padding: 4px 10px 2px; color: var(--color-pewter); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.status-menu-pop button.warn b { color: var(--color-ember); }
 
 /* advanced disclosure */
 .a2-advanced { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; flex: none; }

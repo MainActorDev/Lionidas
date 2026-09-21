@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>status C — left rail groups</title>
+<style>
+  :root {
+    --color-void: #000000; --color-carbon: #111111; --color-graphite: #191919;
+    --color-iron: #202020; --color-slate: #3a3a3a; --color-pewter: #505050;
+    --color-steel: #606060; --color-ash: #7e7e7e; --color-fog: #b4b4b4;
+    --color-chalk: #d9d9d9; --color-paper: #eeeeee;
+    --color-ember: #da5c2c; --color-ember-dim: #a04521;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    --r-sm: 2px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--color-void); color: var(--color-paper);
+    font-family: var(--font-mono); font-size: 13px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased; padding: 24px;
+  }
+  h1 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+  .sub { color: var(--color-steel); font-size: 11px; margin-bottom: 20px; }
+
+  .layout { display: flex; gap: 20px; max-width: 1080px; }
+
+  /* ── C: rail groups — status is WHERE the case sits ── */
+  .rail { width: 150px; flex: none; }
+  .rail a {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 5px 10px; color: var(--color-ash); font-size: 12px; cursor: default;
+    border-left: 2px solid transparent; text-decoration: none;
+  }
+  .rail a:hover { color: var(--color-fog); background: var(--color-carbon); }
+  .rail a.on { color: var(--color-ember); border-left-color: var(--color-ember); background: var(--color-carbon); }
+  .rail .n { font-size: 11px; color: var(--color-pewter); }
+  .rail a.on .n { color: var(--color-ember-dim); }
+  .rail .rule { border-top: 1px solid var(--color-iron); margin: 8px 0; }
+
+  .main { flex: 1; min-width: 0; }
+  .group-label {
+    color: var(--color-steel); font-size: 10px; letter-spacing: .08em;
+    text-transform: uppercase; margin: 14px 0 4px;
+  }
+  .group-label .n { color: var(--color-pewter); }
+
+  table { border-collapse: collapse; width: 100%; }
+  th {
+    text-align: left; color: var(--color-steel); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase; font-weight: 400;
+    padding: 6px 10px; border-bottom: 1px solid var(--color-iron);
+  }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--color-iron); vertical-align: middle; }
+  .case { color: var(--color-paper); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
+  .bundle { color: var(--color-fog); font-size: 11px; }
+  .verdict { font-size: 11px; border: 1px solid; border-radius: var(--r-sm); padding: 1px 7px; white-space: nowrap; }
+  .v-pass { color: var(--color-ember); border-color: var(--color-ember); }
+  .v-fail { color: var(--color-paper); border-color: var(--color-paper); }
+  .v-none { color: var(--color-steel); border-color: var(--color-slate); }
+
+  .act { font-size: 11px; color: var(--color-steel); cursor: default; white-space: nowrap; }
+  .act:hover { color: var(--color-ember); text-decoration: underline; }
+  tr.dep .case { color: var(--color-ash); }
+  tr.dep .verdict { opacity: .45; }
+
+  .note { margin-top: 20px; color: var(--color-steel); font-size: 11px; max-width: 720px; }
+  .note b { color: var(--color-fog); font-weight: 400; }
+</style>
+</head>
+<body>
+  <h1>test cases</h1>
+  <div class="sub">status lifecycle — option C · rail groups</div>
+
+  <div class="layout">
+    <nav class="rail">
+      <a class="on"><span>all</span><span class="n">5</span></a>
+      <a><span>active</span><span class="n">3</span></a>
+      <a><span>draft</span><span class="n">1</span></a>
+      <a><span>deprecated</span><span class="n">1</span></a>
+      <div class="rule"></div>
+      <a><span>suites</span></a>
+    </nav>
+
+    <div class="main">
+      <table>
+        <thead><tr>
+          <th>case</th><th>app</th><th>verdict</th><th>last</th><th></th>
+        </tr></thead>
+        <tbody>
+          <tr><td colspan="5" style="padding:0"></td></tr>
+        </tbody>
+      </table>
+
+      <div class="group-label">active <span class="n">3</span></div>
+      <table>
+        <tbody>
+          <tr>
+            <td class="case">privacy policy</td>
+            <td class="bundle">com.lioparcel.services.consumer.int-dev</td>
+            <td><span class="verdict v-pass">pass</span></td>
+            <td class="bundle">2h ago</td>
+            <td><span class="act">deprecate</span></td>
+          </tr>
+          <tr>
+            <td class="case">intl drill — check-rates country worlds</td>
+            <td class="bundle">com.lioparcel.services.consumer.int-dev</td>
+            <td><span class="verdict v-fail">fail</span></td>
+            <td class="bundle">25m ago</td>
+            <td><span class="act">deprecate</span></td>
+          </tr>
+          <tr>
+            <td class="case">login — happy path</td>
+            <td class="bundle">com.lioparcel.services.consumer.int-dev</td>
+            <td><span class="verdict v-pass">pass</span></td>
+            <td class="bundle">1d ago</td>
+            <td><span class="act">deprecate</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="group-label">draft <span class="n">1</span></div>
+      <table>
+        <tbody>
+          <tr>
+            <td class="case">rate card — regression sweep</td>
+            <td class="bundle">com.lioparcel.services.consumer.int-dev</td>
+            <td><span class="verdict v-none">never run</span></td>
+            <td class="bundle">—</td>
+            <td><span class="act">activate</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="group-label">deprecated <span class="n">1</span></div>
+      <table>
+        <tbody>
+          <tr class="dep">
+            <td class="case">legacy tracking widget</td>
+            <td class="bundle">com.lioparcel.services.consumer.int-dev</td>
+            <td><span class="verdict v-fail">fail</span></td>
+            <td class="bundle">12d ago</td>
+            <td><span class="act">restore</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>C — rail groups.</b> Status becomes navigation: the left rail switches
+    scope (same rail as suites could live in), and "all" groups rows under
+    status sub-headers instead of pills per row. Deprecated rows land at the
+    bottom, visually parked. This reads best when statuses are MANY; with three
+    it costs a rail and a scroll pattern for little grouping value.
+  </div>
+</body>
+</html>

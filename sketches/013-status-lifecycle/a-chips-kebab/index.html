@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>status A — filter-row chips + kebab menu</title>
+<style>
+  :root {
+    --color-void: #000000; --color-carbon: #111111; --color-graphite: #191919;
+    --color-iron: #202020; --color-slate: #3a3a3a; --color-pewter: #505050;
+    --color-steel: #606060; --color-ash: #7e7e7e; --color-fog: #b4b4b4;
+    --color-chalk: #d9d9d9; --color-paper: #eeeeee;
+    --color-ember: #da5c2c; --color-ember-dim: #a04521;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    --r-sm: 2px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--color-void); color: var(--color-paper);
+    font-family: var(--font-mono); font-size: 13px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased; padding: 24px;
+  }
+  h1 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+  .sub { color: var(--color-steel); font-size: 11px; margin-bottom: 20px; }
+
+  /* ── A: chips row beside the search filter ── */
+  .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; max-width: 1080px; }
+  .search {
+    background: var(--color-carbon); border: 1px solid var(--color-slate); color: var(--color-chalk);
+    font-family: inherit; font-size: 12px; padding: 5px 10px; width: 240px; border-radius: var(--r-sm);
+  }
+  .chips { display: inline-flex; gap: 6px; align-items: center; }
+  .chip {
+    font-size: 11px; color: var(--color-ash); border: 1px solid var(--color-slate);
+    border-radius: var(--r-sm); padding: 2px 9px; cursor: default; white-space: nowrap;
+  }
+  .chip .n { color: var(--color-pewter); margin-left: 4px; }
+  .chip.on { color: var(--color-ember); border-color: var(--color-ember); }
+  .chip.on .n { color: var(--color-ember-dim); }
+  .chip.dep .n { color: var(--color-ash); }
+
+  table { border-collapse: collapse; width: 100%; max-width: 1080px; }
+  th {
+    text-align: left; color: var(--color-steel); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase; font-weight: 400;
+    padding: 6px 10px; border-bottom: 1px solid var(--color-iron);
+  }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--color-iron); vertical-align: middle; }
+  .case { color: var(--color-paper); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
+  .bundle { color: var(--color-fog); font-size: 11px; }
+  .verdict { font-size: 11px; border: 1px solid; border-radius: var(--r-sm); padding: 1px 7px; white-space: nowrap; }
+  .v-pass { color: var(--color-ember); border-color: var(--color-ember); }
+  .v-fail { color: var(--color-paper); border-color: var(--color-paper); }
+  .v-none { color: var(--color-steel); border-color: var(--color-slate); }
+
+  /* deprecated row: dimmed whole-row + pill */
+  tr.dep td { color: var(--color-pewter); }
+  tr.dep .case { color: var(--color-ash); }
+  tr.dep .verdict { opacity: .45; }
+  tr.dep:hover td { background: var(--color-carbon); }
+  .lifecycle { font-size: 11px; border: 1px solid var(--color-slate); color: var(--color-ash); border-radius: var(--r-sm); padding: 1px 7px; white-space: nowrap; }
+  .lifecycle.draft { color: var(--color-fog); border-color: var(--color-pewter); border-style: dashed; }
+  .lifecycle.deprecated { color: var(--color-pewter); }
+
+  /* kebab: minimal, opens on click */
+  .kebab { color: var(--color-steel); cursor: default; font-size: 14px; letter-spacing: 1px; user-select: none; }
+  .kebab:hover { color: var(--color-fog); }
+  .menu {
+    position: absolute; background: var(--color-graphite); border: 1px solid var(--color-slate);
+    border-radius: var(--r-sm); font-size: 11px; min-width: 120px; z-index: 3;
+    box-shadow: 0 6px 24px rgba(0,0,0,.6);
+  }
+  .menu div { padding: 5px 10px; color: var(--color-fog); cursor: default; }
+  .menu div:hover { background: var(--color-iron); color: var(--color-paper); }
+  .menu div.warn:hover { color: var(--color-ember); }
+  .menu-label { padding: 4px 10px 2px; color: var(--color-pewter); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+
+  .note { margin-top: 20px; color: var(--color-steel); font-size: 11px; max-width: 720px; }
+  .note b { color: var(--color-fog); font-weight: 400; }
+</style>
+</head>
+<body>
+  <h1>test cases</h1>
+  <div class="sub">status lifecycle — option A · chips row + kebab menu</div>
+
+  <div class="toolbar">
+    <input class="search" value="" placeholder="filter cases…">
+    <span class="chips">
+      <span class="chip on">all <span class="n">5</span></span>
+      <span class="chip">active <span class="n">3</span></span>
+      <span class="chip">draft <span class="n">1</span></span>
+      <span class="chip dep">deprecated <span class="n">1</span></span>
+    </span>
+  </div>
+
+  <table>
+    <thead><tr>
+      <th>case</th><th>app</th><th>verdict</th><th>lifecycle</th><th>last</th><th></th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td class="case">privacy policy</td>
+        <td class="bundle">com.lioparcel.services.consumer.int-dev</td>
+        <td><span class="verdict v-pass">pass</span></td>
+        <td></td>
+        <td class="bundle">2h ago</td>
+        <td><span class="kebab" title="case actions">⋯</span></td>
+      </tr>
+      <tr>
+        <td class="case">intl drill — check-rates country worlds</td>
+        <td class="bundle">com.lioparcel.services.consumer.int-dev</td>
+        <td><span class="verdict v-fail">fail</span></td>
+        <td></td>
+        <td class="bundle">25m ago</td>
+        <td style="position:relative">
+          <span class="kebab">⋯</span>
+          <span class="menu">
+            <div class="menu-label">case</div>
+            <div>run now</div>
+            <div>edit yaml</div>
+            <div>duplicate</div>
+            <div class="menu-label">status</div>
+            <div>mark draft</div>
+            <div class="warn">deprecate</div>
+          </span>
+        </td>
+      </tr>
+      <tr>
+        <td class="case">rate card — regression sweep</td>
+        <td class="bundle">com.lioparcel.services.consumer.int-dev</td>
+        <td><span class="verdict v-none">never run</span></td>
+        <td><span class="lifecycle draft">draft</span></td>
+        <td class="bundle">—</td>
+        <td><span class="kebab">⋯</span></td>
+      </tr>
+      <tr>
+        <td class="case">login — happy path</td>
+        <td class="bundle">com.lioparcel.services.consumer.int-dev</td>
+        <td><span class="verdict v-pass">pass</span></td>
+        <td></td>
+        <td class="bundle">1d ago</td>
+        <td><span class="kebab">⋯</span></td>
+      </tr>
+      <tr class="dep">
+        <td class="case">legacy tracking widget</td>
+        <td class="bundle">com.lioparcel.services.consumer.int-dev</td>
+        <td><span class="verdict v-fail">fail</span></td>
+        <td><span class="lifecycle deprecated">deprecated</span></td>
+        <td class="bundle">12d ago</td>
+        <td style="position:relative">
+          <span class="kebab">⋯</span>
+          <span class="menu">
+            <div class="menu-label">status</div>
+            <div>restore to active</div>
+          </span>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="note">
+    <b>A — chips + kebab.</b> Status filter lives in the toolbar as four chips with
+    live counts (server-computed per filter — never client math). Row actions hide
+    in a kebab; deprecate sits under a status sub-label, restore appears only on
+    deprecated rows. Deprecated rows dim with a pill; verdicts stay visible
+    (history is history). Play-all still runs what you SEE — so "all" includes
+    deprecated visually but the batch skips them server-side (named skip).
+  </div>
+</body>
+</html>
