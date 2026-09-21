@@ -110,8 +110,8 @@ describe('expect steps (A7)', () => {
     const { runId } = await play('t3');
     const steps = runRows(runId);
     expect(steps[0]!.status).toBe('fail');
-    expect(steps[0]!.reason).toContain('ambiguous');
-    expect(steps[0]!.reason).toContain('2');
+    expect(steps[0]!.reason).toContain('found 2');
+    expect(steps[0]!.reason).toContain('exactly 1');
   });
 
   it('optional expect miss → skip, run stays green', async () => {
@@ -168,7 +168,7 @@ describe('expect contains: + ignoreCase playback', () => {
     const { runId } = await play('tpl_ic2');
     const rows = runRows(runId);
     expect(rows[0]!.status).toBe('fail');
-    expect(rows[0]!.reason).toContain('ambiguous (2 matches)');
+    expect(rows[0]!.reason).toContain('found 2, exactly 1');
     expect(rows[0]!.reason).toContain('contains: DATA');
   });
 
@@ -185,6 +185,60 @@ describe('expect contains: + ignoreCase playback', () => {
     snapshotNodes = nodes(['Home', 'BERANDA']);
     seedTemplate('tpl_ic4', [{ idx: 0, action: 'expect', selector: { label: 'beranda', ignoreCase: true } }]);
     const { runId } = await play('tpl_ic4');
+    expect(runRows(runId)[0]!.status).toBe('pass');
+  });
+});
+
+describe('expect cardinality — count: / atLeast: (A9)', () => {
+  it('count: 2 passes when exactly two nodes match (the Batam case)', async () => {
+    snapshotNodes = nodes(['Shipping rates from Kuala Lumpur to Batam', 'Batam']);
+    seedTemplate('t_card2', [{ idx: 0, action: 'expect', selector: { labelContains: 'Batam' }, count: 2 }]);
+    const { runId } = await play('t_card2');
+    const rows = runRows(runId);
+    expect(rows[0]!.status).toBe('pass');
+    expect(rows[0]!.reason).toContain('matched 2');
+  });
+  it('count: 2 fails when only one matches — reason names the bound', async () => {
+    snapshotNodes = nodes(['Shipping rates from Kuala Lumpur to Batam']);
+    seedTemplate('t_card3', [{ idx: 0, action: 'expect', selector: { labelContains: 'Batam' }, count: 2 }]);
+    const { runId } = await play('t_card3');
+    const rows = runRows(runId);
+    expect(rows[0]!.status).toBe('fail');
+    expect(rows[0]!.reason).toContain('found 1');
+    expect(rows[0]!.reason).toContain('exactly 2');
+  });
+  it('atLeast: 1 passes when two nodes match — existence without uniqueness', async () => {
+    snapshotNodes = nodes(['Shipping rates from Kuala Lumpur to Batam', 'Batam']);
+    seedTemplate('t_card4', [{ idx: 0, action: 'expect', selector: { labelContains: 'Batam' }, atLeast: 1 }]);
+    const { runId } = await play('t_card4');
+    const rows = runRows(runId);
+    expect(rows[0]!.status).toBe('pass');
+  });
+  it('atLeast: 2 passes at exactly 2 and fails at 1', async () => {
+    snapshotNodes = nodes(['A Batam', 'Batam chip']);
+    seedTemplate('t_card5', [{ idx: 0, action: 'expect', selector: { labelContains: 'Batam' }, atLeast: 2 }]);
+    const { runId } = await play('t_card5');
+    expect(runRows(runId)[0]!.status).toBe('pass');
+
+    snapshotNodes = nodes(['A Batam']);
+    seedTemplate('t_card6', [{ idx: 0, action: 'expect', selector: { labelContains: 'Batam' }, atLeast: 2 }]);
+    const r2 = await play('t_card6');
+    expect(runRows(r2.runId)[0]!.status).toBe('fail');
+  });
+  it('default stays exactly-1: two matches with no bound still fails as bound-not-met', async () => {
+    snapshotNodes = nodes(['Login', 'Login']);
+    seedTemplate('t_card7', [{ idx: 0, action: 'expect', selector: { label: 'Login' } }]);
+    const { runId } = await play('t_card7');
+    const rows = runRows(runId);
+    expect(rows[0]!.status).toBe('fail');
+    expect(rows[0]!.reason).toContain('found 2');
+    expect(rows[0]!.reason).toContain('exactly 1');
+  });
+  it('mutated mid-run counts still respect the bound (settle poll uses satisfied())', async () => {
+    // 2 matches present from the first read: count:2 must pass immediately
+    snapshotNodes = nodes(['Batam heading', 'Batam chip']);
+    seedTemplate('t_card8', [{ idx: 0, action: 'expect', selector: { labelContains: 'Batam' }, count: 2 }]);
+    const { runId } = await play('t_card8');
     expect(runRows(runId)[0]!.status).toBe('pass');
   });
 });

@@ -472,3 +472,49 @@ describe('location step (lat/lon point) — Tier 2.3', () => {
     expect(back.case!.steps[0]).toMatchObject({ action: 'location', location: { latitude: -6.1754, longitude: 106.8272 } });
   });
 });
+
+describe('expect cardinality — count: / atLeast: (A9)', () => {
+  it('count: N parses onto the expect step', () => {
+    const r = parseCaseYaml('name: x\nsteps:\n  - expect: { contains: Batam, count: 2 }\n');
+    expect(r.ok).toBe(true);
+    expect(r.case!.steps[0]).toMatchObject({ action: 'expect', count: 2, selector: { labelContains: 'Batam' } });
+  });
+  it('atLeast: N parses onto the expect step', () => {
+    const r = parseCaseYaml('name: x\nsteps:\n  - expect: { contains: Batam, atLeast: 1 }\n');
+    expect(r.ok).toBe(true);
+    expect(r.case!.steps[0]).toMatchObject({ action: 'expect', atLeast: 1, selector: { labelContains: 'Batam' } });
+  });
+  it('count and atLeast are mutually exclusive — one bound per step', () => {
+    const r = parseCaseYaml('name: x\nsteps:\n  - expect: { contains: Batam, count: 2, atLeast: 1 }\n');
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('mutually exclusive'))).toBe(true);
+  });
+  it('count must be a positive integer', () => {
+    const r1 = parseCaseYaml('name: x\nsteps:\n  - expect: { contains: A, count: 0 }\n');
+    expect(r1.ok).toBe(false);
+    const r2 = parseCaseYaml('name: x\nsteps:\n  - expect: { contains: A, count: 1.5 }\n');
+    expect(r2.ok).toBe(false);
+    const r3 = parseCaseYaml('name: x\nsteps:\n  - expect: { contains: A, atLeast: -1 }\n');
+    expect(r3.ok).toBe(false);
+  });
+  it('count/atLeast are expect-only — rejected on tap', () => {
+    const r = parseCaseYaml('name: x\nsteps:\n  - tap: { point: [1, 1], on: A, count: 2 }\n');
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('expect-only'))).toBe(true);
+  });
+  it('round-trips through caseToYaml', () => {
+    const r = parseCaseYaml('name: x\nsteps:\n  - expect: { contains: Batam, count: 2 }\n  - expect: { contains: Batam, atLeast: 1 }\n');
+    const y = caseToYaml(r.case! as never);
+    expect(y).toContain('count: 2');
+    expect(y).toContain('atLeast: 1');
+    const back = parseCaseYaml(y);
+    expect(back.ok).toBe(true);
+    expect(back.case!.steps[0]).toMatchObject({ count: 2 });
+    expect(back.case!.steps[1]).toMatchObject({ atLeast: 2 - 1 });
+  });
+  it('unknown key still errors (typo guard)', () => {
+    const r = parseCaseYaml('name: x\nsteps:\n  - expect: { contains: A, cuont: 2 }\n');
+    expect(r.ok).toBe(false);
+    expect(r.errors.some((e) => e.message.includes('unknown key'))).toBe(true);
+  });
+});

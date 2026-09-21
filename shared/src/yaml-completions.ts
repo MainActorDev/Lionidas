@@ -33,7 +33,7 @@ export interface VocabCompletion {
 const BODY_KEYS: Record<string, string[]> = {
   tap: ['point', 'on', 'contains', 'ignoreCase', 'optional', 'when'],
   type: ['point', 'text', 'on', 'contains', 'ignoreCase', 'optional', 'when'],
-  expect: ['on', 'contains', 'ignoreCase', 'optional', 'when'],
+  expect: ['on', 'contains', 'ignoreCase', 'optional', 'when', 'count', 'atLeast'],
   runFlow: ['name', 'optional'],
   location: ['latitude', 'longitude'],
 };
@@ -81,6 +81,7 @@ export function buildCompletions(slot: YamlSlot, vocab: EditorVocabulary, _typed
         text: 'text to type', name: 'case name to run',
         contains: 'label CONTAINS this text (contains-mode matching)', ignoreCase: 'true — capitalization stops mattering for label matches',
         when: 'setup-only guard — skip this step unless this label fragment is visible',
+        count: 'expect exactly N matches (default 1)', atLeast: 'expect N or more matches (existence without uniqueness)',
         latitude: 'decimal degrees, -90..90 (Jakarta ≈ -6.17)', longitude: 'decimal degrees, -180..180 (Jakarta ≈ 106.83)',
       };
       return keys.map((k): VocabCompletion => ({ label: k, detail: hints[k]!, apply: `${k}: `, type: 'keyword' }));

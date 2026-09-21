@@ -30,6 +30,10 @@ export interface YamlStep {
   /** setup-only guard: run this step only if a label containing this fragment
    *  is visible (existence, not uniqueness). Absent element → no-op skip. */
   when?: string;
+  /** expect-only cardinality: exactly N (count) or ≥ N (atLeast). Absent →
+   *  the default exactly-1 contract. Mutually exclusive — one bound per step. */
+  count?: number;
+  atLeast?: number;
   /** alert action target — accept or dismiss the frontmost system dialog */
   alertAction?: 'accept' | 'dismiss';
   /** location action target — simulated GPS point (simctl location set) */
@@ -52,7 +56,7 @@ export interface YamlCase {
 export interface YamlError { line: number; message: string }
 
 const DROPPED_KEYS = new Set(['ts', 'thumb']); // capture artifacts — not semantics
-const STEP_KEYS = new Set(['action', 'x', 'y', 'direction', 'text', 'optional', 'selector', 'templateId', 'flow']);
+const STEP_KEYS = new Set(['action', 'x', 'y', 'direction', 'text', 'optional', 'selector', 'templateId', 'flow', 'count', 'atLeast']);
 const DIRECTIONS = new Set(['up', 'down', 'left', 'right']);
 const ACTIONS = new Set(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert', 'location']);
 /** runFlow references: name → id resolution is the CALLER's job (needs the DB);
@@ -293,8 +297,13 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
       }
       const b = body as Record<string, unknown>;
       for (const bk of Object.keys(b)) {
-        if (!['point', 'on', 'text', 'optional', 'id', 'name', 'contains', 'ignoreCase', 'when', 'at'].includes(bk)) {
+        const known = ['point', 'on', 'text', 'optional', 'id', 'name', 'contains', 'ignoreCase', 'when', 'at'];
+        if (action === 'expect') known.push('count', 'atLeast'); // cardinality is expect-only (A9)
+        if (!known.includes(bk)) {
           errors.push({ line: 1, message: `${prefix(i)}: unknown key "${bk}" in ${action} — did you mean optional/on/point/text?` });
+        }
+        if (action !== 'expect' && (bk === 'count' || bk === 'atLeast')) {
+          errors.push({ line: 1, message: `${prefix(i)}: count/atLeast are expect-only (got ${bk} on ${action})` });
         }
       }
       if (action === 'tap' || action === 'type') {
@@ -322,6 +331,22 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
       const sl = sel(b);
       if (!sl) { errors.push({ line: 1, message: `${prefix(i)}: expect needs on: <label or id>` }); continue; }
       const es: YamlStep = { idx: stepsOut.length, action: 'expect', selector: sl, ...(opt(b) ? { optional: true } : {}) };
+      // expect-only cardinality (A9): count = exactly N, atLeast = ≥ N.
+      const rawCount = b['count'];
+      const rawAtLeast = b['atLeast'];
+      const isCardNum = (v: unknown): v is number => Number.isInteger(v) && (v as number) > 0;
+      if (rawCount !== undefined && rawAtLeast !== undefined) {
+        errors.push({ line: 1, message: `${prefix(i)}: 'count' and 'atLeast' are mutually exclusive — one bound per step` });
+      } else {
+        if (rawCount !== undefined) {
+          if (!isCardNum(rawCount)) errors.push({ line: 1, message: `${prefix(i)}: count must be a positive integer (got ${JSON.stringify(rawCount)})` });
+          else es.count = rawCount;
+        }
+        if (rawAtLeast !== undefined) {
+          if (!isCardNum(rawAtLeast)) errors.push({ line: 1, message: `${prefix(i)}: atLeast must be a positive integer (got ${JSON.stringify(rawAtLeast)})` });
+          else es.atLeast = rawAtLeast;
+        }
+      }
       // optional probe point (sweep recovery): at: [x, y]
       const at = b['at'];
       if (at !== undefined) {
@@ -440,13 +465,15 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       // probe point rides along when recorded (sweep recovery, baguette 1.1):
       // serialized so playback-from-YAML keeps the coordinate for probing.
       const at = s['x'] !== undefined && s['y'] !== undefined ? `, at: [${s['x']}, ${s['y']}]` : '';
+      // cardinality bound (A9) — rendered only when set
+      const card = s['count'] !== undefined ? `, count: ${s['count']}` : s['atLeast'] !== undefined ? `, atLeast: ${s['atLeast']}` : '';
       if (sl && (sl.labelContains !== undefined || sl.ignoreCase === true)) {
         // mode/flag selectors always render as a mapping (the scalar sugar is exact-cs only)
-        const body = `${on(s['selector']) ?? 'on: ?'}${icSuffix(s['selector'])}${optSuffix(s['optional'])}${at}`;
+        const body = `${on(s['selector']) ?? 'on: ?'}${icSuffix(s['selector'])}${optSuffix(s['optional'])}${at}${card}`;
         lines.push(`  - expect: { ${body.replace(/^, /, '')} }`);
       } else {
         const label = sl?.label ?? sl?.identifier ?? '?';
-        if (s['optional'] === true || at) lines.push(`  - expect: { on: ${yamlScalar(label)}${s['optional'] === true ? ', optional: true' : ''}${at} }`);
+        if (s['optional'] === true || at || card) lines.push(`  - expect: { on: ${yamlScalar(label)}${s['optional'] === true ? ', optional: true' : ''}${at}${card} }`);
         else lines.push(`  - expect: ${yamlScalar(label)}`);
       }
     } else {

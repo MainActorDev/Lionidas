@@ -10,6 +10,9 @@ export interface SubstitutedStep {
     selector?: { identifier?: string; label?: string; labelContains?: string; type?: string };
   /** A5 subflow reference (runFlow) — expanded before execution */
   templateId?: string;
+  /** expect-only cardinality (A9) — carried through substitution untouched */
+  count?: number;
+  atLeast?: number;
   /** set when an env ref could not be resolved */
   error?: string;
 }
@@ -31,7 +34,7 @@ function firstMissingKey(keys: string[], env: Record<string, string>): string {
   return keys.find((k) => env[k] === undefined) ?? '??';
 }
 
-export function substituteStep(s: { idx: number; action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location'; x?: number; y?: number; direction?: 'up' | 'down' | 'left' | 'right'; text?: string; optional?: boolean; selector?: { identifier?: string; label?: string; labelContains?: string; type?: string }; templateId?: string }, env: Record<string, string>): SubstitutedStep {
+export function substituteStep(s: { idx: number; action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location'; x?: number; y?: number; direction?: 'up' | 'down' | 'left' | 'right'; text?: string; optional?: boolean; selector?: { identifier?: string; label?: string; labelContains?: string; type?: string }; templateId?: string; count?: number; atLeast?: number }, env: Record<string, string>): SubstitutedStep {
   // selector label/labelContains resolve ${env.X} (variant-world assertions);
   // identifier/type stay literal. A missing key fails the step BEFORE
   // dispatch — the caller never asserts a half-resolved fragment.
@@ -53,7 +56,7 @@ export function substituteStep(s: { idx: number; action: 'tap' | 'scroll' | 'typ
   if (selMissing !== undefined) {
     return { idx: s.idx, action: s.action, ...(s.x !== undefined ? { x: s.x } : {}), ...(s.y !== undefined ? { y: s.y } : {}), ...(s.direction ? { direction: s.direction } : {}), ...(s.templateId !== undefined ? { templateId: s.templateId } : {}), error: `missing env: ${selMissing}` };
   }
-  const base: SubstitutedStep = { idx: s.idx, action: s.action, ...(s.x !== undefined ? { x: s.x } : {}), ...(s.y !== undefined ? { y: s.y } : {}), ...(s.direction ? { direction: s.direction } : {}), ...(sel !== undefined ? { selector: sel } : {}), ...(s.templateId !== undefined ? { templateId: s.templateId } : {}) };
+  const base: SubstitutedStep = { idx: s.idx, action: s.action, ...(s.x !== undefined ? { x: s.x } : {}), ...(s.y !== undefined ? { y: s.y } : {}), ...(s.direction ? { direction: s.direction } : {}), ...(sel !== undefined ? { selector: sel } : {}), ...(s.templateId !== undefined ? { templateId: s.templateId } : {}), ...(s.count !== undefined ? { count: s.count } : {}), ...(s.atLeast !== undefined ? { atLeast: s.atLeast } : {}) };
   if (s.text === undefined) return base;
   const expanded = expandEnvText(s.text, env);
   if (expanded !== null) return { ...base, text: expanded };

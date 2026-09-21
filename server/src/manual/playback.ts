@@ -96,6 +96,10 @@ export interface PlaybackStep {
   /** setup-only guard: snapshot existence check (labelContains, ignoreCase)
    *  BEFORE dispatch — absent element = no-op skip (dismiss-if-shown). */
   when?: string;
+  /** expect-only cardinality (A9): exactly N (count) or ≥ N (atLeast).
+   *  Absent both → the default exactly-1 contract. */
+  count?: number;
+  atLeast?: number;
   /** alert action target — accept or dismiss the frontmost system dialog */
   alertAction?: 'accept' | 'dismiss';
   /** location action target — simulated GPS point (simctl location set) */
@@ -693,8 +697,13 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               return { n: countMatches(nodesL, s.selector!), nodesL };
             };
             let read = await readCount();
+            // bound satisfied? — exactly-N (count), ≥N (atLeast), or the
+            // exactly-1 default ONLY when neither bound is set (a bare
+            // `?? 1` would let atLeast:2 pass on a single match).
+            // The settle loops keep polling ONLY while unsatisfied.
+            const satisfied = (n: number): boolean => s.count !== undefined ? n === s.count : s.atLeast !== undefined ? n >= s.atLeast : n === 1;
             const settleStart = Date.now();
-            while (read && read.n !== 1 && Date.now() - settleStart < settleBudgetMs) {
+            while (read && !satisfied(read.n) && Date.now() - settleStart < settleBudgetMs) {
               await new Promise((r) => setTimeout(r, settlePollMs));
               read = await readCount();
             }
@@ -729,8 +738,12 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // assertion — captured after resolution, before the row is born.
             const sevId = await recorder.captureExpectEvidence();
             const expectEvidence = sevId ? JSON.stringify([sevId]) : '[]';
-            if (matched === 1) {
-              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, expectEvidence, JSON.stringify(ev));
+            // bound-aware verdict (A9): default exactly-1; count = exactly N;
+            // atLeast = ≥ N. reason names the numbers so the row explains itself.
+            const boundLabel = s.count !== undefined ? `exactly ${s.count}` : s.atLeast !== undefined ? `at least ${s.atLeast}` : 'exactly 1';
+            const boundMet = s.count !== undefined ? matched === s.count : s.atLeast !== undefined ? matched >= s.atLeast : matched === 1;
+            if (boundMet) {
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', s.count !== undefined || s.atLeast !== undefined ? `matched ${matched} (bound: ${boundLabel})` : null, t0, Date.now() - t0, expectEvidence, JSON.stringify(ev));
             } else if (matched === 0 && probeFn && s.x !== undefined && s.y !== undefined && read?.nodesL) {
               // Tier 1 Task 4: walk missed — single-point probe at the recorded
               // coordinate (devtools sees what the walk cannot). A hit upgrades
@@ -746,7 +759,9 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             } else {
               const selJson = JSON.stringify(s.selector);
               const human = selectorLabel(s.selector!);
-              const reason = matched === 0 ? `not found: ${human} (${selJson})` : `ambiguous (${matched} matches): ${human} (${selJson})`;
+              const reason = matched === 0
+                ? `not found: ${human} (${selJson})`
+                : `bound not met — found ${matched}, ${boundLabel}: ${human} (${selJson})`;
               if (s.optional) {
                 insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'skip', `optional expect miss: ${reason}`, t0, Date.now() - t0, '[]', JSON.stringify(ev));
                 continue;
