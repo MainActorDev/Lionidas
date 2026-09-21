@@ -132,11 +132,13 @@ function latestFinishedRun(db: Database.Database, templateId: string, variant?: 
 
 export function registerTemplateRoutes(app: FastifyInstance, db: Database.Database, dispatchDeps?: unknown): void {
   app.get('/api/templates', async (req) => {
-    const q = req.query as { ticket?: string; tags?: string; app?: string };
+    const q = req.query as { ticket?: string; tags?: string; app?: string; status?: string };
     let rows: TemplateRow[];
     if (q.ticket) rows = db.prepare('SELECT * FROM templates WHERE ticket_key = ? ORDER BY updated_at DESC').all(q.ticket) as TemplateRow[];
     else rows = db.prepare('SELECT * FROM templates ORDER BY updated_at DESC').all() as TemplateRow[];
-    const sel = selectTemplates(rows, { tags: q.tags, app: q.app }).map((r) => rowToTemplate(db, r)) as Array<Record<string, unknown> & { id: string }>;
+    // Phase E: chips are exact-match; the LIST never excludes deprecated
+    // ("all" shows everything) — batch exclusion is play-all's own knob.
+    const sel = selectTemplates(rows, { tags: q.tags, app: q.app, ...(q.status === 'draft' || q.status === 'active' || q.status === 'deprecated' ? { status: q.status } : {}) }).map((r) => rowToTemplate(db, r)) as Array<Record<string, unknown> & { id: string }>;
     // B4: attach last-verdict + trend per case (absent = never run)
     const { suiteVerdicts } = await import('../db/suite.ts');
     const verdicts = suiteVerdicts(db);
