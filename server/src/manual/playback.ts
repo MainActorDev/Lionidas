@@ -151,7 +151,7 @@ function stepLabel(s: PlaybackStep): string {
  *  per-run, template stays network-agnostic (its defaultPresetId is a hint). */
 export class PlaybackError extends Error {
   constructor(
-    public code: 'DEVICE_BUSY' | 'APP_NOT_INSTALLED' | 'DEVICE_AMBIGUOUS' | 'LOCATION_GRANT_FAILED' | 'VERSION_SNAPSHOT_FAILED',
+    public code: 'DEVICE_BUSY' | 'APP_NOT_INSTALLED' | 'DEVICE_AMBIGUOUS' | 'LOCATION_GRANT_FAILED' | 'VERSION_SNAPSHOT_FAILED' | 'SCENARIO_INACTIVE',
     message: string,
     public payload?: { appBundleId?: string; udid?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null },
   ) { super(message); }
@@ -332,6 +332,16 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
   const scenarioId = scenarioChoice
     ? ((deps.db.prepare('SELECT id FROM scenarios WHERE id = ? OR name = ? LIMIT 1').get(scenarioChoice, scenarioChoice) as { id: string } | undefined)?.id ?? null)
     : null;
+  // T7 — forge pre-flight: a scenario run needs the proxy + routing ALIVE.
+  // The chain dies silently on restarts; without this gate the run plays the
+  // full case against the real network and fails `not found: <text>` —
+  // minutes of wasted playback pointing at the wrong layer. Fail BEFORE the
+  // run row exists (no run, no artifacts, honest 409 with the fix).
+  if (scenarioId) {
+    const { forgePreflight } = await import('../forge/health.ts');
+    const pf = forgePreflight(scenarioChoice!);
+    if (pf) throw new PlaybackError('SCENARIO_INACTIVE' as PlaybackError['code'], pf.message, { appBundleId: appToLaunch, udid });
+  }
   try {
     version = snapshotCaseVersion(deps.db, { templateId, scenarioId, variant: opts.variant ?? null, triggeredBy: opts.triggeredBy ?? null });
   } catch (err) {

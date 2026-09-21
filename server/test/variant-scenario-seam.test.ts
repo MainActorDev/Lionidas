@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildApp } from '../src/index.ts';
 import { __setAlloyForTest } from '../src/alloy/client.ts';
+import { __setForgeHealthForTest } from '../src/forge/health.ts';
 import type { AlloyExports } from '../src/alloy/client.ts';
 import type { SnapNode } from '../src/manual/selector.ts';
 import { migrateM1 } from '../src/db/schema.ts';
@@ -40,6 +41,7 @@ beforeEach(async () => {
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   migrateM1(db);
+  __setForgeHealthForTest({ mitmRunning: true, routingEnabled: true }); // T7: scenario tests assume a live chain
   db.prepare(`INSERT INTO devices(udid, name, state, platform, kind, last_seen) VALUES ('sim-1', 'Sim One', 'Booted', 'ios', 'simulator', ?)`).run(Date.now());
   // a scenario named like the variant vocabulary will reference it
   db.prepare(`INSERT INTO scenarios(id, name, description, launch_arg, created_by, immutable_since) VALUES ('s_world1', 'account-active', 'x', NULL, 'qa', NULL)`).run();
@@ -57,6 +59,7 @@ beforeEach(async () => {
   await app.app.ready();
 });
 afterEach(async () => {
+  __setForgeHealthForTest(null);
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     const pending = (db.prepare('SELECT COUNT(*) AS n FROM runs WHERE finished_at IS NULL').get() as { n: number }).n;

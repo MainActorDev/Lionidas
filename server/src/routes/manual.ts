@@ -465,6 +465,7 @@ export function registerManualRoutes(
       return { runId, udid };
     } catch (err) {
       if (err instanceof PlaybackError && err.code === 'DEVICE_BUSY') return reply.code(409).send({ error: err.message, code: err.code });
+      if (err instanceof PlaybackError && err.code === 'SCENARIO_INACTIVE') return reply.code(409).send({ error: err.message, code: err.code, hint: 'start the forge proxy and sim routing (forge page), then replay' });
       if (err instanceof PlaybackError && err.code === 'APP_NOT_INSTALLED') {
         return reply.code(409).send({ error: err.message, code: err.code, appBundleId: err.payload?.appBundleId, udid: err.payload?.udid, lastArtifact: err.payload?.lastArtifact ?? null });
       }

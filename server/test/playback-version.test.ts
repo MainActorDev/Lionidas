@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { runTemplatePlayback } from '../src/manual/playback.ts';
 import { __setAlloyForTest } from '../src/alloy/client.ts';
+import { __setForgeHealthForTest } from '../src/forge/health.ts';
 import type { AlloyExports } from '../src/alloy/client.ts';
 import type { SnapNode } from '../src/manual/selector.ts';
 import { migrateM1 } from '../src/db/schema.ts';
@@ -62,8 +63,10 @@ beforeEach(() => {
   migrateM1(db);
   migrateM1(db);
   __setAlloyForTest({ dispatch: fakeAlloy().dispatch } as never);
+  __setForgeHealthForTest({ mitmRunning: true, routingEnabled: true }); // T7: scenario tests assume a live chain
 });
 afterEach(async () => {
+  __setForgeHealthForTest(null);
   __setAlloyForTest(null);
   db.close();
   rmSync(tmp, { recursive: true, force: true });
