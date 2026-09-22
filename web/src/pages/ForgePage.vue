@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '../components/PageHeader.vue';
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useLiveEvents } from '../stores/live.ts';
 import PresetEditorModal from '../components/PresetEditorModal.vue';
@@ -224,12 +225,9 @@ onUnmounted(() => { unwatch(); live.release(); if (searchTimer) clearTimeout(sea
 
 <template>
   <div>
-    <div class="page-header">
-      <div>
-        <div class="page-title">network · traffic</div>
-        <div class="page-desc">{{ traffic.length }} requests · mode: {{ mode }}<span v-if="!live.connected" style="color: var(--color-ember);"> · live offline</span></div>
-      </div>
-      <div style="display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap;">
+    <PageHeader title="network · traffic">
+      <span class="ph-desc">{{ traffic.length }} requests · mode: {{ mode }}<span v-if="!live.connected" style="color: var(--color-ember);"> · live offline</span></span>
+      <template #actions>
         <span v-if="mitm.running" class="badge badge-accent" title="point the app's proxy at this address">proxy 127.0.0.1:{{ mitm.port }}</span>
         <button v-else class="btn btn-sm" :disabled="mitmBusy" @click="startMitm">{{ mitmBusy ? 'starting…' : 'start proxy' }}</button>
         <button
@@ -240,8 +238,8 @@ onUnmounted(() => { unwatch(); live.release(); if (searchTimer) clearTimeout(sea
           {{ routingBusy ? '…' : routing.enabled ? `sims routed${routing.service ? ` · ${routing.service}` : ''}` : 'route sims' }}
         </button>
         <button v-for="m in ['record', 'hybrid', 'intercept']" :key="m" class="btn btn-sm" :class="{ 'btn-primary': mode === m }" :title="MODE_HELP[m]" @click="setMode(m)">{{ m }}</button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <div style="display: flex; justify-content: space-between; align-items: baseline; gap: var(--s-4); margin-bottom: var(--s-4); font-size: var(--text-caption); color: var(--color-steel);">
       <span>{{ MODE_HELP[mode] ?? '' }}</span>

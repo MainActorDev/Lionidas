@@ -3,6 +3,7 @@
  *  One number leads (app stability), pull-from-device is the one action,
  *  reports in plain English, technical depth lives in the drawer.
  *  Data: /api/diagnostics/* (Guvnor MetricKit pipeline). */
+import PageHeader from '../components/PageHeader.vue';
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 
@@ -179,13 +180,12 @@ onUnmounted(() => { if (poll) clearInterval(poll); });
 
 <template>
   <div>
-    <div class="page-header">
-      <div>
-        <div class="page-title">monitoring</div>
-        <div class="page-desc">app health · reports pulled from devices on demand</div>
-      </div>
-      <span class="badge">guvnor</span>
-    </div>
+    <PageHeader title="monitoring">
+      <span class="ph-desc">app health · reports pulled from devices on demand</span>
+      <template #actions>
+        <span class="badge">guvnor</span>
+      </template>
+    </PageHeader>
 
     <!-- hero: one number that matters + 3 supporting -->
     <div class="hero">

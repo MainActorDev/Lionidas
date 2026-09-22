@@ -7,6 +7,7 @@
  *  Everything from the old page is ported: verdicts/trends, play/playAll,
  *  plans, rename/edit/delete, step expander (param/optional, + subflow,
  *  + assert), tag-filter chips, suite summary. */
+import PageHeader from '../components/PageHeader.vue';
 import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import CaseEditorPanel from '../components/CaseEditorPanel.vue';
@@ -655,30 +656,30 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
   <section class="a2-page" :class="{ editing: yamlOpenId !== null }">
     <!-- ── header — the mockup's minimal one-row chrome; the suite summary +
          run controls ride in the advanced disclosure when not editing ── -->
-    <header class="a2-head">
-      <span class="page-title">test cases</span>
-      <span class="a2-desc">{{ templates.length }} case{{ templates.length === 1 ? '' : 's' }} · {{ tagCount }} tag{{ tagCount === 1 ? '' : 's' }}</span>
-      <span v-if="!editing" class="a2-suite" :title="`${suiteSummary.green} pass · ${suiteSummary.red} fail · ${suiteSummary.blocked} blocked · ${suiteSummary.never} never run`">
+    <PageHeader title="test cases">
+      <span class="ph-desc">{{ templates.length }} case{{ templates.length === 1 ? '' : 's' }} · {{ tagCount }} tag{{ tagCount === 1 ? '' : 's' }}</span>
+      <span v-if="!editing" class="ph-syms" :title="`${suiteSummary.green} pass · ${suiteSummary.red} fail · ${suiteSummary.blocked} blocked · ${suiteSummary.never} never run`">
         <span class="sym" title="passing">✓{{ suiteSummary.green }}</span>
         <span v-if="suiteSummary.red" class="sym" title="failing">✕{{ suiteSummary.red }}</span>
         <span v-if="suiteSummary.blocked" class="sym" title="blocked (infra)">◆{{ suiteSummary.blocked }}</span>
         <span v-if="suiteSummary.never" class="sym" title="never run">◌{{ suiteSummary.never }}</span>
       </span>
-      <span class="a2-spacer"></span>
-      <span class="a2-chips" v-if="!editing">
-        <button v-for="s in ([['', 'all'], ['active', 'active'], ['draft', 'draft'], ['deprecated', 'deprecated']] as Array<['' | Lifecycle, string]>)"
-          :key="s[1]" class="chip status-chip" :class="{ on: statusFilter === s[0], dep: s[0] === 'deprecated' }"
-          :title="s[0] === '' ? 'every case regardless of lifecycle' : `lifecycle: ${s[1]} (deprecated never runs in batches)`"
-          @click="statusFilter = s[0]">{{ s[1] }} <span class="n">{{ statusCountsDirty ? '·' : statusCounts[s[0] === '' ? 'all' : s[0]] }}</span></button>
-      </span>
-      <input ref="filterEl" v-model="filter" class="a2-search" placeholder="search cases…  ⌘F" />
-      <button class="btn" :disabled="playingAll" @click="createCaseYaml" title="hand-author a new case as yaml — opens the editor with a minimal starter">+ case (yaml)</button>
-      <button v-if="!editing" class="btn" :disabled="playingAll || shown().length === 0" @click="playAll()" title="sequentially run every case matching the filter">
-        {{ playingAll ? 'running…' : '▶ run filtered' }}
-      </button>
-      <button v-if="playingAll" class="btn btn-danger" @click="stopAll"
-        title="abort the running case and every queued one">■ stop all</button>
-    </header>
+      <template #actions>
+        <span class="a2-chips" v-if="!editing">
+          <button v-for="s in ([['', 'all'], ['active', 'active'], ['draft', 'draft'], ['deprecated', 'deprecated']] as Array<['' | Lifecycle, string]>)"
+            :key="s[1]" class="chip status-chip" :class="{ on: statusFilter === s[0], dep: s[0] === 'deprecated' }"
+            :title="s[0] === '' ? 'every case regardless of lifecycle' : `lifecycle: ${s[1]} (deprecated never runs in batches)`"
+            @click="statusFilter = s[0]">{{ s[1] }} <span class="n">{{ statusCountsDirty ? '·' : statusCounts[s[0] === '' ? 'all' : s[0]] }}</span></button>
+        </span>
+        <input ref="filterEl" v-model="filter" class="a2-search" placeholder="search cases…  ⌘F" />
+        <button class="btn" :disabled="playingAll" @click="createCaseYaml" title="hand-author a new case as yaml — opens the editor with a minimal starter">+ case (yaml)</button>
+        <button v-if="!editing" class="btn" :disabled="playingAll || shown().length === 0" @click="playAll()" title="sequentially run every case matching the filter">
+          {{ playingAll ? 'running…' : '▶ run filtered' }}
+        </button>
+        <button v-if="playingAll" class="btn btn-danger" @click="stopAll"
+          title="abort the running case and every queued one">■ stop all</button>
+      </template>
+    </PageHeader>
 
     <!-- ── advanced controls disclosure (hidden while editing yaml) ── -->
     <div v-if="!editing" class="a2-advanced">
@@ -935,12 +936,6 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 /* the run dock is a pure overlay: no layout shift when it opens — it sits
    above the table (fixed, z-80), the table never reflows */
 /* header */
-.a2-head { display: flex; align-items: baseline; gap: 14px; flex: none; }
-.page-title { font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
-.a2-desc { color: var(--color-steel); font-size: 11px; }
-.a2-suite { color: var(--color-steel); font-size: 11px; }
-.a2-suite .sym { margin-left: 6px; }
-.a2-spacer { flex: 1; }
 .a2-search {
   background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm);
   color: var(--color-fog); font: inherit; font-size: 12px; padding: 4px 10px; width: 220px;

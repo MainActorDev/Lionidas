@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '../components/PageHeader.vue';
 import { ref, computed, watch, onUnmounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useDeviceStream, canvasPointToLogical } from '../composables/deviceStream.ts';
@@ -360,13 +361,12 @@ onUnmounted(() => {
 
 <template>
   <div style="max-width: 900px;">
-    <div class="page-header">
-      <div>
-        <div class="page-title">drive · {{ udid.slice(0, 8) }}…</div>
-        <div class="page-desc">manual session — never counts toward AC status</div>
-      </div>
-      <span class="badge badge-accent">manual</span>
-    </div>
+    <PageHeader :title="`drive · ${udid.slice(0, 8)}…`">
+      <span class="ph-desc">manual session — never counts toward AC status</span>
+      <template #actions>
+        <span class="badge badge-accent">manual</span>
+      </template>
+    </PageHeader>
 
     <div v-if="!sessionId" class="card">
       <div class="meta-row"><span class="k">operator</span><input v-model="operator" style="width: 160px;" /></div>

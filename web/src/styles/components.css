@@ -1,6 +1,17 @@
 /* ═══ Axiom Components (Crucible) ═══ */
 
-/* ─── Page header ─── */
+/* ─── Page header (B-variant — the ONE header system, sketch 015-B) ───
+   Structure lives in components/PageHeader.vue; these classes style the
+   slot content (parent scope, so they must be global). */
+.ph-desc {
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  color: var(--color-steel);
+}
+.ph-syms { display: inline-flex; gap: var(--s-3); font-size: var(--text-label); color: var(--color-fog); }
+.ph-syms .sym { color: var(--color-steel); }
+
+/* legacy one-row header — DEPRECATED, only Guide's in-page sections use it */
 .page-header {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: var(--s-5);

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '../components/PageHeader.vue';
 import { ref, onMounted } from 'vue';
 
 interface Diff {
@@ -36,12 +37,9 @@ onMounted(() => { void load(); void loadHistory(); });
 
 <template>
   <div>
-    <div class="page-header">
-      <div>
-        <div class="page-title">approvals</div>
-        <div class="page-desc">{{ diffs.length }} pending review{{ diffs.length === 1 ? '' : 's' }}</div>
-      </div>
-    </div>
+    <PageHeader title="approvals">
+      <span class="ph-desc">{{ diffs.length }} pending review{{ diffs.length === 1 ? '' : 's' }}</span>
+    </PageHeader>
 
     <div v-if="decided" class="meta-row">{{ decided }}</div>
     <div v-if="diffs.length === 0" class="empty">no pending diffs — nothing needs judgment</div>

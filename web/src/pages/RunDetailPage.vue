@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '../components/PageHeader.vue';
 import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import TriagePanel from '../components/TriagePanel.vue';
@@ -85,20 +86,17 @@ onMounted(() => {
 
 <template>
   <div v-if="run">
-    <div class="page-header">
-      <div>
-        <div class="page-title">{{ run.id }}</div>
-        <div class="page-desc">
-          <RouterLink :to="`/tickets/${run.ticket_key}`" style="color: inherit;">{{ run.ticket_key }}</RouterLink>
-          · {{ run.kind }} · by {{ run.triggered_by }} · {{ run.started_at ? new Date(run.started_at).toLocaleString() : '' }}
-        </div>
-      </div>
-      <div style="display: flex; gap: var(--s-2); align-items: center;">
+    <PageHeader :title="run.id">
+      <span class="ph-desc">
+        <RouterLink :to="`/tickets/${run.ticket_key}`" style="color: inherit;">{{ run.ticket_key }}</RouterLink>
+        · {{ run.kind }} · by {{ run.triggered_by }} · {{ run.started_at ? new Date(run.started_at).toLocaleString() : '' }}
+      </span>
+      <template #actions>
         <span v-if="attachMsg" class="badge">{{ attachMsg }}</span>
         <button class="btn btn-sm" @click="attachJira">attach → jira</button>
         <span class="status" :class="`status-${run.status}`">{{ run.status }}</span>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <div class="card">
       <div class="meta-row"><span class="k">device</span><b>{{ run.device_udid.slice(0, 8) }}…</b></div>

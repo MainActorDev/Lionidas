@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '../components/PageHeader.vue';
 import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
@@ -19,13 +20,12 @@ onMounted(async () => {
 
 <template>
   <div>
-    <div class="page-header">
-      <div>
-        <div class="page-title">{{ ticket }}</div>
-        <div class="page-desc">{{ acs.length }} acceptance criteria</div>
-      </div>
-      <span class="status" :class="`status-${ticketStatus}`">{{ ticketStatus }}</span>
-    </div>
+    <PageHeader :title="ticket">
+      <span class="ph-desc">{{ acs.length }} acceptance criteria</span>
+      <template #actions>
+        <span class="status" :class="`status-${ticketStatus}`">{{ ticketStatus }}</span>
+      </template>
+    </PageHeader>
 
     <div v-if="acs.some((a) => a.status === 'changes-pending')" class="card card-accent">
       <div class="card-title">◆ changes need your review</div>

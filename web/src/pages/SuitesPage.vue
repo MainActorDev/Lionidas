@@ -4,6 +4,7 @@
  *  edit is an explicit button that swaps the panel to the editor. Suite
  *  verdicts are suite-scoped reads; markers name the gap between the last
  *  play and the current pack. */
+import PageHeader from '../components/PageHeader.vue';
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { RouterLink } from 'vue-router';
 
@@ -274,17 +275,17 @@ async function saveEditor(): Promise<void> {
 
 <template>
   <section class="su-page">
-    <header class="su-head">
-      <span class="page-title">suites</span>
-      <span class="su-desc">{{ suites.length }} suite{{ suites.length === 1 ? '' : 's' }} · {{ bundleOptions.length || suites.length }} app{{ suites.length === 1 ? '' : 's' }}</span>
-      <span v-if="!loading && suites.length" class="su-suite" :title="`${summary.green} passing · ${summary.red} failing`">
-        <span class="sym">✓{{ summary.green }}</span>
-        <span v-if="summary.red" class="sym">✕{{ summary.red }}</span>
+    <PageHeader title="suites">
+      <span class="ph-desc">{{ suites.length }} suite{{ suites.length === 1 ? '' : 's' }} · {{ bundleOptions.length || suites.length }} app{{ suites.length === 1 ? '' : 's' }}</span>
+      <span v-if="!loading && suites.length" class="ph-syms" :title="`${summary.green} passing · ${summary.red} failing`">
+        <span class="sym" title="passing">✓{{ summary.green }}</span>
+        <span v-if="summary.red" class="sym" title="failing">✕{{ summary.red }}</span>
       </span>
-      <span class="su-spacer"></span>
-      <input ref="filterEl" v-model="filter" class="su-search" placeholder="search suites…  ⌘F" />
-      <button class="btn" @click="openDraft()">+ suite</button>
-    </header>
+      <template #actions>
+        <input ref="filterEl" v-model="filter" class="su-search" placeholder="search suites…  ⌘F" />
+        <button class="btn" @click="openDraft()">+ suite</button>
+      </template>
+    </PageHeader>
 
     <div v-if="error" class="su-err">{{ error }}</div>
 
@@ -437,14 +438,9 @@ async function saveEditor(): Promise<void> {
 </template>
 
 <style scoped>
-/* the a2 anatomy, su- prefixed */
-.su-page { display: flex; flex-direction: column; gap: var(--s-3); width: 100%; box-sizing: border-box; }
-.su-head { display: flex; align-items: baseline; gap: 14px; flex: none; }
-.page-title { font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
-.su-desc { color: var(--color-steel); font-size: 11px; }
-.su-suite { color: var(--color-steel); font-size: 11px; }
-.su-suite .sym { margin-left: 6px; }
+/* header removed — PageHeader owns it; spacer still used by suite panels */
 .su-spacer { flex: 1; }
+.su-page { display: flex; flex-direction: column; gap: var(--s-3); width: 100%; box-sizing: border-box; }
 .su-search {
   background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm);
   color: var(--color-fog); font: inherit; font-size: 12px; padding: 4px 10px; width: 220px;

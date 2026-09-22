@@ -4,6 +4,7 @@
  *  call (/api/overview), live-updating as runs finish. Replaces the
  *  per-case card board (SuiteHomePage) — case-level truth lives in
  *  /templates; this page answers "is the build safe / what needs eyes". */
+import PageHeader from '../components/PageHeader.vue';
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useLiveEvents } from '../stores/live.ts';
@@ -147,16 +148,15 @@ function timeAgo(ms: number | null): string {
 
 <template>
   <section class="page">
-    <header class="ov-head">
-      <h1>overview</h1>
-      <span class="count">{{ batchLabel }}</span>
-      <div class="ov-actions">
+    <PageHeader title="overview">
+      <span class="ph-desc">{{ batchLabel }}</span>
+      <template #actions>
         <button class="btn" :disabled="runningSuite" @click="runAll" title="run every active case sequentially — verdicts update live">
           {{ runningSuite ? 'starting…' : '▶ run all cases' }}
         </button>
         <RouterLink class="btn btn-ghost" to="/templates" title="the full case table — edit, tags, steps">all cases →</RouterLink>
-      </div>
-    </header>
+      </template>
+    </PageHeader>
 
     <div v-if="plans.length > 0" class="ov-plans">
       <span v-for="p in plans" :key="p.id" class="chip">
@@ -219,9 +219,6 @@ function timeAgo(ms: number | null): string {
 </template>
 
 <style scoped>
-.ov-head { display: flex; align-items: baseline; gap: var(--s-3); }
-.ov-head h1 { font-size: var(--text-heading); font-weight: var(--weight-bold); margin: 0; }
-.ov-actions { margin-left: auto; display: flex; gap: var(--s-2); }
 
 .ov-plans { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; margin: var(--s-3) 0 0; }
 .ov-msg { font-size: var(--text-caption); color: var(--color-ash); }

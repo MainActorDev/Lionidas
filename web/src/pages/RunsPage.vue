@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '../components/PageHeader.vue';
 import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useLiveEvents } from '../stores/live.ts';
@@ -60,15 +61,11 @@ onUnmounted(() => { if (poll) clearInterval(poll); unwatch(); live.release(); })
 
 <template>
   <div>
-    <div class="page-header">
-      <div>
-        <div class="page-title">runs</div>
-        <div class="page-desc">
-          {{ runs.length }} recent
-          <span v-if="!live.connected" style="color: var(--color-ember);"> · live offline</span>
-        </div>
-      </div>
-    </div>
+    <PageHeader title="runs">
+      <span class="ph-desc">{{ runs.length }} recent
+        <span v-if="!live.connected" style="color: var(--color-ember);"> · live offline</span>
+      </span>
+    </PageHeader>
 
     <div v-if="runs.length === 0" class="empty">no runs yet — run a test case from the test cases page, or take control of a device</div>
 

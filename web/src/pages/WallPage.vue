@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '../components/PageHeader.vue';
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import NewRunModal from '../components/NewRunModal.vue';
 import DeviceSidebar, { type SidebarDevice } from '../components/DeviceSidebar.vue';
@@ -126,19 +127,16 @@ onUnmounted(() => { if (poll) clearInterval(poll); closeSidebar(); unwatchEvents
 
 <template>
   <div>
-    <div class="page-header">
-      <div>
-        <div class="page-title">devices</div>
-        <div class="page-desc">
-          {{ booted.length }} booted · {{ devices.length }} simulators
-          <span v-if="!live.connected" style="color: var(--color-ember);"> · live offline</span>
-        </div>
-      </div>
-      <div style="display: flex; gap: var(--s-2); align-items: center;">
+    <PageHeader title="devices">
+      <span class="ph-desc">
+        {{ booted.length }} booted · {{ devices.length }} simulators
+        <span v-if="!live.connected" style="color: var(--color-ember);"> · live offline</span>
+      </span>
+      <template #actions>
         <input v-model="ticketQuery" placeholder="ticket…" style="width: 120px;" @keydown.enter="openTicket" />
         <button class="btn btn-primary" @click="newRunOpen = true">+ new run</button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <div v-if="queue.length > 0" class="card card-accent" style="margin-bottom: var(--s-4);">
       <div class="card-header">

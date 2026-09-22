@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** Users (admin): provision local accounts, set roles, reset passwords, deactivate.
  *  Standardization: full .main width, content-sized table, shared primitives. */
+import PageHeader from '../components/PageHeader.vue';
 import { computed, ref, onMounted } from 'vue';
 
 // Non-admins get a SELF view: own profile + own activity (runs, manual sessions,
@@ -97,13 +98,12 @@ onMounted(() => void load());
 
 <template>
   <div>
-    <div class="page-header">
-      <div>
-        <div class="page-title">{{ isAdmin ? 'users' : 'your activity' }}</div>
-        <div class="page-desc">{{ isAdmin ? 'provisioned accounts · roles gate what a person can touch' : `${me?.name ?? ''} · ${me?.email ?? ''}` }}</div>
-      </div>
-      <span class="badge">{{ me?.role ?? '…' }}</span>
-    </div>
+    <PageHeader :title="isAdmin ? 'users' : 'your activity'">
+      <span class="ph-desc">{{ isAdmin ? 'provisioned accounts · roles gate what a person can touch' : `${me?.name ?? ''} · ${me?.email ?? ''}` }}</span>
+      <template #actions>
+        <span class="badge">{{ me?.role ?? '…' }}</span>
+      </template>
+    </PageHeader>
 
     <!-- non-admin self view -->
     <div v-if="me && !isAdmin" style="display: flex; flex-direction: column; gap: var(--s-3);">

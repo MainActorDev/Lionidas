@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '../components/PageHeader.vue';
 import { ref, onMounted } from 'vue';
 
 interface Flake {
@@ -26,12 +27,9 @@ onMounted(load);
 
 <template>
   <div>
-    <div class="page-header">
-      <div>
-        <div class="page-title">flaky tests</div>
-        <div class="page-desc">{{ flakes.filter((f) => f.quarantined).length }} quarantined</div>
-      </div>
-    </div>
+    <PageHeader title="flaky tests">
+      <span class="ph-desc">{{ flakes.filter((f) => f.quarantined).length }} quarantined</span>
+    </PageHeader>
 
     <div v-if="msg" class="meta-row">{{ msg }}</div>
 
