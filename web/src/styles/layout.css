@@ -78,14 +78,8 @@
   background: var(--color-void);
   border-bottom: 1px solid var(--color-iron);
 }
-.topbar-title {
-  font-family: var(--font-mono);
-  font-size: var(--text-body);
-  font-weight: var(--weight-regular);
-  color: var(--color-paper);
-  flex-shrink: 0;
-}
-.topbar-title::before { content: '~/'; color: var(--color-steel); margin-right: var(--s-1); }
+/* title span removed — the page header owns page identity (015-B); topbar
+   carries only user/sign-out/⌘K */
 .topbar-spacer { flex: 1; }
 
 /* ─── Main content ─── */

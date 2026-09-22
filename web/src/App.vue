@@ -22,7 +22,6 @@ import { watch } from 'vue';
 
 const route = useRoute();
 const router = useRouter();
-const title = computed(() => (route.meta.title as string | undefined) ?? 'crucible');
 const isActive = (name: string): boolean => route.name === name;
 const isPublic = computed(() => route.meta.public === true);
 // cheap re-check on route change (login/out navigations refresh the chip)
@@ -65,7 +64,6 @@ watch(() => route.fullPath, () => void loadMe());
     </nav>
 
     <div class="topbar">
-      <span class="topbar-title">{{ title }}</span>
       <span class="topbar-spacer" />
       <span v-if="me" class="topbar-user" title="signed in">
         <span class="dot"></span>{{ me.name }} · {{ me.role }}
