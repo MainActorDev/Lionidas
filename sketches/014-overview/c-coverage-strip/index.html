@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>014-C coverage-strip overview</title>
+<style>
+  :root {
+    --color-void: #000000; --color-carbon: #111111; --color-graphite: #191919;
+    --color-iron: #202020; --color-slate: #3a3a3a; --color-pewter: #505050;
+    --color-steel: #606060; --color-ash: #7e7e7e; --color-fog: #b4b4b4;
+    --color-chalk: #d9d9d9; --color-paper: #eeeeee;
+    --color-ember: #da5c2c; --color-ember-dim: #a04521;
+    --font-mono: 'JetBrains Mono', 'BerkeleyMono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px; --s-6: 32px;
+    --r: 2px; --t: 120ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font-mono); background: var(--color-void); color: var(--color-paper); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; padding: var(--s-5); }
+  .page-title { font-size: 20px; font-weight: 700; }
+  .count { color: var(--color-ash); font-size: 13px; }
+  .card { background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r); padding: var(--s-4); }
+  .section-label { color: var(--color-steel); font-size: 12px; text-transform: lowercase; letter-spacing: 0.08em; margin: var(--s-5) 0 var(--s-2); }
+  .btn { display: inline-block; border: 1px solid var(--color-slate); color: var(--color-fog); padding: 4px 10px; border-radius: var(--r); font-size: 13px; cursor: pointer; background: none; font-family: inherit; }
+  .btn:hover { color: var(--color-paper); border-color: var(--color-chalk); }
+  .btn.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: 700; }
+
+  /* ── single verdict line ── */
+  .line { display: flex; align-items: baseline; gap: var(--s-4); padding-bottom: var(--s-4); border-bottom: 1px solid var(--color-iron); }
+  .word { font-size: 24px; font-weight: 700; }
+  .line .sub { color: var(--color-ash); font-size: 13px; }
+  .line .spacer { flex: 1; }
+
+  /* ── coverage strip: one horizontal bar of segments ── */
+  .strip { display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); border: 1px solid var(--color-iron); border-radius: var(--r); overflow: hidden; }
+  .seg { padding: var(--s-3) var(--s-4); border-right: 1px solid var(--color-iron); }
+  .seg:last-child { border-right: 0; }
+  .seg b { display: block; font-size: 18px; font-weight: 700; }
+  .seg span { color: var(--color-steel); font-size: 11px; }
+  .seg.alert b { color: var(--color-ember); }
+
+  /* ── two-below: attention + latest ── */
+  .below { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--s-4); align-items: start; }
+  .att-row { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; gap: var(--s-3); align-items: baseline; padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--color-iron); cursor: pointer; }
+  .att-row:last-child { border-bottom: 0; }
+  .att-row:hover { background: var(--color-graphite); }
+  .kind { font-size: 12px; color: var(--color-steel); }
+  .kind.new_failure { color: var(--color-ember); }
+  .case-name { color: var(--color-paper); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tag { color: var(--color-steel); font-size: 12px; }
+  .run-row { display: flex; justify-content: space-between; gap: var(--s-3); padding: var(--s-2) 0; border-bottom: 1px solid var(--color-iron); font-size: 13px; }
+  .run-row:last-child { border-bottom: 0; }
+  .status.failed { color: var(--color-paper); font-weight: 700; }
+  .status.passed { color: var(--color-fog); }
+  .status.aborted { color: var(--color-ash); }
+</style>
+</head>
+<body>
+  <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom: var(--s-4);">
+    <div><span class="page-title">overview</span> <span class="count">batch_afddb3c0 · mixed builds · 7d</span></div>
+    <button class="btn primary">run all cases</button>
+  </div>
+
+  <div class="line">
+    <span class="word">failed</span>
+    <span class="sub">1 failed · 3 blocked · pass rate 0% · no comparable build</span>
+    <span class="spacer"></span>
+    <span class="sub" style="color:var(--color-steel)">4 attention</span>
+  </div>
+
+  <div class="section-label" style="margin-top: var(--s-4);">coverage</div>
+  <div class="strip">
+    <div class="seg"><b>0</b><span>passed</span></div>
+    <div class="seg alert"><b>1</b><span>failed</span></div>
+    <div class="seg"><b>3</b><span>blocked</span></div>
+    <div class="seg"><b>5</b><span>active cases</span></div>
+    <div class="seg"><b>3</b><span>variants</span></div>
+    <div class="seg"><b>5</b><span>run in 7d</span></div>
+  </div>
+
+  <div class="below">
+    <div>
+      <div class="section-label">requires attention</div>
+      <div class="card" style="padding:0;">
+        <div class="att-row"><span class="kind repeated_failure">recurring</span><span class="case-name">privacy policy</span><span class="tag">no_baseline</span></div>
+        <div class="att-row"><span class="kind infra_blocked">infra</span><span class="case-name">test-record</span><span class="tag">run_c1ade91a →</span></div>
+        <div class="att-row"><span class="kind infra_blocked">infra</span><span class="case-name">tnc</span><span class="tag">run_78821489 →</span></div>
+        <div class="att-row"><span class="kind infra_blocked">infra</span><span class="case-name">Maps opens centered on Batam</span><span class="tag">run_403d9284 →</span></div>
+      </div>
+    </div>
+    <div>
+      <div class="section-label">latest runs →</div>
+      <div class="card">
+        <div class="run-row"><span style="color:var(--color-fog)">privacy policy</span><span class="status failed">failed</span></div>
+        <div class="run-row"><span style="color:var(--color-fog)">test-record</span><span class="status aborted">aborted</span></div>
+        <div class="run-row"><span style="color:var(--color-fog)">tnc</span><span class="status aborted">aborted</span></div>
+        <div class="run-row"><span style="color:var(--color-fog)">intl drill / sg</span><span class="status passed">passed · solo</span></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>014-B attention-rail overview</title>
+<style>
+  :root {
+    --color-void: #000000; --color-carbon: #111111; --color-graphite: #191919;
+    --color-iron: #202020; --color-slate: #3a3a3a; --color-pewter: #505050;
+    --color-steel: #606060; --color-ash: #7e7e7e; --color-fog: #b4b4b4;
+    --color-chalk: #d9d9d9; --color-paper: #eeeeee;
+    --color-ember: #da5c2c; --color-ember-dim: #a04521;
+    --font-mono: 'JetBrains Mono', 'BerkeleyMono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px; --s-6: 32px;
+    --r: 2px; --t: 120ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font-mono); background: var(--color-void); color: var(--color-paper); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; padding: var(--s-5); }
+  .page-title { font-size: 20px; font-weight: 700; }
+  .count { color: var(--color-ash); font-size: 13px; }
+  .card { background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r); padding: var(--s-4); }
+  .section-label { color: var(--color-steel); font-size: 12px; text-transform: lowercase; letter-spacing: 0.08em; margin: 0 0 var(--s-2); }
+  .btn { display: inline-block; border: 1px solid var(--color-slate); color: var(--color-fog); padding: 4px 10px; border-radius: var(--r); font-size: 13px; cursor: pointer; background: none; font-family: inherit; }
+  .btn:hover { color: var(--color-paper); border-color: var(--color-chalk); }
+  .btn.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: 700; }
+
+  /* ── two-column workspace: attention rail owns the page ── */
+  .work { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--s-4); align-items: start; }
+
+  /* rail */
+  .head-strip { display: flex; align-items: baseline; gap: var(--s-4); padding: var(--s-3) var(--s-4); border: 1px solid var(--color-iron); border-radius: var(--r); background: var(--color-carbon); margin-bottom: var(--s-4); }
+  .word { font-size: 24px; font-weight: 700; }
+  .word.failed { color: var(--color-paper); }
+  .strip-stats { display: flex; gap: var(--s-4); margin-left: auto; font-size: 13px; color: var(--color-ash); }
+  .strip-stats b { color: var(--color-fog); font-weight: 400; }
+
+  .grp { color: var(--color-steel); font-size: 12px; padding: var(--s-2) var(--s-3) var(--s-1); border-bottom: 1px solid var(--color-iron); }
+  .att-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--s-3); align-items: baseline; padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--color-iron); cursor: pointer; }
+  .att-row:hover { background: var(--color-graphite); }
+  .att-row.sel { background: var(--color-graphite); box-shadow: inset 2px 0 0 var(--color-ember); }
+  .case-name { color: var(--color-paper); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .m { color: var(--color-steel); font-size: 12px; }
+  .rail { padding: 0; }
+
+  /* side panel */
+  .side { display: flex; flex-direction: column; gap: var(--s-4); position: sticky; top: var(--s-4); }
+  .meta-row { display: flex; justify-content: space-between; gap: var(--s-3); padding: var(--s-1) 0; font-size: 13px; }
+  .meta-row .k { color: var(--color-ash); flex: 0 0 auto; }
+  .meta-row b { font-weight: 400; color: var(--color-fog); text-align: right; }
+  .cov { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: var(--s-2); }
+  .cov .cell { background: var(--color-graphite); border: 1px solid var(--color-iron); padding: var(--s-2) var(--s-3); }
+  .cov b { display: block; font-size: 16px; }
+  .cov span { color: var(--color-steel); font-size: 11px; }
+</style>
+</head>
+<body>
+  <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom: var(--s-4);">
+    <div><span class="page-title">overview</span> <span class="count">batch_afddb3c0 · mixed builds · 7d</span></div>
+    <button class="btn primary">run all cases</button>
+  </div>
+
+  <div class="head-strip">
+    <span class="word failed">failed</span>
+    <span class="count">pass rate 0% · no comparable build</span>
+    <div class="strip-stats">
+      <span>passed <b>0</b></span><span>failed <b>1</b></span><span>blocked <b>3</b></span>
+    </div>
+  </div>
+
+  <div class="work">
+    <div class="card rail">
+      <div class="grp">recurring · 1</div>
+      <div class="att-row sel"><span class="case-name">privacy policy</span><span class="m">no_baseline</span><span class="m">1.2.0</span></div>
+      <div class="grp">infra · 3</div>
+      <div class="att-row"><span class="case-name">test-record</span><span class="m">run_c1ade91a</span><span class="m">1.2.0</span></div>
+      <div class="att-row"><span class="case-name">tnc</span><span class="m">run_78821489</span><span class="m">1.2.0</span></div>
+      <div class="att-row"><span class="case-name">Maps opens centered on Batam</span><span class="m">run_403d9284</span><span class="m">1.0</span></div>
+      <div class="grp">stale · 0</div>
+    </div>
+
+    <div class="side">
+      <div class="card">
+        <div class="section-label">selected</div>
+        <div class="meta-row"><span class="k">case</span><b>privacy policy</b></div>
+        <div class="meta-row"><span class="k">run</span><b>run_11f44c95 →</b></div>
+        <div class="meta-row"><span class="k">status</span><b>failed · no_baseline</b></div>
+        <div class="meta-row"><span class="k">build</span><b>1.2.0 · mixed builds</b></div>
+      </div>
+      <div class="card">
+        <div class="section-label">coverage</div>
+        <div class="cov">
+          <div class="cell"><b>5</b><span>active</span></div>
+          <div class="cell"><b>0</b><span>draft</span></div>
+          <div class="cell"><b>0</b><span>deprecated</span></div>
+          <div class="cell"><b>3</b><span>variants</span></div>
+          <div class="cell"><b>5</b><span>run 7d</span></div>
+          <div class="cell"><b style="color:var(--color-ember)">0</b><span>not run</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-label">latest runs →</div>
+        <div class="meta-row"><span class="k">privacy policy</span><b>failed</b></div>
+        <div class="meta-row"><span class="k">test-record</span><b>aborted</b></div>
+        <div class="meta-row"><span class="k">intl drill / sg</span><b>passed · solo</b></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
