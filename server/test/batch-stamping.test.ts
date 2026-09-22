@@ -53,19 +53,33 @@ afterEach(async () => {
 });
 
 describe('T2 — batch stamping', () => {
+  /** playback is fire-and-forget: rows are stamped at INSERT but the loop
+   *  keeps running past the assertions. Drain to terminal before afterEach
+   *  closes the DB — otherwise the terminal write races teardown. */
+  async function drainRuns(budgetMs = 90_000): Promise<void> {
+    const t0 = Date.now();
+    for (;;) {
+      const c = (db.prepare(`SELECT COUNT(*) c FROM runs WHERE status IN ('running','queued')`).get() as { c: number }).c;
+      if (c === 0 || Date.now() - t0 > budgetMs) return;
+      await new Promise((res) => setTimeout(res, 200));
+    }
+  }
+
   it('play-all stamps every member run with one shared batch_id', { timeout: 60_000 }, async () => {
     const r = await app.inject({ method: 'POST', url: '/api/templates/play-all', payload: {} });
     expect(r.statusCode).toBeLessThan(500);
     const body = r.json() as { batchId?: string };
     expect(body.batchId).toMatch(/^batch_/);
+    await drainRuns();
     const rows = db.prepare(`SELECT batch_id FROM runs WHERE template_id = 'tpl_a'`).all() as Array<{ batch_id: string | null }>;
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) expect(row.batch_id).toBe(body.batchId);
   });
 
-  it('solo play of a variantless case leaves batch_id NULL (not an execution set)', async () => {
+  it('solo play of a variantless case leaves batch_id NULL (not an execution set)', { timeout: 60_000 }, async () => {
     const r = await app.inject({ method: 'POST', url: '/api/templates/tpl_a/play', payload: {} });
     expect(r.statusCode).toBeLessThan(500);
+    await drainRuns();
     const rows = db.prepare(`SELECT batch_id FROM runs WHERE template_id = 'tpl_a' ORDER BY started_at DESC LIMIT 1`).all() as Array<{ batch_id: string | null }>;
     expect(rows[0]!.batch_id).toBeNull();
   });
@@ -88,5 +102,6 @@ describe('T2 — batch stamping', () => {
     }
     expect(rows.length).toBe(2); // both lanes stamped
     for (const row of rows) expect(row.batch_id).toBe(body.batchId);
+    await drainRuns();
   });
 });

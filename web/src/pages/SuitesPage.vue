@@ -72,7 +72,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
 type Kind = 'never' | 'green' | 'red' | 'blocked';
 function kind(s: Suite): Kind {
   const ms = s.members ?? [];
-  if (ms.length === 0 || ms.every((m) => m.lastStatus == null)) return 'never';
+  if (ms.every((m) => m.lastStatus == null)) return 'never';
   if (ms.some((m) => m.lastStatus != null && m.lastStatus !== 'passed' && m.lastBlocked !== 1)) return 'red';
   if (ms.some((m) => m.lastBlocked === 1)) return 'blocked';
   return 'green';

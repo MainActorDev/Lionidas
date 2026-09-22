@@ -206,9 +206,13 @@ describe('T3 — latestRuns', () => {
     db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, finished_at, template_id, app_version, batch_id, blocked)
                 VALUES ('run_solo', 'T', 'manual', 'passed', 'qa', 'sim', ?, ?, 't2', '1.0.0', NULL, 0)`).run(now - 500, now + 500);
     const b = await get();
-    const runs = b.latestRuns as Array<{ runId: string; templateId: string }> | undefined;
+    const runs = b.latestRuns as Array<{ runId: string; templateId: string; templateName: string | null }> | undefined;
     expect(runs!.length).toBe(2);
     expect(runs![0]!.runId).toBe('run_solo'); // newest first
     expect(runs!.some((r) => r.runId === 'run_solo')).toBe(true); // solo visible
+    // names ride along (UI gap caught live: rows rendered bare tpl_ ids)
+    expect(runs!.every((r) => typeof r.templateName === 'string' && r.templateName.length > 0)).toBe(true);
+    const att0 = (b.attention as Array<{ templateName: string | null }>) ?? [];
+    expect(att0.every((a) => typeof a.templateName === 'string')).toBe(true);
   });
 });

@@ -123,6 +123,8 @@ export function registerOverviewRoutes(app: FastifyInstance, db: Database.Databa
     // ── attention list ──
     const attention: Array<Record<string, unknown>> = [];
     if (current) {
+      // case names for the UI — one read, no per-row joins
+      const tplNames = new Map(db.prepare('SELECT id, name FROM templates').all().map((t: any) => [t.id, t.name]));
       const newFailures: Array<Record<string, unknown>> = [];
       const infraBlocked: Array<Record<string, unknown>> = [];
       const repeated: Array<Record<string, unknown>> = [];
@@ -131,7 +133,7 @@ export function registerOverviewRoutes(app: FastifyInstance, db: Database.Databa
         const prev = prevByTpl.get(tplId);
         const prevV = prev ? verdictOf(prev) : 'none';
         const sameDefinition = prev ? prev.case_version_id === r.case_version_id : false;
-        const base = { templateId: tplId, runId: r.id, variantId: r.variant_id, status: v, appVersion: r.app_version, batchId: current.id };
+        const base = { templateId: tplId, templateName: tplNames.get(tplId) ?? null, runId: r.id, variantId: r.variant_id, status: v, appVersion: r.app_version, batchId: current.id };
         if (v === 'failed') {
           // with a comparable baseline: passed-before ⇒ new regression, else recurring.
           // WITHOUT a baseline (mixed builds / first batch / different build): the
@@ -149,7 +151,7 @@ export function registerOverviewRoutes(app: FastifyInstance, db: Database.Databa
       }
       // stale: active template with NO run in the stale window (any batch, incl. legacy)
       const staleTpls = db.prepare(`SELECT id FROM templates WHERE status = 'active' AND id NOT IN (SELECT DISTINCT template_id FROM runs WHERE started_at >= ?)`).all(staleCutoff) as Array<{ id: string }>;
-      const stale = staleTpls.map((t) => ({ kind: 'stale_case', templateId: t.id, runId: null, tag: `not run in ${days}d` }));
+      const stale = staleTpls.map((t) => ({ kind: 'stale_case', templateId: t.id, templateName: tplNames.get(t.id) ?? null, runId: null, tag: `not run in ${days}d` }));
       attention.push(...newFailures, ...infraBlocked, ...repeated, ...stale);
     }
 
@@ -186,7 +188,7 @@ export function registerOverviewRoutes(app: FastifyInstance, db: Database.Databa
       attention,
       coverage,
       latestRuns: latestRuns.map((r) => ({
-        runId: r.id, templateId: r.template_id, status: r.status, blocked: r.blocked,
+        runId: r.id, templateId: r.template_id, templateName: (db.prepare('SELECT name FROM templates WHERE id = ?').get(r.template_id) as { name?: string } | undefined)?.name ?? null, status: r.status, blocked: r.blocked,
         appVersion: r.app_version, variantId: r.variant_id, batchId: r.batch_id,
         startedAt: r.started_at, finishedAt: r.finished_at,
       })),

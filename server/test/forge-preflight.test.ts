@@ -39,6 +39,18 @@ const mkScenarioCase = (): void => {
   db.prepare(`INSERT INTO scenarios(id, name, launch_arg, created_by, immutable_since) VALUES ('s_1', 'countries-sg', '', 't', 1)`).run();
 };
 
+/** playback is fire-and-forget: the route returns while the loop keeps running.
+ *  Tests that pass the gate must drain before afterEach closes the DB —
+ *  otherwise the loop's terminal write races teardown (unhandled rejection). */
+async function drainRuns(budgetMs = 3000): Promise<void> {
+  const t0 = Date.now();
+  for (;;) {
+    const c = (db.prepare(`SELECT COUNT(*) c FROM runs WHERE status IN ('running','queued')`).get() as { c: number }).c;
+    if (c === 0 || Date.now() - t0 > budgetMs) return;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
 describe('T7 — forge pre-flight (scenario runs)', () => {
   it('scenario + forge DOWN → fast 409 SCENARIO_INACTIVE, no run row', async () => {
     mkScenarioCase();
@@ -59,6 +71,7 @@ describe('T7 — forge pre-flight (scenario runs)', () => {
     expect(r.statusCode).not.toBe(409);
     // gate passed — the run row exists (playback started; device details vary)
     expect((db.prepare(`SELECT COUNT(*) c FROM runs`).get() as { c: number }).c).toBeGreaterThanOrEqual(0);
+    await drainRuns();
   });
 
   it('NO scenario + forge DOWN → runs normally (pre-flight is scenario-only)', async () => {
@@ -68,6 +81,7 @@ describe('T7 — forge pre-flight (scenario runs)', () => {
     // NOT a SCENARIO_INACTIVE rejection — any other failure is fine
     const b = (r.json() ?? {}) as { code?: string };
     expect(b.code).not.toBe('SCENARIO_INACTIVE');
+    await drainRuns();
   });
 
   it('variant scenario (intl-drill shape) is also gated', async () => {

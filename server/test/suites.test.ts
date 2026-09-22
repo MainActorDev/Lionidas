@@ -242,7 +242,7 @@ describe('T7 — runs ?suite= filter', () => {
     ins.run('run_pass', 'passed', 300);
     ins.run('run_fail', 'failed', 400);
     const active = (await app.inject({ method: 'GET', url: '/api/runs?status=active' })).json() as { runs: Array<{ id: string }> };
-    expect([...active.runs.map((r) => r.id)].sort()).toEqual(['run_q', 'run_run']);
+    expect(active.runs.map((r) => r.id).sort()).toEqual(['run_q', 'run_run']);
     const failed = (await app.inject({ method: 'GET', url: '/api/runs?status=failed' })).json() as { runs: Array<{ id: string }> };
     expect(failed.runs.map((r) => r.id)).toEqual(['run_fail']);
     const running = (await app.inject({ method: 'GET', url: '/api/runs?status=running' })).json() as { runs: Array<{ id: string }> };
