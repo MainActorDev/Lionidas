@@ -117,6 +117,8 @@ const batchLabel = computed((): string => {
   return [att, scope, '7d'].filter(Boolean).join(' · ');
 });
 const attCount = computed(() => data.value?.attention.length ?? 0);
+// latest runs: 8 rows is a glance, 20 is a log — full depth lives on the runs page
+const latestTop = computed(() => (data.value?.latestRuns ?? []).slice(0, 8));
 
 const kindLabel: Record<string, string> = { new_failure: 'new', infra_blocked: 'infra', repeated_failure: 'recurring', stale_case: 'stale' };
 function kindOf(a: AttItem): string { return kindLabel[a.kind] ?? a.kind; }
@@ -203,7 +205,7 @@ function timeAgo(ms: number | null): string {
         <div>
           <div class="section-label">latest runs →</div>
           <div class="card ov-latest">
-            <div v-for="r in data.latestRuns" :key="r.runId" class="run-row" @click="openRun(r)" title="open the run">
+            <div v-for="r in latestTop" :key="r.runId" class="run-row" @click="openRun(r)" title="open the run">
               <span class="run-name">{{ nameOf(r) }}{{ r.variantId ? ` / ${r.variantId}` : '' }}</span>
               <span class="run-time">{{ timeAgo(r.startedAt) }}</span>
               <span class="status" :class="runStatusClass(r)">{{ r.status }}</span>
@@ -235,7 +237,7 @@ function timeAgo(ms: number | null): string {
 .ov-no_data .ov-word { color: var(--color-steel); }
 
 /* ── coverage strip ── */
-.ov-strip { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border: 1px solid var(--color-iron); border-radius: var(--r); overflow: hidden; margin-top: var(--s-4); }
+.ov-strip { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border: 1px solid var(--color-iron); border-radius: var(--r); overflow: hidden; margin-top: var(--s-5); }
 .ov-strip .seg { padding: var(--s-3) var(--s-4); border-right: 1px solid var(--color-iron); min-width: 0; }
 .ov-strip .seg:last-child { border-right: 0; }
 .ov-strip b { display: block; font-size: var(--text-heading-sm); font-weight: var(--weight-bold); }
@@ -243,7 +245,9 @@ function timeAgo(ms: number | null): string {
 .ov-strip .alert b { color: var(--color-ember); }
 
 /* ── two-below ── */
-.ov-below { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--s-4); align-items: start; }
+/* the global .section-label:first-child reset zeroes the label's top margin —
+   the wrapper owns the gap here, not the label (0px glue under the strip) */
+.ov-below { margin-top: var(--s-5); display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--s-4); align-items: start; }
 .ov-att, .ov-latest { padding: 0; overflow: hidden; }
 
 .att-row { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: var(--s-3); align-items: baseline; padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--color-iron); cursor: pointer; }
