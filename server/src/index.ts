@@ -24,6 +24,7 @@ import { healStaleProxies } from './forge/sim-routing.ts';
 import { registerTemplateRoutes } from './routes/templates.ts';
 import { registerSuiteRoutes } from './routes/suites.ts';
 import { registerFlakeRoutes } from './routes/flakes.ts';
+import { registerOverviewRoutes } from './routes/overview.ts';
 import { registerEventsWs } from './routes/events-ws.ts';
 import { startGcLoop } from './gc/retention.ts';
 import { bootReconcile } from './alloy/reconcile.ts';
@@ -99,6 +100,7 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   registerTemplateRoutes(app, db.raw);
   registerSuiteRoutes(app, db.raw);
   registerFlakeRoutes(app, db.raw, bus);
+  registerOverviewRoutes(app, db.raw); // clock injectable; default Date.now
   app.decorate('crucibleBus', bus);
 
   // stream relay needs sharp (native module) — register only in production,
