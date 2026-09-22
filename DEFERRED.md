@@ -317,3 +317,31 @@ runs-page chips. Remaining:*
 - **Unknown-top-key strictness** — parseCaseYaml still silently ignores
   unrecognized top-level keys (pre-existing; variants closed the
   silent-drop path for THIS key only). Revisit as a whole-format change.
+
+## I. Overview vertical slice — SHIPPED 2026-09-22 (T1–T3 live-verified)
+
+*Source: plan `docs/plans/2026-09-22-overview-vertical-slice.md` (brief:
+"Agentic Workflows Overview" — gap analysis found ~70% already in the
+model; the slice built the missing identity + read model). Commits
+`c8e45a1` (T1+T2), `948e42b` (T3), `c1e9323` (live-drill fix). 883/883.*
+
+- `runs.batch_id` (guarded ALTER + fresh CREATE + `idx_runs_batch`): a
+  play-all and a multi-variant lane play each stamp one shared batch id on
+  every member run; solo single-variant plays stay NULL by contract (not an
+  execution set). Both play routes return `batchId`.
+- `GET /api/overview?suite&app_version&days` read model: health
+  (running-first; worst-of-lanes collapse; passRate = passed/(passed+failed),
+  blocked separate; no_data never 0%), comparability guard (previous batch
+  = same build only; mixed/unknown builds labeled, never silently merged),
+  attention ranking new_failure → infra_blocked → repeated_failure
+  (recurring | no_baseline) → stale_case, coverage snapshot, latestRuns
+  (solos visible).
+- Live drill caught and fixed: a mixed-build batch labeled a failure
+  "recurring" with previousBatch=null — now `no_baseline` (c1e9323).
+- **OPEN — dashboard UI**: `/` is still SuiteHomePage; the overview page
+  replaces it (full-page redesign rule: new file, sketch-first). Sketch
+  round 014 pending user pick.
+- **OPEN — failure signature grouping** (brief Phase 2) and **trend
+  charts** (brief Phase 3): revive on demand.
+- **Legacy honesty**: 717 pre-batch runs render `no_data` — by design;
+  they never claimed to be sets. First stamped batch settles the page.

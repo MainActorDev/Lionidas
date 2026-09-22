@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue';
 import GuideSlices from '../components/GuideSlices.vue';
 
-type SectionId = 'yourday' | 'quickstart' | 'wall' | 'runs' | 'matrix' | 'triage' | 'baselines' | 'forge' | 'templates' | 'drive' | 'flakes' | 'status' | 'suites' | 'shortcuts';
+type SectionId = 'yourday' | 'quickstart' | 'wall' | 'runs' | 'matrix' | 'triage' | 'baselines' | 'forge' | 'templates' | 'drive' | 'flakes' | 'status' | 'suites' | 'overview' | 'shortcuts';
 
 const active = ref<SectionId>('quickstart');
 
@@ -13,6 +13,7 @@ const sections: Array<{ id: SectionId; label: string; group: string }> = [
   { id: 'runs', label: 'runs & queue', group: 'basics' },
   { id: 'status', label: 'status vocabulary', group: 'basics' },
   { id: 'suites', label: 'suites', group: 'verify' },
+  { id: 'overview', label: 'overview', group: 'verify' },
   { id: 'matrix', label: 'acceptance criteria', group: 'verify' },
   { id: 'triage', label: 'triage a failure', group: 'verify' },
   { id: 'baselines', label: 'approvals', group: 'verify' },
@@ -274,6 +275,39 @@ const groups = computed(() => {
     </p>
   </div>
 </div>
+
+<div v-if="active === 'overview'">
+        <div class="page-title">overview</div>
+        <p style="color: var(--color-ash); margin: var(--s-2) 0 var(--s-4); font-size: var(--text-body); line-height: 1.6;">
+          The build-level answer: is the app safe right now, and what needs eyes first.
+        </p>
+
+        <div class="section-label">what it reads</div>
+        <div class="card">
+          <div class="meta-row"><span class="k">unit</span><b>a batch — every play-all or variant play is one stamped set</b></div>
+          <div class="meta-row"><span class="k">current</span><b>the newest batch in scope</b></div>
+          <div class="meta-row"><span class="k">previous</span><b>the last batch on the same build — different builds never compared</b></div>
+          <div class="meta-row"><span class="k">solo runs</span><b>shown in latest runs, never in the health math</b></div>
+        </div>
+
+        <div class="section-label">how health is computed</div>
+        <div class="card">
+          <div class="meta-row"><span class="k">running</span><b>any member still running — checked first, always</b></div>
+          <div class="meta-row"><span class="k">failed</span><b>any failed case — one case, one observation (worst variant lane wins)</b></div>
+          <div class="meta-row"><span class="k">degraded</span><b>infra blocked cases — the app never got tested</b></div>
+          <div class="meta-row"><span class="k">pass rate</span><b>passed ÷ (passed + failed) — blocked never counts as failure</b></div>
+          <div class="meta-row"><span class="k">no data</span><b>no batch yet in range — shown as no data, never 0%</b></div>
+        </div>
+
+        <div class="card">
+          <p style="color: var(--color-fog); font-size: var(--text-body); line-height: 1.6; margin: 0;">
+            A case that failed its previous batch too is <b>recurring</b>; one that failed without any comparable
+            previous batch is <b>no baseline</b> — honest about what history can't tell you. Cases not run in 7 days
+            surface as <b>stale</b>. The attention list ranks: new failures first, then infra blocks, then recurring,
+            then stale.
+          </p>
+        </div>
+      </div>
 
 <div v-if="active === 'matrix'">
         <div class="page-title">acceptance criteria</div>
