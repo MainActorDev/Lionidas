@@ -159,6 +159,20 @@ describe('T3 — attention', () => {
     expect(nf.runId).toBeTruthy(); // drill-down identity
   });
 
+  it('failure with NO comparable baseline is no_baseline, never recurring (live drill catch)', async () => {
+    mkTpl('t1'); mkTpl('t2');
+    // mixed-version single batch (Maps 1.0 + LP 1.2.0 style): no honest previous build
+    mkRun({ tpl: 't1', batch: 'b1', status: 'failed', version: '1.0' });
+    db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, finished_at, template_id, app_version, batch_id, blocked)
+                VALUES ('run_null', 'T', 'manual', 'passed', 'qa', 'sim', ?, ?, 't2', NULL, 'b1', 0)`).run(now - 500, now + 500);
+    const b = await get();
+    const items = (b.attention as Array<{ kind: string; templateId?: string; tag?: string }>).filter((a) => a.kind === 'repeated_failure');
+    expect(items.length).toBe(1);
+    expect(items[0]!.tag).toBe('no_baseline');
+    expect(b.health.previousBatch).toBeNull();
+    expect(b.health.buildLabel).toBe('mixed builds');
+  });
+
   it('repeated failure (2+ consecutive comparable sets) is flagged recurring', async () => {
     mkTpl('t1');
     mkRun({ tpl: 't1', batch: 'b1', status: 'failed', at: now - 100_000 });

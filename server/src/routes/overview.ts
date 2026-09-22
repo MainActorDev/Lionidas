@@ -133,8 +133,16 @@ export function registerOverviewRoutes(app: FastifyInstance, db: Database.Databa
         const sameDefinition = prev ? prev.case_version_id === r.case_version_id : false;
         const base = { templateId: tplId, runId: r.id, variantId: r.variant_id, status: v, appVersion: r.app_version, batchId: current.id };
         if (v === 'failed') {
-          if (prevV === 'passed' && sameDefinition) newFailures.push({ ...base, kind: 'new_failure', previously: 'passed' });
-          else repeated.push({ ...base, kind: 'repeated_failure', tag: 'recurring' });
+          // with a comparable baseline: passed-before ⇒ new regression, else recurring.
+          // WITHOUT a baseline (mixed builds / first batch / different build): the
+          // failure is just untriaged — claiming "recurring" would overstate
+          // (found live: mixed-build batch labeled recurring with previousBatch=None)
+          if (previous) {
+            if (prevV === 'passed' && sameDefinition) newFailures.push({ ...base, kind: 'new_failure', previously: 'passed' });
+            else repeated.push({ ...base, kind: 'repeated_failure', tag: 'recurring' });
+          } else {
+            repeated.push({ ...base, kind: 'repeated_failure', tag: 'no_baseline' });
+          }
         } else if (v === 'blocked') {
           infraBlocked.push({ ...base, kind: 'infra_blocked' });
         }
