@@ -78,7 +78,7 @@ export async function runParallelBatch(
     for (const c of lane.cases) {
       if (controller.aborted) { result.skipped.push(c.templateId); continue; }
       try {
-        const started = await input.runOne(c.templateId, lane.device.udid, { ...input.opts, udid: lane.device.udid }, c.variantId);
+        const started = await input.runOne(c.templateId, lane.device.udid, { ...input.opts, udid: lane.device.udid, batchId }, c.variantId);
         result.runIds.push(started.runId);
         await started.done; // lane is serial — next case only after settle
       } catch (err) {

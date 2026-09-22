@@ -23,7 +23,8 @@ export function migrateM1(db: Database.Database): void {
       scenario_id TEXT, scenario_sha TEXT,
       parent_run_id TEXT REFERENCES runs(id),
       started_at INTEGER, finished_at INTEGER,
-      note TEXT
+      note TEXT,
+      batch_id TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_runs_ticket ON runs(ticket_key, started_at DESC);
 
@@ -272,6 +273,12 @@ export function migrateM1(db: Database.Database): void {
     // Phase E — case status lifecycle: draft | active | deprecated. NULL only
     // on pre-E DBs between ALTER and the backfill below; backfill normalizes.
     'ALTER TABLE templates ADD COLUMN status TEXT',
+    // Overview slice — persisted execution-set identity: every run minted by
+    // a batch (play-all / plan / suite play / multi-variant lane-chain play)
+    // carries its batch's id. NULL = solo play or pre-slice run ("pre-batch",
+    // honest label — never backfilled). Set membership replaces the 120s
+    // timestamp-window guess suiteVerdicts uses for legacy rows.
+    'ALTER TABLE runs ADD COLUMN batch_id TEXT',
   ]) {
     try { db.exec(col); } catch { /* column exists */ }
   }
@@ -304,6 +311,7 @@ export function migrateM1(db: Database.Database): void {
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_case_versions_template ON case_versions(template_id, revision DESC)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_runs_version ON runs(case_version_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_runs_batch ON runs(batch_id)');
   // Idempotent backfill: every existing case gets an honest revision 1
   // ("backfill" = current content, no invented provenance). tsx-watch
   // re-runs migrate on every edit — the NOT EXISTS guard makes repeats a

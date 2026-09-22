@@ -426,6 +426,10 @@ export function registerManualRoutes(
         // response — so variant plays "ran in the background". Start lane 1,
         // chain the rest detached, return the planned lane order; the dock
         // follows lanes via run.started events.
+        // Overview slice: a multi-variant play IS an execution set — mint one
+        // batchId shared by every lane (single `variant: 'id'` above stays a
+        // TRUE solo play: NULL batch, not a set).
+        const batchId = `batch_${randomUUID().slice(0, 8)}`;
         const runIds: string[] = [];
         const perVariant: Array<{ id: string; runId: string | null }> =
           variants.map((v) => ({ id: v.id, runId: null }));
@@ -434,7 +438,7 @@ export function registerManualRoutes(
         // start ≠ done: resolve when the run row exists (watch dock opens
         // NOW), done settles when the lane finishes (chain sequencing)
         const startLane = async (v: { id: string; networkScenario?: string; env?: Record<string, string> }): Promise<{ runId: string; done: Promise<unknown> }> => {
-          const { runId, udid, done } = await runTemplatePlayback(pbDeps, id, { ...baseOpts, variant: v });
+          const { runId, udid, done } = await runTemplatePlayback(pbDeps, id, { ...baseOpts, variant: v, batchId });
           runIds.push(runId);
           perVariant.find((p) => p.id === v.id)!.runId = runId;
           if (!firstUdid) firstUdid = udid;
@@ -459,7 +463,7 @@ export function registerManualRoutes(
         })();
         // runIds/perVariant carry only STARTED lanes at response time — ids
         // arrive as lanes start; laneCount is the full plan
-        return { runId: first.runId, runIds, udid: firstUdid, laneCount: variants.length, variants: perVariant };
+        return { runId: first.runId, runIds, udid: firstUdid, laneCount: variants.length, batchId, variants: perVariant };
       }
       const { runId, udid } = await runTemplatePlayback(pbDeps, id, baseOpts);
       return { runId, udid };
@@ -692,7 +696,7 @@ export function registerManualRoutes(
     const b = (req.body ?? {}) as { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string> };
     const r = await runBatch(b, req.user);
     if (!r.ok) return reply.code(r.code).send({ error: r.error, code: r.code === 409 ? 'DEVICE_BUSY' : undefined, runIds: r.runIds });
-    return { runIds: r.runIds, count: r.count };
+    return { runIds: r.runIds, count: r.count, batchId: r.batchId };
   });
 
   // ── plans (B4): remembered suite invocations — tag filter + device + app +
