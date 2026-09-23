@@ -143,14 +143,14 @@ export class ScreenRunner {
    *  pattern from selector.ts; engine taps are coordinate-only). */
   private async tapAt(sel: ScreenSelector & { point?: [number, number] }, what: string): Promise<VerbOutcome | null> {
     if (sel.point) {
-      const r = await this.act({ action: 'tap', target: { x: sel.point[0], y: sel.point[1] } });
+      const r = await this.act({ action: 'press', target: { x: sel.point[0], y: sel.point[1] }, settle: false });
       return r.ok ? null : { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `${what} tap failed: ${r.error?.message ?? 'engine error'}` };
     }
     const nodes = await this.snapshot();
     const { resolveSelector } = await import('./selector.ts');
     const hit = resolveSelector(nodes as never, sel as never, 'recentre');
     if (!hit) return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `${what}: selector ${sel.label ?? sel.identifier ?? sel.labelContains ?? '(unspecified)'} not found in the live tree` };
-    const r = await this.act({ action: 'tap', target: { x: Math.round(hit.x), y: Math.round(hit.y) } });
+    const r = await this.act({ action: 'press', target: { x: Math.round(hit.x), y: Math.round(hit.y) }, settle: false });
     return r.ok ? null : { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `${what} tap failed: ${r.error?.message ?? 'engine error'}` };
   }
 
@@ -173,22 +173,56 @@ export class ScreenRunner {
         const x = typeof step['x'] === 'number' ? step['x'] : null;
         const y = typeof step['y'] === 'number' ? step['y'] : null;
         if (x == null || y == null) continue;
-        const r = await this.act({ action: 'tap', x, y });
+        const r = await this.act({ action: 'press', target: { x, y }, settle: false });
         if (!r.ok) return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `navigate step failed: ${r.error?.message ?? 'engine error'}` };
         await new Promise((res) => setTimeout(res, 400)); // settle between taps
       }
     } else {
       return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `screen "${screenId}" declares no usable entry (${chosen})` };
     }
-    // settle: poll until any declared state holds (best-effort; arrival
-    // itself doesn't fail on no-state — the next expect screen will)
+    const fail = await this.arriveInternal(screenId);
+    return fail ?? { ok: true, note: `arrived ${screenId} (${chosen})` };
+  }
+
+  /** poll until NO declared state holds — i.e. we provably LEFT the screen
+   *  (covering screen presented). Bounded by settleMs; returns regardless
+   *  (honest degrade — the return tap still gets its chance). */
+  private async waitGone(screenId: string): Promise<void> {
+    const scr = this.screen(screenId);
+    if (!scr) return;
+    const start = Date.now();
+    while (Date.now() - start < this.budgets.settleMs) {
+      const nodes = await this.snapshot();
+      if (!Object.values(scr.states).some((st) => stateHolds(nodes, st))) return;
+      await new Promise((res) => setTimeout(res, this.budgets.statePollMs));
+    }
+  }
+
+  /** poll until a declared state holds again — the screen is VISIBLY back
+   *  before the caller asserts world-specific states on it. */
+  private async waitBack(screenId: string): Promise<void> {
+    const scr = this.screen(screenId);
+    if (!scr) return;
+    const start = Date.now();
+    while (Date.now() - start < this.budgets.settleMs) {
+      const nodes = await this.snapshot();
+      if (Object.values(scr.states).some((st) => stateHolds(nodes, st))) return;
+      await new Promise((res) => setTimeout(res, this.budgets.statePollMs));
+    }
+  }
+
+  /** settle: poll until any declared state holds (best-effort; arrival
+   *  itself doesn't fail on no-state — the next expect screen will). */
+  private async arriveInternal(screenId: string): Promise<VerbOutcome | null> {
+    const scr = this.screen(screenId);
+    if (!scr) return { ok: false, code: 'UNKNOWN_SCREEN', note: `screen "${screenId}" not in the registry` };
     const start = Date.now();
     while (Date.now() - start < this.budgets.settleMs) {
       const nodes = await this.snapshot();
       if (Object.values(scr.states).some((st) => stateHolds(nodes, st))) break;
       await new Promise((res) => setTimeout(res, this.budgets.statePollMs));
     }
-    return { ok: true, note: `arrived ${screenId} (${chosen})` };
+    return null;
   }
 
   /** refresh: the declared gesture + GUARD 1 (traffic verification). */
@@ -197,7 +231,7 @@ export class ScreenRunner {
     if (!scr) return { ok: false, code: 'UNKNOWN_SCREEN', note: `screen "${screenId}" not in the registry` };
     const gesture = scr.refresh?.gesture;
     if (!gesture) return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `screen "${screenId}" declares no refresh gesture` };
-    const markRow = (await this.d.db.prepare('SELECT COALESCE(MAX(id),0) AS m FROM forge_traffic').get() as { m: number }).m;
+    const markTs = Date.now(); // epoch marker: only requests AFTER the gesture count
     if (gesture === 'pull') {
       // classic PTR: content drag down re-triggers the fetch
       const r = await this.act({ action: 'scroll', direction: 'down' });
@@ -206,27 +240,40 @@ export class ScreenRunner {
       const fail = await this.tapAt(scr.refresh.selector, 'tab-retap');
       if (fail) return fail;
     } else if (gesture === 'back-forward') {
-      const r1 = await this.act({ action: 'scroll', direction: 'left' });
-      if (r1.ok) await new Promise((res) => setTimeout(res, 400));
-      const r2 = await this.act({ action: 'scroll', direction: 'right' });
-      if (!r2.ok) return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `back-forward failed: ${(r1 as { error?: { message?: string } }).error?.message ?? (r2 as { error?: { message?: string } }).error?.message ?? 'engine error'}` };
+      // real semantics: AWAY via the entry-side anchor (the thing that opens
+      // the covering screen — e.g. "See all"), RETURN via the back anchor
+      // (the pushed screen's back button; the tab bar is hidden there).
+      // The round trip re-triggers the fetch; guard 1 verifies it did.
+      // Settle by STATE TRANSITIONS, not fixed sleeps: a fixed 600ms between
+      // legs taps mid push-animation and misses (proven live — the return
+      // tap landed before the form finished presenting).
+      if (!scr.refresh?.selector) return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `screen "${screenId}": back-forward needs an away anchor (refresh.selector)` };
+      const away = await this.tapAt(scr.refresh.selector, 'back-forward away');
+      if (away) return away;
+      await this.waitGone(screenId); // poll until no declared state holds (we left)
+      const ret = scr.refresh?.back
+        ? await this.tapAt(scr.refresh.back, 'back-forward return')
+        : await this.arriveInternal(screenId);
+      if (ret) return ret;
+      await this.waitBack(screenId); // poll until a declared state holds again
     } else if (gesture === 'deepLink' && scr.refresh?.deepLink) {
       const fail = await this.openUrl(scr.refresh.deepLink, 'deep-link refresh');
       if (fail) return fail;
     } else {
       return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `refresh gesture "${gesture}" misconfigured on "${screenId}"` };
     }
-    // GUARD 1: new requests since the mark, attributed to this run, matching
-    // an ACTIVE preset. Traffic table is the epoch marker (plan F3).
+    // GUARD 1: new requests since the gesture, attributed to this run AND
+    // answered by an ACTIVE preset (the swap's own presets) — the real
+    // `traffic` table (TEXT ids, epoch ts; run attribution via setActiveRun).
     const start = Date.now();
     while (Date.now() - start < this.budgets.worldConfirmMs) {
       const rows = this.d.db.prepare(
-        `SELECT COUNT(*) AS n FROM forge_traffic WHERE id > ? AND run_id = ?`,
-      ).get(markRow, this.d.runId) as { n: number };
+        `SELECT COUNT(*) AS n FROM traffic WHERE ts > ? AND run_id = ? AND matched_preset_id IS NOT NULL`,
+      ).get(markTs, this.d.runId) as { n: number };
       if (rows.n > 0) return { ok: true, note: `refresh ${screenId} (${gesture}) · ${rows.n} request(s) confirmed` };
       await new Promise((res) => setTimeout(res, this.budgets.worldConfirmPollMs));
     }
-    return { ok: false, code: 'WORLD_NOT_CONFIRMED', note: `refresh played but NO new request reached the proxy within ${this.budgets.worldConfirmMs}ms — the app did not re-fetch (cache?) or the gesture hit nothing` };
+    return { ok: false, code: 'WORLD_NOT_CONFIRMED', note: `refresh played but NO preset-matched request reached the proxy within ${this.budgets.worldConfirmMs}ms — the app did not re-fetch (cache?) or the gesture hit nothing` };
   }
 
   /** world: swap the active preset set (deactivate current, activate the

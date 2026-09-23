@@ -28,8 +28,11 @@ export interface ScreenEntry {
 
 export interface ScreenRefresh {
   gesture: RefreshGesture;
-  /** selector for tab-retap / back-forward anchor */
+  /** selector for tab-retap / pull anchor, or back-forward's AWAY leg */
   selector?: ScreenSelector & { point?: [number, number] };
+  /** back-forward only: how to RETURN (tab bar is often hidden on pushed
+   *  screens — the return leg needs its own anchor, e.g. the back button) */
+  back?: ScreenSelector & { point?: [number, number] };
   /** deepLink route for gesture=deepLink */
   deepLink?: string;
 }
@@ -117,8 +120,13 @@ export function validateScreen(screen: unknown): string[] {
       if (g === 'deepLink' && typeof refresh['deepLink'] !== 'string') errors.push('refresh: deepLink gesture needs a deepLink route');
       if (g === 'pull' && refresh['selector'] !== undefined) errors.push('refresh: pull takes no selector (dragged from screen mid)');
       if (refresh['selector'] !== undefined) validSelector(refresh['selector'], (m) => errors.push(`refresh.selector: ${m}`));
+      if (refresh['back'] !== undefined) {
+        if (g !== 'back-forward') errors.push('refresh.back is only valid with the back-forward gesture');
+        validSelector(refresh['back'], (m) => errors.push(`refresh.back: ${m}`));
+      }
+      if (g === 'back-forward' && refresh['selector'] === undefined) errors.push('refresh: back-forward needs a selector (the away anchor)');
       for (const k of Object.keys(refresh)) {
-        if (k !== 'gesture' && k !== 'selector' && k !== 'deepLink') errors.push(`refresh: unknown key "${k}"`);
+        if (k !== 'gesture' && k !== 'selector' && k !== 'deepLink' && k !== 'back') errors.push(`refresh: unknown key "${k}"`);
       }
     }
   }

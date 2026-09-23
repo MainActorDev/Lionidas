@@ -595,14 +595,26 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       let execSteps: PlaybackStep[];
       // R2 S5: the case's v2 facets (worlds/entry/variants) for verb steps —
       // variants_json holds both vocabularies (worlds persist via S4).
-      const r2case: { worlds?: Array<{ id: string; networkScenario?: string; scenarios?: string[] }>; variants?: Array<{ id: string; networkScenario?: string; scenarios?: string[] }>; entry?: { screen: string; mode?: 'tab' | 'deepLink' | 'navigate' } } | null = (() => {
+      const r2case: { worlds?: Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>; variants?: Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>; entry?: { screen: string; mode?: 'tab' | 'deepLink' | 'navigate' } } | null = (() => {
         try {
           const vj = deps.db.prepare('SELECT variants_json FROM templates WHERE id = ?').get(templateId) as { variants_json: string | null } | undefined;
-          return vj?.variants_json ? JSON.parse(vj.variants_json) : null;
+          if (!vj?.variants_json) return null;
+          const parsed: unknown = JSON.parse(vj.variants_json);
+          // variants_json is a PLAIN ARRAY (house format since phase B) —
+          // worlds and variants share it; the pool lookup treats the array
+          // as both vocabularies. Object form (worlds/variants keys) is
+          // accepted too for forward compatibility.
+          if (Array.isArray(parsed)) return { worlds: parsed as Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>, variants: parsed as Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }> };
+          if (parsed && typeof parsed === 'object') return parsed as { worlds?: Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>; variants?: Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>; entry?: { screen: string; mode?: 'tab' | 'deepLink' | 'navigate' } };
+          return null;
         } catch { return null; }
       })();
       // R2 S5: lazy screen-state runner (verbs construct it on first use)
       let screenRunner: InstanceType<typeof import('./screen-runner.ts').ScreenRunner> | null = null;
+      // R2 S6: active substitution env — starts as the invocation variant's
+      // merge; a world: step retargets it so ${env.X} follows the ACTIVE
+      // world (the whole point of single-launch world swaps).
+      let activeEnv = mergeVariantEnv(opts.variant ?? null, opts.env ?? {});
       try {
         execSteps = expandFlows(steps as unknown as FlowStep[], (id) => {
           const row = deps.db.prepare('SELECT name, steps_json FROM templates WHERE id = ?').get(id) as { name: string; steps_json: string } | undefined;
@@ -708,7 +720,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
         // credential is a config error, not a transient UI miss.
         // Phase C: variant env merges at the ONE resolution seam —
         // variant > invocation (narrowest scope wins; mergeVariantEnv tested in phase B T1)
-        const resolved = substituteStep(s, mergeVariantEnv(opts.variant ?? null, opts.env ?? {}));
+        const resolved = substituteStep(s, activeEnv);
         if (resolved.error) {
           runStatus = 'failed';
           insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', resolved.error, t0, 0, '[]', JSON.stringify(resolved));
@@ -1001,6 +1013,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               // resolve the world id → its scenario ids (worlds ∪ variants)
               const pool = [...(r2case?.worlds ?? []), ...(r2case?.variants ?? [])];
               const w = pool.find((x) => x.id === s.world) ?? null;
+              if (w) activeEnv = mergeVariantEnv(w, opts.env ?? {}); // ${env.X} follows the active world now
               const names = w ? variantScenarioNames(w) : [];
               const ids: string[] = [];
               for (const n of names) {

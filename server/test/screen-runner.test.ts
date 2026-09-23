@@ -40,7 +40,7 @@ beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 's5-runner-'));
   db = new Database(join(tmp, 't.db'));
   db.exec(`CREATE TABLE app_screens(app_bundle_id TEXT NOT NULL, screen_id TEXT NOT NULL, entry_json TEXT NOT NULL, refresh_json TEXT, states_json TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(app_bundle_id, screen_id))`);
-  db.exec(`CREATE TABLE forge_traffic(id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, preset_id TEXT, ts INTEGER)`);
+  db.exec(`CREATE TABLE traffic(id TEXT PRIMARY KEY, run_id TEXT, ts INTEGER NOT NULL, mode TEXT NOT NULL, method TEXT NOT NULL, host TEXT, path TEXT NOT NULL, matched_preset_id TEXT, status INTEGER NOT NULL, latency_ms INTEGER NOT NULL, req_sha TEXT, res_sha TEXT)`);
   db.exec(`CREATE TABLE presets(id TEXT PRIMARY KEY, method TEXT, path_pattern TEXT, match TEXT, status INTEGER, headers_json TEXT, body_path TEXT, delay_ms INTEGER, seq_json TEXT, failure TEXT, throttle_kbps INTEGER, created_by TEXT, created_at INTEGER, sha256 TEXT, guards_json TEXT)`);
   db.exec(`CREATE TABLE scenario_overrides(scenario_id TEXT, preset_id TEXT, enabled INTEGER)`);
 });
@@ -83,7 +83,7 @@ describe('S5 — GUARD 1: refresh verifies traffic (pass AND fail)', () => {
   it('PASS: request lands mid-budget → confirmed with count', async () => {
     seedScreen();
     // traffic row appears 60ms in (within the 120ms budget)
-    setTimeout(() => db.prepare('INSERT INTO forge_traffic(run_id, preset_id, ts) VALUES (?, ?, ?)').run('run_x', 'p1', Date.now()), 60);
+    setTimeout(() => db.prepare('INSERT INTO traffic(id, run_id, ts, mode, method, path, matched_preset_id, status, latency_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('t1', 'run_x', Date.now(), 'hybrid', 'GET', '/x', 'p1', 200, 5), 60);
     const r = mkRunner(snapWith([]));
     const out = await r.refresh('tracking');
     expect(out.ok).toBe(true);
@@ -92,7 +92,7 @@ describe('S5 — GUARD 1: refresh verifies traffic (pass AND fail)', () => {
 
   it('other-run traffic does NOT confirm (run attribution is the epoch)', async () => {
     seedScreen();
-    setTimeout(() => db.prepare('INSERT INTO forge_traffic(run_id, preset_id, ts) VALUES (?, ?, ?)').run('run_OTHER', 'p1', Date.now()), 40);
+    setTimeout(() => db.prepare('INSERT INTO traffic(id, run_id, ts, mode, method, path, matched_preset_id, status, latency_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('t2', 'run_OTHER', Date.now(), 'hybrid', 'GET', '/x', 'p1', 200, 5), 40);
     const r = mkRunner(snapWith([]));
     const out = await r.refresh('tracking');
     expect(out.ok).toBe(false);
