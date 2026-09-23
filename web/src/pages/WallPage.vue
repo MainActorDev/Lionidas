@@ -206,7 +206,7 @@ onUnmounted(() => {
         <table>
           <thead>
             <tr>
-              <th class="pcol" title="pin — keep a device at hand">✦</th>
+              <th class="pcol" title="pin — keep a device at hand"><svg class="ic-h"><use href="#pin-glyph" /></svg></th>
               <th style="width: 22%;">device</th>
               <th>os</th>
               <th>mem</th>
@@ -217,7 +217,7 @@ onUnmounted(() => {
           </thead>
           <tbody>
             <tr v-for="d in booted" :key="d.udid" :class="{ 'row-booted': true, 'row-active': sidebar?.device.udid === d.udid }" @click="openSidebar(d)">
-              <td class="pcol" @click.stop><button class="pin" :class="{ on: d.pinned }" :title="d.pinned ? 'unpin — remove from pinned' : 'pin — keep at hand'" @click="togglePin(d)">{{ d.pinned ? '★' : '☆' }}</button></td>
+              <td class="pcol" @click.stop><button class="pin" :class="{ on: d.pinned }" :title="d.pinned ? 'unpin — remove from pinned' : 'pin — keep at hand'" @click="togglePin(d)"><svg class="ic"><use href="#pin-glyph" /></svg></button></td>
               <td @click.stop><DeviceMiniPreview :udid="d.udid" /></td>
               <td>
                 <div style="color: var(--color-paper);">{{ d.name ?? d.udid.slice(0, 8) }}</div>
@@ -254,11 +254,11 @@ onUnmounted(() => {
       <div class="card table-wrap" style="padding: 0;">
         <table>
           <thead>
-            <tr><th class="pcol" title="pin — keep a device at hand">✦</th><th style="width: 22%;">device</th><th>os</th><th>last used</th><th></th></tr>
+            <tr><th class="pcol" title="pin — keep a device at hand"><svg class="ic-h"><use href="#pin-glyph" /></svg></th><th style="width: 22%;">device</th><th>os</th><th>last used</th><th></th></tr>
           </thead>
           <tbody>
             <tr v-for="d in pinnedShelf" :key="d.udid">
-              <td class="pcol"><button class="pin on" title="unpin" @click="togglePin(d)">★</button></td>
+              <td class="pcol"><button class="pin on" title="unpin" @click="togglePin(d)"><svg class="ic"><use href="#pin-glyph" /></svg></button></td>
               <td>
                 <div style="color: var(--color-fog);">{{ d.name ?? d.udid.slice(0, 12) }}</div>
                 <div style="font-size: 10px; color: var(--color-steel); user-select: text;">{{ d.udid }}</div>
@@ -279,11 +279,11 @@ onUnmounted(() => {
       <div class="card table-wrap" style="padding: 0;">
         <table>
           <thead>
-            <tr><th class="pcol" title="pin — keep a device at hand">✦</th><th style="width: 22%;">device</th><th>os</th><th>last used</th><th></th></tr>
+            <tr><th class="pcol" title="pin — keep a device at hand"><svg class="ic-h"><use href="#pin-glyph" /></svg></th><th style="width: 22%;">device</th><th>os</th><th>last used</th><th></th></tr>
           </thead>
           <tbody>
             <tr v-for="d in shelf" :key="d.udid">
-              <td class="pcol"><button class="pin" :class="{ on: d.pinned }" :title="d.pinned ? 'unpin' : 'pin — keep at hand'" @click="togglePin(d)">{{ d.pinned ? '★' : '☆' }}</button></td>
+              <td class="pcol"><button class="pin" :class="{ on: d.pinned }" :title="d.pinned ? 'unpin' : 'pin — keep at hand'" @click="togglePin(d)"><svg class="ic"><use href="#pin-glyph" /></svg></button></td>
               <td>
                 <div style="color: var(--color-fog);">{{ d.name ?? d.udid.slice(0, 12) }}</div>
                 <div style="font-size: 10px; color: var(--color-steel); user-select: text;">{{ d.udid }}</div>
@@ -299,6 +299,15 @@ onUnmounted(() => {
     </template>
 
     <DeviceSidebar :device="sidebar?.device ?? null" :lease-display="leaseInfoFor(sidebar?.device?.udid)" :run-active="runActiveSet.has(sidebar?.device?.udid ?? '')" @close="closeSidebar" />
+
+    <!-- pin glyph (Lucide-style thumbtack): one definition, <use>d everywhere.
+         fill inherits from CSS — none = outline tack, currentColor = pinned. -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+      <symbol id="pin-glyph" viewBox="0 0 24 24">
+        <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/>
+        <line x1="12" y1="17" x2="12" y2="22"/>
+      </symbol>
+    </defs></svg>
   </div>
 </template>
 
@@ -311,12 +320,15 @@ onUnmounted(() => {
 .pin {
   width:32px; height:32px; display:inline-grid; place-items:center;
   background:none; border:none; cursor:pointer; padding:0;
-  font-size:15px; line-height:1; color:var(--color-pewter); border-radius:var(--r);
+  color:var(--color-pewter); border-radius:var(--r);
   transition:color var(--t), background var(--t), outline-color var(--t);
   outline:1px solid transparent;
 }
 .pin:hover { color:var(--color-fog); background:var(--color-graphite); outline-color:var(--color-slate); }
 .pin.on { color:var(--color-ember); }
 .pin.on:hover { outline-color:var(--color-ember); }
+.pin .ic { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.pin.on .ic { fill:currentColor; }
 th.pcol, td.pcol { width:44px; text-align:center; padding:0 4px; }
+th.pcol .ic-h { width:12px; height:12px; fill:none; stroke:currentColor; stroke-width:2; vertical-align:middle; }
 </style>
