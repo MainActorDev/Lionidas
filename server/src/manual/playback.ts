@@ -79,7 +79,7 @@ export interface PlaybackDeps {
 
 export interface PlaybackStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'world' | 'expectScreen';
   x?: number;
   y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
@@ -104,6 +104,10 @@ export interface PlaybackStep {
   alertAction?: 'accept' | 'dismiss';
   /** location action target — simulated GPS point (simctl location set) */
   location?: { latitude: number; longitude: number };
+  /** R2 verbs (S5): arrive/refresh target screen; world target id; expect screen parts */
+  screen?: string;
+  world?: string;
+  expectScreen?: { screen: string; state: string; negate?: boolean };
 }
 
 interface TemplateRow {
@@ -126,6 +130,10 @@ function stepName(s: PlaybackStep): string {
   if (s.action === 'scroll') return `scroll ${s.direction}`;
   if (s.action === 'alert') return `alert ${s.alertAction ?? 'dismiss'}`;
   if (s.action === 'location') return `location ${s.location?.latitude ?? '?'}${s.location?.longitude !== undefined ? ',' : ''}${s.location?.longitude ?? ''}`;
+  if (s.action === 'arrive') return `arrive ${s.screen ?? '?'}`;
+  if (s.action === 'refresh') return `refresh ${s.screen ?? '?'}`;
+  if (s.action === 'world') return `world ${s.world ?? '?'}`;
+  if (s.action === 'expectScreen') return `expect screen ${s.expectScreen?.screen ?? '?'}.${s.expectScreen?.state ?? '?'}${s.expectScreen?.negate ? ' (absent)' : ''}`;
   return `type "${(s.text ?? '').slice(0, 20)}"`;
 }
 
@@ -135,6 +143,10 @@ function stepLabel(s: PlaybackStep): string {
   if (s.action === 'runFlow') return `run flow ${s.templateId ?? '?'}`;
   if (s.action === 'tap') return s.selector ? `tap ${s.selector.label ?? s.selector.identifier ?? ''}`.trim() : `tap ${s.x},${s.y}`;
   if (s.action === 'scroll') return `scroll ${s.direction}`;
+  if (s.action === 'arrive') return `arrive ${s.screen ?? '?'}`;
+  if (s.action === 'refresh') return `refresh ${s.screen ?? '?'}`;
+  if (s.action === 'world') return `world ${s.world ?? '?'}`;
+  if (s.action === 'expectScreen') return `screen ${s.expectScreen?.screen ?? '?'}.${s.expectScreen?.state ?? '?'}`;
   if (s.action === 'alert') return `alert ${s.alertAction ?? 'dismiss'}`;
   if (s.action === 'location') return `location ${s.location?.latitude ?? '?'}${s.location?.longitude !== undefined ? ',' : ''}${s.location?.longitude ?? ''}`;
   return `type "${(s.text ?? '').slice(0, 20)}"`;
@@ -581,6 +593,16 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
 
       // A5: expand subflows flat — child steps carry flow + inherited optional
       let execSteps: PlaybackStep[];
+      // R2 S5: the case's v2 facets (worlds/entry/variants) for verb steps —
+      // variants_json holds both vocabularies (worlds persist via S4).
+      const r2case: { worlds?: Array<{ id: string; networkScenario?: string; scenarios?: string[] }>; variants?: Array<{ id: string; networkScenario?: string; scenarios?: string[] }>; entry?: { screen: string; mode?: 'tab' | 'deepLink' | 'navigate' } } | null = (() => {
+        try {
+          const vj = deps.db.prepare('SELECT variants_json FROM templates WHERE id = ?').get(templateId) as { variants_json: string | null } | undefined;
+          return vj?.variants_json ? JSON.parse(vj.variants_json) : null;
+        } catch { return null; }
+      })();
+      // R2 S5: lazy screen-state runner (verbs construct it on first use)
+      let screenRunner: InstanceType<typeof import('./screen-runner.ts').ScreenRunner> | null = null;
       try {
         execSteps = expandFlows(steps as unknown as FlowStep[], (id) => {
           const row = deps.db.prepare('SELECT name, steps_json FROM templates WHERE id = ?').get(id) as { name: string; steps_json: string } | undefined;
@@ -954,6 +976,51 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               continue;
             }
             throw new Error(why);
+          }
+          // R2 verbs (S5): screen-state runner steps. Write-only branch like
+          // location — outcome rows carry the verdict; failures fail the run
+          // and skip the rest (same shape as location/alert handling).
+          if (s.action === 'arrive' || s.action === 'refresh' || s.action === 'world' || s.action === 'expectScreen') {
+            // lazy runner: constructed once, registry loaded on first use
+            if (!screenRunner) {
+              const { ScreenRunner } = await import('./screen-runner.ts');
+              const svc = forgeStateService(deps);
+              screenRunner = new ScreenRunner({
+                db: deps.db,
+                appBundleId: appToLaunch,
+                runId,
+                udid,
+                dispatch: (tool, input) => alloy.dispatch(tool, input, deps.dispatchDeps) as never,
+                activatePresets: (rows) => svc.activateScenario(rows),
+                currentPresets: () => [],
+              });
+            }
+            let outcome: { ok: boolean; code?: string; note: string };
+            if (s.action === 'arrive') outcome = await screenRunner.arrive(s.screen!, r2case?.entry?.mode);
+            else if (s.action === 'refresh') outcome = await screenRunner.refresh(s.screen!);
+            else if (s.action === 'world') {
+              // resolve the world id → its scenario ids (worlds ∪ variants)
+              const pool = [...(r2case?.worlds ?? []), ...(r2case?.variants ?? [])];
+              const w = pool.find((x) => x.id === s.world) ?? null;
+              const names = w ? variantScenarioNames(w) : [];
+              const ids: string[] = [];
+              for (const n of names) {
+                const sid = (deps.db.prepare('SELECT id FROM scenarios WHERE id = ? OR name = ? LIMIT 1').get(n, n) as { id: string } | undefined)?.id;
+                if (sid) ids.push(sid);
+              }
+              outcome = await screenRunner.world(s.world!, ids);
+            } else outcome = await screenRunner.expectScreen(s.expectScreen!.screen, s.expectScreen!.state, s.expectScreen!.negate === true);
+            if (outcome.ok) {
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, note: outcome.note }));
+            } else {
+              runStatus = 'failed';
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', `${outcome.code}: ${outcome.note}`, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, code: outcome.code }));
+              for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
+                insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null);
+              }
+              break;
+            }
+            continue;
           }
           // location step (Tier 2.3): host-level device fact — no snapshot,
           // no settle/sig logic (the app UI does not change). Write-only
