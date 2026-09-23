@@ -288,6 +288,9 @@ export function migrateM1(db: Database.Database): void {
     // honest label — never backfilled). Set membership replaces the 120s
     // timestamp-window guess suiteVerdicts uses for legacy rows.
     'ALTER TABLE runs ADD COLUMN batch_id TEXT',
+    // Build anchoring (run detail): CFBundleVersion stamped at run creation —
+    // the marketing version (app_version) alone doesn't identify a build.
+    'ALTER TABLE runs ADD COLUMN app_build TEXT',
   ]) {
     try { db.exec(col); } catch { /* column exists */ }
   }

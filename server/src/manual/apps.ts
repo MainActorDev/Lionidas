@@ -14,6 +14,8 @@ export interface AppInfo {
   bundleId: string;
   name: string;
   version: string | null;
+  /** CFBundleVersion — the build ID (e.g. '420'), distinct from the marketing version */
+  build: string | null;
   path: string;
   iconPath: string | null;
   running: boolean;
@@ -43,6 +45,7 @@ export async function listSimulatorApps(udid: string): Promise<AppInfo[]> {
       // key absent while the bundle's own Info.plist carries '1.0.0') — read
       // the on-disk plist before falling back to the opaque build number
       version: a.CFBundleShortVersionString ?? shortVersionFromBundle(a.Path) ?? a.CFBundleVersion ?? null,
+      build: a.CFBundleVersion ?? null,
       path: a.Path,
       iconPath: findIcon(a.Path, a.CFBundleIconFiles),
       running: foreground.has(bundleId),

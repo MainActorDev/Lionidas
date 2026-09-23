@@ -6,7 +6,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 
 interface Step { idx: number; flow_name: string; kind: string; name: string; status: string; reason: string | null; duration_ms: number; evidence_ids_json: string; evaluated_json?: string | null }
-interface Run { id: string; ticket_key: string; status: string; kind: string; triggered_by: string; device_udid: string; artifact_hash: string | null; freshness: string; launch_args_json: string; started_at: number | null; finished_at: number | null; template_id: string | null; app_version: string | null; blocked: number; note: string | null }
+interface Run { id: string; ticket_key: string; status: string; kind: string; triggered_by: string; device_udid: string; artifact_hash: string | null; freshness: string; launch_args_json: string; started_at: number | null; finished_at: number | null; template_id: string | null; app_version: string | null; app_build?: string | null; blocked: number; note: string | null }
 
 const route = useRoute();
 const runId = route.params.id as string;
@@ -219,7 +219,7 @@ onMounted(() => {
           <RouterLink class="v link" :to="`/tickets/${run.ticket_key}`">{{ realTicket }}</RouterLink>
         </template>
         <span class="k">device</span><span class="v">{{ run.device_udid.slice(0, 8) }}<template v-if="deviceName"> · {{ deviceName }}</template></span>
-        <span class="k">build</span><span class="v">{{ run.app_version ? `v${run.app_version}` : 'unknown' }}</span>
+        <span class="k">build</span><span class="v">{{ run.app_build ? `${run.app_build} · ` : '' }}{{ run.app_version ? `v${run.app_version}` : run.app_build ? '' : 'unknown' }}</span>
         <span class="k">duration</span><span class="v">{{ durationText }}</span>
         <span class="k">by</span><span class="v">{{ run.triggered_by }}</span>
         <span class="k">started</span><span class="v">{{ run.started_at ? new Date(run.started_at).toLocaleString() : '—' }}</span>
