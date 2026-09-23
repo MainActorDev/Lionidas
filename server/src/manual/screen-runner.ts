@@ -28,9 +28,9 @@ export interface ScreenRunnerDeps {
   /** dispatch an alloy tool (snapshot / tap / screenshot) */
   dispatch: (tool: string, input: Record<string, unknown>) => Promise<{ ok: boolean; result?: unknown; error?: { message?: string } }>;
   /** activate a preset set on the forge; returns previous set for restore */
-  activatePresets: (presetRows: Array<Record<string, unknown>>) => void;
+  forgeActivate?: (presetRows: Array<Record<string, unknown>>) => void;
   /** read the forge's current active preset rows (for swap bookkeeping) */
-  currentPresets: () => Array<Record<string, unknown>>;
+  forgeActive?: () => Array<Record<string, unknown>>;
   budgets?: Partial<{ settleMs: number; worldConfirmMs: number; worldConfirmPollMs: number; statePollMs: number; maxSwaps: number }>;
 }
 
@@ -103,6 +103,18 @@ export class ScreenRunner {
     return this.screens.get(id) ?? null;
   }
 
+  /** host-level deep link via apps.openSimulatorUrl (allowlisted module —
+   *  device ops stay inside the known surface). No engine involvement. */
+  private async openUrl(url: string, what: string): Promise<VerbOutcome | null> {
+    try {
+      const { openSimulatorUrl } = await import('./apps.ts');
+      await openSimulatorUrl(this.d.udid, url);
+      return null;
+    } catch (err) {
+      return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `${what} failed: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
+
   private async snapshot(): Promise<SnapNode[]> {
     const snap = (await this.d.dispatch('alloy_snapshot', { udid: this.d.udid, interactiveOnly: false })) as { ok: boolean; result?: { nodes?: SnapNode[] } };
     return snap.ok ? snap.result?.nodes ?? [] : [];
@@ -123,6 +135,25 @@ export class ScreenRunner {
     } catch { return true; }
   }
 
+  private async act(input: Record<string, unknown>): Promise<{ ok: boolean; error?: { message?: string } }> {
+    return this.d.dispatch('alloy_act', { udid: this.d.udid, ...input }) as Promise<{ ok: boolean; error?: { message?: string } }>;
+  }
+
+  /** resolve a selector against the live tree → centered point (house
+   *  pattern from selector.ts; engine taps are coordinate-only). */
+  private async tapAt(sel: ScreenSelector & { point?: [number, number] }, what: string): Promise<VerbOutcome | null> {
+    if (sel.point) {
+      const r = await this.act({ action: 'tap', target: { x: sel.point[0], y: sel.point[1] } });
+      return r.ok ? null : { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `${what} tap failed: ${r.error?.message ?? 'engine error'}` };
+    }
+    const nodes = await this.snapshot();
+    const { resolveSelector } = await import('./selector.ts');
+    const hit = resolveSelector(nodes as never, sel as never, 'recentre');
+    if (!hit) return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `${what}: selector ${sel.label ?? sel.identifier ?? sel.labelContains ?? '(unspecified)'} not found in the live tree` };
+    const r = await this.act({ action: 'tap', target: { x: Math.round(hit.x), y: Math.round(hit.y) } });
+    return r.ok ? null : { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `${what} tap failed: ${r.error?.message ?? 'engine error'}` };
+  }
+
   /** arrive: play the screen's entry, then settle (budget poll until any
    *  declared state holds, or budget expires — arrival doesn't require a
    *  specific state, just a settled hierarchy). */
@@ -132,20 +163,17 @@ export class ScreenRunner {
     const entry = scr.entry;
     const chosen = mode === 'tab' ? 'tab' : mode === 'deepLink' ? 'deepLink' : mode === 'navigate' ? 'navigate' : entry.tab ? 'tab' : entry.deepLink ? 'deepLink' : 'navigate';
     if (chosen === 'tab' && entry.tab) {
-      const t = entry.tab;
-      const input: Record<string, unknown> = t.point ? { x: t.point[0], y: t.point[1] } : { query: 'label', value: t.label ?? t.identifier ?? '' };
-      const r = await this.d.dispatch('alloy_tap', { udid: this.d.udid, ...input });
-      if (!r.ok) return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `tab tap failed: ${r.error?.message ?? 'engine error'}` };
+      const fail = await this.tapAt(entry.tab, 'tab');
+      if (fail) return fail;
     } else if (chosen === 'deepLink' && entry.deepLink) {
-      const r = await this.d.dispatch('alloy_open_url', { udid: this.d.udid, url: entry.deepLink });
-      if (!r.ok) return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `deep link failed: ${r.error?.message ?? 'engine error'}` };
+      const fail = await this.openUrl(entry.deepLink, 'deep link');
+      if (fail) return fail;
     } else if (chosen === 'navigate' && entry.navigate) {
       for (const step of entry.navigate) {
-        // navigate steps are recorded taps: replay via the engine's tap
         const x = typeof step['x'] === 'number' ? step['x'] : null;
         const y = typeof step['y'] === 'number' ? step['y'] : null;
         if (x == null || y == null) continue;
-        const r = await this.d.dispatch('alloy_tap', { udid: this.d.udid, x, y });
+        const r = await this.act({ action: 'tap', x, y });
         if (!r.ok) return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `navigate step failed: ${r.error?.message ?? 'engine error'}` };
         await new Promise((res) => setTimeout(res, 400)); // settle between taps
       }
@@ -171,22 +199,20 @@ export class ScreenRunner {
     if (!gesture) return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `screen "${screenId}" declares no refresh gesture` };
     const markRow = (await this.d.db.prepare('SELECT COALESCE(MAX(id),0) AS m FROM forge_traffic').get() as { m: number }).m;
     if (gesture === 'pull') {
-      // drag from mid-screen downward ~35% of height (classic PTR)
-      const r = await this.d.dispatch('alloy_swipe', { udid: this.d.udid, fromX: 196, fromY: 300, toX: 196, toY: 560, duration: 350 });
+      // classic PTR: content drag down re-triggers the fetch
+      const r = await this.act({ action: 'scroll', direction: 'down' });
       if (!r.ok) return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `pull gesture failed: ${r.error?.message ?? 'engine error'}` };
     } else if (gesture === 'tab-retap' && scr.refresh?.selector) {
-      const sel = scr.refresh.selector;
-      const input: Record<string, unknown> = sel.point ? { x: sel.point[0], y: sel.point[1] } : { query: 'label', value: sel.label ?? sel.identifier ?? '' };
-      const r = await this.d.dispatch('alloy_tap', { udid: this.d.udid, ...input });
-      if (!r.ok) return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `tab-retap failed: ${r.error?.message ?? 'engine error'}` };
+      const fail = await this.tapAt(scr.refresh.selector, 'tab-retap');
+      if (fail) return fail;
     } else if (gesture === 'back-forward') {
-      const r1 = await this.d.dispatch('alloy_back', { udid: this.d.udid });
+      const r1 = await this.act({ action: 'scroll', direction: 'left' });
       if (r1.ok) await new Promise((res) => setTimeout(res, 400));
-      const r2 = await this.d.dispatch('alloy_tap', { udid: this.d.udid, query: 'label', value: scr.refresh?.selector?.label ?? 'Back' });
-      if (!r2.ok) return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `back-forward failed: ${r1.error?.message ?? r2.error?.message ?? 'engine error'}` };
+      const r2 = await this.act({ action: 'scroll', direction: 'right' });
+      if (!r2.ok) return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `back-forward failed: ${(r1 as { error?: { message?: string } }).error?.message ?? (r2 as { error?: { message?: string } }).error?.message ?? 'engine error'}` };
     } else if (gesture === 'deepLink' && scr.refresh?.deepLink) {
-      const r = await this.d.dispatch('alloy_open_url', { udid: this.d.udid, url: scr.refresh.deepLink });
-      if (!r.ok) return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `deep-link refresh failed: ${r.error?.message ?? 'engine error'}` };
+      const fail = await this.openUrl(scr.refresh.deepLink, 'deep-link refresh');
+      if (fail) return fail;
     } else {
       return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `refresh gesture "${gesture}" misconfigured on "${screenId}"` };
     }
@@ -216,7 +242,7 @@ export class ScreenRunner {
       `SELECT DISTINCT p.* FROM presets p JOIN scenario_overrides so ON so.preset_id = p.id WHERE so.scenario_id IN (${ph}) AND so.enabled = 1`,
     ).all(...scenarioIds) as Array<Record<string, unknown>>;
     try {
-      this.d.activatePresets(presets);
+      this.d.forgeActivate?.(presets);
     } catch (err) {
       return { ok: false, code: 'WORLD_UNKNOWN', note: `forge refused the swap: ${err instanceof Error ? err.message : String(err)}` };
     }

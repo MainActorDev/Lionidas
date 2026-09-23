@@ -31,6 +31,14 @@ interface RawApp {
 }
 
 /** All apps installed on the simulator, resolved with icons and run state. */
+/** Open a URL/deep link on the simulator (simctl openurl). R2 screen
+ *  registry: deep-link entries and deepLink refresh gestures land here —
+ *  host-level op, same executor family as the other app ops in this module
+ *  (device-boundary allowlisted). */
+export async function openSimulatorUrl(udid: string, url: string): Promise<void> {
+  await execFileAsync('xcrun', ['simctl', 'openurl', udid, url], { timeout: 10_000 });
+}
+
 export async function listSimulatorApps(udid: string): Promise<AppInfo[]> {
   const { stdout } = await execFileAsync('xcrun', ['simctl', 'listapps', udid], { maxBuffer: 16 * 1024 * 1024 });
   const foreground = await foregroundBundleIds(udid);

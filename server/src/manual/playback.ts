@@ -991,8 +991,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 runId,
                 udid,
                 dispatch: (tool, input) => alloy.dispatch(tool, input, deps.dispatchDeps) as never,
-                activatePresets: (rows) => svc.activateScenario(rows),
-                currentPresets: () => [],
+                forgeActivate: (rows) => svc.activateScenario(rows),
               });
             }
             let outcome: { ok: boolean; code?: string; note: string };

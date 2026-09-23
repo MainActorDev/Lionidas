@@ -29,8 +29,7 @@ function mkRunner(dispatch: Dispatch, activate: (rows: Array<Record<string, unkn
   return new ScreenRunner({
     db, appBundleId: BUNDLE, runId: 'run_x', udid: 'sim',
     dispatch,
-    activatePresets: activate,
-    currentPresets: () => [],
+    forgeActivate: activate,
     budgets: { settleMs: 50, worldConfirmMs: 120, worldConfirmPollMs: 20, statePollMs: 10, ...budgets },
   });
 }
@@ -173,14 +172,15 @@ describe('S5 — GUARD 3: black-display check', () => {
 });
 
 describe('S5 — arrive', () => {
-  it('deepLink entry dispatches open_url and settles on a declared state', async () => {
+  it('deepLink entry fails honestly when simctl openurl errors (no sim in CI)', async () => {
     seedScreen();
-    const tools: string[] = [];
-    const dispatch: Dispatch = async (tool) => { tools.push(tool); return { ok: true, result: { nodes: [{ label: 'STATUS PENGIRIMAN' }] } }; };
+    const dispatch: Dispatch = async () => ({ ok: true, result: { nodes: [{ label: 'STATUS PENGIRIMAN' }] } });
     const r = mkRunner(dispatch);
     const out = await r.arrive('tracking');
-    expect(out.ok).toBe(true);
-    expect(tools).toContain('alloy_open_url');
+    // the real openSimulatorUrl shells out; with no booted sim it rejects → SCREEN_ENTRY_FAILED
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.code).toBe('SCREEN_ENTRY_FAILED');
+    if (!out.ok) expect(out.note).toContain('deep link failed');
   });
 
   it('unknown screen → UNKNOWN_SCREEN (registry can change mid-flight)', async () => {
