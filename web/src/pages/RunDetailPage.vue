@@ -30,6 +30,7 @@ async function load(): Promise<void> {
   steps.value = s.steps;
   stepsOpen.value = s.steps.length > 3; // trivial (≤3) → collapsed
   void loadTraffic();
+  void loadDeviceName();
 }
 
 const attachMsg = ref('');
@@ -108,6 +109,17 @@ const realTicket = computed(() => {
   const k = run.value?.ticket_key;
   return k && k !== '-' && k !== 'MANUAL' ? k : null;
 });
+
+/** device model lookup — the runs API ships only the udid; the devices
+ *  mirror carries the human name (iPhone 14 Plus). One fetch per page. */
+const deviceName = ref<string | null>(null);
+async function loadDeviceName(): Promise<void> {
+  try {
+    const res = await fetch('/api/devices');
+    const body = (await res.json()) as { devices: Array<{ udid: string; name: string | null }> };
+    deviceName.value = body.devices.find((d) => d.udid === run.value?.device_udid)?.name ?? null;
+  } catch { deviceName.value = null; }
+}
 
 /** the cause sentence: steps → note → status word (plan T1 fallback chain).
  *  Blocked runs carry their message in note; failed runs' note is usually
@@ -206,7 +218,7 @@ onMounted(() => {
           <span class="k">ticket</span>
           <RouterLink class="v link" :to="`/tickets/${run.ticket_key}`">{{ realTicket }}</RouterLink>
         </template>
-        <span class="k">device</span><span class="v">{{ run.device_udid.slice(0, 8) }}</span>
+        <span class="k">device</span><span class="v">{{ run.device_udid.slice(0, 8) }}<template v-if="deviceName"> · {{ deviceName }}</template></span>
         <span class="k">build</span><span class="v">{{ run.app_version ? `v${run.app_version}` : 'unknown' }}</span>
         <span class="k">duration</span><span class="v">{{ durationText }}</span>
         <span class="k">by</span><span class="v">{{ run.triggered_by }}</span>
