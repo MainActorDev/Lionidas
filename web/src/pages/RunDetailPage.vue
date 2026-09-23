@@ -189,6 +189,7 @@ onMounted(() => {
     <!-- cause: red container ONLY for bad outcomes (failed/blocked/aborted);
          passed/running render a plain line — a passed run in red reads as failure -->
     <div v-if="badOutcome" class="cause-box">
+      <div class="cause-title">Reason:</div>
       <div class="cause-line">{{ causeText }}</div>
       <div v-if="blockedHint" class="cause-hint">{{ blockedHint }}</div>
     </div>
@@ -294,16 +295,19 @@ onMounted(() => {
   border-radius:var(--r);
   padding:12px 16px;
 }
+.cause-box .cause-title { color:var(--color-fog); font-size:var(--text-caption); text-transform:uppercase; letter-spacing:.08em; font-weight:700; margin-bottom:4px; }
 .cause-box .cause-line { color:var(--color-paper); font-size:var(--text-label); max-width:76ch; }
 .cause-box .cause-hint { color:var(--color-fog); font-size:var(--text-caption); margin-top:6px; opacity:.85; }
 .cause-line.plain { color:var(--color-fog); font-size:var(--text-label); margin-bottom:16px; max-width:76ch; }
 
 /* env block */
 .env { margin-bottom:16px; border:1px solid var(--color-iron); border-radius:var(--r); background:var(--color-carbon); padding:12px 16px; font-size:var(--text-caption); }
-.env .kv { display:grid; grid-template-columns:110px minmax(0,1fr); gap:3px 12px; }
+.env .kv { display:grid; grid-template-columns:110px minmax(0,1fr); gap:3px 12px; justify-items:start; }
 .env .k { color:var(--color-steel); }
 .env .v { color:var(--color-fog); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.link { text-decoration:none; border-bottom:1px dotted var(--color-slate); }
+/* link underline hugs the text, not the grid cell — inline-block shrinks the
+   box to content so border-bottom spans only the label */
+.link { text-decoration:none; border-bottom:1px dotted var(--color-slate); display:inline-block; max-width:100%; overflow:hidden; text-overflow:ellipsis; vertical-align:bottom; }
 .link:hover { color:var(--color-ember); border-bottom-color:var(--color-ember); }
 
 /* actions */
