@@ -16,10 +16,11 @@ const live = useLiveEvents();
 const now = ref(Date.now());
 let tick: ReturnType<typeof setInterval> | null = null;
 
-// disclosures — auto-collapse per plan (steps ≤3, no traffic)
+// disclosures — all expanded by default (user call, 2026-09-23; collapse is
+// still one click for readers who want the short page)
 const stepsOpen = ref(true);
 const netOpen = ref(true);
-const rawOpen = ref(false);
+const rawOpen = ref(true);
 
 async function load(): Promise<void> {
   const [r, s] = await Promise.all([
@@ -28,7 +29,6 @@ async function load(): Promise<void> {
   ]);
   run.value = r.run;
   steps.value = s.steps;
-  stepsOpen.value = s.steps.length > 3; // trivial (≤3) → collapsed
   void loadTraffic();
   void loadDeviceName();
 }
@@ -48,7 +48,6 @@ async function loadTraffic(): Promise<void> {
   ]);
   traffic.value = t.traffic ?? [];
   proxyRunning.value = m.running;
-  netOpen.value = traffic.value.length > 0; // empty → collapsed (teach-line inside)
 }
 async function attachJira(): Promise<void> {
   const res = await fetch(`/api/runs/${runId}/attach`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
