@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>016-B · kebab row menu</title>
+<style>
+:root {
+  --color-void:#000; --color-carbon:#111; --color-graphite:#191919; --color-iron:#202020;
+  --color-slate:#3a3a3a; --color-pewter:#505050; --color-steel:#606060; --color-ash:#7e7e7e;
+  --color-fog:#b4b4b4; --color-chalk:#d9d9d9; --color-paper:#eeeeee; --color-ember:#da5c2c;
+  --font-mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  --text-caption:12px; --text-body:14px; --text-label:13px; --text-heading-sm:18px;
+  --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --r:2px; --t:120ms cubic-bezier(.4,0,.2,1);
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:var(--color-void); color:var(--color-paper); font-family:var(--font-mono); font-size:var(--text-body); line-height:1.5; padding:24px 32px; max-width:1200px; margin:0 auto; }
+button { background:none; border:none; color:inherit; font:inherit; cursor:pointer; }
+
+.hd-row1 { display:flex; align-items:center; gap:16px; margin-bottom:8px; }
+.hd-title { font-size:var(--text-heading-sm); font-weight:700; letter-spacing:-0.01em; }
+.hd-spacer { flex:1; }
+.hd-row2 { display:flex; align-items:baseline; gap:16px; padding-bottom:16px; border-bottom:1px solid var(--color-iron); margin-bottom:24px; }
+.ph-desc { font-size:var(--text-label); color:var(--color-steel); }
+
+.section-label { font-size:var(--text-caption); font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--color-steel); margin:24px 0 8px; }
+.card { border:1px solid var(--color-iron); border-radius:var(--r); overflow:visible; }
+table { width:100%; border-collapse:collapse; }
+th { font-size:var(--text-caption); font-weight:400; color:var(--color-steel); text-align:left; padding:8px 12px; border-bottom:1px solid var(--color-iron); }
+td { padding:8px 12px; border-bottom:1px solid var(--color-iron); font-size:var(--text-label); }
+tr:last-child td { border-bottom:none; }
+tbody tr:hover { background:var(--color-carbon); }
+.udid { font-size:10px; color:var(--color-steel); user-select:text; }
+.name { color:var(--color-paper); }
+.muted { color:var(--color-steel); }
+.fog { color:var(--color-fog); }
+
+/* ═══ B: KEBAB ROW MENU — same pattern as test-cases ⋯ (phase E) ═══ */
+th.kcol, td.kcol { width:36px; text-align:center; padding:0; }
+.kebab {
+  width:32px; height:32px; display:inline-grid; place-items:center;
+  color:var(--color-pewter); border-radius:var(--r); letter-spacing:1px;
+  transition:color var(--t), background var(--t);
+}
+.kebab:hover { color:var(--color-fog); background:var(--color-graphite); }
+.menu {
+  position:absolute; right:12px; z-index:5; min-width:180px;
+  background:var(--color-graphite); border:1px solid var(--color-slate);
+  box-shadow:0 4px 16px rgba(0,0,0,.5);
+}
+.menu button { display:block; width:100%; text-align:left; padding:8px 12px; font-size:var(--text-label); color:var(--color-fog); }
+.menu button:hover { background:var(--color-iron); color:var(--color-paper); }
+.menu button.pinned-on { color:var(--color-ember); }
+tr.menu-open { position:relative; background:var(--color-carbon); }
+
+.btn { border:1px solid var(--color-slate); color:var(--color-paper); padding:5px 11px; font-size:var(--text-label); border-radius:var(--r); }
+.btn:hover { border-color:var(--color-chalk); }
+.acts { text-align:right; white-space:nowrap; }
+.acts .btn { margin-left:6px; }
+label.page { font-size:var(--text-caption); color:var(--color-ember); letter-spacing:.08em; text-transform:uppercase; display:block; margin-bottom:16px; }
+</style>
+</head>
+<body>
+
+<label class="page">016-B — kebab row menu (⋯ opens pin/restart/shut down/erase — one pattern with test-cases)</label>
+
+<div class="hd-row1"><span class="hd-title">devices</span><span class="hd-spacer"></span></div>
+<div class="hd-row2"><span class="ph-desc">1 booted · 32 simulators · 199 MB</span></div>
+
+<div class="section-label">booted · 1</div>
+<div class="card">
+  <table>
+    <thead><tr><th style="width:24%;">device</th><th>os</th><th>mem</th><th>lease</th><th>last run</th><th style="text-align:right;">actions</th><th class="kcol"></th></tr></thead>
+    <tbody>
+      <tr id="bootrow">
+        <td><div class="name">iPhone 14 Plus</div><div class="udid">30B28173-D2C6-4D1A-B544-49EB4BEF7A4D</div></td>
+        <td>iOS 26.4</td>
+        <td class="fog">199 MB</td>
+        <td class="muted">free</td>
+        <td class="muted">—</td>
+        <td class="acts"><button class="btn">drive</button><button class="btn">restart</button></td>
+        <td class="kcol"><button class="kebab" title="more">⋯</button></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="section-label">powered off · 31</div>
+<div class="card">
+  <table>
+    <thead><tr><th style="width:24%;">device</th><th>os</th><th>last used</th><th></th><th class="kcol"></th></tr></thead>
+    <tbody>
+      <tr id="offrow1">
+        <td><div class="name">iPhone 16</div><div class="udid">85368713-6D5A-4530-8CB4-87D35342DD6B</div></td>
+        <td>iOS 18.6</td>
+        <td class="muted">5d ago</td>
+        <td class="acts"><button class="btn">boot</button></td>
+        <td class="kcol"><button class="kebab" title="more">⋯</button></td>
+      </tr>
+      <tr>
+        <td><div class="name">iPhone 15 Pro</div><div class="udid">A2102153-9C44-4F9C-95BC-20E7278C3A1E</div></td>
+        <td>iOS 26.4</td>
+        <td class="muted">16d ago</td>
+        <td class="acts"><button class="btn">boot</button></td>
+        <td class="kcol"><button class="kebab" title="more">⋯</button></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+// open the menu on kebab click (toggle), items are示意 — show/hide only
+let open = null;
+function closeMenu() { if (open) { open.remove(); open = null; document.querySelectorAll('.menu-open').forEach(r => r.classList.remove('menu-open')); } }
+document.querySelectorAll('.kebab').forEach((k) => k.addEventListener('click', (e) => {
+  e.stopPropagation(); closeMenu();
+  const tr = k.closest('tr'); tr.classList.add('menu-open');
+  const m = document.createElement('div'); m.className = 'menu';
+  m.innerHTML = `
+    <button class="pinned-on">★ pinned — unpin</button>
+    <button>erase content…</button>
+    <button>delete device</button>
+    <button>copy udid</button>`;
+  tr.appendChild(m); open = m;
+}));
+document.addEventListener('click', closeMenu);
+</script>
+</body>
+</html>

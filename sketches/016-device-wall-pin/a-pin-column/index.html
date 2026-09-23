@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>016-A · pin column</title>
+<style>
+:root {
+  --color-void:#000; --color-carbon:#111; --color-graphite:#191919; --color-iron:#202020;
+  --color-slate:#3a3a3a; --color-pewter:#505050; --color-steel:#606060; --color-ash:#7e7e7e;
+  --color-fog:#b4b4b4; --color-chalk:#d9d9d9; --color-paper:#eeeeee; --color-ember:#da5c2c;
+  --font-mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  --text-caption:12px; --text-body:14px; --text-label:13px; --text-heading-sm:18px;
+  --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --r:2px; --t:120ms cubic-bezier(.4,0,.2,1);
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:var(--color-void); color:var(--color-paper); font-family:var(--font-mono); font-size:var(--text-body); line-height:1.5; padding:24px 32px; max-width:1200px; margin:0 auto; }
+button { background:none; border:none; color:inherit; font:inherit; cursor:pointer; }
+
+.hd-row1 { display:flex; align-items:center; gap:16px; margin-bottom:8px; }
+.hd-title { font-size:var(--text-heading-sm); font-weight:700; letter-spacing:-0.01em; }
+.hd-spacer { flex:1; }
+.hd-row2 { display:flex; align-items:baseline; gap:16px; padding-bottom:16px; border-bottom:1px solid var(--color-iron); margin-bottom:24px; }
+.ph-desc { font-size:var(--text-label); color:var(--color-steel); }
+
+.section-label { font-size:var(--text-caption); font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--color-steel); margin:24px 0 8px; }
+.card { border:1px solid var(--color-iron); border-radius:var(--r); overflow:hidden; }
+table { width:100%; border-collapse:collapse; }
+th { font-size:var(--text-caption); font-weight:400; color:var(--color-steel); text-align:left; padding:8px 12px; border-bottom:1px solid var(--color-iron); }
+td { padding:8px 12px; border-bottom:1px solid var(--color-iron); font-size:var(--text-label); }
+tr:last-child td { border-bottom:none; }
+tbody tr:hover { background:var(--color-carbon); }
+.udid { font-size:10px; color:var(--color-steel); user-select:text; }
+.name { color:var(--color-paper); }
+.muted { color:var(--color-steel); }
+.fog { color:var(--color-fog); }
+
+/* ═══ A: THE PIN COLUMN — dedicated first column, 15px star in a 32px hit area ═══ */
+th.pcol, td.pcol { width:44px; text-align:center; padding:0; }
+.star {
+  width:32px; height:32px; display:inline-grid; place-items:center;
+  font-size:15px; line-height:1; color:var(--color-pewter); border-radius:var(--r);
+  transition:color var(--t), background var(--t), outline-color var(--t);
+  outline:1px solid transparent;
+}
+.star:hover { color:var(--color-fog); background:var(--color-graphite); outline-color:var(--color-slate); }
+.star.on { color:var(--color-ember); }
+.star.on:hover { outline-color:var(--color-ember); }
+
+.btn { border:1px solid var(--color-slate); color:var(--color-paper); padding:5px 11px; font-size:var(--text-label); border-radius:var(--r); }
+.btn:hover { border-color:var(--color-chalk); }
+.btn-danger { color:var(--color-fog); }
+.btn:disabled { color:var(--color-steel); cursor:default; }
+.acts { text-align:right; white-space:nowrap; }
+.acts .btn { margin-left:6px; }
+.mem-ember { color:var(--color-ember); }
+label.page { font-size:var(--text-caption); color:var(--color-ember); letter-spacing:.08em; text-transform:uppercase; display:block; margin-bottom:16px; }
+</style>
+</head>
+<body>
+
+<label class="page">016-A — pin column (dedicated first column · 15px star · 32px hit area)</label>
+
+<div class="hd-row1"><span class="hd-title">devices</span><span class="hd-spacer"></span></div>
+<div class="hd-row2"><span class="ph-desc">1 booted · 32 simulators · 199 MB</span></div>
+
+<div class="section-label">booted · 1</div>
+<div class="card">
+  <table>
+    <thead><tr>
+      <th class="pcol" title="pin">✦</th><th style="width:24%;">device</th><th>os</th><th>mem</th><th>lease</th><th>last run</th><th style="text-align:right;">actions</th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td class="pcol"><button class="star" title="pin — keep at hand">☆</button></td>
+        <td><div class="name">iPhone 14 Plus</div><div class="udid">30B28173-D2C6-4D1A-B544-49EB4BEF7A4D</div></td>
+        <td>iOS 26.4</td>
+        <td class="fog">199 MB</td>
+        <td class="muted">free</td>
+        <td class="muted">—</td>
+        <td class="acts"><button class="btn">drive</button><button class="btn">restart</button><button class="btn btn-danger">shut down</button></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="section-label">pinned · 2</div>
+<div class="card">
+  <table>
+    <thead><tr><th class="pcol" title="pin">✦</th><th style="width:24%;">device</th><th>os</th><th>last used</th><th></th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="pcol"><button class="star on" title="unpin">★</button></td>
+        <td><div class="name">iPhone 16</div><div class="udid">85368713-6D5A-4530-8CB4-87D35342DD6B</div></td>
+        <td>iOS 18.6</td>
+        <td class="muted">5d ago</td>
+        <td class="acts"><button class="btn">boot</button></td>
+      </tr>
+      <tr>
+        <td class="pcol"><button class="star on" title="unpin">★</button></td>
+        <td><div class="name">iPhone 16 Plus</div><div class="udid">611EF4C0-FC93-4B48-B330-74D2C4CD3845</div></td>
+        <td>iOS 18.4</td>
+        <td class="muted">never used</td>
+        <td class="acts"><button class="btn">boot</button></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="section-label">powered off · 29</div>
+<div class="card">
+  <table>
+    <thead><tr><th class="pcol" title="pin">✦</th><th style="width:24%;">device</th><th>os</th><th>last used</th><th></th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="pcol"><button class="star" title="pin — keep at hand">☆</button></td>
+        <td><div class="name">iPhone 15 Pro</div><div class="udid">A2102153-9C44-4F9C-95BC-20E7278C3A1E</div></td>
+        <td>iOS 26.4</td>
+        <td class="muted">16d ago</td>
+        <td class="acts"><button class="btn">boot</button></td>
+      </tr>
+      <tr>
+        <td class="pcol"><button class="star" title="pin — keep at hand">☆</button></td>
+        <td><div class="name">iPhone SE (3rd generation)</div><div class="udid">835EE2B0-311F-4A79-B377-A0C0FE6C9FD9</div></td>
+        <td>iOS 16.4</td>
+        <td class="muted">2d ago</td>
+        <td class="acts"><button class="btn">boot</button></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+// interactive: toggle moves the row pinned ⇄ powered off
+document.querySelectorAll('.star').forEach((s) => s.addEventListener('click', () => {
+  s.classList.toggle('on');
+  s.textContent = s.classList.contains('on') ? '★' : '☆';
+}));
+</script>
+</body>
+</html>

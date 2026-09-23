@@ -206,8 +206,8 @@ onUnmounted(() => {
         <table>
           <thead>
             <tr>
-              <th style="width: 52px;">live</th>
-              <th style="width: 24%;">device</th>
+              <th class="pcol" title="pin — keep a device at hand">✦</th>
+              <th style="width: 22%;">device</th>
               <th>os</th>
               <th>mem</th>
               <th>lease</th>
@@ -217,11 +217,10 @@ onUnmounted(() => {
           </thead>
           <tbody>
             <tr v-for="d in booted" :key="d.udid" :class="{ 'row-booted': true, 'row-active': sidebar?.device.udid === d.udid }" @click="openSidebar(d)">
+              <td class="pcol" @click.stop><button class="pin" :class="{ on: d.pinned }" :title="d.pinned ? 'unpin — remove from pinned' : 'pin — keep at hand'" @click="togglePin(d)">{{ d.pinned ? '★' : '☆' }}</button></td>
               <td @click.stop><DeviceMiniPreview :udid="d.udid" /></td>
               <td>
-                <div style="color: var(--color-paper);">
-                  {{ d.name ?? d.udid.slice(0, 8) }}<button class="pin" :class="{ on: d.pinned }" :title="d.pinned ? 'unpin — remove from pinned' : 'pin — keep at hand'" @click.stop="togglePin(d)">{{ d.pinned ? '★' : '☆' }}</button>
-                </div>
+                <div style="color: var(--color-paper);">{{ d.name ?? d.udid.slice(0, 8) }}</div>
                 <div style="font-size: 10px; color: var(--color-steel); user-select: text;">{{ d.udid }}</div>
               </td>
               <td style="color: var(--color-paper);">{{ d.os_version ?? '—' }}</td>
@@ -254,12 +253,14 @@ onUnmounted(() => {
       <div class="section-label">pinned · {{ pinnedShelf.length }}</div>
       <div class="card table-wrap" style="padding: 0;">
         <table>
+          <thead>
+            <tr><th class="pcol" title="pin — keep a device at hand">✦</th><th style="width: 22%;">device</th><th>os</th><th>last used</th><th></th></tr>
+          </thead>
           <tbody>
             <tr v-for="d in pinnedShelf" :key="d.udid">
-              <td style="width: 24%;">
-                <div style="color: var(--color-fog);">
-                  {{ d.name ?? d.udid.slice(0, 12) }}<button class="pin on" title="unpin" @click.stop="togglePin(d)">★</button>
-                </div>
+              <td class="pcol"><button class="pin on" title="unpin" @click="togglePin(d)">★</button></td>
+              <td>
+                <div style="color: var(--color-fog);">{{ d.name ?? d.udid.slice(0, 12) }}</div>
                 <div style="font-size: 10px; color: var(--color-steel); user-select: text;">{{ d.udid }}</div>
               </td>
               <td style="color: var(--color-paper);">{{ d.os_version ?? '—' }}</td>
@@ -277,12 +278,14 @@ onUnmounted(() => {
       <div class="section-label">powered off · {{ shelf.length }}</div>
       <div class="card table-wrap" style="padding: 0;">
         <table>
+          <thead>
+            <tr><th class="pcol" title="pin — keep a device at hand">✦</th><th style="width: 22%;">device</th><th>os</th><th>last used</th><th></th></tr>
+          </thead>
           <tbody>
             <tr v-for="d in shelf" :key="d.udid">
-              <td style="width: 24%;">
-                <div style="color: var(--color-fog);">
-                  {{ d.name ?? d.udid.slice(0, 12) }}<button class="pin" :class="{ on: d.pinned }" :title="d.pinned ? 'unpin' : 'pin — keep at hand'" @click.stop="togglePin(d)">{{ d.pinned ? '★' : '☆' }}</button>
-                </div>
+              <td class="pcol"><button class="pin" :class="{ on: d.pinned }" :title="d.pinned ? 'unpin' : 'pin — keep at hand'" @click="togglePin(d)">{{ d.pinned ? '★' : '☆' }}</button></td>
+              <td>
+                <div style="color: var(--color-fog);">{{ d.name ?? d.udid.slice(0, 12) }}</div>
                 <div style="font-size: 10px; color: var(--color-steel); user-select: text;">{{ d.udid }}</div>
               </td>
               <td style="color: var(--color-paper);">{{ d.os_version ?? '—' }}</td>
@@ -303,11 +306,17 @@ onUnmounted(() => {
 .row-booted td { border-bottom: 1px solid var(--color-iron); }
 .row-active { background: var(--color-carbon); }
 .row-booted:hover { background: var(--color-carbon); }
+/* pin affordance (sketch 016-A): dedicated first column, 15px glyph in a
+   32px hit box — quiet pewter until hovered, ember when pinned */
 .pin {
-  background: none; border: none; cursor: pointer; padding: 0 0 0 6px;
-  color: var(--color-pewter); font-size: 11px; line-height: 1; vertical-align: baseline;
-  transition: color var(--t);
+  width:32px; height:32px; display:inline-grid; place-items:center;
+  background:none; border:none; cursor:pointer; padding:0;
+  font-size:15px; line-height:1; color:var(--color-pewter); border-radius:var(--r);
+  transition:color var(--t), background var(--t), outline-color var(--t);
+  outline:1px solid transparent;
 }
-.pin:hover { color: var(--color-fog); }
-.pin.on { color: var(--color-ember); }
+.pin:hover { color:var(--color-fog); background:var(--color-graphite); outline-color:var(--color-slate); }
+.pin.on { color:var(--color-ember); }
+.pin.on:hover { outline-color:var(--color-ember); }
+th.pcol, td.pcol { width:44px; text-align:center; padding:0 4px; }
 </style>
