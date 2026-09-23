@@ -72,11 +72,16 @@ onMounted(load);
       </div>
       <div class="log-block" style="margin-bottom: var(--s-3);">{{ bundle.step.reason ?? 'no reason recorded' }}</div>
 
-      <div class="evidence-grid">
-        <figure v-for="ev in bundle.evidence.filter((e) => e.type === 'screenshot' || e.type === 'diff')" :key="ev.id">
-          <img :src="`/api/evidence/${ev.id}/file`" :alt="ev.type" />
-          <figcaption>{{ ev.type }} · {{ Math.round(ev.bytes / 1024) }}KB</figcaption>
-        </figure>
+      <!-- evidence thumbnails: capped width (a lone screenshot stretched the
+           card full-width); click opens the original file at full size -->
+      <div class="evidence-grid triage-evidence">
+        <a v-for="ev in bundle.evidence.filter((e) => e.type === 'screenshot' || e.type === 'diff')" :key="ev.id"
+          :href="`/api/evidence/${ev.id}/file`" target="_blank" :title="`open ${ev.type} full size`">
+          <figure>
+            <img :src="`/api/evidence/${ev.id}/file`" :alt="ev.type" />
+            <figcaption>{{ ev.type }} · {{ Math.round(ev.bytes / 1024) }}KB</figcaption>
+          </figure>
+        </a>
       </div>
 
       <div class="meta-row" style="margin-top: var(--s-3);"><span class="k">ticket</span><b>{{ bundle.run.ticket }}</b></div>
@@ -92,3 +97,13 @@ onMounted(load);
     </div>
   </section>
 </template>
+
+<style scoped>
+/* triage thumbnails: phone-aspect preview capped at 220px wide (was: lone
+   screenshot stretched to card width via auto-fit 1fr); full size on click */
+.triage-evidence { grid-template-columns: repeat(auto-fill, minmax(160px, max-content)); }
+.triage-evidence a { display:block; max-width:220px; text-decoration:none; }
+.triage-evidence figure { margin:0; max-width:220px; }
+.triage-evidence img { width:100%; max-width:220px; aspect-ratio:117/253; object-fit:cover; object-position:top; display:block; }
+.triage-evidence figcaption { font-size:var(--text-caption); color:var(--color-steel); padding-top:2px; }
+</style>
