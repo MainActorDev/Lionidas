@@ -207,6 +207,15 @@ export function migrateM1(db: Database.Database): void {
       lease_engine TEXT,
       last_seen INTEGER NOT NULL
     );
+    -- Device pins (wall QoL): per-account favorites. No FK on udid — a pin
+    -- must survive the device row's deletion (mirror hygiene sweep) so it
+    -- re-arms automatically when the sim comes back from a runtime reinstall.
+    CREATE TABLE IF NOT EXISTS device_pins(
+      user_id TEXT NOT NULL,
+      udid TEXT NOT NULL,
+      pinned_at INTEGER NOT NULL,
+      PRIMARY KEY(user_id, udid)
+    );
   `);
   db.prepare("INSERT OR IGNORE INTO schema_meta(key, value) VALUES ('schema_version', '1')").run();
   // M3 additions (guarded ALTERs — idempotent on existing DBs)

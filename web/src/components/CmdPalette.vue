@@ -35,7 +35,6 @@ void bootedDevices().then((d) => (devices.value = d));
 const commands = computed<Command[]>(() => {
   const base: Command[] = [
     { label: 'devices', hint: 'device grid + queue', run: () => router.push('/devices') },
-    { label: 'new run', hint: 'queue a ticket run', run: () => router.push('/?new=1') },
     { label: 'runs', hint: 'history', run: () => router.push('/runs') },
     { label: 'network', hint: 'traffic + mock responses', run: () => router.push('/forge') },
     { label: 'approvals', hint: 'review visual changes', run: () => router.push('/baselines') },

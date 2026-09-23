@@ -1,23 +1,40 @@
 <script setup lang="ts">
 import PageHeader from '../components/PageHeader.vue';
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
-import NewRunModal from '../components/NewRunModal.vue';
 import DeviceSidebar, { type SidebarDevice } from '../components/DeviceSidebar.vue';
 import DeviceMiniPreview from '../components/DeviceMiniPreview.vue';
 import { useLiveEvents } from '../stores/live.ts';
 
-interface DeviceRow { udid: string; name: string | null; state: string | null; platform: string | null; kind: string | null; os_version: string | null; resolution: string | null; lease_holder: string | null; lease_engine: string | null; lease_display?: string | null }
+interface DeviceRow { udid: string; name: string | null; state: string | null; platform: string | null; kind: string | null; os_version: string | null; resolution: string | null; lease_holder: string | null; lease_engine: string | null; lease_display?: string | null; pinned?: boolean; lastUsed?: number | null; memoryRss?: number | null }
 interface QueueRow { id: string; state: string; priority: number; requested_by: string }
 interface RunRow { id: string; ticket_key: string; status: string; kind: string }
 
 const live = useLiveEvents();
 const devices = ref<DeviceRow[]>([]);
 const queue = ref<QueueRow[]>([]);
-const newRunOpen = ref(false);
-const ticketQuery = ref('');
-const powerMsg = ref('');
 const lastRuns = ref<Record<string, RunRow>>({});
 let poll: ReturnType<typeof setInterval> | null = null;
+
+// ── per-row pending power state (no global message bar) ──
+// udid → 'boot' | 'shutdown' | 'restart' while the request is in flight /
+// awaiting the poller's state confirmation; cleared by device.changed or timeout
+type PowerAction = 'boot' | 'shutdown' | 'restart';
+const pending = ref(new Map<string, PowerAction>());
+const PENDING_TIMEOUT_MS = 90_000;
+const pendingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+function setPending(udid: string, action: PowerAction): void {
+  clearPending(udid);
+  pending.value.set(udid, action);
+  // reactivity through Map mutation: force new ref identity
+  pending.value = new Map(pending.value);
+  pendingTimers.set(udid, setTimeout(() => clearPending(udid), PENDING_TIMEOUT_MS));
+}
+function clearPending(udid: string): void {
+  if (pending.value.delete(udid)) pending.value = new Map(pending.value);
+  const t = pendingTimers.get(udid);
+  if (t) { clearTimeout(t); pendingTimers.delete(udid); }
+}
+function isPending(udid: string): PowerAction | undefined { return pending.value.get(udid); }
 
 // ── sidebar (pushed) — the one stream mount point on the wall ──
 const sidebar = ref<{ device: SidebarDevice } | null>(null);
@@ -30,7 +47,26 @@ function leaseInfoFor(udid: string | undefined): string | null {
 }
 
 const booted = computed(() => devices.value.filter((d) => d.state === 'Booted'));
-const shelf = computed(() => devices.value.filter((d) => d.state !== 'Booted'));
+// pinned ∧ not booted — booted pins live in the booted table like everyone else
+const pinnedShelf = computed(() => devices.value.filter((d) => d.pinned && d.state !== 'Booted'));
+const shelf = computed(() => devices.value.filter((d) => !d.pinned && d.state !== 'Booted'));
+/** fleet host memory of booted sims (bytes) — the wall's running cost */
+const fleetMem = computed(() => booted.value.reduce((s, d) => s + (d.memoryRss ?? 0), 0));
+
+function fmtBytes(b: number | null | undefined): string {
+  if (b == null || b <= 0) return '—';
+  if (b < 1024 * 1024) return `${Math.round(b / 1024)} KB`;
+  const mb = b / (1024 * 1024);
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
+}
+function timeAgo(ts: number | null | undefined): string {
+  if (ts == null) return '';
+  const s = Math.max(0, (Date.now() - ts) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
 
 async function load(): Promise<void> {
   const [d, q] = await Promise.all([
@@ -54,9 +90,12 @@ async function abortQueue(id: string): Promise<void> {
   await fetch(`/api/queue/${id}`, { method: 'DELETE' });
   await load();
 }
-async function openTicket(): Promise<void> {
-  const key = ticketQuery.value.trim();
-  if (key) window.location.href = `/tickets/${encodeURIComponent(key)}`;
+
+async function togglePin(d: DeviceRow): Promise<void> {
+  const on = !d.pinned;
+  devices.value = devices.value.map((x) => (x.udid === d.udid ? { ...x, pinned: on } : x)); // optimistic
+  const res = await fetch(`/api/devices/${d.udid}/pin`, { method: on ? 'PUT' : 'DELETE' });
+  if (!res.ok) devices.value = devices.value.map((x) => (x.udid === d.udid ? { ...x, pinned: !on } : x)); // revert
 }
 
 function openSidebar(d: DeviceRow): void {
@@ -78,18 +117,18 @@ watch(
   },
 );
 
-async function power(udid: string, action: 'boot' | 'shutdown'): Promise<void> {
-  const ing = action === 'shutdown' ? 'shutting down' : 'booting';
-  const done = action === 'shutdown' ? 'shut down' : 'booted';
-  powerMsg.value = `${ing}…`;
+async function power(udid: string, action: PowerAction): Promise<void> {
+  setPending(udid, action);
   try {
     const res = await fetch(`/api/devices/${udid}/power`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action }),
     });
     const body = await res.json() as { ok?: boolean; error?: string };
-    powerMsg.value = body.ok ? done : (body.error ?? `${action} failed`);
-    if (body.ok) setTimeout(() => { void load(); }, 1500);
-  } catch { powerMsg.value = `${action} request failed`; }
+    if (!body.ok) { clearPending(udid); console.warn(`power ${action} failed:`, body.error); return; }
+    // ok=true: the engine accepted. Wait for the poller to confirm the state
+    // flip — pending clears in the device.changed watcher (timeout as backstop).
+    setTimeout(() => void load(), 1500);
+  } catch { clearPending(udid); }
 }
 
 // device.changed events nudge an immediate refresh (mirror is truth-adjacent)
@@ -97,7 +136,17 @@ const unwatchEvents = watch(
   () => live.events.length,
   () => {
     const latest = live.events[live.events.length - 1];
-    if (latest && latest.type === 'device.changed') void load();
+    if (latest && latest.type === 'device.changed') {
+      void load();
+      // state confirmation for any pending power action on this device
+      const udid = typeof latest.payload['udid'] === 'string' ? latest.payload['udid'] : null;
+      if (udid && pending.value.has(udid)) {
+        const row = devices.value.find((d) => d.udid === udid);
+        const wants = pending.value.get(udid);
+        // boot/restart confirmed when Booted; shutdown when not-Booted
+        if (row && ((wants === 'shutdown') !== (row.state === 'Booted'))) clearPending(udid);
+      }
+    }
     if (latest && latest.type === 'run.started' && typeof latest.payload['udid'] === 'string') {
       const s2 = new Set(runActiveUdids.value); s2.add(latest.payload['udid']); runActiveUdids.value = s2;
     }
@@ -110,32 +159,31 @@ const unwatchEvents = watch(
 onMounted(() => {
   live.connect();
   void load().then(() => {
-    // deep-links from ⌘K: /?watch=<udid> opens the sidebar in watch mode, /?new=1 opens the modal
+    // deep-link from ⌘K: /?watch=<udid> opens the sidebar in watch mode
     const q = new URLSearchParams(window.location.search);
     const w = q.get('watch');
     if (w) {
       const d = devices.value.find((x) => x.udid === w && x.state === 'Booted');
       if (d) openSidebar(d);
+      window.history.replaceState({}, '', '/');
     }
-    if (q.get('new') === '1') newRunOpen.value = true;
-    if (w || q.get('new')) window.history.replaceState({}, '', '/');
   });
   poll = setInterval(() => void load(), 2000);
 });
-onUnmounted(() => { if (poll) clearInterval(poll); closeSidebar(); unwatchEvents(); live.release(); });
+onUnmounted(() => {
+  if (poll) clearInterval(poll);
+  for (const t of pendingTimers.values()) clearTimeout(t);
+  closeSidebar(); unwatchEvents(); live.release();
+});
 </script>
 
 <template>
   <div>
     <PageHeader title="devices">
       <span class="ph-desc">
-        {{ booted.length }} booted · {{ devices.length }} simulators
+        {{ booted.length }} booted · {{ devices.length }} simulators<template v-if="fleetMem > 0"> · {{ fmtBytes(fleetMem) }}</template>
         <span v-if="!live.connected" style="color: var(--color-ember);"> · live offline</span>
       </span>
-      <template #actions>
-        <input v-model="ticketQuery" placeholder="ticket…" style="width: 120px;" @keydown.enter="openTicket" />
-        <button class="btn btn-primary" @click="newRunOpen = true">+ new run</button>
-      </template>
     </PageHeader>
 
     <div v-if="queue.length > 0" class="card card-accent" style="margin-bottom: var(--s-4);">
@@ -149,8 +197,6 @@ onUnmounted(() => { if (poll) clearInterval(poll); closeSidebar(); unwatchEvents
       </div>
     </div>
 
-    <div v-if="powerMsg" class="meta-row" style="margin-bottom: var(--s-2);">{{ powerMsg }}</div>
-
     <div v-if="devices.length === 0" class="empty">no simulators — alloy poller not reporting</div>
 
     <!-- booted sims: compact rich table, distinct treatment, actions -->
@@ -161,8 +207,9 @@ onUnmounted(() => { if (poll) clearInterval(poll); closeSidebar(); unwatchEvents
           <thead>
             <tr>
               <th style="width: 52px;">live</th>
-              <th style="width: 26%;">device</th>
+              <th style="width: 24%;">device</th>
               <th>os</th>
+              <th>mem</th>
               <th>lease</th>
               <th>last run</th>
               <th style="text-align: right;">actions</th>
@@ -172,13 +219,13 @@ onUnmounted(() => { if (poll) clearInterval(poll); closeSidebar(); unwatchEvents
             <tr v-for="d in booted" :key="d.udid" :class="{ 'row-booted': true, 'row-active': sidebar?.device.udid === d.udid }" @click="openSidebar(d)">
               <td @click.stop><DeviceMiniPreview :udid="d.udid" /></td>
               <td>
-                <div style="color: var(--color-paper);">{{ d.name ?? d.udid.slice(0, 8) }}</div>
+                <div style="color: var(--color-paper);">
+                  {{ d.name ?? d.udid.slice(0, 8) }}<button class="pin" :class="{ on: d.pinned }" :title="d.pinned ? 'unpin — remove from pinned' : 'pin — keep at hand'" @click.stop="togglePin(d)">{{ d.pinned ? '★' : '☆' }}</button>
+                </div>
                 <div style="font-size: 10px; color: var(--color-steel); user-select: text;">{{ d.udid }}</div>
               </td>
-              <td style="color: var(--color-paper);">
-                <div>{{ d.os_version ?? '—' }}</div>
-                <div v-if="d.resolution" style="font-size: 10px; color: var(--color-steel);">{{ d.resolution }}</div>
-              </td>
+              <td style="color: var(--color-paper);">{{ d.os_version ?? '—' }}</td>
+              <td :style="{ color: (d.memoryRss ?? 0) > 1024 * 1024 * 1024 ? 'var(--color-ember)' : 'var(--color-fog)' }" title="host memory: every process referencing this device">{{ fmtBytes(d.memoryRss) }}</td>
               <td>
                 <b v-if="d.lease_holder?.startsWith('manual:')" style="color: var(--color-ember);" :title="d.lease_display ?? 'manual'">{{ d.lease_display && d.lease_display !== 'manual' ? d.lease_display : 'manual' }}</b>
                 <b v-else-if="d.lease_holder">{{ d.lease_holder }}</b>
@@ -193,7 +240,8 @@ onUnmounted(() => { if (poll) clearInterval(poll); closeSidebar(); unwatchEvents
               </td>
               <td style="text-align: right; white-space: nowrap;" @click.stop>
                 <button class="btn btn-sm" @click="openSidebar(d)">drive</button>
-                <button class="btn btn-sm btn-danger" style="margin-left: 6px;" @click="power(d.udid, 'shutdown')">shut down</button>
+                <button class="btn btn-sm" style="margin-left: 6px;" :disabled="isPending(d.udid) !== undefined" @click="power(d.udid, 'restart')">{{ isPending(d.udid) === 'restart' ? 'restarting…' : 'restart' }}</button>
+                <button class="btn btn-sm btn-danger" style="margin-left: 6px;" :disabled="isPending(d.udid) !== undefined" @click="power(d.udid, 'shutdown')">{{ isPending(d.udid) === 'shutdown' ? 'shutting down…' : 'shut down' }}</button>
               </td>
             </tr>
           </tbody>
@@ -201,29 +249,52 @@ onUnmounted(() => { if (poll) clearInterval(poll); closeSidebar(); unwatchEvents
       </div>
     </template>
 
-    <!-- powered-off sims: dense shelf -->
+    <!-- pinned ∧ powered-off: the at-hand shelf (booted pins ride the booted table) -->
+    <template v-if="pinnedShelf.length > 0">
+      <div class="section-label">pinned · {{ pinnedShelf.length }}</div>
+      <div class="card table-wrap" style="padding: 0;">
+        <table>
+          <tbody>
+            <tr v-for="d in pinnedShelf" :key="d.udid">
+              <td style="width: 24%;">
+                <div style="color: var(--color-fog);">
+                  {{ d.name ?? d.udid.slice(0, 12) }}<button class="pin on" title="unpin" @click.stop="togglePin(d)">★</button>
+                </div>
+                <div style="font-size: 10px; color: var(--color-steel); user-select: text;">{{ d.udid }}</div>
+              </td>
+              <td style="color: var(--color-paper);">{{ d.os_version ?? '—' }}</td>
+              <td v-if="d.lastUsed != null" style="color: var(--color-steel);" title="last time this device ran anything (run or manual session)">{{ timeAgo(d.lastUsed) }}</td>
+              <td v-else style="color: var(--color-steel);">never used</td>
+              <td style="text-align: right;"><button class="btn btn-sm" :disabled="isPending(d.udid) !== undefined" @click="power(d.udid, 'boot')">{{ isPending(d.udid) === 'boot' ? 'booting…' : 'boot' }}</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </template>
+
+    <!-- powered-off sims: dense shelf (pinned devices excluded — they have their own) -->
     <template v-if="shelf.length > 0">
       <div class="section-label">powered off · {{ shelf.length }}</div>
       <div class="card table-wrap" style="padding: 0;">
         <table>
           <tbody>
             <tr v-for="d in shelf" :key="d.udid">
-              <td style="width: 26%;">
-                <div style="color: var(--color-fog);">{{ d.name ?? d.udid.slice(0, 12) }}</div>
+              <td style="width: 24%;">
+                <div style="color: var(--color-fog);">
+                  {{ d.name ?? d.udid.slice(0, 12) }}<button class="pin" :class="{ on: d.pinned }" :title="d.pinned ? 'unpin' : 'pin — keep at hand'" @click.stop="togglePin(d)">{{ d.pinned ? '★' : '☆' }}</button>
+                </div>
                 <div style="font-size: 10px; color: var(--color-steel); user-select: text;">{{ d.udid }}</div>
               </td>
-              <td style="color: var(--color-paper);">
-              <div>{{ d.os_version ?? '—' }}</div>
-              <div v-if="d.resolution" style="font-size: 10px; color: var(--color-steel);">{{ d.resolution }}</div>
-            </td>
-              <td style="text-align: right;"><button class="btn btn-sm" @click="power(d.udid, 'boot')">boot</button></td>
+              <td style="color: var(--color-paper);">{{ d.os_version ?? '—' }}</td>
+              <td v-if="d.lastUsed != null" style="color: var(--color-steel);">{{ timeAgo(d.lastUsed) }}</td>
+              <td v-else style="color: var(--color-steel);">never used</td>
+              <td style="text-align: right;"><button class="btn btn-sm" :disabled="isPending(d.udid) !== undefined" @click="power(d.udid, 'boot')">{{ isPending(d.udid) === 'boot' ? 'booting…' : 'boot' }}</button></td>
             </tr>
           </tbody>
         </table>
       </div>
     </template>
 
-    <NewRunModal :open="newRunOpen" @close="newRunOpen = false" />
     <DeviceSidebar :device="sidebar?.device ?? null" :lease-display="leaseInfoFor(sidebar?.device?.udid)" :run-active="runActiveSet.has(sidebar?.device?.udid ?? '')" @close="closeSidebar" />
   </div>
 </template>
@@ -232,4 +303,11 @@ onUnmounted(() => { if (poll) clearInterval(poll); closeSidebar(); unwatchEvents
 .row-booted td { border-bottom: 1px solid var(--color-iron); }
 .row-active { background: var(--color-carbon); }
 .row-booted:hover { background: var(--color-carbon); }
+.pin {
+  background: none; border: none; cursor: pointer; padding: 0 0 0 6px;
+  color: var(--color-pewter); font-size: 11px; line-height: 1; vertical-align: baseline;
+  transition: color var(--t);
+}
+.pin:hover { color: var(--color-fog); }
+.pin.on { color: var(--color-ember); }
 </style>

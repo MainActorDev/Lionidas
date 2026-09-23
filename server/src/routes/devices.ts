@@ -4,24 +4,86 @@ import type Database from 'better-sqlite3';
 import { createReadStream, statSync } from 'node:fs';
 import { crucibleAlloy } from '../alloy/client.ts';
 import { alloyDispatchDepsSync } from '../alloy/runtime.ts';
+import { execFileSync } from 'node:child_process';
+
+/** Host-memory attribution for booted sims: one ps sweep per request, every
+ *  process whose command line references the udid (sim processes + the
+ *  engine's headless bridge) sums into that device's RSS. Injectable so
+ *  tests fake it (a real sweep in CI is host-dependent). */
+export type PsSweep = () => Array<{ rss: number; command: string }>;
+export function realPsSweep(): Array<{ rss: number; command: string }> {
+  const out = execFileSync('ps', ['-axo', 'rss=,command='], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: 5_000 });
+  return out.split('\n').flatMap((line) => {
+    const m = /^\s*(\d+)\s(.+)$/.exec(line);
+    return m ? [{ rss: Number(m[1]), command: m[2] as string }] : [];
+  });
+}
+/** Test seam. */
+export const __psSweep = { fn: realPsSweep };
+
+/** Sum host RSS (bytes) per udid from one sweep. */
+function memoryByUdid(sweep: PsSweep): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const p of sweep()) {
+    // udids are UUID-shaped (8-4-4-4-12 hex) — scan, don't split
+    const re = /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(p.command)) !== null) map.set(m[0], (map.get(m[0]) ?? 0) + p.rss * 1024);
+  }
+  return map;
+}
 
 export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database): void {
-  app.get('/api/devices', async () => {
+  app.get('/api/devices', async (req) => {
     // simulator-only wall: physical devices stay out of the list entirely
     const rows = db
       .prepare(`SELECT d.udid, d.name, d.state, d.platform, d.kind, d.os_version, d.resolution, d.lease_holder, d.lease_engine, d.last_seen,
-                       CASE WHEN d.lease_holder LIKE 'manual:%' THEN COALESCE((SELECT ms.operator FROM manual_sessions ms WHERE ms.id = substr(d.lease_holder, 8) AND ms.finished_at IS NULL), 'manual') ELSE d.lease_holder END AS lease_display
+                       CASE WHEN d.lease_holder LIKE 'manual:%' THEN COALESCE((SELECT ms.operator FROM manual_sessions ms WHERE ms.id = substr(d.lease_holder, 8) AND ms.finished_at IS NULL), 'manual') ELSE d.lease_holder END AS lease_display,
+                       (SELECT MAX(t) FROM (
+                         SELECT MAX(started_at) t FROM runs WHERE device_udid = d.udid
+                         UNION ALL
+                         SELECT MAX(started_at) FROM manual_sessions WHERE udid = d.udid
+                       )) AS last_used
                 FROM devices d WHERE d.kind = 'simulator' ORDER BY d.state = 'Booted' DESC, d.name`)
-      .all();
-    return { devices: rows };
+      .all() as Array<Record<string, unknown>>;
+    // pins are per-account (req.user via session hook; anonymous = none)
+    const pinnedSet = new Set<string>();
+    if (req.user?.id) {
+      const pins = db.prepare('SELECT udid FROM device_pins WHERE user_id = ?').all(req.user.id) as Array<{ udid: string }>;
+      for (const p of pins) pinnedSet.add(p.udid);
+    }
+    // host memory: booted rows only — one sweep, matched per udid
+    const mem = memoryByUdid(__psSweep.fn);
+    const devices = rows.map((r) => ({
+      ...r,
+      pinned: pinnedSet.has(r.udid as string),
+      lastUsed: (r.last_used as number | null) ?? null,
+      memoryRss: r.state === 'Booted' ? mem.get(r.udid as string) ?? 0 : null,
+    }));
+    return { devices };
+  });
+
+  // ── pins (per-account favorites) ──
+  app.put('/api/devices/:udid/pin', async (req, reply) => {
+    if (!req.user?.id) return reply.code(401).send({ error: 'sign in to pin devices' });
+    const { udid } = req.params as { udid: string };
+    db.prepare('INSERT OR IGNORE INTO device_pins(user_id, udid, pinned_at) VALUES (?, ?, ?)').run(req.user.id, udid, Date.now());
+    return { ok: true, pinned: true };
+  });
+
+  app.delete('/api/devices/:udid/pin', async (req, reply) => {
+    if (!req.user?.id) return reply.code(401).send({ error: 'sign in to unpin devices' });
+    const { udid } = req.params as { udid: string };
+    db.prepare('DELETE FROM device_pins WHERE user_id = ? AND udid = ?').run(req.user.id, udid);
+    return { ok: true, pinned: false };
   });
 
   // Boot/shutdown a simulator through the choke point (alloy_devices action passthrough).
   app.post('/api/devices/:udid/power', async (req, reply) => {
     const { udid } = req.params as { udid: string };
     const b = req.body as { action?: string };
-    if (b?.action !== 'boot' && b?.action !== 'shutdown') {
-      return reply.code(400).send({ error: 'action (boot|shutdown) required' });
+    if (b?.action !== 'boot' && b?.action !== 'shutdown' && b?.action !== 'restart') {
+      return reply.code(400).send({ error: 'action (boot|shutdown|restart) required' });
     }
     const row = db.prepare('SELECT kind FROM devices WHERE udid = ?').get(udid) as { kind: string | null } | undefined;
     if (!row) return reply.code(404).send({ error: 'unknown device (is the poller running?)' });
@@ -36,23 +98,30 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
     // Boot is headless: a dashboard power button must not splash the
     // Simulator.app GUI over the user's desktop (ENGINE-A-CLI ≥ headless
     // support; the engine ignores the key on older builds — fail-open GUI).
-    const dispatch = () =>
+    // restart = shutdown + boot server-side (simctl has no restart): one
+    // guard check, one pending state on the UI — not two user actions racing.
+    const one = (action: 'boot' | 'shutdown') =>
       alloy.dispatch(
         'alloy_devices',
-        { action: b.action, udid, ...(b.action === 'boot' ? { headless: true } : {}) },
+        { action, udid, ...(action === 'boot' ? { headless: true } : {}) },
         alloyDispatchDepsSync(),
       ) as
         | Promise<{ ok: true }>
         | Promise<{ ok: false; error: { message: string } }>;
-    let r = await dispatch();
-    // DEVICE_IN_USE with no Crucible-side run/session = engine-A's shared
-    // 'alloy' session (fixed name, re-opened by every dispatch) is still open.
-    // It's ours — release it (closes the session + clears the device claim)
-    // and retry once. Genuine third-party ownership still errors out.
-    if (!r.ok && b.action === 'shutdown' && /active session device/i.test(r.error.message)) {
-      await alloy.dispatch('alloy_release', { udid }, alloyDispatchDepsSync()).catch(() => undefined);
-      r = await dispatch();
-    }
+    const withLeaseRetry = async (action: 'shutdown' | 'boot') => {
+      let r = await one(action);
+      // DEVICE_IN_USE with no Crucible-side run/session = engine-A's shared
+      // 'alloy' session (fixed name, re-opened by every dispatch) is still open.
+      // It's ours — release it (closes the session + clears the device claim)
+      // and retry once. Genuine third-party ownership still errors out.
+      if (!r.ok && action === 'shutdown' && /active session device/i.test(r.error.message)) {
+        await alloy.dispatch('alloy_release', { udid }, alloyDispatchDepsSync()).catch(() => undefined);
+        r = await one(action);
+      }
+      return r;
+    };
+    let r = b.action === 'restart' ? await withLeaseRetry('shutdown') : await withLeaseRetry(b.action as 'boot' | 'shutdown');
+    if (r.ok && b.action === 'restart') r = await one('boot');
     if (!r.ok) return reply.code(502).send({ error: `${b.action} failed: ${r.error.message}` });
     return { ok: true };
   });
