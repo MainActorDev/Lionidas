@@ -19,7 +19,7 @@ import { parseVariants, type YamlVariant } from './yaml-variants.js';
 export interface YamlSelector { identifier?: string; label?: string; labelContains?: string; ignoreCase?: boolean; type?: string }
 export interface YamlStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'world' | 'expectScreen';
   x?: number; y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
   text?: string;
@@ -38,6 +38,12 @@ export interface YamlStep {
   alertAction?: 'accept' | 'dismiss';
   /** location action target — simulated GPS point (simctl location set) */
   location?: { latitude: number; longitude: number };
+  /** R2 verbs — arrive: <screen-id>, refresh: <screen-id>, world: <world-id> */
+  screen?: string;
+  /** world: <id from this case's worlds/variants> */
+  world?: string;
+  /** expect screen: "<screen>.<state>" — parsed into parts; negate for != */
+  expectScreen?: { screen: string; state: string; negate?: boolean };
 }
 export interface YamlCase {
   name: string;
@@ -50,6 +56,12 @@ export interface YamlCase {
   /** State coverage (phase B): one flow, N deterministic worlds. The runner
    *  expands these in phase C; parsing/storage/autocomplete ship first. */
   variants?: YamlVariant[];
+  /** R2 v2: named worlds — same shape as variants (authoring alias; the
+   *  runner treats worlds: and variants: identically, variants wins on key
+   *  collision as the established term). */
+  worlds?: YamlVariant[];
+  /** R2 v2: default entry for arrive: steps (screen id in the app registry) */
+  entry?: { screen: string; mode?: 'tab' | 'deepLink' | 'navigate' };
   steps: YamlStep[];
 }
 
@@ -58,7 +70,8 @@ export interface YamlError { line: number; message: string }
 const DROPPED_KEYS = new Set(['ts', 'thumb']); // capture artifacts — not semantics
 const STEP_KEYS = new Set(['action', 'x', 'y', 'direction', 'text', 'optional', 'selector', 'templateId', 'flow', 'count', 'atLeast']);
 const DIRECTIONS = new Set(['up', 'down', 'left', 'right']);
-const ACTIONS = new Set(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert', 'location']);
+const ACTIONS = new Set(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert', 'location', 'arrive', 'refresh', 'world', 'expect screen']);
+const SCREEN_ID_RE = /^[a-z][a-z0-9-]*$/;
 /** runFlow references: name → id resolution is the CALLER's job (needs the DB);
  * the validator accepts both shapes and reports unresolved names. */
 export interface RunFlowRefs { names: string[] }
@@ -124,6 +137,30 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
   if (c['variants'] !== undefined && c['variants'] !== null) {
     variantsOut = parseVariants(c['variants'], errors);
   }
+  // worlds (R2 v2) — authoring alias for variants; both may parse, collision
+  // on ids between them is an error (one vocabulary per case)
+  let worldsOut: YamlVariant[] | null = null;
+  if (c['worlds'] !== undefined && c['worlds'] !== null) {
+    worldsOut = parseVariants(c['worlds'], errors);
+  }
+  if (variantsOut && worldsOut) {
+    const ids = new Set(worldsOut.map((w) => w.id));
+    for (const v of variantsOut) {
+      if (ids.has(v.id)) errors.push({ line: 1, message: `world id "${v.id}" also appears in variants — one vocabulary per case` });
+    }
+  }
+  // entry (R2 v2): default screen for arrive: steps
+  let entry: YamlCase['entry'];
+  if (c['entry'] !== undefined && c['entry'] !== null) {
+    const e = c['entry'] as Record<string, unknown>;
+    if (typeof e !== 'object' || typeof e['screen'] !== 'string' || !SCREEN_ID_RE.test(e['screen'])) {
+      errors.push({ line: 1, message: 'entry must be { screen: <screen-id>, mode?: tab | deepLink | navigate }' });
+    } else if (e['mode'] !== undefined && !['tab', 'deepLink', 'navigate'].includes(e['mode'] as string)) {
+      errors.push({ line: 1, message: `entry.mode must be tab | deepLink | navigate (got ${JSON.stringify(e['mode'])})` });
+    } else {
+      entry = { screen: e['screen'], ...(e['mode'] !== undefined ? { mode: e['mode'] as 'tab' | 'deepLink' | 'navigate' } : {}) };
+    }
+  }
 
   // setup (declared preconditions) — parsed by the same step machinery
   let setupOut: YamlStep[] | undefined;
@@ -147,7 +184,10 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
     runFlowNames.push(...r.names);
   }
   if (errors.length > 0) return { ok: false, case: null, errors, runFlowNames };
-  return { ok: true, case: { name, tags, ...(app ? { app } : {}), ...(setupOut ? { setup: setupOut } : {}), ...(alerts ? { alerts } : {}), ...(variantsOut ? { variants: variantsOut } : {}), steps: stepsOut }, errors: [], runFlowNames };
+  const outCase: YamlCase = { name, tags, ...(app ? { app } : {}), ...(setupOut ? { setup: setupOut } : {}), ...(alerts ? { alerts } : {}), ...(variantsOut ? { variants: variantsOut } : {}), steps: stepsOut };
+  if (worldsOut) outCase.worlds = worldsOut;
+  if (entry) outCase.entry = entry;
+  return { ok: true, case: outCase, errors: [], runFlowNames };
 }
 
 /** One step list (steps: or setup:) → validated steps + runFlow name refs.
@@ -179,10 +219,52 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
       }
       const action = keys[0]!;
       if (!ACTIONS.has(action)) {
-        errors.push({ line: 1, message: `${prefix(i)}: unknown action "${action}" (expected tap|scroll|type|runFlow|expect)` });
+        errors.push({ line: 1, message: `${prefix(i)}: unknown action "${action}" (expected tap|scroll|type|runFlow|expect|arrive|refresh|world|expect screen)` });
         continue;
       }
       const body = s[action];
+
+      // ── R2 verbs (S4): scalar screen/world targets + expect screen form ──
+      if (action === 'arrive' || action === 'refresh') {
+        if (typeof body !== 'string' || !SCREEN_ID_RE.test(body)) {
+          errors.push({ line: 1, message: `${prefix(i)}: ${action} takes a screen id (registry key, [a-z][a-z0-9-]*)` });
+          continue;
+        }
+        stepsOut.push({ idx: stepsOut.length, action, screen: body });
+        continue;
+      }
+      if (action === 'world') {
+        if (typeof body !== 'string' || !body.trim()) {
+          errors.push({ line: 1, message: `${prefix(i)}: world takes a world id from this case's worlds/variants` });
+          continue;
+        }
+        stepsOut.push({ idx: stepsOut.length, action: 'world', world: body.trim() });
+        continue;
+      }
+      if (action === 'expect screen') {
+        // forms: "<screen>.<state>"  |  "<screen>.state != <state>"
+        if (typeof body !== 'string' || !body.trim()) {
+          errors.push({ line: 1, message: `${prefix(i)}: expect screen takes "<screen>.<state>" or "<screen>.state != <state>"` });
+          continue;
+        }
+        const t = body.trim();
+        const neg = /^(.+?)\.state\s*!=\s*(.+)$/.exec(t);
+        const pos = /^([a-z][a-z0-9-]*)\.([a-z][a-z0-9_-]*)$/.exec(t);
+        if (neg) {
+          const [, scr, st] = neg;
+          if (!SCREEN_ID_RE.test(scr!.trim())) {
+            errors.push({ line: 1, message: `${prefix(i)}: expect screen: bad screen id "${scr!.trim()}"` });
+            continue;
+          }
+          stepsOut.push({ idx: stepsOut.length, action: 'expectScreen', expectScreen: { screen: scr!.trim(), state: st!.trim(), negate: true } });
+        } else if (pos) {
+          stepsOut.push({ idx: stepsOut.length, action: 'expectScreen', expectScreen: { screen: pos[1]!, state: pos[2]! } });
+        } else {
+          errors.push({ line: 1, message: `${prefix(i)}: expect screen: expected "<screen>.<state>" or "<screen>.state != <state>" (got ${JSON.stringify(t)})` });
+          continue;
+        }
+        continue;
+      }
       const opt = (b: Record<string, unknown>): boolean => b['optional'] === true;
       const sel = (b: Record<string, unknown>): YamlSelector | undefined => {
         const on = b['on'];

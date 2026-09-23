@@ -599,9 +599,46 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
         }
       }
     }
+    // R2 S4: world steps must reference ids this case declares (worlds ∪
+    // variants), and screen refs (arrive/refresh/expect screen/entry) must
+    // exist in the app's registry — resolution needs the DB, so it lives
+    // here (parse is pure). Snapshots carry the selector sets so registry
+    // changes never rewrite history (S5 runner reads the snapshot).
+    const declaredWorlds = new Set([...(r.case.worlds ?? []).map((w) => w.id), ...(r.case.variants ?? []).map((v) => v.id)]);
+    for (const s of allSteps) {
+      if (s.action === 'world' && !declaredWorlds.has(s.world!)) {
+        return reply.code(422).send({ errors: [{ line: 1, message: `world step references "${s.world}" — not declared in this case's worlds/variants` }] });
+      }
+    }
+    const screenRefs = new Set<string>();
+    for (const s of allSteps) {
+      if (s.action === 'arrive' || s.action === 'refresh') screenRefs.add(s.screen!);
+      if (s.action === 'expectScreen') screenRefs.add(s.expectScreen!.screen);
+    }
+    if (r.case.entry) screenRefs.add(r.case.entry.screen);
+    const appBundleForScreens = r.case.app ?? row.app_bundle_id ?? null;
+    if (screenRefs.size > 0) {
+      if (!appBundleForScreens) {
+        return reply.code(422).send({ errors: [{ line: 1, message: 'screen steps need an app (app: <bundle>) to resolve the registry' }] });
+      }
+      const known = new Set((db.prepare('SELECT screen_id FROM app_screens WHERE app_bundle_id = ?').all(appBundleForScreens) as Array<{ screen_id: string }>).map((x) => x.screen_id));
+      for (const ref of screenRefs) {
+        if (!known.has(ref)) {
+          return reply.code(422).send({ errors: [{ line: 1, message: `unknown screen "${ref}" — declare it in the app registry (/api/apps/${appBundleForScreens}/screens)` }] });
+        }
+      }
+      for (const s of allSteps) {
+        if (s.action !== 'expectScreen') continue;
+        const rowScr = db.prepare('SELECT states_json FROM app_screens WHERE app_bundle_id = ? AND screen_id = ?').get(appBundleForScreens, s.expectScreen!.screen) as { states_json: string } | undefined;
+        const states = rowScr ? (JSON.parse(rowScr.states_json) as Record<string, unknown>) : {};
+        if (!(s.expectScreen!.state in states)) {
+          return reply.code(422).send({ errors: [{ line: 1, message: `screen "${s.expectScreen!.screen}" has no state "${s.expectScreen!.state}" — declared: ${Object.keys(states).join(', ') || 'none'}` }] });
+        }
+      }
+    }
     db.prepare(
       `UPDATE templates SET name = ?, steps_json = ?, setup_json = ?, alerts_policy = ?, variants_json = ?, tags_json = ?, app_bundle_id = COALESCE(?, app_bundle_id), updated_at = ?, updated_by = ? WHERE id = ?`,
-    ).run(r.case.name, JSON.stringify(r.case.steps), r.case.setup ? JSON.stringify(r.case.setup) : null, r.case.alerts ? JSON.stringify(r.case.alerts) : null, r.case.variants ? JSON.stringify(r.case.variants) : null, tagsToJson(r.case.tags), r.case.app ?? null, Date.now(), req.user?.name ?? null, id);
+    ).run(r.case.name, JSON.stringify(r.case.steps), r.case.setup ? JSON.stringify(r.case.setup) : null, r.case.alerts ? JSON.stringify(r.case.alerts) : null, r.case.variants ? JSON.stringify(r.case.variants) : (r.case.worlds ? JSON.stringify(r.case.worlds) : null), tagsToJson(r.case.tags), r.case.app ?? null, Date.now(), req.user?.name ?? null, id);
     return rowToTemplate(db, db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow);
   });
 
