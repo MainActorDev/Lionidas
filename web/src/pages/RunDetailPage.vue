@@ -229,8 +229,10 @@ onMounted(() => {
     <!-- next actions -->
     <div class="actions">
       <RouterLink v-if="run.template_id" class="btn" :to="`/templates?case=${run.template_id}`">open case →</RouterLink>
+      <!-- attach → jira: hidden pending Jira integration wiring (kept in code, one-line restore)
       <button class="btn btn-ghost" @click="attachJira">attach → jira</button>
       <span v-if="attachMsg" class="badge">{{ attachMsg }}</span>
+      -->
       <RouterLink class="btn btn-ghost" style="margin-left: auto;" to="/runs">back to log →</RouterLink>
     </div>
 
