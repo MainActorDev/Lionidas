@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>017-B · sticky day tables</title>
+<style>
+:root {
+  --color-void:#000; --color-carbon:#111; --color-graphite:#191919; --color-iron:#202020;
+  --color-slate:#3a3a3a; --color-pewter:#505050; --color-steel:#606060; --color-ash:#7e7e7e;
+  --color-fog:#b4b4b4; --color-chalk:#d9d9d9; --color-paper:#eeeeee; --color-ember:#da5c2c;
+  --color-amber:#d9a03f; --color-violet:#8b5cf6;
+  --font-mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  --text-caption:12px; --text-body:14px; --text-label:13px; --text-heading-sm:18px;
+  --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --r:2px; --t:120ms cubic-bezier(.4,0,.2,1);
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:var(--color-void); color:var(--color-paper); font-family:var(--font-mono); font-size:var(--text-body); line-height:1.5; padding:24px 32px; max-width:1200px; margin:0 auto; }
+button { background:none; border:none; color:inherit; font:inherit; cursor:pointer; }
+
+.hd-row1 { display:flex; align-items:center; gap:16px; margin-bottom:8px; }
+.hd-title { font-size:var(--text-heading-sm); font-weight:700; letter-spacing:-0.01em; }
+.hd-spacer { flex:1; }
+.hd-actions { display:flex; gap:8px; }
+.hd-row2 { display:flex; align-items:baseline; gap:16px; padding-bottom:16px; border-bottom:1px solid var(--color-iron); margin-bottom:24px; }
+.ph-desc { font-size:var(--text-label); color:var(--color-steel); }
+
+.chip { border:1px solid var(--color-slate); color:var(--color-ash); padding:2px 10px; font-size:var(--text-caption); border-radius:var(--r); }
+.chip:hover { color:var(--color-paper); border-color:var(--color-chalk); }
+.chip.on { border-color:var(--color-paper); color:var(--color-paper); }
+.chip .n { color:var(--color-pewter); margin-left:4px; }
+
+/* ═══ B: STICKY DAY TABLES — day group-head above a table (closer to today's shape) ═══ */
+.day { margin-bottom:24px; }
+.day-head {
+  position:sticky; top:0; z-index:2; background:var(--color-void);
+  display:flex; align-items:baseline; gap:12px; padding:8px 0;
+  border-bottom:1px solid var(--color-iron); margin-bottom:2px;
+}
+.day-name { font-size:var(--text-label); font-weight:700; color:var(--color-paper); }
+.day-syms { font-size:var(--text-caption); color:var(--color-steel); display:flex; gap:12px; }
+.day-syms .bad { color:var(--color-ember); }
+.day-syms .warn { color:var(--color-amber); }
+.day-spacer { flex:1; }
+
+table { width:100%; border-collapse:collapse; }
+th { font-size:var(--text-caption); font-weight:400; color:var(--color-steel); text-align:left; padding:6px 10px; border-bottom:1px solid var(--color-iron); }
+td { padding:6px 10px; font-size:var(--text-label); border-bottom:1px solid var(--color-iron); }
+tbody tr:hover { background:var(--color-carbon); cursor:pointer; }
+tbody tr:last-child td { border-bottom:none; }
+.case { color:var(--color-paper); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:340px; }
+.case .dim { color:var(--color-steel); }
+.note { color:var(--color-steel); font-size:var(--text-caption); }
+.meta { color:var(--color-steel); font-size:var(--text-caption); white-space:nowrap; }
+.status { font-size:var(--text-caption); }
+.status-passed { color:var(--color-fog); }
+.status-failed { color:var(--color-ember); font-weight:700; }
+.status-aborted { color:var(--color-amber); }
+.status-blocked { color:var(--color-ember); }
+.vchip { border:1px solid var(--color-violet); color:var(--color-violet); border-radius:2px; padding:0 5px; font-size:10px; margin-left:6px; }
+.rchip { border:1px solid var(--color-slate); color:var(--color-fog); border-radius:2px; padding:0 5px; font-size:10px; margin-left:6px; }
+.rchip.stale { border-color:var(--color-amber); color:var(--color-amber); }
+.dur-bad { color:var(--color-ember); }
+.dur { color:var(--color-steel); font-size:var(--text-caption); }
+.loadmore { display:block; margin:24px auto 0; border:1px solid var(--color-slate); color:var(--color-fog); padding:6px 16px; font-size:var(--text-label); border-radius:var(--r); }
+.loadmore:hover { color:var(--color-paper); border-color:var(--color-chalk); }
+label.page { font-size:var(--text-caption); color:var(--color-ember); letter-spacing:.08em; text-transform:uppercase; display:block; margin-bottom:16px; }
+</style>
+</head>
+<body>
+
+<label class="page">017-B — sticky day tables (day head sticks while its table scrolls · closest to today's layout)</label>
+
+<div class="hd-row1">
+  <span class="hd-title">runs</span>
+  <span class="hd-spacer"></span>
+  <div class="hd-actions">
+    <button class="chip on">all <span class="n">40</span></button>
+    <button class="chip">failed <span class="n">16</span></button>
+    <button class="chip">blocked <span class="n">3</span></button>
+    <button class="chip">aborted <span class="n">2</span></button>
+    <button class="chip">running <span class="n">1</span></button>
+  </div>
+</div>
+<div class="hd-row2"><span class="ph-desc">724 runs · 7 days shown · live</span></div>
+
+<div class="day">
+  <div class="day-head">
+    <span class="day-name">today</span>
+    <span class="day-syms"><span>22 ✓</span><span class="bad">16 ✕</span><span class="bad">3 ◆</span><span class="warn">2 ⌫</span><span>longest 6.8h <span class="bad">⚠</span></span></span>
+    <span class="day-spacer"></span>
+  </div>
+  <table>
+    <thead><tr><th style="width:38%;">case</th><th>status</th><th>duration</th><th>by</th><th>started</th><th></th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="case">intl drill — check-rates country worlds <span class="dim">/ sg</span><span class="vchip">▸ sg</span><span class="rchip">current</span></td>
+        <td><span class="status status-passed">passed</span></td>
+        <td class="dur">2m 51s</td>
+        <td class="meta">qa</td>
+        <td class="meta">14:22</td>
+        <td></td>
+      </tr>
+      <tr>
+        <td class="case">test-record<span class="rchip stale">r3 ⚠</span></td>
+        <td><span class="status status-failed">failed</span></td>
+        <td class="dur">0m 12s</td>
+        <td class="meta">qa</td>
+        <td class="meta">14:18</td>
+        <td class="note">blocked by system dialog: Allow "Lion Parcel"…</td>
+      </tr>
+      <tr>
+        <td class="case">tnc</td>
+        <td><span class="status status-failed">failed</span></td>
+        <td class="dur">0m 11s</td>
+        <td class="meta">qa</td>
+        <td class="meta">14:18</td>
+        <td class="note">blocked by system dialog: Allow "Lion Parcel"…</td>
+      </tr>
+      <tr>
+        <td class="case">Maps opens centered on Batam</td>
+        <td><span class="status status-aborted">aborted</span></td>
+        <td class="dur dur-bad">6.8h ⚠</td>
+        <td class="meta">qa</td>
+        <td class="meta">07:41</td>
+        <td class="note">watchdog — hung at tap "Route"</td>
+      </tr>
+      <tr>
+        <td class="case">manual drive</td>
+        <td><span class="status status-passed">passed</span></td>
+        <td class="dur">4m 02s</td>
+        <td class="meta">operator</td>
+        <td class="meta">13:02</td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="day">
+  <div class="day-head">
+    <span class="day-name">yesterday</span>
+    <span class="day-syms"><span>9 ✓</span><span class="warn">1 ⌫</span></span>
+    <span class="day-spacer"></span>
+  </div>
+  <table>
+    <thead><tr><th style="width:38%;">case</th><th>status</th><th>duration</th><th>by</th><th>started</th><th></th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="case">intl drill — check-rates country worlds <span class="dim">/ my</span><span class="vchip">▸ my</span></td>
+        <td><span class="status status-passed">passed</span></td>
+        <td class="dur">2m 47s</td>
+        <td class="meta">qa</td>
+        <td class="meta">16:40</td>
+        <td></td>
+      </tr>
+      <tr>
+        <td class="case">privacy policy</td>
+        <td><span class="status status-passed">passed</span></td>
+        <td class="dur">0m 58s</td>
+        <td class="meta">qa</td>
+        <td class="meta">16:38</td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<button class="loadmore">load earlier ↓</button>
+
+<script>
+document.querySelectorAll('.chip').forEach((c) => c.addEventListener('click', () => {
+  document.querySelectorAll('.chip').forEach((x) => x.classList.remove('on'));
+  c.classList.add('on');
+}));
+</script>
+</body>
+</html>

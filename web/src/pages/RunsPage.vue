@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import PageHeader from '../components/PageHeader.vue';
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useLiveEvents } from '../stores/live.ts';
 
@@ -13,34 +13,167 @@ interface RunRow {
   /** phase C: variant this run executed (null = plain/variantless) */
   variantId?: string | null;
 }
+/** chip → query param. failed/aborted exact; blocked is a COLUMN (pseudo on
+ *  the server — schema CHECK forbids status='blocked'); running maps to
+ *  active (running OR queued) so queue-waiting runs are covered.
+ *  all = no param (decision B: everything on load). */
+const CHIPS: Array<{ key: string; label: string }> = [
+  { key: '', label: 'all' },
+  { key: 'failed', label: 'failed' },
+  { key: 'blocked', label: 'blocked' },
+  { key: 'aborted', label: 'aborted' },
+  { key: 'active', label: 'running' },
+];
+
 const router = useRouter();
 const runs = ref<RunRow[]>([]);
+const statusFilter = ref('');
+const loadingEarlier = ref(false);
+const exhausted = ref(false);
+/** monotonic token: a slow "load earlier" fetch must not clobber a newer page-1 refresh */
+let fetchToken = 0;
 const live = useLiveEvents();
 let poll: ReturnType<typeof setInterval> | null = null;
 
-async function load(): Promise<void> {
+async function fetchPage(before?: number): Promise<RunRow[]> {
   const suite = router.currentRoute.value.query.suite;
-  const url = typeof suite === 'string' && suite ? `/api/runs?limit=50&suite=${encodeURIComponent(suite)}` : '/api/runs?limit=50';
-  const res = await fetch(url);
-  runs.value = (await res.json() as { runs: RunRow[] }).runs;
+  const p = new URLSearchParams();
+  p.set('limit', '50');
+  if (typeof suite === 'string' && suite) p.set('suite', suite);
+  if (statusFilter.value) p.set('status', statusFilter.value);
+  if (before !== undefined) p.set('before', String(before));
+  const res = await fetch(`/api/runs?${p.toString()}`);
+  return (await res.json() as { runs: RunRow[] }).runs;
 }
-function ago(ts: number | null): string {
-  if (!ts) return '—';
-  const s = Math.round((Date.now() - ts) / 1000);
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.round(s / 60)}m ago`;
-  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
-  return `${Math.round(s / 86400)}d ago`;
+
+async function load(): Promise<void> {
+  const token = ++fetchToken;
+  const rows = await fetchPage();
+  if (token !== fetchToken) return; // superseded
+  runs.value = rows;
+  exhausted.value = rows.length === 0;
 }
-/** case name from the note ("template:<id> <name>") until templates join —
- *  template_id is the truth; note carries the human name. */
+
+async function loadEarlier(): Promise<void> {
+  if (loadingEarlier.value || exhausted.value || runs.value.length === 0) return;
+  const oldest = runs.value.reduce((m, r) => (r.started_at != null && (m == null || r.started_at < m) ? r.started_at : m), null as number | null);
+  if (oldest == null) { exhausted.value = true; return; }
+  loadingEarlier.value = true;
+  const token = ++fetchToken;
+  try {
+    const older = await fetchPage(oldest);
+    if (token !== fetchToken) return;
+    if (older.length === 0) { exhausted.value = true; return; }
+    const seen = new Set(runs.value.map((r) => r.id));
+    runs.value = [...runs.value, ...older.filter((r) => !seen.has(r.id))];
+  } finally { loadingEarlier.value = false; }
+}
+
+function setFilter(key: string): void {
+  if (statusFilter.value === key) return;
+  statusFilter.value = key;
+  void load();
+}
+
+// ── day grouping (client-side over the loaded window) ──
+interface DayGroup { key: string; label: string; runs: RunRow[]; maxMs: number | null }
+const now = ref(Date.now());
+const groups = computed<DayGroup[]>(() => {
+  const map = new Map<string, DayGroup>();
+  const active: RunRow[] = [];
+  for (const r of runs.value) {
+    if (r.status === 'running' || r.status === 'queued') { active.push(r); continue; }
+    if (r.started_at == null) continue; // orphans: invisible in a time log
+    const d = new Date(r.started_at);
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    let g = map.get(key);
+    if (!g) {
+      g = { key, label: dayLabel(d), runs: [], maxMs: null };
+      map.set(key, g);
+    }
+    g.runs.push(r);
+    const dur = r.finished_at != null ? r.finished_at - r.started_at : null;
+    if (dur != null && (g.maxMs == null || dur > g.maxMs)) g.maxMs = dur;
+  }
+  const out = [...map.values()];
+  if (active.length > 0) out.unshift({ key: 'active', label: 'in flight', runs: active, maxMs: null });
+  return out;
+});
+function dayLabel(d: Date): string {
+  const today = new Date();
+  const yest = new Date(today.getTime() - 86_400_000);
+  const same = (a: Date, b: Date): boolean => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  if (same(d, today)) return 'today';
+  if (same(d, yest)) return 'yesterday';
+  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+}
+function daySyms(g: DayGroup): Array<{ t: string; cls: string }> {
+  const c = { pass: 0, fail: 0, blocked: 0, aborted: 0 };
+  for (const r of g.runs) {
+    if (r.blocked === 1) c.blocked++;
+    else if (r.status === 'passed') c.pass++;
+    else if (r.status === 'failed') c.fail++;
+    else if (r.status === 'aborted') c.aborted++;
+  }
+  const out: Array<{ t: string; cls: string }> = [];
+  if (c.pass) out.push({ t: `${c.pass} ✓`, cls: '' });
+  if (c.fail) out.push({ t: `${c.fail} ✕`, cls: 'bad' });
+  if (c.blocked) out.push({ t: `${c.blocked} ◆`, cls: 'bad' });
+  if (c.aborted) out.push({ t: `${c.aborted} ⌫`, cls: 'warn' });
+  return out;
+}
+
+// ── row helpers ──
 function caseName(r: RunRow): string | null {
   if (r.template_id && r.note?.startsWith('template:')) return r.note.slice(r.note.indexOf(' ') + 1) || null;
   return null;
 }
+function noteOf(r: RunRow): string | null {
+  if (!r.note) return null;
+  if (r.note.startsWith('template:') || r.note.startsWith('sidebar:')) return null;
+  return r.note;
+}
+function fmtDur(ms: number | null, running = false): string {
+  if (running) return '…';
+  if (ms == null) return '—';
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+  return `${(s / 3600).toFixed(1)}h`;
+}
+function durOf(r: RunRow): { text: string; warn: boolean } {
+  const isRun = r.status === 'running';
+  const ms = isRun && r.started_at != null ? now.value - r.started_at : r.finished_at != null && r.started_at != null ? r.finished_at - r.started_at : null;
+  return { text: fmtDur(ms, isRun), warn: ms != null && ms > 30 * 60 * 1000 };
+}
+function hhmm(ts: number | null): string {
+  if (ts == null) return '—';
+  return new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+function statusCls(r: RunRow): string {
+  if (r.blocked === 1) return 'status-blocked';
+  return `status-${r.status}`;
+}
+function statusText(r: RunRow): string {
+  if (r.blocked === 1) return '◆ blocked';
+  return r.status;
+}
 async function abort(r: RunRow): Promise<void> {
   try { await fetch(`/api/runs/${r.id}/abort`, { method: 'POST' }); void load(); } catch { /* next poll */ }
 }
+
+// chip counts from the loaded window (grow with load earlier — intended)
+const counts = computed<Record<string, number>>(() => {
+  const c: Record<string, number> = { '': runs.value.length, failed: 0, blocked: 0, aborted: 0, active: 0 };
+  for (const r of runs.value) {
+    if (r.blocked === 1) c['blocked']!++;
+    else if (r.status === 'failed') c['failed']!++;
+    else if (r.status === 'aborted') c['aborted']!++;
+    if (r.status === 'running' || r.status === 'queued') c['active']!++;
+  }
+  return c;
+});
+const daysShown = computed(() => groups.value.filter((g) => g.key !== 'active').length);
 
 // live: run lifecycle events refresh the table instantly (no 5s wait)
 const unwatch = watch(
@@ -54,7 +187,7 @@ const unwatch = watch(
 onMounted(() => {
   live.connect();
   void load();
-  poll = setInterval(() => void load(), 5000); // safety net
+  poll = setInterval(() => { now.value = Date.now(); void load(); }, 5000); // safety net + live duration tick
 });
 onUnmounted(() => { if (poll) clearInterval(poll); unwatch(); live.release(); });
 </script>
@@ -62,81 +195,114 @@ onUnmounted(() => { if (poll) clearInterval(poll); unwatch(); live.release(); })
 <template>
   <div>
     <PageHeader title="runs">
-      <span class="ph-desc">{{ runs.length }} recent
+      <span class="ph-desc">{{ runs.length }} loaded · {{ daysShown }} day{{ daysShown === 1 ? '' : 's' }} shown
         <span v-if="!live.connected" style="color: var(--color-ember);"> · live offline</span>
       </span>
+      <template #actions>
+        <button
+          v-for="c in CHIPS" :key="c.key" class="chip" :class="{ on: statusFilter === c.key }"
+          :title="c.key === 'active' ? 'running or waiting in queue' : c.key === 'blocked' ? 'infrastructure-blocked runs' : c.key === '' ? 'every run regardless of outcome' : `${c.label} runs only`"
+          @click="setFilter(c.key)"
+        >{{ c.label }} <span class="n">{{ counts[c.key] ?? 0 }}</span></button>
+      </template>
     </PageHeader>
 
-    <div v-if="runs.length === 0" class="empty">no runs yet — run a test case from the test cases page, or take control of a device</div>
+    <div v-if="runs.length === 0" class="empty">no runs match — clear the filter, or run a test case from the test cases page</div>
 
-    <div v-else class="table-wrap">
-      <table>
-        <thead>
-          <tr><th>run</th><th>case</th><th>ticket</th><th>kind</th><th>status</th><th>build</th><th>by</th><th>started</th><th></th></tr>
-        </thead>
-        <tbody>
-          <tr v-for="r in runs" :key="r.id" @click="router.push(`/runs/${r.id}`)">
-            <td style="font-family: var(--font-mono, monospace); font-size: 11px;">{{ r.id.slice(0, 12) }}</td>
-            <td>
-              <span v-if="caseName(r)" style="color: var(--color-fog);">{{ caseName(r) }}</span>
-              <span v-else-if="r.template_id" style="color: var(--color-fog);">case {{ r.template_id.slice(0, 8) }}</span>
-              <span v-else style="color: var(--color-steel);">{{ r.kind === 'manual' && !r.template_id ? 'manual drive' : '—' }}</span>
-              <span
-                v-if="r.versionInfo"
-                class="vchip"
-                :class="{ stale: !r.versionInfo.current }"
-                :title="r.versionInfo.current
-                  ? 'the current state of the case — click to open it'
-                  : `ran superseded state r${r.versionInfo.revision} — click to view it read-only in the case editor`"
-                @click.stop="r.versionInfo.current
-                  ? router.push(`/templates?case=${r.template_id}`)
-                  : router.push(`/templates?case=${r.template_id}&rev=${r.versionInfo.revision}`)"
-              >{{ r.versionInfo.current ? 'current' : `r${r.versionInfo.revision}` }}<template v-if="!r.versionInfo.current"> ⚠</template></span>
-              <span
-                v-if="r.variantId"
-                class="vchip variant"
-                :title="`variant execution — world '${r.variantId}' (env + network scenario)`"
-              >▸ {{ r.variantId }}</span>
-            </td>
-            <td>
-              <RouterLink :to="`/tickets/${r.ticket_key}`" style="color: inherit; text-decoration: none;">{{ r.ticket_key }}</RouterLink>
-            </td>
-            <td style="color: var(--color-ash);">{{ r.kind }}</td>
-            <td>
-              <span v-if="r.blocked === 1" class="status status-blocked" title="infrastructure failure — not an app failure">◆ blocked</span>
-              <span v-else class="status" :class="`status-${r.status}`">{{ r.status }}</span>
-            </td>
-            <td style="color: var(--color-steel);">{{ r.app_version ? `v${r.app_version}` : '—' }}</td>
-            <td style="color: var(--color-ash);">{{ r.triggered_by }}</td>
-            <td style="color: var(--color-steel);">{{ ago(r.started_at) }}</td>
-            <td>
-              <button
-                v-if="r.status === 'running' || r.status === 'queued'"
-                class="btn btn-sm btn-danger"
-                title="abort this run — remaining steps skip, device frees"
-                @click.stop="abort(r)"
-              >■ stop</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+    <div v-else class="log">
+      <template v-for="g in groups" :key="g.key">
+        <div class="dayline">
+          <b>{{ g.label }}</b>
+          <template v-if="g.key === 'active'">
+            <span>{{ g.runs.length }} running</span>
+          </template>
+          <template v-else>
+            <span v-for="s in daySyms(g)" :key="s.t" :class="s.cls">{{ s.t }}</span>
+            <span v-if="g.maxMs != null" :class="{ bad: g.maxMs > 30 * 60 * 1000 }">longest {{ fmtDur(g.maxMs) }}{{ g.maxMs > 30 * 60 * 1000 ? ' ⚠' : '' }}</span>
+          </template>
+        </div>
+        <div
+          v-for="r in g.runs" :key="r.id" class="ln"
+          @click="router.push(`/runs/${r.id}`)"
+        >
+          <span class="t">{{ g.key === 'active' ? '▶' : hhmm(r.started_at) }}</span>
+          <span class="case">
+            <span v-if="caseName(r)" class="name">{{ caseName(r) }}</span>
+            <span v-else-if="r.template_id" class="name">case {{ r.template_id.slice(0, 8) }}</span>
+            <span v-else class="name dim">{{ r.kind === 'manual' ? 'manual drive' : '—' }}</span>
+            <span v-if="r.variantId" class="vchip" :title="`variant execution — world '${r.variantId}' (env + network scenario)`">▸ {{ r.variantId }}</span>
+            <span
+              v-if="r.versionInfo" class="rchip" :class="{ stale: !r.versionInfo.current }"
+              :title="r.versionInfo.current
+                ? 'the current state of the case — click to open it'
+                : `ran superseded state r${r.versionInfo.revision} — click to view it read-only in the case editor`"
+              @click.stop="r.versionInfo!.current
+                ? router.push(`/templates?case=${r.template_id}`)
+                : router.push(`/templates?case=${r.template_id}&rev=${r.versionInfo!.revision}`)"
+            >{{ r.versionInfo.current ? 'current' : `r${r.versionInfo.revision} ⚠` }}</span>
+            <span v-if="noteOf(r)" class="note">{{ noteOf(r) }}</span>
+          </span>
+          <span class="dur" :class="{ 'dur-bad': durOf(r).warn }">{{ durOf(r).text }}{{ durOf(r).warn ? ' ⚠' : '' }}</span>
+          <span class="by">{{ r.triggered_by }}</span>
+          <span class="status" :class="statusCls(r)">{{ statusText(r) }}
+            <button
+              v-if="r.status === 'running' || r.status === 'queued'"
+              class="stop" title="abort this run — remaining steps skip, device frees"
+              @click.stop="abort(r)">■</button>
+          </span>
+        </div>
+      </template>
     </div>
+
+    <button v-if="runs.length > 0 && !exhausted" class="loadmore" :disabled="loadingEarlier" @click="loadEarlier">
+      {{ loadingEarlier ? 'loading…' : 'load earlier ↓' }}
+    </button>
+    <div v-else-if="exhausted && runs.length > 0" class="endcap">— history start —</div>
   </div>
 </template>
 
 <style scoped>
-/* phase A breadcrumb chip — stale runs carry ⚠ and amber */
-.vchip {
-  border: 1px solid var(--color-slate, #3a3a3a);
-  border-radius: 2px;
-  padding: 0 5px;
-  color: var(--color-fog, #b4b4b4);
-  font-size: 10px;
-  cursor: pointer;
-  margin-left: 6px;
-}
-.vchip:hover { border-color: var(--color-ember); color: var(--color-ember); }
-.vchip.stale { border-color: var(--color-amber, #d9a03f); color: var(--color-amber, #d9a03f); }
-/* phase C variant chip — same geometry, violet accent */
-.vchip.variant { border-color: var(--color-violet, #8b5cf6); color: var(--color-violet, #8b5cf6); cursor: default; }
+/* chips */
+.chip { border:1px solid var(--color-slate); color:var(--color-ash); padding:2px 10px; font-size:var(--text-caption); border-radius:var(--r); transition:all var(--t); }
+.chip:hover { color:var(--color-paper); border-color:var(--color-chalk); }
+.chip.on { border-color:var(--color-paper); color:var(--color-paper); }
+.chip .n { color:var(--color-pewter); margin-left:4px; }
+.chip.on .n { color:var(--color-fog); }
+
+/* day divider */
+.dayline { display:flex; align-items:baseline; gap:12px; color:var(--color-steel); font-size:var(--text-caption); padding:14px 0 6px; border-bottom:1px solid var(--color-iron); }
+.dayline b { color:var(--color-fog); font-weight:400; }
+.dayline .bad { color:var(--color-ember); }
+.dayline .warn { color:var(--color-amber, #d9a03f); }
+
+/* log line — sketch 017-C grid (44px/1fr/76px/64px/96px) */
+.ln { display:grid; grid-template-columns:44px minmax(0,1fr) 76px 64px 96px; gap:12px; align-items:baseline; padding:5px 0; border-bottom:1px solid var(--color-graphite); cursor:pointer; transition:background var(--t); }
+.ln:hover { background:var(--color-carbon); }
+.t { color:var(--color-steel); font-size:var(--text-caption); }
+.case { color:var(--color-paper); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.case .name.dim { color:var(--color-steel); }
+.case .note { color:var(--color-steel); font-size:var(--text-caption); }
+.dur { color:var(--color-steel); font-size:var(--text-caption); text-align:right; }
+.dur-bad { color:var(--color-ember); }
+.by { color:var(--color-steel); font-size:var(--text-caption); }
+.status { font-size:var(--text-caption); text-align:right; white-space:nowrap; }
+.status-passed { color:var(--color-pewter); }
+.status-failed { color:var(--color-ember); font-weight:700; }
+.status-aborted { color:var(--color-amber, #d9a03f); }
+.status-blocked { color:var(--color-ember); }
+.status-running, .status-queued { color:var(--color-fog); }
+
+/* chips on rows */
+.vchip { border:1px solid var(--color-violet, #8b5cf6); color:var(--color-violet, #8b5cf6); border-radius:2px; padding:0 5px; font-size:10px; margin-left:6px; cursor:default; }
+.rchip { border:1px solid var(--color-slate); color:var(--color-fog); border-radius:2px; padding:0 5px; font-size:10px; margin-left:6px; cursor:pointer; }
+.rchip:hover { border-color:var(--color-ember); color:var(--color-ember); }
+.rchip.stale { border-color:var(--color-amber, #d9a03f); color:var(--color-amber, #d9a03f); }
+
+.stop { background:none; border:none; color:var(--color-ember); cursor:pointer; font-size:11px; margin-left:6px; padding:0 2px; }
+.stop:hover { color:var(--color-paper); }
+
+.loadmore { display:block; margin:24px auto 0; border:1px solid var(--color-slate); color:var(--color-fog); padding:6px 16px; font-size:var(--text-label); border-radius:var(--r); }
+.loadmore:hover { color:var(--color-paper); border-color:var(--color-chalk); }
+.loadmore:disabled { color:var(--color-steel); cursor:default; }
+.endcap { text-align:center; color:var(--color-steel); font-size:var(--text-caption); margin:24px 0; }
 </style>
