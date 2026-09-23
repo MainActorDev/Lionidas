@@ -1,0 +1,169 @@
+/** R2 S3 — screen registry domain: pure validation for the app map.
+ *
+ *  A screen is HOW the runner reaches it (entry: tab tap / deep link /
+ *  navigate steps), HOW it refreshes (gesture: pull | tab-retap |
+ *  back-forward | deepLink), and WHAT its named states look like
+ *  (selector-sets, reusing the case selector vocabulary). Shared shape for
+ *  the shared/ case schema (S4) and the server API — validated identically
+ *  on both write paths so the registry can never hold a screen the runner
+ *  can't use. */
+
+export interface ScreenSelector {
+  identifier?: string;
+  label?: string;
+  labelContains?: string;
+  ignoreCase?: boolean;
+}
+
+export type RefreshGesture = 'pull' | 'tab-retap' | 'back-forward' | 'deepLink';
+
+export interface ScreenEntry {
+  /** tap a tab-bar item by selector */
+  tab?: ScreenSelector & { point?: [number, number] };
+  /** app URL scheme route, e.g. shipments/{id} — params resolved per-case */
+  deepLink?: string;
+  /** explicit steps to replay (same shape as case steps, resolved by S5) */
+  navigate?: Array<Record<string, unknown>>;
+}
+
+export interface ScreenRefresh {
+  gesture: RefreshGesture;
+  /** selector for tab-retap / back-forward anchor */
+  selector?: ScreenSelector & { point?: [number, number] };
+  /** deepLink route for gesture=deepLink */
+  deepLink?: string;
+}
+
+export interface ScreenState {
+  /** ALL selectors must hold (AND) */
+  all?: ScreenSelector[];
+  /** ANY selector holds (OR) — combined with all[] as AND(any-of-list) */
+  any?: ScreenSelector[];
+}
+
+export interface AppScreen {
+  id: string;
+  entry: ScreenEntry;
+  refresh?: ScreenRefresh | undefined;
+  states: Record<string, ScreenState>;
+}
+
+const SCREEN_ID_RE = /^[a-z][a-z0-9-]*$/;
+const STATE_ID_RE = /^[a-z][a-z0-9_-]*$/;
+const GESTURES: ReadonlySet<string> = new Set(['pull', 'tab-retap', 'back-forward', 'deepLink']);
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function validSelector(v: unknown, err: (msg: string) => void): boolean {
+  if (!isPlainObject(v)) { err('selector must be a mapping'); return false; }
+  const keys = Object.keys(v);
+  const known = keys.every((k) => k === 'identifier' || k === 'label' || k === 'labelContains' || k === 'ignoreCase' || k === 'point');
+  if (!known) { err(`selector has unknown keys (${keys.join(', ')}) — allowed: identifier, label, labelContains, ignoreCase, point`); return false; }
+  const hasMatcher = 'identifier' in v || 'label' in v || 'labelContains' in v;
+  if (!hasMatcher) { err('selector needs one of identifier | label | labelContains'); return false; }
+  return true;
+}
+
+/** Validate one screen definition. Returns error strings (empty = valid).
+ *  Pure — no DB, no I/O; the API layer resolves cross-refs (S4 does
+ *  case→screen resolution separately). */
+export function validateScreen(screen: unknown): string[] {
+  const errors: string[] = [];
+  if (!isPlainObject(screen)) return ['screen must be a mapping'];
+  const s = screen as Record<string, unknown>;
+  for (const k of Object.keys(s)) {
+    if (k !== 'id' && k !== 'entry' && k !== 'refresh' && k !== 'states') {
+      errors.push(`unknown key "${k}" — allowed: id, entry, refresh, states`);
+    }
+  }
+  const id = s['id'];
+  if (typeof id !== 'string' || !SCREEN_ID_RE.test(id)) {
+    errors.push(`id must match [a-z][a-z0-9-]* (got ${JSON.stringify(id ?? null)})`);
+  }
+  // entry: exactly one of tab | deepLink | navigate
+  const entry = s['entry'];
+  if (!isPlainObject(entry)) {
+    errors.push('entry must be a mapping with exactly one of: tab, deepLink, navigate');
+  } else {
+    const modes = ['tab', 'deepLink', 'navigate'].filter((m) => entry[m] !== undefined);
+    if (modes.length === 0) errors.push('entry needs exactly one of: tab, deepLink, navigate (got none)');
+    if (modes.length > 1) errors.push(`entry: use only one of tab/deepLink/navigate (got ${modes.join(' + ')})`);
+    if (entry['tab'] !== undefined && !validSelector(entry['tab'], (m) => errors.push(`entry.tab: ${m}`))) { /* noted */ }
+    if (entry['deepLink'] !== undefined && (typeof entry['deepLink'] !== 'string' || entry['deepLink'].length === 0)) {
+      errors.push('entry.deepLink must be a non-empty string (app route)');
+    }
+    if (entry['navigate'] !== undefined) {
+      if (!Array.isArray(entry['navigate']) || entry['navigate'].length === 0 || !entry['navigate'].every(isPlainObject)) {
+        errors.push('entry.navigate must be a non-empty list of step mappings');
+      }
+    }
+    for (const k of Object.keys(entry)) {
+      if (k !== 'tab' && k !== 'deepLink' && k !== 'navigate') errors.push(`entry: unknown key "${k}"`);
+    }
+  }
+  // refresh (optional)
+  const refresh = s['refresh'];
+  if (refresh !== undefined) {
+    if (!isPlainObject(refresh)) {
+      errors.push('refresh must be a mapping { gesture, selector? | deepLink? }');
+    } else {
+      const g = refresh['gesture'];
+      if (typeof g !== 'string' || !GESTURES.has(g)) {
+        errors.push(`refresh.gesture must be one of ${[...GESTURES].join(' | ')} (got ${JSON.stringify(g ?? null)})`);
+      }
+      if (g === 'tab-retap' && refresh['selector'] === undefined) errors.push('refresh: tab-retap needs a selector');
+      if (g === 'deepLink' && typeof refresh['deepLink'] !== 'string') errors.push('refresh: deepLink gesture needs a deepLink route');
+      if (g === 'pull' && refresh['selector'] !== undefined) errors.push('refresh: pull takes no selector (dragged from screen mid)');
+      if (refresh['selector'] !== undefined) validSelector(refresh['selector'], (m) => errors.push(`refresh.selector: ${m}`));
+      for (const k of Object.keys(refresh)) {
+        if (k !== 'gesture' && k !== 'selector' && k !== 'deepLink') errors.push(`refresh: unknown key "${k}"`);
+      }
+    }
+  }
+  // states: ≥1 named state, each a non-empty selector-set
+  const states = s['states'];
+  if (!isPlainObject(states) || Object.keys(states).length === 0) {
+    errors.push('states must be a mapping with at least one named state (loading, loaded, …)');
+  } else {
+    for (const [name, def] of Object.entries(states)) {
+      if (!STATE_ID_RE.test(name)) errors.push(`state name "${name}" must match [a-z][a-z0-9_-]*`);
+      if (!isPlainObject(def)) { errors.push(`state "${name}" must be a mapping { all?: […], any?: […] }`); continue; }
+      const all = def['all'];
+      const any = def['any'];
+      if (all === undefined && any === undefined) {
+        errors.push(`state "${name}" needs at least one selector (all and/or any)`);
+        continue;
+      }
+      if (all !== undefined && (!Array.isArray(all) || all.length === 0 || !all.every((x) => validSelector(x, (m) => errors.push(`state "${name}".all: ${m}`))))) {
+        if (!Array.isArray(all) || all.length === 0) errors.push(`state "${name}".all must be a non-empty list`);
+      }
+      if (any !== undefined && (!Array.isArray(any) || any.length === 0 || !any.every((x) => validSelector(x, (m) => errors.push(`state "${name}".any: ${m}`))))) {
+        if (!Array.isArray(any) || any.length === 0) errors.push(`state "${name}".any must be a non-empty list`);
+      }
+      for (const k of Object.keys(def)) {
+        if (k !== 'all' && k !== 'any') errors.push(`state "${name}": unknown key "${k}" — allowed: all, any`);
+      }
+    }
+  }
+  return errors;
+}
+
+/** Validate a whole registry document (list of screens) — duplicate ids
+ *  named, every screen individually valid. */
+export function validateRegistry(screens: unknown): string[] {
+  const errors: string[] = [];
+  if (!Array.isArray(screens) || screens.length === 0) return ['registry must be a non-empty list of screens'];
+  const seen = new Map<string, number>();
+  screens.forEach((scr, i) => {
+    const errs = validateScreen(scr);
+    for (const e of errs) errors.push(`screen ${i + 1}: ${e}`);
+    const id = isPlainObject(scr) && typeof (scr as Record<string, unknown>)['id'] === 'string' ? (scr as Record<string, unknown>)['id'] as string : null;
+    if (id) {
+      if (seen.has(id)) errors.push(`screen ${i + 1}: duplicate id "${id}" (also screen ${seen.get(id)})`);
+      else seen.set(id, i + 1);
+    }
+  });
+  return errors;
+}

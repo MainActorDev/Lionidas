@@ -216,6 +216,19 @@ export function migrateM1(db: Database.Database): void {
       pinned_at INTEGER NOT NULL,
       PRIMARY KEY(user_id, udid)
     );
+    -- R2 S3 — app screen registry: the app's map (how to arrive, how to
+    -- refresh, named states). Cases REFERENCE screens; the registry owns the
+    -- truth. JSON columns keep the shape flexible while the model settles;
+    -- validation lives in domain/app-screens.ts (API validates on write).
+    CREATE TABLE IF NOT EXISTS app_screens(
+      app_bundle_id TEXT NOT NULL,
+      screen_id TEXT NOT NULL,
+      entry_json TEXT NOT NULL,
+      refresh_json TEXT,
+      states_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY(app_bundle_id, screen_id)
+    );
   `);
   db.prepare("INSERT OR IGNORE INTO schema_meta(key, value) VALUES ('schema_version', '1')").run();
   // M3 additions (guarded ALTERs — idempotent on existing DBs)
