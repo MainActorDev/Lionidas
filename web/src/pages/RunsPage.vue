@@ -227,19 +227,20 @@ onUnmounted(() => { if (poll) clearInterval(poll); unwatch(); live.release(); })
         >
           <span class="t">{{ g.key === 'active' ? '▶' : hhmm(r.started_at) }}</span>
           <span class="case">
-            <span v-if="caseName(r)" class="name">{{ caseName(r) }}</span>
-            <span v-else-if="r.template_id" class="name">case {{ r.template_id.slice(0, 8) }}</span>
-            <span v-else class="name dim">{{ r.kind === 'manual' ? 'manual drive' : '—' }}</span>
-            <span v-if="r.variantId" class="vchip" :title="`variant execution — world '${r.variantId}' (env + network scenario)`">▸ {{ r.variantId }}</span>
-            <span
-              v-if="r.versionInfo" class="rchip" :class="{ stale: !r.versionInfo.current }"
-              :title="r.versionInfo.current
-                ? 'the current state of the case — click to open it'
-                : `ran superseded state r${r.versionInfo.revision} — click to view it read-only in the case editor`"
-              @click.stop="r.versionInfo!.current
-                ? router.push(`/templates?case=${r.template_id}`)
-                : router.push(`/templates?case=${r.template_id}&rev=${r.versionInfo!.revision}`)"
-            >{{ r.versionInfo.current ? 'current' : `r${r.versionInfo.revision} ⚠` }}</span>
+            <span class="name-row">
+              <span v-if="caseName(r)" class="name">{{ caseName(r) }}</span>
+              <span v-else-if="r.template_id" class="name">case {{ r.template_id.slice(0, 8) }}</span>
+              <span v-else class="name dim">{{ r.kind === 'manual' ? 'manual drive' : '—' }}</span>
+              <span
+                v-if="r.versionInfo" class="rchip" :class="{ stale: !r.versionInfo.current }"
+                :title="r.versionInfo.current
+                  ? 'the current state of the case — click to open it'
+                  : `ran superseded state r${r.versionInfo.revision} — click to view it read-only in the case editor`"
+                @click.stop="r.versionInfo!.current
+                  ? router.push(`/templates?case=${r.template_id}`)
+                  : router.push(`/templates?case=${r.template_id}&rev=${r.versionInfo!.revision}`)"
+              >{{ r.versionInfo.current ? 'current' : `r${r.versionInfo.revision} ⚠` }}</span>
+            </span>
             <span v-if="noteOf(r)" class="note">{{ noteOf(r) }}</span>
           </span>
           <span class="dur" :class="{ 'dur-bad': durOf(r).warn }">{{ durOf(r).text }}{{ durOf(r).warn ? ' ⚠' : '' }}</span>
@@ -275,16 +276,18 @@ onUnmounted(() => { if (poll) clearInterval(poll); unwatch(); live.release(); })
 .dayline .bad { color:var(--color-ember); }
 .dayline .warn { color:var(--color-amber, #d9a03f); }
 
-/* log line — sketch 017-C grid (44px/1fr/76px/64px/96px) */
-.ln { display:grid; grid-template-columns:44px minmax(0,1fr) 76px 64px 96px; gap:12px; align-items:baseline; padding:5px 0; border-bottom:1px solid var(--color-graphite); cursor:pointer; transition:background var(--t); }
+/* log line — grid: 44px time / 1fr case (title row + note line) / 76px dur / 114px by / 96px status */
+.ln { display:grid; grid-template-columns:44px minmax(0,1fr) 76px 114px 96px; gap:12px; align-items:baseline; padding:5px 0; border-bottom:1px solid var(--color-graphite); cursor:pointer; transition:background var(--t); }
 .ln:hover { background:var(--color-carbon); }
 .t { color:var(--color-steel); font-size:var(--text-caption); }
-.case { color:var(--color-paper); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.case .name.dim { color:var(--color-steel); }
-.case .note { color:var(--color-steel); font-size:var(--text-caption); }
+.case { min-width:0; display:flex; flex-direction:column; }
+.name-row { display:flex; align-items:baseline; gap:6px; padding-left:30px; min-width:0; }
+.name-row .name { color:var(--color-paper); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.name-row .name.dim { color:var(--color-steel); }
+.case .note { color:var(--color-steel); font-size:var(--text-caption); padding-left:30px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .dur { color:var(--color-steel); font-size:var(--text-caption); text-align:right; }
 .dur-bad { color:var(--color-ember); }
-.by { color:var(--color-steel); font-size:var(--text-caption); }
+.by { color:var(--color-steel); font-size:var(--text-caption); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .status { font-size:var(--text-caption); text-align:right; white-space:nowrap; }
 .status-passed { color:var(--color-pewter); }
 .status-failed { color:var(--color-ember); font-weight:700; }
@@ -292,9 +295,7 @@ onUnmounted(() => { if (poll) clearInterval(poll); unwatch(); live.release(); })
 .status-blocked { color:var(--color-ember); }
 .status-running, .status-queued { color:var(--color-fog); }
 
-/* chips on rows */
-.vchip { border:1px solid var(--color-violet, #8b5cf6); color:var(--color-violet, #8b5cf6); border-radius:2px; padding:0 5px; font-size:10px; margin-left:6px; cursor:default; }
-.rchip { border:1px solid var(--color-slate); color:var(--color-fog); border-radius:2px; padding:0 5px; font-size:10px; margin-left:6px; cursor:pointer; }
+.rchip { border:1px solid var(--color-slate); color:var(--color-fog); border-radius:2px; padding:0 5px; font-size:10px; margin-left:6px; cursor:pointer; flex:none; }
 .rchip:hover { border-color:var(--color-ember); color:var(--color-ember); }
 .rchip.stale { border-color:var(--color-amber, #d9a03f); color:var(--color-amber, #d9a03f); }
 
