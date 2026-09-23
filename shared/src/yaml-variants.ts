@@ -12,6 +12,9 @@ import type { YamlError } from './case-yaml.js';
 export interface YamlVariant {
   id: string;
   networkScenario?: string;
+  /** scenario SETS (S2): multiple scenarios compose; effective presets = union.
+   *  Singular networkScenario stays as authoring sugar for [x]. */
+  scenarios?: string[];
   env?: Record<string, string>;
 }
 
@@ -57,20 +60,43 @@ export function parseVariants(raw: unknown, errors: YamlError[]): YamlVariant[] 
     }
     // unknown keys (checked BEFORE consuming known ones so typos surface)
     for (const k of Object.keys(v)) {
-      if (k !== 'id' && k !== 'networkScenario' && k !== 'env') {
+      if (k !== 'id' && k !== 'networkScenario' && k !== 'scenarios' && k !== 'env') {
         const hint = k === 'scenario' || k === 'network_scenario'
           ? ' — did you mean networkScenario?'
           : k === 'variables'
             ? ' — did you mean env?'
-            : ` — allowed: id, networkScenario, env`;
+            : ` — allowed: id, networkScenario, scenarios, env`;
         errors.push({ line: 1, message: `variant ${i + 1}: unknown key "${k}"${hint}` });
       }
+    }
+    // S2: scenarios + networkScenario are mutually exclusive (one shape per variant)
+    const hasSingular = v['networkScenario'] !== undefined;
+    const hasPlural = v['scenarios'] !== undefined;
+    if (hasSingular && hasPlural) {
+      errors.push({ line: 1, message: `variant ${i + 1}: use either networkScenario or scenarios, not both` });
+      continue;
     }
     // networkScenario
     const scenario = v['networkScenario'];
     if (scenario !== undefined && typeof scenario !== 'string') {
       errors.push({ line: 1, message: `variant ${i + 1}: networkScenario must be a scenario name (string)` });
       continue;
+    }
+    // scenarios (S2): list of scenario names, non-empty, no dups
+    let scenarios: string[] | undefined;
+    if (hasPlural) {
+      const rawList = v['scenarios'];
+      if (!Array.isArray(rawList) || rawList.length === 0 || rawList.some((x) => typeof x !== 'string')) {
+        errors.push({ line: 1, message: `variant ${i + 1}: scenarios must be a non-empty list of scenario names` });
+        continue;
+      }
+      const list = rawList as string[];
+      const dup = list.find((x, j) => list.indexOf(x) !== j);
+      if (dup !== undefined) {
+        errors.push({ line: 1, message: `variant ${i + 1}: duplicate scenario "${dup}" in scenarios` });
+        continue;
+      }
+      scenarios = list;
     }
     // env
     const envRaw = v['env'];
@@ -92,6 +118,7 @@ export function parseVariants(raw: unknown, errors: YamlError[]): YamlVariant[] 
     out.push({
       id,
       ...(typeof scenario === 'string' ? { networkScenario: scenario } : {}),
+      ...(scenarios !== undefined ? { scenarios } : {}),
       ...(env !== undefined ? { env } : {}),
     });
   }
@@ -104,4 +131,15 @@ export function parseVariants(raw: unknown, errors: YamlError[]): YamlVariant[] 
 export function mergeVariantEnv(variant: YamlVariant | null, invocationEnv: Record<string, string>): Record<string, string> {
   if (!variant?.env) return { ...invocationEnv };
   return { ...invocationEnv, ...variant.env };
+}
+
+/** S2: the scenario NAMES a variant activates, in deterministic order —
+ *  plural `scenarios` as authored, singular as `[x]`, none as []. This is
+ *  the one accessor the runner uses; everything downstream (resolution,
+ *  conflict detection, union application) consumes its output. */
+export function variantScenarioNames(variant: YamlVariant | null): string[] {
+  if (!variant) return [];
+  if (variant.scenarios && variant.scenarios.length > 0) return [...variant.scenarios];
+  if (variant.networkScenario) return [variant.networkScenario];
+  return [];
 }

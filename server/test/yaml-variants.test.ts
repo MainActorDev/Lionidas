@@ -60,7 +60,7 @@ describe('parseVariants — validation rules', () => {
 
   it('rule 6c: arbitrary unknown key lists allowed keys', () => {
     const r = parse([{ id: 'a', timeout: 5 }]);
-    expect(r.errors[0]!.message).toMatch(/unknown key "timeout" — allowed: id, networkScenario, env/);
+    expect(r.errors[0]!.message).toMatch(/unknown key "timeout" — allowed: id, networkScenario, scenarios, env/);
   });
 
   it('rule 7: env with non-string value → error', () => {

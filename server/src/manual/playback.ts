@@ -42,7 +42,7 @@ import { setLocation, clearLocation, prodExecute } from './location.ts';
 import { ensureLocationGrant } from './location-tcc.ts';
 import { internalAuthHeaders } from '../auth/roles.ts';
 import { snapshotCaseVersion } from './case-versions.ts';
-import { mergeVariantEnv, type YamlVariant } from '@crucible/shared/yaml-variants';
+import { mergeVariantEnv, variantScenarioNames, type YamlVariant } from '@crucible/shared/yaml-variants';
 
 const defaultListApps = (udid: string): Promise<Array<{ bundleId: string }>> =>
   listSimulatorApps(udid).then((apps) => apps.map((a) => ({ bundleId: a.bundleId })));
@@ -328,13 +328,19 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
   let version: ReturnType<typeof snapshotCaseVersion>;
   // D3: variant scenario overrides the invocation's (narrowest scope);
   // variant without scenario INHERITS the invocation's.
+  // S2: variants may carry a scenario SET (plural) — resolve every name to
+  // its id; activation applies the union (dedupe by preset id below).
   // Variants carry scenario NAMES (phase B vocabulary validates names);
   // snapshot + activation key on ids — resolve, and keep the raw CHOICE for
   // run provenance (a deleted scenario still records what was requested).
-  const scenarioChoice = opts.variant?.networkScenario ?? opts.scenarioId ?? null;
-  const scenarioId = scenarioChoice
-    ? ((deps.db.prepare('SELECT id FROM scenarios WHERE id = ? OR name = ? LIMIT 1').get(scenarioChoice, scenarioChoice) as { id: string } | undefined)?.id ?? null)
-    : null;
+  const scenarioNames = variantScenarioNames(opts.variant ?? null);
+  const scenarioChoice = scenarioNames.length > 0 ? scenarioNames.join('+') : opts.scenarioId ?? null;
+  const scenarioIds: string[] = [];
+  for (const name of scenarioNames.length > 0 ? scenarioNames : (opts.scenarioId ? [opts.scenarioId] : [])) {
+    const id = (deps.db.prepare('SELECT id FROM scenarios WHERE id = ? OR name = ? LIMIT 1').get(name, name) as { id: string } | undefined)?.id;
+    if (id) scenarioIds.push(id);
+  }
+  const scenarioId = scenarioIds[0] ?? null; // primary (snapshot provenance + pre-flight gate)
   // T7 — forge pre-flight: a scenario run needs the proxy + routing ALIVE.
   // The chain dies silently on restarts; without this gate the run plays the
   // full case against the real network and fails `not found: <text>` —
@@ -385,12 +391,15 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     // this run id (in-process proxy reads forgeState directly; the addon tails
     // the file). Best-effort: attribution fails soft if the dir is missing.
     if (attribute) { try { forgeStateService(deps).setActiveRun(runId); } catch { /* attribution best-effort */ } }
-    // network choice (phase 4): scenario presets active ONLY during the run
+    // network choice (phase 4): scenario presets active ONLY during the run.
+    // S2: a variant's scenario SET activates the UNION of member presets
+    // (dedupe by preset id — a preset shared by two scenarios fires once).
     let restorePresets: Array<Record<string, unknown>> | null = null; // non-null ⇒ scenario activated (service owns restore)
-    if (scenarioId) {
+    if (scenarioIds.length > 0) {
+      const ph = scenarioIds.map(() => '?').join(',');
       const presets = deps.db.prepare(
-        `SELECT p.* FROM presets p JOIN scenario_overrides so ON so.preset_id = p.id WHERE so.scenario_id = ? AND so.enabled = 1`,
-      ).all(scenarioId) as Array<Record<string, unknown>>;
+        `SELECT DISTINCT p.* FROM presets p JOIN scenario_overrides so ON so.preset_id = p.id WHERE so.scenario_id IN (${ph}) AND so.enabled = 1`,
+      ).all(...scenarioIds) as Array<Record<string, unknown>>;
       restorePresets = deps.db.prepare('SELECT * FROM presets ORDER BY created_at DESC').all() as Array<Record<string, unknown>>;
       try {
         forgeStateService(deps).activateScenario(presets);

@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { crucibleAlloy } from '../alloy/client.ts';
 import { initAlloyRuntime } from '../alloy/runtime.ts';
 import { parseCaseYaml, caseToYaml } from '@crucible/shared/case-yaml';
-import { VARIANT_ID_RE as VARIANT_ID_RE_LOCAL } from '@crucible/shared/yaml-variants';
+import { VARIANT_ID_RE as VARIANT_ID_RE_LOCAL, variantScenarioNames } from '@crucible/shared/yaml-variants';
 import { tapsForRun } from '../evidence/taps-store.ts';
 
 interface TemplateRow {
@@ -564,11 +564,39 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     // phase B: variant scenario names must resolve (scenarios.name UNIQUE —
     // total resolution, same argument as runFlow-by-name). Parse can't see
     // the DB, so the SAVE path owns this check.
+    // S2: plural `scenarios` resolve too, and the UNION of a variant's
+    // presets must not contain a duplicate (method, path_pattern) — two
+    // scenarios shipping the same endpoint would race at match time.
+    // Shadowing between glob/regex patterns is undecidable in general and
+    // deliberately NOT checked here (review F2: decidable conflicts only).
     if (r.case.variants) {
       for (const v of r.case.variants) {
-        if (v.networkScenario === undefined) continue;
-        const known = db.prepare('SELECT 1 FROM scenarios WHERE name = ?').get(v.networkScenario);
-        if (!known) return reply.code(422).send({ errors: [{ line: 1, message: `variant "${v.id}": unknown scenario "${v.networkScenario}"` }] });
+        const names = variantScenarioNames(v);
+        if (names.length === 0) continue;
+        for (const n of names) {
+          const known = db.prepare('SELECT 1 FROM scenarios WHERE name = ? OR id = ?').get(n, n);
+          if (!known) return reply.code(422).send({ errors: [{ line: 1, message: `variant "${v.id}": unknown scenario "${n}"` }] });
+        }
+        // union presets of the set → duplicate (method, path_pattern) check
+        const ph = names.map(() => '?').join(',');
+        const rows = db.prepare(
+          `SELECT p.method, p.path_pattern, so.scenario_id FROM presets p
+           JOIN scenario_overrides so ON so.preset_id = p.id
+           JOIN scenarios s ON s.id = so.scenario_id
+           WHERE (s.name IN (${ph}) OR s.id IN (${ph})) AND so.enabled = 1`,
+        ).all(...names, ...names) as Array<{ method: string; path_pattern: string; scenario_id: string }>;
+        const byEndpoint = new Map<string, string[]>(); // "METHOD path" → scenario ids
+        for (const row of rows) {
+          const key = `${row.method} ${row.path_pattern}`;
+          byEndpoint.set(key, [...(byEndpoint.get(key) ?? []), row.scenario_id]);
+        }
+        for (const [key, ids] of byEndpoint) {
+          const distinct = [...new Set(ids)];
+          if (distinct.length > 1) {
+            const namesBoth = distinct.map((sid) => (db.prepare('SELECT name FROM scenarios WHERE id = ?').get(sid) as { name: string }).name);
+            return reply.code(409).send({ errors: [{ line: 1, message: `variant "${v.id}": scenarios ${namesBoth.map((x) => `"${x}"`).join(' + ')} both fake \`${key}\` — a set may fake an endpoint once` }] });
+          }
+        }
       }
     }
     db.prepare(
