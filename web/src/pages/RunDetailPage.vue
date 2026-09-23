@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import PageHeader from '../components/PageHeader.vue';
-import { ref, onMounted, onUnmounted, watch } from 'vue';
-import { useRoute } from 'vue-router';
 import TriagePanel from '../components/TriagePanel.vue';
 import { useLiveEvents } from '../stores/live.ts';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { useRoute } from 'vue-router';
 
 interface Step { idx: number; flow_name: string; kind: string; name: string; status: string; reason: string | null; duration_ms: number; evidence_ids_json: string; evaluated_json?: string | null }
 interface Run { id: string; ticket_key: string; status: string; kind: string; triggered_by: string; device_udid: string; artifact_hash: string | null; freshness: string; launch_args_json: string; started_at: number | null; finished_at: number | null; template_id: string | null; app_version: string | null; blocked: number; note: string | null }
@@ -13,6 +13,13 @@ const runId = route.params.id as string;
 const run = ref<Run | null>(null);
 const steps = ref<Step[]>([]);
 const live = useLiveEvents();
+const now = ref(Date.now());
+let tick: ReturnType<typeof setInterval> | null = null;
+
+// disclosures — auto-collapse per plan (steps ≤3, no traffic)
+const stepsOpen = ref(true);
+const netOpen = ref(true);
+const rawOpen = ref(false);
 
 async function load(): Promise<void> {
   const [r, s] = await Promise.all([
@@ -21,12 +28,13 @@ async function load(): Promise<void> {
   ]);
   run.value = r.run;
   steps.value = s.steps;
+  stepsOpen.value = s.steps.length > 3; // trivial (≤3) → collapsed
   void loadTraffic();
 }
 
 const attachMsg = ref('');
 
-/** B1: this run's own HTTP traffic — what the app (and the host, while the
+/** this run's own HTTP traffic — what the app (and the host, while the
  *  proxy routes it) talked to while THIS run executed. Empty + proxy down =
  *  hint, not silence (pages teach themselves). */
 interface TrafficRow { id: string; run_id: string | null; ts: number; method: string; host: string; path: string; status: number; latency_ms: number }
@@ -39,6 +47,7 @@ async function loadTraffic(): Promise<void> {
   ]);
   traffic.value = t.traffic ?? [];
   proxyRunning.value = m.running;
+  netOpen.value = traffic.value.length > 0; // empty → collapsed (teach-line inside)
 }
 async function attachJira(): Promise<void> {
   const res = await fetch(`/api/runs/${runId}/attach`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
@@ -58,9 +67,91 @@ function evaluatedText(s: Step): string | null {
   } catch { return null; }
 }
 
+// ── verdict block (018-C): exit line + cause ──
+const isBlocked = computed(() => run.value?.blocked === 1);
+const isRunning = computed(() => run.value?.status === 'running' || run.value?.status === 'queued');
+const badOutcome = computed(() => isBlocked.value || ['failed', 'aborted'].includes(run.value?.status ?? ''));
+const verdictWord = computed(() => (isBlocked.value ? 'blocked' : run.value?.status ?? '—'));
+const verdictSym = computed(() => {
+  if (isBlocked.value) return '◆';
+  switch (run.value?.status) {
+    case 'failed': return '✕';
+    case 'aborted': return '⌫';
+    case 'running': case 'queued': return '▶';
+    case 'passed': return '✓';
+    default: return '·';
+  }
+});
+const wordCls = computed(() => (isBlocked.value || run.value?.status === 'failed') ? 'bad' : run.value?.status === 'aborted' ? 'warn' : run.value?.status === 'passed' ? 'ok' : 'live');
+const exitCode = computed(() => {
+  if (isRunning.value) return null;
+  if (isBlocked.value) return 'exit: infra';
+  switch (run.value?.status) {
+    case 'failed': return 'exit 1';
+    case 'aborted': return 'exit: aborted';
+    case 'passed': return 'exit 0';
+    default: return null;
+  }
+});
+
+/** case name from the note ("template:<id> <name>") — template_id is the
+ *  truth; note carries the human name (same parse as the runs log). Failed
+ *  runs' note is the diagnostic, not the label — fall back to the bare id
+ *  (still a working link) rather than hiding the case. */
+const caseName = computed(() => {
+  const r = run.value;
+  if (!r?.template_id) return null;
+  if (r.note?.startsWith('template:')) return r.note.slice(r.note.indexOf(' ') + 1) || null;
+  return `case ${r.template_id.slice(0, 12)}`;
+});
+const realTicket = computed(() => {
+  const k = run.value?.ticket_key;
+  return k && k !== '-' && k !== 'MANUAL' ? k : null;
+});
+
+/** the cause sentence: steps → note → status word (plan T1 fallback chain).
+ *  Blocked runs carry their message in note; failed runs' note is usually
+ *  just the case label — hence the template:/sidebar: guard. */
+const causeText = computed(() => {
+  const r = run.value;
+  if (!r) return null;
+  if (isBlocked.value) return r.note ?? 'infrastructure failure — the app never got tested';
+  if (r.status === 'failed' || r.status === 'aborted') {
+    const s = steps.value.find((x) => x.status === 'failed' || x.status === 'aborted');
+    if (s?.reason) return s.reason;
+    if (r.note && !r.note.startsWith('template:') && !r.note.startsWith('sidebar:')) return r.note;
+    return 'no failure reason recorded';
+  }
+  if (isRunning.value) {
+    const done = steps.value.filter((x) => x.status !== 'running').length;
+    return `step ${done} of ${Math.max(done, steps.value.length)}${steps.value.some((x) => x.status === 'running') ? ' running…' : ' — starting…'}`;
+  }
+  if (r.status === 'passed') return `${caseName.value ?? 'run'} — all steps green`;
+  return r.note ?? null;
+});
+const blockedHint = computed(() => {
+  const r = run.value;
+  if (!isBlocked.value || !r) return null;
+  return r.note?.includes('already bound')
+    ? 'engine session bound to another device — release it (engine close --session alloy) or restart the server, then re-run'
+    : 'the app never got tested — device/engine/network failed before or during the run';
+});
+
+const durationText = computed(() => {
+  const r = run.value;
+  if (!r?.started_at) return '—';
+  const ms = isRunning.value ? now.value - r.started_at : r.finished_at != null ? r.finished_at - r.started_at : null;
+  if (ms == null) return '—';
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+  return `${(s / 3600).toFixed(1)}h`;
+});
+
 onMounted(() => {
   load();
   live.connect();
+  tick = setInterval(() => { now.value = Date.now(); }, 1000); // live duration while running
   const onEvent = (ev: { type: string; payload: Record<string, unknown> }): void => {
     if (ev.type === 'step.started' && ev.payload['runId'] === runId) {
       steps.value.push({ idx: ev.payload['idx'] as number, flow_name: ev.payload['flow'] as string, kind: 'flow', name: ev.payload['flow'] as string, status: 'running', reason: null, duration_ms: 0, evidence_ids_json: '[]' });
@@ -80,79 +171,104 @@ onMounted(() => {
     },
     { flush: 'sync' },
   );
-  onUnmounted(() => { unwatch(); live.release(); });
+  onUnmounted(() => { unwatch(); if (tick) clearInterval(tick); live.release(); });
 });
 </script>
 
 <template>
   <div v-if="run">
-    <PageHeader :title="run.id">
-      <span class="ph-desc">
-        <RouterLink :to="`/tickets/${run.ticket_key}`" style="color: inherit;">{{ run.ticket_key }}</RouterLink>
-        · {{ run.kind }} · by {{ run.triggered_by }} · {{ run.started_at ? new Date(run.started_at).toLocaleString() : '' }}
-      </span>
-      <template #actions>
-        <span v-if="attachMsg" class="badge">{{ attachMsg }}</span>
-        <button class="btn btn-sm" @click="attachJira">attach → jira</button>
-        <span class="status" :class="`status-${run.status}`">{{ run.status }}</span>
+    <PageHeader :title="run.id" />
+
+    <!-- exit verdict line -->
+    <div class="exit">
+      <span class="sym" :class="wordCls">{{ verdictSym }}</span>
+      <span class="word" :class="wordCls">{{ verdictWord }}</span>
+      <span v-if="exitCode" class="code">{{ exitCode }}</span>
+    </div>
+
+    <!-- cause: red container ONLY for bad outcomes (failed/blocked/aborted);
+         passed/running render a plain line — a passed run in red reads as failure -->
+    <div v-if="badOutcome" class="cause-box">
+      <div class="cause-line">{{ causeText }}</div>
+      <div v-if="blockedHint" class="cause-hint">{{ blockedHint }}</div>
+    </div>
+    <div v-else-if="causeText" class="cause-line plain">{{ causeText }}</div>
+
+    <!-- env block (018-C): context as key=value output -->
+    <div class="env">
+      <div class="kv">
+        <template v-if="caseName">
+          <span class="k">case</span>
+          <RouterLink class="v link" :to="`/templates?case=${run.template_id}`">{{ caseName }}</RouterLink>
+        </template>
+        <template v-if="realTicket">
+          <span class="k">ticket</span>
+          <RouterLink class="v link" :to="`/tickets/${run.ticket_key}`">{{ realTicket }}</RouterLink>
+        </template>
+        <span class="k">device</span><span class="v">{{ run.device_udid.slice(0, 8) }}</span>
+        <span class="k">build</span><span class="v">{{ run.app_version ? `v${run.app_version}` : 'unknown' }}</span>
+        <span class="k">duration</span><span class="v">{{ durationText }}</span>
+        <span class="k">by</span><span class="v">{{ run.triggered_by }}</span>
+        <span class="k">started</span><span class="v">{{ run.started_at ? new Date(run.started_at).toLocaleString() : '—' }}</span>
+      </div>
+    </div>
+
+    <!-- next actions -->
+    <div class="actions">
+      <RouterLink v-if="run.template_id" class="btn" :to="`/templates?case=${run.template_id}`">open case →</RouterLink>
+      <button class="btn btn-ghost" @click="attachJira">attach → jira</button>
+      <span v-if="attachMsg" class="badge">{{ attachMsg }}</span>
+      <RouterLink class="btn btn-ghost" style="margin-left: auto;" to="/runs">back to log →</RouterLink>
+    </div>
+
+    <!-- steps as log lines (auto-collapsed when ≤3) -->
+    <div v-if="steps.length > 0" class="tlog">
+      <button class="tlog-head" @click="stepsOpen = !stepsOpen">steps <span class="n">· {{ steps.length }}</span><span class="arrow">{{ stepsOpen ? '▾' : '▸' }}</span></button>
+      <template v-if="stepsOpen">
+        <div v-for="s in steps" :key="s.idx" class="tline">
+          <span class="idx">{{ s.idx }}</span>
+          <span class="flow">{{ s.flow_name }}</span>
+          <span class="mid">
+            <span v-if="s.name && s.name !== s.flow_name" class="flow-sub">{{ s.name }}</span>
+            <span v-if="evaluatedText(s)" class="ev">↳ {{ evaluatedText(s) }}</span>
+            <span v-if="s.reason" class="rs" :title="s.reason">{{ s.reason }}</span>
+          </span>
+          <span class="dur">{{ s.duration_ms }}ms</span>
+          <span class="st" :class="`st-${s.status}`">{{ s.status }}</span>
+        </div>
       </template>
-    </PageHeader>
-
-    <div class="card">
-      <div class="meta-row"><span class="k">device</span><b>{{ run.device_udid.slice(0, 8) }}…</b></div>
-      <div class="meta-row"><span class="k">build</span><b>{{ run.app_version ? `v${run.app_version}` : 'unknown' }}</b></div>
-      <div class="meta-row"><span class="k">artifact</span><b>{{ run.artifact_hash?.slice(0, 12) ?? '—' }}</b></div>
-      <div class="meta-row">
-        <span class="k">freshness</span>
-        <b>{{ run.freshness }}</b>
-        <span v-if="run.freshness === 'stale_ignored'" class="badge badge-accent">⚠ older than source</span>
-      </div>
-      <div class="meta-row"><span class="k">launch args</span><b>{{ run.launch_args_json }}</b></div>
     </div>
 
-    <div v-if="run.blocked === 1" class="card card-accent" style="border-left-style: dashed;">
-      <b>◆ blocked — infrastructure failure, not an app failure</b>
-      <div style="font-size: 11px; color: var(--color-steel); margin-top: 4px;">
-        {{ run.note?.includes('already bound') ? 'engine session bound to another device — release it (engine close --session alloy) or restart the server, then re-run' : 'the app never got tested — device/engine/network failed before or during the run' }}
-      </div>
+    <!-- network (auto-collapsed when empty) -->
+    <div class="tlog">
+      <button class="tlog-head" @click="netOpen = !netOpen">network <span class="n">· {{ traffic.length }}</span><span class="arrow">{{ netOpen ? '▾' : '▸' }}</span></button>
+      <template v-if="netOpen">
+        <div v-if="traffic.length > 0">
+          <div v-for="t in traffic" :key="t.id" class="tline">
+            <span class="idx mono">{{ t.method }}</span>
+            <span class="flow" :title="t.host">{{ t.host }}</span>
+            <span class="mid"><span class="rs" :title="t.path">{{ t.path }}</span></span>
+            <span class="dur">{{ t.latency_ms }}ms</span>
+            <span class="st" :class="t.status < 400 ? 'st-pass' : 'st-fail'">{{ t.status }}</span>
+          </div>
+        </div>
+        <div v-else class="empty-note">no traffic captured for this run<span v-if="!proxyRunning"> — <RouterLink class="link" to="/forge">the network proxy was not running</RouterLink>; start it there before a run to capture</span></div>
+      </template>
     </div>
 
-    <div class="section-label">steps</div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>#</th><th>flow</th><th>status</th><th>duration</th><th>reason</th></tr></thead>
-        <tbody>
-          <tr v-for="s in steps" :key="s.idx" style="cursor: default;">
-            <td style="color: var(--color-steel);">{{ s.idx }}</td>
-            <td>
-              {{ s.flow_name }}
-              <div v-if="evaluatedText(s)" class="evaluated" :title="evaluatedText(s) ?? ''">↳ {{ evaluatedText(s) }}</div>
-            </td>
-            <td><span class="status" :class="`status-${s.status}`">{{ s.status }}</span></td>
-            <td style="color: var(--color-ash);">{{ s.duration_ms }}ms</td>
-            <td style="color: var(--color-steel); font-size: var(--text-caption); max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ s.reason ?? '' }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div class="section-label">network</div>
-    <div v-if="traffic.length > 0" class="table-wrap">
-      <table>
-        <thead><tr><th>method</th><th>host</th><th>path</th><th>status</th><th>latency</th></tr></thead>
-        <tbody>
-          <tr v-for="t in traffic" :key="t.id" style="cursor: default;">
-            <td class="mono">{{ t.method }}</td>
-            <td style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ t.host }}</td>
-            <td style="color: var(--color-ash); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" :title="t.path">{{ t.path }}</td>
-            <td><span class="status" :class="t.status < 400 ? 'status-pass' : 'status-fail'">{{ t.status }}</span></td>
-            <td style="color: var(--color-steel);">{{ t.latency_ms }}ms</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <div v-else class="card" style="font-size: 12px; color: var(--color-steel);">
-      no traffic captured for this run<span v-if="!proxyRunning"> — <RouterLink to="/forge">the network proxy was not running</RouterLink>; start it there before a run to capture</span>
+    <!-- raw diagnostics (rarely read — kept, demoted) -->
+    <div class="tlog">
+      <button class="tlog-head" @click="rawOpen = !rawOpen">raw<span class="arrow">{{ rawOpen ? '▾' : '▸' }}</span></button>
+      <template v-if="rawOpen">
+        <div class="env" style="margin-top: 8px;">
+          <div class="kv">
+            <span class="k">artifact</span><span class="v">{{ run.artifact_hash?.slice(0, 12) ?? '—' }}</span>
+            <span class="k">freshness</span><span class="v">{{ run.freshness }}{{ run.freshness === 'stale_ignored' ? ' ⚠ older than source' : '' }}</span>
+            <span class="k">launch args</span><span class="v">{{ run.launch_args_json || '—' }}</span>
+            <span class="k">kind</span><span class="v">{{ run.kind }}</span>
+          </div>
+        </div>
+      </template>
     </div>
 
     <TriagePanel :key="runId" />
@@ -160,5 +276,61 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.evaluated { color: var(--color-steel); font-size: 10px; margin-top: 2px; white-space: normal; }
+/* exit verdict */
+.exit { display:flex; align-items:baseline; gap:12px; margin-bottom:12px; }
+.exit .sym { font-size:24px; font-weight:700; }
+.exit .word { font-size:24px; font-weight:700; letter-spacing:-0.01em; }
+.exit .sym.bad, .exit .word.bad { color:var(--color-ember); }
+.exit .sym.warn, .exit .word.warn { color:var(--color-amber, #d9a03f); }
+.exit .sym.ok, .exit .word.ok { color:var(--color-paper); }
+.exit .sym.live, .exit .word.live { color:var(--color-fog); }
+.exit .code { color:var(--color-steel); font-size:var(--text-label); font-weight:400; }
+
+/* cause — red container (ember @ 0.5) ONLY for bad outcomes */
+.cause-box {
+  margin-bottom:16px;
+  border:1px solid rgba(218, 92, 44, 0.6);
+  background:rgba(218, 92, 44, 0.5);
+  border-radius:var(--r);
+  padding:12px 16px;
+}
+.cause-box .cause-line { color:var(--color-paper); font-size:var(--text-label); max-width:76ch; }
+.cause-box .cause-hint { color:var(--color-fog); font-size:var(--text-caption); margin-top:6px; opacity:.85; }
+.cause-line.plain { color:var(--color-fog); font-size:var(--text-label); margin-bottom:16px; max-width:76ch; }
+
+/* env block */
+.env { margin-bottom:16px; border:1px solid var(--color-iron); border-radius:var(--r); background:var(--color-carbon); padding:12px 16px; font-size:var(--text-caption); }
+.env .kv { display:grid; grid-template-columns:110px minmax(0,1fr); gap:3px 12px; }
+.env .k { color:var(--color-steel); }
+.env .v { color:var(--color-fog); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.link { text-decoration:none; border-bottom:1px dotted var(--color-slate); }
+.link:hover { color:var(--color-ember); border-bottom-color:var(--color-ember); }
+
+/* actions */
+.actions { display:flex; gap:8px; margin-bottom:8px; align-items:center; }
+.btn { border:1px solid var(--color-slate); color:var(--color-paper); padding:5px 12px; font-size:var(--text-label); border-radius:var(--r); text-decoration:none; display:inline-block; }
+.btn:hover { border-color:var(--color-chalk); }
+.btn-ghost { color:var(--color-fog); }
+.badge { border:1px solid var(--color-slate); color:var(--color-fog); padding:2px 8px; font-size:var(--text-caption); border-radius:var(--r); }
+
+/* log sections */
+.tlog { margin-top:20px; font-size:var(--text-label); }
+.tlog-head { display:flex; gap:8px; align-items:baseline; font-size:var(--text-caption); font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--color-steel); padding:8px 0; width:100%; text-align:left; cursor:pointer; background:none; border:none; border-bottom:1px solid var(--color-iron); }
+.tlog-head:hover { color:var(--color-fog); }
+.tlog-head .n { color:var(--color-pewter); font-weight:400; }
+.tlog-head .arrow { margin-left:auto; color:var(--color-pewter); }
+.tline { display:grid; grid-template-columns:56px 170px minmax(0,1fr) 70px 80px; gap:12px; padding:6px 0; border-bottom:1px solid var(--color-graphite); align-items:baseline; }
+.tline .idx { color:var(--color-steel); font-size:var(--text-caption); }
+.tline .idx.mono { color:var(--color-fog); }
+.tline .flow { color:var(--color-paper); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tline .flow-sub { color:var(--color-steel); font-size:var(--text-caption); display:block; }
+.tline .ev { color:var(--color-steel); font-size:10px; display:block; white-space:normal; }
+.tline .rs { color:var(--color-steel); font-size:var(--text-caption); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block; }
+.tline .dur { color:var(--color-steel); font-size:var(--text-caption); text-align:right; }
+.tline .st { text-align:right; font-size:var(--text-caption); }
+.st-passed, .st-pass { color:var(--color-fog); }
+.st-failed, .st-fail { color:var(--color-ember); font-weight:700; }
+.st-skip { color:var(--color-amber, #d9a03f); }
+.st-running { color:var(--color-fog); }
+.empty-note { color:var(--color-steel); font-size:var(--text-caption); padding:10px 0; }
 </style>

@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>018-A · verdict report</title>
+<style>
+:root {
+  --color-void:#000; --color-carbon:#111; --color-graphite:#191919; --color-iron:#202020;
+  --color-slate:#3a3a3a; --color-pewter:#505050; --color-steel:#606060; --color-ash:#7e7e7e;
+  --color-fog:#b4b4b4; --color-chalk:#d9d9d9; --color-paper:#eeeeee; --color-ember:#da5c2c;
+  --color-amber:#d9a03f;
+  --font-mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  --text-caption:12px; --text-body:14px; --text-label:13px; --text-heading-sm:18px; --text-display:32px;
+  --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --r:2px; --t:120ms cubic-bezier(.4,0,.2,1);
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:var(--color-void); color:var(--color-paper); font-family:var(--font-mono); font-size:var(--text-body); line-height:1.5; padding:24px 32px; max-width:1100px; margin:0 auto; }
+button { background:none; border:none; color:inherit; font:inherit; cursor:pointer; }
+a { color:inherit; }
+
+.hd-row1 { display:flex; align-items:center; gap:16px; margin-bottom:8px; }
+.hd-title { font-size:var(--text-heading-sm); font-weight:700; letter-spacing:-0.01em; }
+.hd-spacer { flex:1; }
+.hd-row2 { padding-bottom:16px; border-bottom:1px solid var(--color-iron); margin-bottom:24px; }
+
+/* ═══ A: VERDICT REPORT — hero card: status + cause sentence, chips + actions inside ═══ */
+.verdict { border:1px solid var(--color-iron); border-left:3px solid var(--color-pewter); border-radius:var(--r); padding:20px 24px; margin-bottom:24px; }
+.verdict.failed { border-left-color:var(--color-ember); }
+.verdict.blocked { border-left-style:dashed; border-left-color:var(--color-ember); }
+.verdict.passed { border-left-color:var(--color-fog); }
+.v-word { font-size:var(--text-display); font-weight:700; line-height:1.1; }
+.v-word.failed { color:var(--color-ember); }
+.v-word.blocked { color:var(--color-ember); }
+.v-word.passed { color:var(--color-paper); }
+.v-cause { font-size:16px; color:var(--color-fog); margin-top:10px; max-width:72ch; }
+.v-cause b { color:var(--color-paper); font-weight:400; }
+.v-hint { font-size:var(--text-caption); color:var(--color-steel); margin-top:6px; }
+
+.chips { display:flex; flex-wrap:wrap; gap:8px 20px; margin-top:18px; padding-top:14px; border-top:1px solid var(--color-iron); align-items:baseline; }
+.chip { font-size:var(--text-caption); color:var(--color-steel); }
+.chip b { color:var(--color-fog); font-weight:400; }
+.chip a { color:var(--color-fog); text-decoration:none; border-bottom:1px dotted var(--color-slate); }
+.chip a:hover { color:var(--color-ember); border-bottom-color:var(--color-ember); }
+
+.actions { display:flex; gap:8px; margin-top:16px; align-items:center; }
+.btn { border:1px solid var(--color-slate); color:var(--color-paper); padding:5px 12px; font-size:var(--text-label); border-radius:var(--r); }
+.btn:hover { border-color:var(--color-chalk); }
+.btn-ghost { color:var(--color-fog); }
+.badge { border:1px solid var(--color-slate); color:var(--color-fog); padding:2px 8px; font-size:var(--text-caption); border-radius:var(--r); }
+
+/* disclosures */
+.disc { margin-bottom:16px; }
+.disc-toggle { display:flex; align-items:baseline; gap:8px; font-size:var(--text-caption); font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--color-steel); padding:10px 0 8px; border-bottom:1px solid var(--color-iron); width:100%; text-align:left; }
+.disc-toggle:hover { color:var(--color-fog); }
+.disc-toggle .n { color:var(--color-pewter); font-weight:400; }
+.disc-toggle .arrow { margin-left:auto; color:var(--color-pewter); }
+.disc-body { border:1px solid var(--color-iron); border-radius:var(--r); margin-top:8px; padding:0; }
+table { width:100%; border-collapse:collapse; }
+th { font-size:var(--text-caption); font-weight:400; color:var(--color-steel); text-align:left; padding:8px 12px; border-bottom:1px solid var(--color-iron); }
+td { padding:8px 12px; font-size:var(--text-label); border-bottom:1px solid var(--color-iron); }
+tbody tr:last-child td { border-bottom:none; }
+.status { font-size:var(--text-caption); }
+.status-passed, .status-pass { color:var(--color-fog); }
+.status-failed, .status-fail { color:var(--color-ember); }
+.status-skip { color:var(--color-amber); }
+.muted { color:var(--color-steel); }
+label.page { font-size:var(--text-caption); color:var(--color-ember); letter-spacing:.08em; text-transform:uppercase; display:block; margin-bottom:16px; }
+.raw { font-size:var(--text-caption); color:var(--color-steel); border:1px solid var(--color-iron); border-radius:var(--r); padding:10px 14px; }
+.raw b { color:var(--color-fog); font-weight:400; }
+</style>
+</head>
+<body>
+
+<label class="page">018-A — verdict report (hero card w/ status word + cause sentence, chips + actions inside)</label>
+
+<div class="hd-row1">
+  <span class="hd-title">run_381fd68d</span>
+  <span class="hd-spacer"></span>
+  <span class="status status-failed">failed</span>
+</div>
+<div class="hd-row2"></div>
+
+<!-- failed example -->
+<div class="verdict failed">
+  <div class="v-word failed">failed</div>
+  <div class="v-cause">blocked by system dialog: <b>Allow “Lion Parcel” to use your location?</b></div>
+  <div class="v-hint">the system alert appeared before the flow started — the app never got tested</div>
+  <div class="chips">
+    <span class="chip"><a href="#">tnc</a></span>
+    <span class="chip">device <b>30B28173</b></span>
+    <span class="chip">build <b>v1.2.0</b></span>
+    <span class="chip">duration <b>0m 12s</b></span>
+    <span class="chip">by <b>qa</b></span>
+    <span class="chip">started <b>14:18 WIB</b></span>
+  </div>
+  <div class="actions">
+    <button class="btn">open case →</button>
+    <button class="btn btn-ghost">attach → jira</button>
+    <span class="badge">comment 12345 → CUST-1180</span>
+    <button class="btn btn-ghost" style="margin-left:auto;">back to log →</button>
+  </div>
+</div>
+
+<!-- collapsed trivial sections -->
+<div class="disc">
+  <button class="disc-toggle">steps <span class="n">· 1</span><span class="arrow">▸</span></button>
+</div>
+<div class="disc">
+  <button class="disc-toggle">network <span class="n">· 0 — proxy was not running</span><span class="arrow">▸</span></button>
+</div>
+
+<div class="disc">
+  <button class="disc-toggle">raw <span class="arrow">▸</span></button>
+</div>
+
+<!-- passed example (second card shown for comparison) -->
+<div class="verdict passed" style="margin-top:32px;">
+  <div class="v-word passed">passed</div>
+  <div class="v-cause"><b>intl drill — check-rates country worlds / sg</b> — all steps green</div>
+  <div class="chips">
+    <span class="chip"><a href="#">intl drill — check-rates country worlds</a></span>
+    <span class="chip">device <b>30B28173</b></span>
+    <span class="chip">build <b>v1.2.0</b></span>
+    <span class="chip">duration <b>2m 51s</b></span>
+  </div>
+</div>
+
+<script>
+document.querySelectorAll('.disc-toggle').forEach((t) => t.addEventListener('click', () => {
+  const arrow = t.querySelector('.arrow');
+  arrow.textContent = arrow.textContent === '▸' ? '▾' : '▸';
+  // demo: no body content behind these stubs
+}));
+</script>
+</body>
+</html>
