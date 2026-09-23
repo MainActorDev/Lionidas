@@ -141,7 +141,12 @@ export function registerRunRoutes(app: FastifyInstance, db: Database.Database, b
     const { id } = req.params as { id: string };
     const run = db.prepare('SELECT * FROM runs WHERE id = ?').get(id) as RunRow | undefined;
     if (!run) return reply.code(404).send({ error: 'run not found' });
-    return { run };
+    // bundle id from the run's case (single source of truth: templates) —
+    // the run itself never stored it; manual/template-less runs carry null
+    const bundle = run.template_id
+      ? (db.prepare('SELECT app_bundle_id FROM templates WHERE id = ?').get(run.template_id) as { app_bundle_id: string | null } | undefined)?.app_bundle_id ?? null
+      : null;
+    return { run: { ...run, app_bundle_id: bundle } };
   });
 
   // B2: abort a running manual/template run — idempotent on terminal runs.
