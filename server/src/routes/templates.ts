@@ -355,6 +355,24 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     ).all(...(scoped ? [id, variant === '' ? null : variant] : [id])) as Array<{ v: string | null; id: string; status: string; started_at: number }>;
     if (laneRows.length === 0) return reply.code(404).send({ error: 'template has no finished run' });
 
+    /** B1 lane axis (2026-09-24): a swap run is its OWN lane — labeled by its
+     *  world sequence (sg → my → empty), not by its entry variant. Detected by
+     *  swap steps in the run (evaluated swapTarget values, first-occurrence
+     *  order = the sequence). Single-world runs keep variant_id as the lane. */
+    const swapSequence = (runId: string): string[] => {
+      const rows = db.prepare(
+        `SELECT evaluated_json FROM run_steps WHERE run_id = ? AND status = 'pass' ORDER BY idx`,
+      ).all(runId) as Array<{ evaluated_json: string | null }>;
+      const seq: string[] = [];
+      for (const r of rows) {
+        try {
+          const ev = JSON.parse(r.evaluated_json ?? '{}') as { action?: string; swapTarget?: string };
+          if (ev.action === 'swap' && ev.swapTarget && !seq.includes(ev.swapTarget)) seq.push(ev.swapTarget);
+        } catch { /* pre-R2 rows */ }
+      }
+      return seq;
+    };
+
     /** env delta for a lane, from the template's variant definitions —
      *  variants_json holds [{id, networkScenario, env}]; the variantless
      *  lane and unknown ids get null (rendered as —) */
@@ -399,7 +417,11 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
 
     const lanes = laneRows.map((l) => {
       const env = variantEnv(id, l.v);
-      return { variantId: l.v, runId: l.id, runStatus: l.status, startedAt: l.started_at, env, items: itemsFor(l.id) };
+      const seq = swapSequence(l.id);
+      // entry world + swaps = the full sequence; >1 distinct target = swap run
+      const worldSeq = [...(l.v ? [l.v] : []), ...seq].filter((w, i, a) => a.indexOf(w) === i);
+      const isSwap = worldSeq.length > 1;
+      return { variantId: l.v, runId: l.id, runStatus: l.status, startedAt: l.started_at, env, items: itemsFor(l.id), ...(isSwap ? { swapRun: true, worldSeq } : {}) };
     });
     return { templateId: id, lanes };
   });
