@@ -516,6 +516,15 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       // same rule as malformed steps: skip the row's variants, keep the rest)
       scenarios: (db.prepare('SELECT name FROM scenarios ORDER BY name').all() as Array<{ name: string }>).map((r) => r.name),
       variantIds: [...variantIds],
+      // registry-UI stage 1: screen/state vocabulary for R2 verb completions.
+      // Screen ids are unique per bundle ONLY — every entry carries its
+      // bundle so the editor can scope to the case's own app (review F2).
+      screens: (db.prepare('SELECT app_bundle_id, screen_id, states_json FROM app_screens ORDER BY app_bundle_id, screen_id').all() as Array<{ app_bundle_id: string; screen_id: string; states_json: string }>)
+        .map((r) => {
+          let states: string[] = [];
+          try { states = Object.keys(JSON.parse(r.states_json) as Record<string, unknown>); } catch { /* malformed — empty */ }
+          return { screen: r.screen_id, bundle: r.app_bundle_id, states };
+        }),
     };
   });
 

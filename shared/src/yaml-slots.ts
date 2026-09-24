@@ -18,6 +18,9 @@ export type YamlSlot =
   | 'variant-id'     // right after "- " inside the variants: block
   | 'variant-key'    // a sibling key line inside a variant entry (4-space indent)
   | 'scenario-name'  // after "networkScenario: "
+  | 'arrive-screen'  // after "arrive: " / "refresh: " — screen ids (registry)
+  | 'swap-target'    // after "swap: " — swap target ids (swaps ∪ variants)
+  | 'screen-state'   // after "expect screen: " — "<screen>.<state>" refs
   | 'none';
 
 export function slotAt(doc: string, cursor: number): YamlSlot {
@@ -59,6 +62,15 @@ export function slotAt(doc: string, cursor: number): YamlSlot {
     const afterDash = before.slice(stepMatch[0].length);
     if (afterDash === '') return 'step-action';
     if (/^[a-z]+$/i.test(afterDash) && !/^[a-z]+\s*:/i.test(afterDash)) return 'step-action'; // action word not yet keyed
+    // partial two-word action ("expect scre", "expect screen" without colon
+    // yet) — still choosing the action; offer skeletons incl. R2 verbs
+    if (/^[a-z][a-z ]*$/i.test(afterDash) && !afterDash.includes(':')) return 'step-action';
+    // R2 two-word verbs BEFORE the generic extractor (review F4): \w+
+    // cannot match "expect screen" — without this, the !action gate below
+    // returns 'none' for the whole compound family.
+    if (/^expect screen\s*:/i.test(afterDash)) return 'screen-state';
+    if (/^(?:arrive|refresh)\s*:/i.test(afterDash)) return 'arrive-screen';
+    if (/^swap\s*:/i.test(afterDash)) return 'swap-target';
     const action = /^(\w+)\s*:/.exec(afterDash)?.[1];
     if (!action) return 'none';
     if (action === 'scroll') return 'direction';

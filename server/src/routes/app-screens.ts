@@ -39,6 +39,26 @@ export function registerAppScreenRoutes(app: FastifyInstance, db: Database.Datab
     tx(screens);
   };
 
+  /** All-bundles listing (registry-UI stage 1, A2 screens page): every
+   *  registry with its screens — the page groups by bundle client-side. */
+  app.get('/api/apps/screens', async () => {
+    const rows = db.prepare('SELECT app_bundle_id, screen_id, entry_json, refresh_json, states_json FROM app_screens ORDER BY app_bundle_id, screen_id').all() as
+      Array<{ app_bundle_id: string; screen_id: string; entry_json: string; refresh_json: string | null; states_json: string }>;
+    const byBundle = new Map<string, Array<import('@crucible/shared/app-screens').AppScreen>>();
+    for (const r of rows) {
+      const scr: import('@crucible/shared/app-screens').AppScreen = {
+        id: r.screen_id,
+        entry: JSON.parse(r.entry_json) as import('@crucible/shared/app-screens').AppScreen['entry'],
+        states: JSON.parse(r.states_json) as import('@crucible/shared/app-screens').AppScreen['states'],
+      };
+      if (r.refresh_json) scr.refresh = JSON.parse(r.refresh_json) as import('@crucible/shared/app-screens').AppScreen['refresh'];
+      const list = byBundle.get(r.app_bundle_id) ?? [];
+      list.push(scr);
+      byBundle.set(r.app_bundle_id, list);
+    }
+    return { registries: [...byBundle.entries()].map(([bundle, screens]) => ({ bundle, screens })) };
+  });
+
   app.get('/api/apps/:bundle/screens', async (req) => {
     const { bundle } = req.params as { bundle: string };
     return { screens: screensFor(bundle) };
