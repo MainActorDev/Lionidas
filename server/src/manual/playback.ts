@@ -548,7 +548,10 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
         // ── Tier 2.3: CoreLocation grant already happened route-level
         // (before the run row) — nothing to do here; the open below is the
         // single relaunch that picks the TCC row up. ──
-      const open = (await withWatchdog(runId, dispatchWithHeal('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, `open ${appToLaunch}`)) as { ok: boolean; error?: { message: string } };
+      const open = (await withWatchdog(runId, // -uitest-live-refresh: the app's test seam — appear-triggered fetches
+      // keep refiring under Crucible (world swaps need the re-fetch; guard 1
+      // verifies it). Inert on builds that don't read the arg.
+      dispatchWithHeal('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false, launchArgs: ['-uitest-live-refresh'] }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, `open ${appToLaunch}`)) as { ok: boolean; error?: { message: string } };
       if (!open.ok) throw new Error(`open failed: ${open.error?.message ?? 'engine error'}`);
 
       // ── readiness gate, phase 2b: UI settle ──
