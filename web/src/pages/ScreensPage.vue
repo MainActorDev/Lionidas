@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import PageHeader from '../components/PageHeader.vue';
+import { stateHolds, type SnapNode } from '@crucible/shared/app-screens';
 
 /** Screens page (A2, registry-UI stage 1) — the registry in the house row
  *  idiom: bundle sections (.section-label), screens as hairline-divided
@@ -33,6 +34,36 @@ const probe = ref<{ open: boolean; bundle: string; screenId: string; sessionId: 
   open: false, bundle: '', screenId: '', sessionId: null, nodes: [], filter: '', sel: null, busy: '', err: '',
 });
 const booted = ref<Array<{ udid: string; name: string | null }>>([]);
+
+// stage 3b: verify-against-live — run a state's selector-set against the
+// probe tree using the SAME stateHolds the runner asserts with (one
+// definition of "holds"; F1 moved it to shared for exactly this)
+const verify = ref<Record<string, { status: 'checking' | 'holds' | 'fails'; at: number }>>({});
+
+async function verifyState(s: AppScreen, bundle: string, name: string): Promise<void> {
+  const key = `${bundle}/${s.id}/${name}`;
+  verify.value[key] = { status: 'checking', at: Date.now() };
+  try {
+    if (booted.value.length === 0) {
+      try {
+        const d = await (await fetch('/api/devices')).json() as { devices: Array<{ udid: string; state: string; name: string | null }> };
+        booted.value = (d.devices ?? []).filter((x) => x.state === 'Booted').map((x) => ({ udid: x.udid, name: x.name }));
+      } catch { booted.value = []; }
+    }
+    if (booted.value.length === 0) { verify.value[key] = { status: 'fails', at: Date.now() }; saveErr.value = 'no booted device to verify against'; return; }
+    const res = await fetch(`/api/probe/${encodeURIComponent(booted.value[0]!.udid)}/tree`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: probe.value.sessionId, bundle }) });
+    if (!res.ok) { verify.value[key] = { status: 'fails', at: Date.now() }; saveErr.value = ((await res.json()) as { error?: string }).error ?? 'probe failed'; return; }
+    const d = (await res.json()) as { sessionId: string; nodes: SnapNode[] };
+    probe.value.sessionId = d.sessionId;
+    const def = s.states[name];
+    if (!def) { verify.value[key] = { status: 'fails', at: Date.now() }; return; }
+    verify.value[key] = { status: stateHolds(d.nodes, def) ? 'holds' : 'fails', at: Date.now() };
+    saveErr.value = '';
+  } catch (e) {
+    verify.value[key] = { status: 'fails', at: Date.now() };
+    saveErr.value = e instanceof Error ? e.message : String(e);
+  }
+}
 
 async function openProbe(s: AppScreen, bundle: string): Promise<void> {
   saveErr.value = '';
@@ -231,6 +262,12 @@ function describeRefresh(s: AppScreen): string {
   if (r.gesture === 'deepLink') return r.deepLink ?? '?';
   return r.gesture;
 }
+function verifyResult(v: { status: 'checking' | 'holds' | 'fails'; at: number }): string {
+  if (v.status === 'checking') return '…';
+  if (v.status === 'holds') return '✓ holds';
+  return '✗ not on screen';
+}
+
 function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): string {
   const parts: string[] = [];
   if (def.all?.length) parts.push(`all: ${def.all.map(describeSelector).join(' + ')}`);
@@ -261,6 +298,8 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
         <div v-for="(def, name) in s.states" :key="name" class="state-row">
           <span class="st-nm">{{ name }}</span>
           <span class="st-def">{{ stateDef(def) }}</span>
+          <button v-if="editing === s.id" class="st-verify" title="run this state's selectors against the live tree" @click="verifyState(s, b.bundle, name)">verify live</button>
+          <span v-if="verify[`${b.bundle}/${s.id}/${name}`]" class="st-vres" :class="verify[`${b.bundle}/${s.id}/${name}`]!.status">{{ verifyResult(verify[`${b.bundle}/${s.id}/${name}`]!) }}</span>
           <button v-if="editing === s.id" class="st-del" title="delete this state" @click="removeState(s, b.bundle, name)">delete</button>
         </div>
         <!-- add-state form (stage 2): one selector row — the registry editor's
@@ -358,6 +397,12 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
 .state-row { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: var(--s-3); padding: 3px 0; font-size: var(--text-label); }
 .st-nm { color: var(--color-chalk); }
 .st-def { color: var(--color-steel); }
+.st-verify { color: var(--color-pewter); font-size: var(--text-caption); transition: color var(--t); }
+.st-verify:hover { color: var(--color-chalk); }
+.st-vres { font-size: var(--text-caption); }
+.st-vres.holds { color: var(--color-fog); }
+.st-vres.checking { color: var(--color-pewter); }
+.st-vres.fails { color: var(--color-ember); }
 .st-del { color: var(--color-pewter); font-size: var(--text-caption); transition: color var(--t); }
 .st-del:hover { color: var(--color-ember); }
 .c-edit { color: var(--color-pewter); font-size: var(--text-caption); cursor: pointer; transition: color var(--t); }
