@@ -25,6 +25,10 @@ const netOpen = ref(true);
 const rawOpen = ref(true);
 const evOpen = ref(true);
 
+function stepEvidence(s: Step): string[] {
+  try { return JSON.parse(s.evidence_ids_json || '[]') as string[]; } catch { return []; }
+}
+
 function fmtBytes(n: number): string {
   if (n >= 1_048_576) return `${(n / 1_048_576).toFixed(1)} MB`;
   if (n >= 1024) return `${(n / 1024).toFixed(0)} KB`;
@@ -273,6 +277,11 @@ onMounted(() => {
           </span>
           <span class="dur">{{ s.duration_ms }}ms</span>
           <span class="st" :class="`st-${s.status}`">{{ s.status }}</span>
+          <template v-if="stepEvidence(s).length > 0">
+            <a v-for="ev in stepEvidence(s)" :key="s.idx + ev" class="stepthumb" :href="`/api/evidence/${ev}/file`" target="_blank" :title="`open step evidence`">
+              <img :src="`/api/evidence/${ev}/file`" alt="step evidence" />
+            </a>
+          </template>
         </div>
       </template>
     </div>
@@ -356,6 +365,10 @@ onMounted(() => {
 
 /* evidence grid */
 .evgrid { display:flex; flex-wrap:wrap; gap:12px; padding:12px 0; }
+.stepthumb { grid-column: 1 / -1; justify-self:start; display:inline-block; margin:2px 0 4px; }
+.stepthumb img { height: 84px; width:auto; border:1px solid var(--color-iron); border-radius:4px; display:block; }
+.stepthumb:hover img { border-color:var(--color-slate); }
+
 .evcard { position:relative; border:1px solid var(--color-iron); border-radius:var(--r); overflow:hidden; background:var(--color-carbon); text-decoration:none; max-width:220px; }
 .evcard:hover { border-color:var(--color-slate); }
 .evcard img { display:block; width:220px; height:auto; }

@@ -69,6 +69,19 @@ export class EvidenceRecorder {
       .catch((err: unknown) => ({ ok: false, error: { message: err instanceof Error ? err.message : String(err) } })) as Promise<DispatchResult>;
   }
 
+  /** Per-state screenshot for expect screen / expect screen-passing verbs —
+   *  same contract as expect: the frame that PROVED the state holds. Used
+   *  by R2 verbs (swap cases): each world's arrival evidence. */
+  async captureStateEvidence(): Promise<string | null> {
+    const shot = (await this.deps.dispatch('alloy_screenshot', { udid: this.udid }, this.deps.dispatchDeps)) as
+      { ok: boolean; result?: { path?: string } };
+    if (shot.ok && shot.result?.path) {
+      const ev = ingestEvidence(this.deps, this.runId, this.runId, 'screenshot', shot.result.path);
+      return ev?.id ?? null;
+    }
+    return null;
+  }
+
   /** Per-expect screenshot → evidence id (null = capture failed; the step
    *  row then carries no evidence — verdict unchanged). */
   async captureExpectEvidence(): Promise<string | null> {

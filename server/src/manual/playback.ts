@@ -1022,11 +1022,16 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               }
               outcome = await screenRunner.swap(s.swap!, ids);
             } else outcome = await screenRunner.expectScreen(s.expectScreen!.screen, s.expectScreen!.state, s.expectScreen!.negate === true);
+            // per-state evidence: a PASSING expect screen captures the frame
+            // that proved the state — swap cases get one screenshot per
+            // world, attachable to the step row like classic expects.
+            const passEv = outcome.ok && s.action === 'expectScreen' ? await recorder.captureStateEvidence() : null;
+            const passEvidence = passEv ? JSON.stringify([passEv]) : '[]';
             if (outcome.ok) {
-              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, note: outcome.note }));
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, passEvidence, JSON.stringify({ action: s.action, note: outcome.note }));
             } else {
               runStatus = 'failed';
-              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', `${outcome.code}: ${outcome.note}`, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, code: outcome.code }));
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', `${outcome.code}: ${outcome.note}`, t0, Date.now() - t0, passEvidence, JSON.stringify({ action: s.action, code: outcome.code }));
               for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
                 insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null);
               }
