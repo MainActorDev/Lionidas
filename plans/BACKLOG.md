@@ -81,6 +81,7 @@ real cases start hitting the limit.
 - Evidence: screen-runner.ts world() SWAP_LIMIT branch; plan
   20260923T141446Z S5 notes.
 
+
 ### 10. Recorder → swap cases (parked 2026-09-24, user-directed)
 Teach the manual recorder to emit R2 verbs (arrive/swap/refresh/expect
 screen) or add a "convert recording to worlds" flow. Genuinely open design:
@@ -91,4 +92,21 @@ network-observed scenario changes to swap steps). Not part of the registry-UI
 arc (plans/20260924T052218Z-screen-registry-ui-plan.md lists it out of scope).
 - Evidence: session 2026-09-24 — user asked "what if I want to create a new
   test case?"; recorder today emits v1 steps only.
-
+### 11. Launch-arg live-refresh pattern (parked 2026-09-24, design agreed)
+App-side change (ios-consumer, NOT Crucible): move home's country-recommendation
+fetch from willAppear to viewDidLoad-once (user's long-standing intent — fewer
+redundant fetches). Crucible-side consequence: the registry's back-forward
+refresh gesture dies (home VC stays alive; guard 1 correctly fails
+SWAP_NOT_CONFIRMED), and the deep-link gesture is DEAD for this app — verified
+live 2026-09-24: lionparcel://home and lio://home open the app but iOS shows
+the "Open in Lion Parcel?" confirmation dialog and NO fetch fires (router
+reuses the live instance; the dialog also blocks automation). Agreed design:
+production keeps viewDidLoad-once; when launched with a test launch-arg (e.g.
+-uitest-live-refresh, exact name TBD by the app team) home ALSO refetches on
+appear. Crucible then: playback passes the arg at launch (runs.launch_args_json
+already carries launch args); registry refresh gesture becomes a new
+launchArg kind OR the arg is implied by swap runs (design note: prefer making
+playback always pass it — zero registry surface change, no per-screen
+deep-link registrations needed, which the user explicitly rejected as
+tail-wagging-dog). Until the app ships the arg: back-forward keeps working
+(willAppear still fetches today).
