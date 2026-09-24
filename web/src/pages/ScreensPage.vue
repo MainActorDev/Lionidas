@@ -431,43 +431,59 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
 </script>
 
 <template>
-  <PageHeader title="screens" desc="per-app screen registry — entries, refresh gestures, assertion states" />
+  <PageHeader title="screens" desc="per-app screen registry — what each screen is, how to enter and refresh it, the states cases assert on" />
   <div v-if="loading" class="hint">loading registries…</div>
   <div v-else-if="error" class="hint err">{{ error }}</div>
-  <div v-else-if="bundles.length === 0" class="hint">no screens registered yet</div>
+  <div v-else-if="bundles.length === 0" class="hint">no screens registered yet — register one below</div>
 
-  <section v-for="b in bundles" :key="b.bundle" class="bundle">
+  <div v-for="b in bundles" :key="b.bundle" class="registry">
     <div class="section-label bundle-row">
-      <span>{{ b.bundle }} · {{ b.screens.length }}</span>
+      <span>{{ b.bundle }}</span>
       <span class="bundle-acts">
         <button class="mini-act" title="register a new screen" @click="openCreate(b.bundle)">+ screen</button>
         <button class="mini-act" title="import/export the registry as yaml" @click="openYaml(b.bundle)">yaml</button>
       </span>
     </div>
-    <article v-for="s in b.screens" :key="s.id" class="scr" :class="{ open: openId === s.id }">
-      <button class="scr-row" :title="openId === s.id ? 'collapse states' : 'expand states'" @click="toggle(s)">
-        <span class="c-id">{{ s.id }}</span>
-        <span class="c-entry" :title="'entry — ' + describeEntry(s)">{{ describeEntry(s) }}</span>
-        <span class="c-refresh" :title="'refresh — ' + describeRefresh(s)">{{ describeRefresh(s) }}</span>
-        <span class="c-states-n">{{ Object.keys(s.states).length }} st</span>
-        <span class="c-used" v-if="usage[s.id]?.length" :title="usage[s.id]!.join(', ')">{{ usage[s.id]!.join(', ') }}</span>
-        <span class="c-acts" @click.stop>
-          <button class="c-act" title="edit this screen (entry, refresh)" @click="openEditScreen(s, b.bundle)">edit</button>
-          <span v-if="openId === s.id && editing !== s.id" class="c-act" title="edit states" @click.stop="beginEdit(s)">states</span>
+
+    <div class="scr-thead">
+      <span class="col-id">screen</span>
+      <span class="col-entry">entry</span>
+      <span class="col-refresh">refresh</span>
+      <span class="col-states">states</span>
+      <span class="col-used">used by</span>
+      <span class="col-acts"></span>
+    </div>
+
+    <article v-for="s in b.screens" :key="s.id" class="scr-card" :class="{ editing: editing === s.id }">
+      <div class="scr-row" :title="openId === s.id ? 'collapse' : 'expand states'" @click="toggle(s)">
+        <span class="col-id"><span class="scr-id">{{ s.id }}</span></span>
+        <span class="col-entry">{{ describeEntry(s) }}</span>
+        <span class="col-refresh">{{ describeRefresh(s) }}</span>
+        <span class="col-states">{{ Object.keys(s.states).length }}</span>
+        <span class="col-used" :title="usage[s.id]?.join(', ')">{{ usage[s.id]?.length ? usage[s.id]!.join(', ') : '—' }}</span>
+        <span class="col-acts" @click.stop>
+          <button class="c-act" title="edit entry/refresh" @click="openEditScreen(s, b.bundle)">edit</button>
+          <button class="c-act" title="add/remove states, probe a live device" @click="beginEdit(s)">states</button>
           <button class="c-act danger" title="delete this screen" @click="deleteScreen(s, b.bundle)">delete</button>
         </span>
-        <span class="c-arrow">{{ openId === s.id ? '▾' : '▸' }}</span>
-      </button>
-      <div v-if="openId === s.id" class="scr-states">
-        <div v-for="(def, name) in s.states" :key="name" class="state-row">
-          <span class="st-nm">{{ name }}</span>
-          <span class="st-def">{{ stateDef(def) }}</span>
-          <button v-if="editing === s.id" class="st-verify" title="run this state's selectors against the live tree" @click="verifyState(s, b.bundle, name)">verify live</button>
-          <span v-if="verify[`${b.bundle}/${s.id}/${name}`]" class="st-vres" :class="verify[`${b.bundle}/${s.id}/${name}`]!.status">{{ verifyResult(verify[`${b.bundle}/${s.id}/${name}`]!) }}</span>
-          <button v-if="editing === s.id" class="st-del" title="delete this state" @click="removeState(s, b.bundle, name)">delete</button>
+      </div>
+
+      <!-- expanded: states as a sub-table of the same idiom -->
+      <div v-if="openId === s.id" class="scr-body">
+        <div class="st-thead">
+          <span class="st-col-nm">state</span>
+          <span class="st-col-def">asserts</span>
+          <span class="st-col-acts"></span>
         </div>
-        <!-- add-state form (stage 2): one selector row — the registry editor's
-             core loop; probe-sourced selectors land in stage 3 -->
+        <div v-for="(def, name) in s.states" :key="name" class="st-row">
+          <span class="st-col-nm">{{ name }}</span>
+          <span class="st-col-def">{{ stateDef(def) }}</span>
+          <span class="st-col-acts">
+            <button v-if="editing === s.id" class="st-verify" title="run this state's selectors against the live tree" @click="verifyState(s, b.bundle, name)">verify live</button>
+            <span v-if="verify[b.bundle + '/' + s.id + '/' + name]" class="st-vres" :class="verify[b.bundle + '/' + s.id + '/' + name]!.status">{{ verifyResult(verify[b.bundle + '/' + s.id + '/' + name]!) }}</span>
+            <button v-if="editing === s.id" class="st-del" title="delete this state" @click="removeState(s, b.bundle, name)">delete</button>
+          </span>
+        </div>
         <div v-if="editing === s.id" class="add-state">
           <select v-model="newStates[s.id]!.kind" class="as-kind" title="selector kind">
             <option value="identifier">identifier</option>
@@ -477,14 +493,12 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
           <input v-model="newStates[s.id]!.value" class="as-val" placeholder="value — e.g. home_check_rates_see_all_button" @keydown.enter="addState(s, b.bundle)">
           <input v-model="newStates[s.id]!.name" class="as-name" placeholder="state name" @keydown.enter="addState(s, b.bundle)">
           <button class="as-add" @click="addState(s, b.bundle)">add state</button>
-        </div>
-        <div v-if="editing === s.id" class="edit-row">
           <button class="probe-open" title="pick a live element on a booted device" @click="openProbe(s, b.bundle)">probe device…</button>
         </div>
         <div v-if="saveMsg || saveErr" class="save-line" :class="{ err: !!saveErr }">{{ saveErr || saveMsg }}</div>
       </div>
     </article>
-  </section>
+  </div>
 
   <!-- screen editor: create + edit entry/refresh -->
   <div v-if="editor" class="probe-overlay" @click.self="editor = null">
@@ -530,7 +544,6 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
     </div>
   </div>
 
-  <!-- yaml import/export -->
   <div v-if="yamlModal" class="probe-overlay" @click.self="yamlModal = null">
     <div class="probe">
       <div class="probe-head">
@@ -591,40 +604,55 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
     </div>
   </div>
 </template>
-
 <style scoped>
 .hint { color: var(--color-steel); font-size: var(--text-label); padding: var(--s-4) 0; }
 .hint.err { color: var(--color-ember); }
-.bundle { margin-bottom: var(--s-5); }
+.registry { margin-bottom: var(--s-5); }
 
-/* screens as hairline-divided rows — the house list idiom (a2-row pattern):
-   borderless rows on void, iron hairline between, hover raises the surface */
-.scr { border-bottom: 1px solid var(--color-iron); }
-.scr:first-of-type { border-top: 1px solid var(--color-iron); }
-.scr.open { background: var(--color-carbon); }
-.scr-row {
+/* ── house list idiom (su-thead/a2-thead pattern): sticky uppercase thead,
+   hairline rows, graphite hover, actions right ── */
+.bundle-row { display: flex; align-items: baseline; gap: var(--s-2); }
+.bundle-row > span:first-child { flex: 1; }
+.bundle-acts { display: flex; gap: var(--s-1); }
+.mini-act { border: 1px solid var(--color-iron); color: var(--color-pewter); font-size: var(--text-caption); padding: 1px var(--s-2); transition: all var(--t); }
+.mini-act:hover { border-color: var(--color-slate); color: var(--color-paper); }
+
+.scr-thead, .scr-row {
   display: grid;
-  grid-template-columns: 140px minmax(0, 1.2fr) minmax(0, 1.4fr) 54px minmax(0, 1fr) 16px;
-  gap: var(--s-3);
-  align-items: baseline;
-  width: 100%;
-  padding: var(--s-2) 0;
-  font-size: var(--text-label);
-  text-align: left;
-  transition: background var(--t);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1.4fr) minmax(0, 56px) minmax(0, 1.2fr) minmax(0, 150px);
+  gap: var(--s-2); align-items: center;
 }
-.scr-row:hover { background: var(--color-carbon); }
-.c-id { color: var(--color-paper); font-weight: var(--weight-bold); }
-.c-entry, .c-refresh { color: var(--color-fog); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.c-states-n { color: var(--color-steel); font-size: var(--text-caption); }
-.c-used { color: var(--color-steel); font-size: var(--text-caption); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.c-arrow { color: var(--color-pewter); font-size: var(--text-caption); }
+.scr-thead {
+  position: sticky; top: 0; z-index: 2; background: var(--color-graphite);
+  padding: 8px 12px; font-size: 10px; color: var(--color-steel);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.scr-card { border-bottom: 1px solid var(--color-iron); }
+.scr-card.editing { border-color: var(--color-ember); }
+.scr-card.editing .scr-row { background: color-mix(in srgb, var(--color-ember) 6%, transparent); }
+.scr-row { padding: 8px 12px; min-height: 44px; cursor: pointer; }
+.scr-row:hover { background: var(--color-graphite); }
+.scr-id { color: var(--color-paper); font-weight: var(--weight-bold); font-size: var(--text-label); }
+.col-entry, .col-refresh, .col-used { color: var(--color-fog); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.col-states { color: var(--color-fog); font-size: 12px; }
+.col-acts { display: flex; gap: var(--s-2); justify-content: flex-end; }
+.c-act { color: var(--color-pewter); font-size: var(--text-caption); transition: color var(--t); }
+.c-act:hover { color: var(--color-chalk); }
+.c-act.danger:hover { color: var(--color-ember); }
 
-/* expanded state list — inset under the row, same column lead */
-.scr-states { padding: var(--s-1) 0 var(--s-3); }
-.state-row { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: var(--s-3); padding: 3px 0; font-size: var(--text-label); }
-.st-nm { color: var(--color-chalk); }
-.st-def { color: var(--color-steel); }
+/* expanded states: the same idiom inset one level */
+.scr-body { background: var(--color-carbon); border-top: 1px solid var(--color-iron); padding: var(--s-2) 0 var(--s-3); }
+.st-thead, .st-row {
+  display: grid;
+  grid-template-columns: minmax(0, 160px) minmax(0, 1fr) minmax(0, 220px);
+  gap: var(--s-2); align-items: center; padding: 4px 12px;
+}
+.st-thead { font-size: 10px; color: var(--color-steel); text-transform: uppercase; letter-spacing: 0.08em; padding-top: var(--s-2); }
+.st-row { border-bottom: 1px solid var(--color-iron); }
+.st-row:last-of-type { border-bottom: none; }
+.st-col-nm { color: var(--color-chalk); font-size: 12px; }
+.st-col-def { color: var(--color-steel); font-size: 12px; font-family: var(--font-mono); }
+.st-col-acts { display: flex; gap: var(--s-2); justify-content: flex-end; align-items: baseline; }
 .st-verify { color: var(--color-pewter); font-size: var(--text-caption); transition: color var(--t); }
 .st-verify:hover { color: var(--color-chalk); }
 .st-vres { font-size: var(--text-caption); }
@@ -633,39 +661,17 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
 .st-vres.fails { color: var(--color-ember); }
 .st-del { color: var(--color-pewter); font-size: var(--text-caption); transition: color var(--t); }
 .st-del:hover { color: var(--color-ember); }
-.c-edit { color: var(--color-pewter); font-size: var(--text-caption); cursor: pointer; transition: color var(--t); }
-.c-edit:hover { color: var(--color-chalk); }
-.edit-row { display: none; }
-.add-state { display: grid; grid-template-columns: 110px minmax(0, 1fr) 140px auto; gap: var(--s-2); margin-top: var(--s-2); align-items: baseline; }
+.add-state { display: grid; grid-template-columns: 110px minmax(0, 1fr) 140px auto auto; gap: var(--s-2); padding: var(--s-2) 12px 0; align-items: baseline; }
 .as-kind, .as-val, .as-name { background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-size: var(--text-label); padding: 4px var(--s-2); }
 .as-kind:focus, .as-val:focus, .as-name:focus { outline: none; border-color: var(--color-slate); }
 .as-add { border: 1px solid var(--color-ember); color: var(--color-ember); font-size: var(--text-label); padding: 4px var(--s-3); transition: all var(--t); }
 .as-add:hover { background: var(--color-ember); color: var(--color-paper); }
-.save-line { margin-top: var(--s-2); font-size: var(--text-caption); color: var(--color-fog); }
-.save-line.err { color: var(--color-ember); }
 .probe-open { border: 1px solid var(--color-iron); color: var(--color-fog); font-size: var(--text-caption); padding: 3px var(--s-2); transition: all var(--t); }
 .probe-open:hover { border-color: var(--color-slate); color: var(--color-paper); }
-.bundle-row { display: flex; align-items: baseline; gap: var(--s-2); }
-.bundle-row > span:first-child { flex: 1; }
-.bundle-acts { display: flex; gap: var(--s-1); }
-.mini-act { border: 1px solid var(--color-iron); color: var(--color-pewter); font-size: var(--text-caption); padding: 1px var(--s-2); transition: all var(--t); }
-.mini-act:hover { border-color: var(--color-slate); color: var(--color-paper); }
-.c-acts { display: flex; gap: var(--s-2); }
-.c-act { color: var(--color-pewter); font-size: var(--text-caption); transition: color var(--t); }
-.c-act:hover { color: var(--color-chalk); }
-.c-act.danger:hover { color: var(--color-ember); }
-.ed-form { display: grid; gap: var(--s-2); padding: var(--s-3) var(--s-4); }
-.ed-row { display: grid; grid-template-columns: 90px 1fr; gap: var(--s-2); align-items: baseline; }
-.ed-k { color: var(--color-steel); font-size: var(--text-caption); text-transform: uppercase; letter-spacing: .06em; }
-.ed-in { background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-size: var(--text-label); padding: 4px var(--s-2); }
-.ed-in:focus { outline: none; border-color: var(--color-slate); }
-.ed-sel { width: 200px; }
-.ed-err { color: var(--color-ember); font-size: var(--text-caption); }
-.ed-acts { display: flex; gap: var(--s-2); align-items: center; }
-.ed-hint { color: var(--color-pewter); font-size: var(--text-caption); }
-.ed-yaml { width: 100%; min-height: 320px; background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-label); padding: var(--s-2); resize: vertical; }
-.ed-yaml:focus { outline: none; border-color: var(--color-slate); }
+.save-line { margin: var(--s-2) 12px 0; font-size: var(--text-caption); color: var(--color-fog); }
+.save-line.err { color: var(--color-ember); }
 
+/* dialogs (shared chrome) */
 .probe-overlay { position: fixed; inset: 0; z-index: 200; background: color-mix(in srgb, var(--color-void) 80%, transparent); display: grid; place-items: center; }
 .probe { width: min(640px, 92vw); max-height: 84vh; display: grid; grid-template-rows: auto auto auto 1fr auto; border: 1px solid var(--color-slate); background: var(--color-graphite); overflow: hidden; }
 .probe-head { display: flex; gap: var(--s-3); align-items: baseline; padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--color-iron); }
@@ -696,4 +702,15 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
 .pp-acts { display: flex; gap: var(--s-2); align-items: center; }
 .pp-add { border: 1px solid var(--color-ember); color: var(--color-ember); font-size: var(--text-label); padding: 4px var(--s-3); transition: all var(--t); }
 .pp-add:hover { background: var(--color-ember); color: var(--color-paper); }
+.ed-form { display: grid; gap: var(--s-2); padding: var(--s-3) var(--s-4); }
+.ed-row { display: grid; grid-template-columns: 90px 1fr; gap: var(--s-2); align-items: baseline; }
+.ed-k { color: var(--color-steel); font-size: var(--text-caption); text-transform: uppercase; letter-spacing: .06em; }
+.ed-in { background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-size: var(--text-label); padding: 4px var(--s-2); }
+.ed-in:focus { outline: none; border-color: var(--color-slate); }
+.ed-sel { width: 200px; }
+.ed-err { color: var(--color-ember); font-size: var(--text-caption); }
+.ed-acts { display: flex; gap: var(--s-2); align-items: center; }
+.ed-hint { color: var(--color-pewter); font-size: var(--text-caption); }
+.ed-yaml { width: 100%; min-height: 320px; background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-label); padding: var(--s-2); resize: vertical; }
+.ed-yaml:focus { outline: none; border-color: var(--color-slate); }
 </style>
