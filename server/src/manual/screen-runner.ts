@@ -1,12 +1,12 @@
-/** R2 S5 — screen-state runner verbs: arrive / refresh / world / expect screen.
+/** R2 S5 — screen-state runner verbs: arrive / refresh / swap / expect screen.
  *
  *  Executed inside playback's step loop; every verb owns its guards:
  *   - arrive:   resolve the registry entry (tab tap / deepLink / navigate),
  *              settle via the existing expect budget machinery.
  *   - refresh:  the screen's declared gesture, then GUARD 1 — the proxy must
- *              observe ≥1 request from the active world's presets within a
- *              budget (traffic-table poll; injectable) or WORLD_NOT_CONFIRMED.
- *   - world:    swap the forge's active preset set (exclusivity: scenario
+ *              observe ≥1 request from the active swap target's presets within a
+ *              budget (traffic-table poll; injectable) or SWAP_NOT_CONFIRMED.
+ *   - swap:     replace the forge's active preset set (exclusivity: scenario
  *              runs serialize at the forge), reset per-run seq, bump the
  *              swap counter; GUARD 2 forces a relaunch note past N swaps.
  *   - expect screen: poll the registry state's selector-set (all=AND,
@@ -38,7 +38,7 @@ export interface ScreenRunnerDeps {
  *  records step rows. Runner verbs NEVER throw — they return outcomes. */
 export type VerbOutcome =
   | { ok: true; note: string }
-  | { ok: false; code: 'WORLD_NOT_CONFIRMED' | 'DISPLAY_DEAD' | 'UNKNOWN_SCREEN' | 'SCREEN_ENTRY_FAILED' | 'WORLD_UNKNOWN' | 'SWAP_LIMIT'; note: string };
+  | { ok: false; code: 'SWAP_NOT_CONFIRMED' | 'DISPLAY_DEAD' | 'UNKNOWN_SCREEN' | 'SCREEN_ENTRY_FAILED' | 'SWAP_UNKNOWN' | 'SWAP_LIMIT'; note: string };
 
 /** countMatches sibling of playback's (same semantics: label/identifier/
  *  labelContains with optional ignoreCase). Kept local to avoid coupling. */
@@ -273,17 +273,17 @@ export class ScreenRunner {
       if (rows.n > 0) return { ok: true, note: `refresh ${screenId} (${gesture}) · ${rows.n} request(s) confirmed` };
       await new Promise((res) => setTimeout(res, this.budgets.worldConfirmPollMs));
     }
-    return { ok: false, code: 'WORLD_NOT_CONFIRMED', note: `refresh played but NO preset-matched request reached the proxy within ${this.budgets.worldConfirmMs}ms — the app did not re-fetch (cache?) or the gesture hit nothing` };
+    return { ok: false, code: 'SWAP_NOT_CONFIRMED', note: `refresh played but NO preset-matched request reached the proxy within ${this.budgets.worldConfirmMs}ms — the app did not re-fetch (cache?) or the gesture hit nothing` };
   }
 
   /** world: swap the active preset set (deactivate current, activate the
    *  world's union). GUARD 2: swap-window bound past maxSwaps. */
-  async world(worldId: string, scenarioIds: string[]): Promise<VerbOutcome> {
+  async swap(swapId: string, scenarioIds: string[]): Promise<VerbOutcome> {
     this.swapCount++;
     if (this.swapCount > this.budgets.maxSwaps) {
-      return { ok: false, code: 'SWAP_LIMIT', note: `>${this.budgets.maxSwaps} consecutive world swaps without a relaunch — state divergence risk (plan F5); split the case or raise the limit` };
+      return { ok: false, code: 'SWAP_LIMIT', note: `>${this.budgets.maxSwaps} consecutive swaps without a relaunch — state divergence risk (plan F5); split the case or raise the limit` };
     }
-    if (scenarioIds.length === 0) return { ok: true, note: `world ${worldId}: no scenarios — network passthrough` };
+    if (scenarioIds.length === 0) return { ok: true, note: `swap ${swapId}: no scenarios — network passthrough` };
     const ph = scenarioIds.map(() => '?').join(',');
     const presets = this.d.db.prepare(
       `SELECT DISTINCT p.* FROM presets p JOIN scenario_overrides so ON so.preset_id = p.id WHERE so.scenario_id IN (${ph}) AND so.enabled = 1`,
@@ -291,9 +291,9 @@ export class ScreenRunner {
     try {
       this.d.forgeActivate?.(presets);
     } catch (err) {
-      return { ok: false, code: 'WORLD_UNKNOWN', note: `forge refused the swap: ${err instanceof Error ? err.message : String(err)}` };
+      return { ok: false, code: 'SWAP_UNKNOWN', note: `forge refused the swap: ${err instanceof Error ? err.message : String(err)}` };
     }
-    return { ok: true, note: `world ${worldId} active (${presets.length} presets) — refresh to apply on-screen` };
+    return { ok: true, note: `swap ${swapId} active (${presets.length} presets) — refresh to apply on-screen` };
   }
 
   /** expect screen: poll a named state to hold (or NOT hold when negate);

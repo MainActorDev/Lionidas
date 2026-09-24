@@ -2,7 +2,7 @@
  *  Missing key = null (caller fails the step BEFORE dispatch — never type a
  *  half-resolved string). Pure module: no db, no alloy. */
 export interface SubstitutedStep {
-  idx: number; action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'world' | 'expectScreen';
+  idx: number; action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen';
   x?: number; y?: number; direction?: 'up' | 'down' | 'left' | 'right'; text?: string;
   /** A6 element selector (label/type/identifier) — ${env.X} resolves in
    *  label/labelContains (variants assert per-world text through these);
@@ -34,7 +34,7 @@ function firstMissingKey(keys: string[], env: Record<string, string>): string {
   return keys.find((k) => env[k] === undefined) ?? '??';
 }
 
-export function substituteStep(s: { idx: number; action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'world' | 'expectScreen'; x?: number; y?: number; direction?: 'up' | 'down' | 'left' | 'right'; text?: string; optional?: boolean; selector?: { identifier?: string; label?: string; labelContains?: string; type?: string }; templateId?: string; count?: number; atLeast?: number }, env: Record<string, string>): SubstitutedStep {
+export function substituteStep(s: { idx: number; action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen'; x?: number; y?: number; direction?: 'up' | 'down' | 'left' | 'right'; text?: string; optional?: boolean; selector?: { identifier?: string; label?: string; labelContains?: string; type?: string }; templateId?: string; count?: number; atLeast?: number }, env: Record<string, string>): SubstitutedStep {
   // selector label/labelContains resolve ${env.X} (variant-world assertions);
   // identifier/type stay literal. A missing key fails the step BEFORE
   // dispatch — the caller never asserts a half-resolved fragment.

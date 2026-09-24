@@ -3,23 +3,23 @@ import { parseCaseYaml } from '@crucible/shared/case-yaml';
 
 /** R2 S4 — case schema v2: R2 verbs parse; v1 cases parse byte-identically
  *  (the LIFT — v1 is one implicit screen, no behavior change). Save-time
- *  resolution (worlds/screens vs DB) is covered in case-v2-routes.test.ts. */
+ *  resolution (swaps/screens vs DB) is covered in case-v2-routes.test.ts. */
 
 describe('S4 — R2 verb parsing', () => {
-  it('arrive/refresh/world parse as scalar screen/world ids', () => {
+  it('arrive/refresh/swap parse as scalar screen/swap ids', () => {
     const r = parseCaseYaml([
       'name: v2case',
       'app: com.x.y',
       'steps:',
       '  - arrive: tracking',
       '  - refresh: tracking',
-      '  - world: my',
+      '  - swap: my',
     ].join('\n'));
     expect(r.ok).toBe(true);
-    expect(r.case!.steps.map((s) => [s.action, s.screen ?? s.world])).toEqual([
+    expect(r.case!.steps.map((s) => [s.action, s.screen ?? s.swap])).toEqual([
       ['arrive', 'tracking'],
       ['refresh', 'tracking'],
-      ['world', 'my'],
+      ['swap', 'my'],
     ]);
   });
 
@@ -41,21 +41,21 @@ describe('S4 — R2 verb parsing', () => {
       'steps:',
       `  - arrive: 'Bad ID'`,
       '  - expect screen: tracking',
-      '  - world: ""',
+      '  - swap: ""',
     ].join('\n'));
     expect(r.ok).toBe(false);
     const msgs = r.errors.map((e) => e.message).join(' | ');
     expect(msgs).toContain('arrive takes a screen id');
     expect(msgs).toContain('expect screen');
-    expect(msgs).toContain('world takes a world id');
+    expect(msgs).toContain('swap takes a target id');
   });
 
-  it('worlds: + entry: parse (worlds share the variant grammar)', () => {
+  it('swaps: + entry: parse (swaps share the variant grammar); worlds: stays a parseable alias', () => {
     const r = parseCaseYaml([
       'name: v2case',
       'app: com.x.y',
       'entry: { screen: tracking, mode: deepLink }',
-      'worlds:',
+      'swaps:',
       '  - id: sg',
       '    scenarios: [countries-sg, auth-happy]',
       'steps:',
@@ -63,15 +63,28 @@ describe('S4 — R2 verb parsing', () => {
     ].join('\n'));
     expect(r.ok).toBe(true);
     expect(r.case!.entry).toEqual({ screen: 'tracking', mode: 'deepLink' });
-    expect(r.case!.worlds).toEqual([{ id: 'sg', scenarios: ['countries-sg', 'auth-happy'] }]);
+    expect(r.case!.swaps).toEqual([{ id: 'sg', scenarios: ['countries-sg', 'auth-happy'] }]);
+    // deprecated alias: worlds: parses identically (old case versions)
+    const legacy = parseCaseYaml([
+      'name: legacy world case',
+      'worlds:',
+      '  - id: my',
+      '    scenarios: [countries-my]',
+      'steps:',
+      '  - world: my',
+    ].join('\n'));
+    expect(legacy.ok).toBe(true);
+    expect(legacy.case!.swaps).toEqual([{ id: 'my', scenarios: ['countries-my'] }]);
+    // alias STEP also parses — normalized to swap in storage
+    expect(legacy.case!.steps[0]).toMatchObject({ action: 'swap', swap: 'my' });
   });
 
-  it('world id colliding with variant id → error (one vocabulary)', () => {
+  it('swap target colliding with variant id → error (one vocabulary)', () => {
     const r = parseCaseYaml([
       'name: v2case',
       'variants:',
       '  - id: dupe',
-      'worlds:',
+      'swaps:',
       '  - id: dupe',
       'steps:',
       '  - tap: { point: [1, 1], on: b }',
@@ -93,7 +106,7 @@ describe('S4 — R2 verb parsing', () => {
 describe('S4 — the LIFT (v1 equivalence)', () => {
   // a real v1 case shape: setup + steps + variants (singular scenario), the
   // exact vocabulary that existed before S4. It must parse to the SAME
-  // structure it always did — no worlds, no entry, no new-action leakage.
+  // structure it always did — no swaps, no entry, no new-action leakage.
   const V1 = [
     'name: privacy policy',
     'app: com.lioparcel.services.consumer.int-dev',
@@ -113,10 +126,10 @@ describe('S4 — the LIFT (v1 equivalence)', () => {
   it('v1 case parses identically — no v2 keys materialize', () => {
     const r = parseCaseYaml(V1);
     expect(r.ok).toBe(true);
-    expect(r.case!.worlds).toBeUndefined();
+    expect(r.case!.swaps).toBeUndefined();
     expect(r.case!.entry).toBeUndefined();
     expect(r.case!.steps.map((s) => s.action)).toEqual(['tap', 'scroll', 'expect']);
-    expect(r.case!.steps.every((s) => s.screen === undefined && s.world === undefined && s.expectScreen === undefined)).toBe(true);
+    expect(r.case!.steps.every((s) => s.screen === undefined && s.swap === undefined && s.expectScreen === undefined)).toBe(true);
     expect(r.case!.variants).toEqual([{ id: 'sg', networkScenario: 'countries-sg', env: { COUNTRY: 'Batam' } }]);
   });
 

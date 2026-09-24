@@ -7,8 +7,8 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { migrateM1 } from '../src/db/schema.ts';
 import { registerTemplateRoutes } from '../src/routes/templates.ts';
 
-/** R2 S4 — save-time resolution: world steps resolve against the case's own
- *  declared worlds/variants; screen steps resolve against the app registry
+/** R2 S4 — save-time resolution: swap steps resolve against the case's own
+ *  declared swaps/variants; screen steps resolve against the app registry
  *  (including state names on expect screen). 422s name the offender. */
 
 let tmp: string;
@@ -52,18 +52,18 @@ describe('S4 — save resolution', () => {
       'steps:',
       '  - arrive: tracking',
       '  - expect screen: tracking.loaded',
-      '  - world: sg',
+      '  - swap: sg',
       '  - refresh: tracking',
       '  - expect screen: tracking.state != loading',
     ].join('\n'));
     expect(r.statusCode).toBe(200);
     const stored = db.prepare("SELECT steps_json FROM templates WHERE id='tpl_v2'").get() as { steps_json: string };
     const steps = JSON.parse(stored.steps_json) as Array<{ action: string }>;
-    expect(steps.map((s) => s.action)).toEqual(['arrive', 'expectScreen', 'world', 'refresh', 'expectScreen']);
+    expect(steps.map((s) => s.action)).toEqual(['arrive', 'expectScreen', 'swap', 'refresh', 'expectScreen']);
   });
 
   it('world step referencing an undeclared id → 422 naming it', async () => {
-    const r = await put(['name: v2case', `app: ${BUNDLE}`, 'steps:', '  - world: nowhere'].join('\n'));
+    const r = await put(['name: v2case', `app: ${BUNDLE}`, 'steps:', '  - swap: nowhere'].join('\n'));
     expect(r.statusCode).toBe(422);
     expect((r.json() as { errors: Array<{ message: string }> }).errors[0]!.message).toContain('"nowhere"');
   });

@@ -267,6 +267,10 @@ export function migrateM1(db: Database.Database): void {
     // step logging (post-substitution audit truth)
     'ALTER TABLE templates ADD COLUMN tags_json TEXT',
     'ALTER TABLE run_steps ADD COLUMN evaluated_json TEXT',
+    // R2 screen-state runner: case-level entry facet (which registry screen
+    // the case enters, and via which mode) — persisted so the yaml
+    // round-trip and playback agree without recovering it from steps
+    'ALTER TABLE templates ADD COLUMN entry_json TEXT',
     // Batch 4 — suite management: runs carry their template (case) for
     // history/trend joins, the app build they tested, and the blocked
     // dimension (infra failure ≠ app failure; boolean, NOT a status value —

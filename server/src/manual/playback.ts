@@ -79,7 +79,7 @@ export interface PlaybackDeps {
 
 export interface PlaybackStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'world' | 'expectScreen';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen';
   x?: number;
   y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
@@ -104,9 +104,9 @@ export interface PlaybackStep {
   alertAction?: 'accept' | 'dismiss';
   /** location action target — simulated GPS point (simctl location set) */
   location?: { latitude: number; longitude: number };
-  /** R2 verbs (S5): arrive/refresh target screen; world target id; expect screen parts */
+  /** R2 verbs (S5): arrive/refresh target screen; swap target id; expect screen parts */
   screen?: string;
-  world?: string;
+  swap?: string;
   expectScreen?: { screen: string; state: string; negate?: boolean };
 }
 
@@ -132,7 +132,7 @@ function stepName(s: PlaybackStep): string {
   if (s.action === 'location') return `location ${s.location?.latitude ?? '?'}${s.location?.longitude !== undefined ? ',' : ''}${s.location?.longitude ?? ''}`;
   if (s.action === 'arrive') return `arrive ${s.screen ?? '?'}`;
   if (s.action === 'refresh') return `refresh ${s.screen ?? '?'}`;
-  if (s.action === 'world') return `world ${s.world ?? '?'}`;
+  if (s.action === 'swap') return `swap ${s.swap ?? '?'}`;
   if (s.action === 'expectScreen') return `expect screen ${s.expectScreen?.screen ?? '?'}.${s.expectScreen?.state ?? '?'}${s.expectScreen?.negate ? ' (absent)' : ''}`;
   return `type "${(s.text ?? '').slice(0, 20)}"`;
 }
@@ -145,7 +145,7 @@ function stepLabel(s: PlaybackStep): string {
   if (s.action === 'scroll') return `scroll ${s.direction}`;
   if (s.action === 'arrive') return `arrive ${s.screen ?? '?'}`;
   if (s.action === 'refresh') return `refresh ${s.screen ?? '?'}`;
-  if (s.action === 'world') return `world ${s.world ?? '?'}`;
+  if (s.action === 'swap') return `swap ${s.swap ?? '?'}`;
   if (s.action === 'expectScreen') return `screen ${s.expectScreen?.screen ?? '?'}.${s.expectScreen?.state ?? '?'}`;
   if (s.action === 'alert') return `alert ${s.alertAction ?? 'dismiss'}`;
   if (s.action === 'location') return `location ${s.location?.latitude ?? '?'}${s.location?.longitude !== undefined ? ',' : ''}${s.location?.longitude ?? ''}`;
@@ -595,7 +595,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       let execSteps: PlaybackStep[];
       // R2 S5: the case's v2 facets (worlds/entry/variants) for verb steps —
       // variants_json holds both vocabularies (worlds persist via S4).
-      const r2case: { worlds?: Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>; variants?: Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>; entry?: { screen: string; mode?: 'tab' | 'deepLink' | 'navigate' } } | null = (() => {
+      const r2case: { swaps?: Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>; worlds?: Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>; variants?: Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>; entry?: { screen: string; mode?: 'tab' | 'deepLink' | 'navigate' } } | null = (() => {
         try {
           const vj = deps.db.prepare('SELECT variants_json FROM templates WHERE id = ?').get(templateId) as { variants_json: string | null } | undefined;
           if (!vj?.variants_json) return null;
@@ -604,8 +604,8 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           // worlds and variants share it; the pool lookup treats the array
           // as both vocabularies. Object form (worlds/variants keys) is
           // accepted too for forward compatibility.
-          if (Array.isArray(parsed)) return { worlds: parsed as Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>, variants: parsed as Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }> };
-          if (parsed && typeof parsed === 'object') return parsed as { worlds?: Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>; variants?: Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>; entry?: { screen: string; mode?: 'tab' | 'deepLink' | 'navigate' } };
+          if (Array.isArray(parsed)) return { swaps: parsed as Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>, variants: parsed as Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }> };
+          if (parsed && typeof parsed === 'object') return parsed as { swaps?: Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>; worlds?: Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>; variants?: Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>; entry?: { screen: string; mode?: 'tab' | 'deepLink' | 'navigate' } };
           return null;
         } catch { return null; }
       })();
@@ -992,7 +992,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           // R2 verbs (S5): screen-state runner steps. Write-only branch like
           // location — outcome rows carry the verdict; failures fail the run
           // and skip the rest (same shape as location/alert handling).
-          if (s.action === 'arrive' || s.action === 'refresh' || s.action === 'world' || s.action === 'expectScreen') {
+          if (s.action === 'arrive' || s.action === 'refresh' || s.action === 'swap' || s.action === 'expectScreen') {
             // lazy runner: constructed once, registry loaded on first use
             if (!screenRunner) {
               const { ScreenRunner } = await import('./screen-runner.ts');
@@ -1009,18 +1009,18 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             let outcome: { ok: boolean; code?: string; note: string };
             if (s.action === 'arrive') outcome = await screenRunner.arrive(s.screen!, r2case?.entry?.mode);
             else if (s.action === 'refresh') outcome = await screenRunner.refresh(s.screen!);
-            else if (s.action === 'world') {
-              // resolve the world id → its scenario ids (worlds ∪ variants)
-              const pool = [...(r2case?.worlds ?? []), ...(r2case?.variants ?? [])];
-              const w = pool.find((x) => x.id === s.world) ?? null;
-              if (w) activeEnv = mergeVariantEnv(w, opts.env ?? {}); // ${env.X} follows the active world now
+            else if (s.action === 'swap') {
+              // resolve the swap target id → its scenario ids (swaps ∪ variants)
+              const pool = [...(r2case?.swaps ?? r2case?.worlds ?? []), ...(r2case?.variants ?? [])];
+              const w = pool.find((x) => x.id === s.swap) ?? null;
+              if (w) activeEnv = mergeVariantEnv(w, opts.env ?? {}); // ${env.X} follows the active swap target now
               const names = w ? variantScenarioNames(w) : [];
               const ids: string[] = [];
               for (const n of names) {
                 const sid = (deps.db.prepare('SELECT id FROM scenarios WHERE id = ? OR name = ? LIMIT 1').get(n, n) as { id: string } | undefined)?.id;
                 if (sid) ids.push(sid);
               }
-              outcome = await screenRunner.world(s.world!, ids);
+              outcome = await screenRunner.swap(s.swap!, ids);
             } else outcome = await screenRunner.expectScreen(s.expectScreen!.screen, s.expectScreen!.state, s.expectScreen!.negate === true);
             if (outcome.ok) {
               insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, note: outcome.note }));

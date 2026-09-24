@@ -146,7 +146,11 @@ export function registerRunRoutes(app: FastifyInstance, db: Database.Database, b
     const bundle = run.template_id
       ? (db.prepare('SELECT app_bundle_id FROM templates WHERE id = ?').get(run.template_id) as { app_bundle_id: string | null } | undefined)?.app_bundle_id ?? null
       : null;
-    return { run: { ...run, app_bundle_id: bundle } };
+    // run-level evidence (video/screenshot/logs/network) — the run detail
+    // surfaces it for EVERY verdict, not only failed-step triage; a passing
+    // run's video was previously unreachable from the UI
+    const evidence = db.prepare('SELECT id, type, path, bytes FROM evidence WHERE bundle_id = ? ORDER BY type').all(id) as Array<{ id: string; type: string; path: string; bytes: number }>;
+    return { run: { ...run, app_bundle_id: bundle }, evidence };
   });
 
   // B2: abort a running manual/template run — idempotent on terminal runs.

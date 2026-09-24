@@ -72,12 +72,12 @@ describe('S5 — selector/state semantics', () => {
 });
 
 describe('S5 — GUARD 1: refresh verifies traffic (pass AND fail)', () => {
-  it('FAIL: no new request for this run → WORLD_NOT_CONFIRMED', async () => {
+  it('FAIL: no new request for this run → SWAP_NOT_CONFIRMED', async () => {
     seedScreen();
     const r = mkRunner(snapWith([]));
     const out = await r.refresh('tracking');
     expect(out.ok).toBe(false);
-    if (!out.ok) expect(out.code).toBe('WORLD_NOT_CONFIRMED');
+    if (!out.ok) expect(out.code).toBe('SWAP_NOT_CONFIRMED');
   });
 
   it('PASS: request lands mid-budget → confirmed with count', async () => {
@@ -103,9 +103,9 @@ describe('S5 — GUARD 2: swap-window bound', () => {
   it('swaps beyond max → SWAP_LIMIT names the bound', async () => {
     seedScreen();
     const r = mkRunner(snapWith([]), () => undefined, { maxSwaps: 2 });
-    expect((await r.world('a', [])).ok).toBe(true);
-    expect((await r.world('b', [])).ok).toBe(true);
-    const third = await r.world('c', []);
+    expect((await r.swap('a', [])).ok).toBe(true);
+    expect((await r.swap('b', [])).ok).toBe(true);
+    const third = await r.swap('c', []);
     expect(third.ok).toBe(false);
     if (!third.ok) expect(third.code).toBe('SWAP_LIMIT');
   });
@@ -121,7 +121,7 @@ describe('S5 — GUARD 2: swap-window bound', () => {
     db.prepare(`INSERT INTO scenario_overrides(scenario_id, preset_id, enabled) VALUES ('s2','pSH',1)`).run();
     const activated: Array<Record<string, unknown>> = [];
     const r = mkRunner(snapWith([]), (rows) => activated.push(...rows));
-    const out = await r.world('mixed', ['s1', 's2']);
+    const out = await r.swap('mixed', ['s1', 's2']);
     expect(out.ok).toBe(true);
     expect(activated.map((x) => x['id']).sort()).toEqual(['pA', 'pB', 'pSH']); // shared once
   });

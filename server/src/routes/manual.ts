@@ -400,7 +400,14 @@ export function registerManualRoutes(
       // Phase C: variants expand HERE (single-play entry point). A variants
       // case runs ONCE PER VARIANT, sequentially (declaration order — proxy
       // state is device-global). `variant: 'id'` runs exactly one.
-      const row = db.prepare('SELECT variants_json FROM templates WHERE id = ?').get(id) as { variants_json: string | null } | undefined;
+      const row = db.prepare('SELECT variants_json, steps_json FROM templates WHERE id = ?').get(id) as { variants_json: string | null; steps_json: string | null } | undefined;
+      // R2: a case with world: steps swaps scenarios mid-run itself — lane
+      // fan-out would re-run every world N times (proven: the drill case
+      // played all 3 lanes × 2 internal swaps). Worlds-cases run ONCE on
+      // play-all, entering via their first declared world.
+      const stepsHaveSwap = (() => {
+        try { return row?.steps_json ? (JSON.parse(row.steps_json) as Array<{ action?: string }>).some((s) => s.action === 'swap' || s.action === 'world') : false; } catch { return false; }
+      })();
       let variants: Array<{ id: string; networkScenario?: string; env?: Record<string, string> }> = [];
       if (row?.variants_json) {
         try { variants = JSON.parse(row.variants_json) as typeof variants; } catch { variants = []; /* malformed — honest degrade */ }
@@ -417,7 +424,7 @@ export function registerManualRoutes(
         const { runId, udid } = await runTemplatePlayback(pbDeps, id, { ...baseOpts, variant: one });
         return { runId, udid, variants: [{ id: one.id, runId }] };
       }
-      if (variants.length > 0) {
+      if (variants.length > 0 && !stepsHaveSwap) {
         // Sequential CONTRACT preserved: each lane runs to completion before
         // the next starts — proxy state is device-global and the B5 device-
         // busy guard would 409 a back-to-back start anyway. But the RESPONSE
@@ -465,8 +472,10 @@ export function registerManualRoutes(
         // arrive as lanes start; laneCount is the full plan
         return { runId: first.runId, runIds, udid: firstUdid, laneCount: variants.length, batchId, variants: perVariant };
       }
-      const { runId, udid } = await runTemplatePlayback(pbDeps, id, baseOpts);
-      return { runId, udid };
+      // worlds-case play-all: single run, entry world = first declared
+      const entryVariant = stepsHaveSwap ? variants[0] : undefined;
+      const { runId, udid } = await runTemplatePlayback(pbDeps, id, entryVariant ? { ...baseOpts, variant: entryVariant } : baseOpts);
+      return { runId, udid, ...(stepsHaveSwap ? { swaps: true } : {}) };
     } catch (err) {
       if (err instanceof PlaybackError && err.code === 'DEVICE_BUSY') return reply.code(409).send({ error: err.message, code: err.code });
       if (err instanceof PlaybackError && err.code === 'SCENARIO_INACTIVE') return reply.code(409).send({ error: err.message, code: err.code, hint: 'start the forge proxy and sim routing (forge page), then replay' });

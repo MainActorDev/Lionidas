@@ -19,7 +19,7 @@ import { parseVariants, type YamlVariant } from './yaml-variants.js';
 export interface YamlSelector { identifier?: string; label?: string; labelContains?: string; ignoreCase?: boolean; type?: string }
 export interface YamlStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'world' | 'expectScreen';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen';
   x?: number; y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
   text?: string;
@@ -38,10 +38,10 @@ export interface YamlStep {
   alertAction?: 'accept' | 'dismiss';
   /** location action target — simulated GPS point (simctl location set) */
   location?: { latitude: number; longitude: number };
-  /** R2 verbs — arrive: <screen-id>, refresh: <screen-id>, world: <world-id> */
+  /** R2 verbs — arrive: <screen-id>, refresh: <screen-id>, swap: <target-id> */
   screen?: string;
-  /** world: <id from this case's worlds/variants> */
-  world?: string;
+  /** swap: <id from this case's swaps/variants> */
+  swap?: string;
   /** expect screen: "<screen>.<state>" — parsed into parts; negate for != */
   expectScreen?: { screen: string; state: string; negate?: boolean };
 }
@@ -56,9 +56,11 @@ export interface YamlCase {
   /** State coverage (phase B): one flow, N deterministic worlds. The runner
    *  expands these in phase C; parsing/storage/autocomplete ship first. */
   variants?: YamlVariant[];
-  /** R2 v2: named worlds — same shape as variants (authoring alias; the
-   *  runner treats worlds: and variants: identically, variants wins on key
-   *  collision as the established term). */
+  /** R2 v2: named swap targets — same shape as variants; the runner treats
+   *  swaps: and variants: as one pool (variants wins on key collision as
+   *  the established term). 'worlds:' parses as the deprecated alias. */
+  swaps?: YamlVariant[];
+  /** @deprecated use swaps — kept for parsing old case versions */
   worlds?: YamlVariant[];
   /** R2 v2: default entry for arrive: steps (screen id in the app registry) */
   entry?: { screen: string; mode?: 'tab' | 'deepLink' | 'navigate' };
@@ -70,7 +72,7 @@ export interface YamlError { line: number; message: string }
 const DROPPED_KEYS = new Set(['ts', 'thumb']); // capture artifacts — not semantics
 const STEP_KEYS = new Set(['action', 'x', 'y', 'direction', 'text', 'optional', 'selector', 'templateId', 'flow', 'count', 'atLeast']);
 const DIRECTIONS = new Set(['up', 'down', 'left', 'right']);
-const ACTIONS = new Set(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert', 'location', 'arrive', 'refresh', 'world', 'expect screen']);
+const ACTIONS = new Set(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert', 'location', 'arrive', 'refresh', 'swap', 'world', 'expect screen']);
 const SCREEN_ID_RE = /^[a-z][a-z0-9-]*$/;
 /** runFlow references: name → id resolution is the CALLER's job (needs the DB);
  * the validator accepts both shapes and reports unresolved names. */
@@ -140,13 +142,15 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
   // worlds (R2 v2) — authoring alias for variants; both may parse, collision
   // on ids between them is an error (one vocabulary per case)
   let worldsOut: YamlVariant[] | null = null;
-  if (c['worlds'] !== undefined && c['worlds'] !== null) {
-    worldsOut = parseVariants(c['worlds'], errors);
+  if (c['swaps'] !== undefined && c['swaps'] !== null) {
+    worldsOut = parseVariants(c['swaps'], errors);
+  } else if (c['worlds'] !== undefined && c['worlds'] !== null) {
+    worldsOut = parseVariants(c['worlds'], errors); // deprecated alias
   }
   if (variantsOut && worldsOut) {
     const ids = new Set(worldsOut.map((w) => w.id));
     for (const v of variantsOut) {
-      if (ids.has(v.id)) errors.push({ line: 1, message: `world id "${v.id}" also appears in variants — one vocabulary per case` });
+      if (ids.has(v.id)) errors.push({ line: 1, message: `swap target "${v.id}" also appears in variants — one vocabulary per case` });
     }
   }
   // entry (R2 v2): default screen for arrive: steps
@@ -185,7 +189,7 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
   }
   if (errors.length > 0) return { ok: false, case: null, errors, runFlowNames };
   const outCase: YamlCase = { name, tags, ...(app ? { app } : {}), ...(setupOut ? { setup: setupOut } : {}), ...(alerts ? { alerts } : {}), ...(variantsOut ? { variants: variantsOut } : {}), steps: stepsOut };
-  if (worldsOut) outCase.worlds = worldsOut;
+  if (worldsOut) outCase.swaps = worldsOut;
   if (entry) outCase.entry = entry;
   return { ok: true, case: outCase, errors: [], runFlowNames };
 }
@@ -219,7 +223,7 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
       }
       const action = keys[0]!;
       if (!ACTIONS.has(action)) {
-        errors.push({ line: 1, message: `${prefix(i)}: unknown action "${action}" (expected tap|scroll|type|runFlow|expect|arrive|refresh|world|expect screen)` });
+        errors.push({ line: 1, message: `${prefix(i)}: unknown action "${action}" (expected tap|scroll|type|runFlow|expect|arrive|refresh|swap|expect screen)` });
         continue;
       }
       const body = s[action];
@@ -233,12 +237,14 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
         stepsOut.push({ idx: stepsOut.length, action, screen: body });
         continue;
       }
-      if (action === 'world') {
+      if (action === 'swap' || action === 'world') {
+        // 'world' is the deprecated alias (renamed 2026-09-24): both parse,
+        // storage + emission are always 'swap'
         if (typeof body !== 'string' || !body.trim()) {
-          errors.push({ line: 1, message: `${prefix(i)}: world takes a world id from this case's worlds/variants` });
+          errors.push({ line: 1, message: `${prefix(i)}: swap takes a target id from this case's swaps/variants` });
           continue;
         }
-        stepsOut.push({ idx: stepsOut.length, action: 'world', world: body.trim() });
+        stepsOut.push({ idx: stepsOut.length, action: 'swap', swap: body.trim() });
         continue;
       }
       if (action === 'expect screen') {
@@ -465,7 +471,7 @@ function attachWhen(step: YamlStep, b: Record<string, unknown>, section: 'setup'
 }
 
 /** steps_json rows → YAML text. Stable field order, guidance comments. */
-export function caseToYaml(t: { name: string; tags: string[]; app?: string | null; setup?: unknown[]; alerts?: unknown; variants?: unknown[]; steps: unknown[] }): string {
+export function caseToYaml(t: { name: string; tags: string[]; app?: string | null; setup?: unknown[]; alerts?: unknown; variants?: unknown[]; swaps?: unknown[]; entry?: { screen: string; mode?: 'tab' | 'deepLink' | 'navigate' } | null; steps: unknown[] }): string {
   const lines: string[] = [];
   lines.push(`# ${t.name} — edit as yaml; save validates against the step schema`);
   lines.push(`name: ${yamlScalar(t.name)}`);
@@ -482,17 +488,27 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       }
     }
   }
-  if (Array.isArray(t.variants) && t.variants.length > 0) {
-    lines.push('variants:');
-    for (const rawV of t.variants as Array<Record<string, unknown>>) {
-      const v = rawV as unknown as { id: string; networkScenario?: string; env?: Record<string, string> };
+  // R2: swaps are the vocabulary when present (variants is the legacy
+  //  term; the pool lookup treats both). scenarios[] is the S2 set form —
+  //  emitted alongside singular networkScenario sugar.
+  const vlist = (Array.isArray(t.swaps) && t.swaps.length > 0 ? t.swaps : t.variants) as Array<Record<string, unknown>> | undefined;
+  if (vlist && vlist.length > 0) {
+    const vocab = Array.isArray(t.swaps) && t.swaps.length > 0 ? 'swaps' : 'variants';
+    lines.push(`${vocab}:`);
+    for (const rawV of vlist) {
+      const v = rawV as unknown as { id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> };
       lines.push(`  - id: ${yamlScalar(v.id)}`);
       if (v.networkScenario !== undefined) lines.push(`    networkScenario: ${yamlScalar(v.networkScenario)}`);
+      if (Array.isArray(v.scenarios) && v.scenarios.length > 0) lines.push(`    scenarios: [${v.scenarios.map((x) => yamlScalar(x)).join(', ')}]`);
       if (v.env && Object.keys(v.env).length > 0) {
         lines.push('    env:');
         for (const [k, val] of Object.entries(v.env)) lines.push(`      ${k}: ${yamlScalar(val)}`);
       }
     }
+  }
+  if (t.entry && typeof t.entry === 'object' && t.entry.screen) {
+    const mode = t.entry.mode ? `, mode: ${yamlScalar(t.entry.mode)}` : '';
+    lines.push(`entry: { screen: ${yamlScalar(t.entry.screen)}${mode} }`);
   }
   if (Array.isArray(t.setup) && t.setup.length > 0) {
     lines.push('setup:');
@@ -558,6 +574,23 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
         if (s['optional'] === true || at || card) lines.push(`  - expect: { on: ${yamlScalar(label)}${s['optional'] === true ? ', optional: true' : ''}${at}${card} }`);
         else lines.push(`  - expect: ${yamlScalar(label)}`);
       }
+    } else if (action === 'arrive') {
+      lines.push(`  - arrive: ${yamlScalar(String(s['screen'] ?? ''))}`);
+    } else if (action === 'refresh') {
+      lines.push(`  - refresh: ${yamlScalar(String(s['screen'] ?? ''))}`);
+    } else if (action === 'swap') {
+      lines.push(`  - swap: ${yamlScalar(String(s['swap'] ?? s['world'] ?? ''))}`);
+    } else if (action === 'world') {
+      // legacy stored form (pre-rename 2026-09-24) — emit the new vocabulary;
+      // a stored world step must NEVER fall through to the placeholder path
+      lines.push(`  - swap: ${yamlScalar(String(s['world'] ?? ''))}`);
+    } else if (action === 'expectScreen') {
+      const es = s['expectScreen'] as { screen?: string; state?: string; negate?: boolean } | undefined;
+      const scr = es?.screen ?? '?';
+      const st = es?.state ?? '?';
+      lines.push(es?.negate === true
+        ? `  - expect screen: ${yamlScalar(`${scr}.state != ${st}`)}`
+        : `  - expect screen: ${yamlScalar(`${scr}.${st}`)}`);
     } else {
       // unknown action in storage (future kinds) — serialize losslessly-ish as a comment guard
       lines.push(`  # unrendered step kind: ${action}`);

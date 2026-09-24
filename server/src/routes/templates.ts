@@ -522,14 +522,26 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       : s));
     const alerts = row.alerts_policy ? JSON.parse(row.alerts_policy) as unknown : undefined;
     const variants = row.variants_json ? JSON.parse(row.variants_json) as unknown[] : undefined;
+    // R2: entry facet round-trips from entry_json (guarded column)
+    const entryFacet = (() => {
+      try {
+        const e = (db.prepare('SELECT entry_json FROM templates WHERE id = ?').get(row.id) as { entry_json: string | null } | undefined)?.entry_json;
+        return e ? JSON.parse(e) as { screen: string; mode?: 'tab' | 'deepLink' | 'navigate' } : null;
+      } catch { return null; }
+    })();
+    // vocabulary: a case whose steps use swap: verbs is authored in the
+    // swaps: dialect — emit it back that way (storage is one array; the
+    // exporter keys off which property it receives)
+    const asSwaps = steps.some((s) => s['action'] === 'swap');
     const yaml = caseToYaml({
       name: row.name,
       tags: (JSON.parse(row.tags_json ?? '[]') as string[]),
       steps: withNames(steps),
       ...(alerts ? { alerts } : {}),
-      ...(variants && variants.length > 0 ? { variants } : {}),
+      ...(variants && variants.length > 0 ? (asSwaps ? { swaps: variants } : { variants }) : {}),
       ...(setup && setup.length > 0 ? { setup: withNames(setup) } : {}),
       ...(row.app_bundle_id ? { app: row.app_bundle_id } : {}),
+      ...(entryFacet ? { entry: entryFacet } : {}),
     });
     return { yaml, logicalW: row.logical_w, logicalH: row.logical_h };
   });
@@ -599,15 +611,15 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
         }
       }
     }
-    // R2 S4: world steps must reference ids this case declares (worlds ∪
+    // R2 S4: swap steps must reference ids this case declares (swaps ∪
     // variants), and screen refs (arrive/refresh/expect screen/entry) must
     // exist in the app's registry — resolution needs the DB, so it lives
     // here (parse is pure). Snapshots carry the selector sets so registry
     // changes never rewrite history (S5 runner reads the snapshot).
-    const declaredWorlds = new Set([...(r.case.worlds ?? []).map((w) => w.id), ...(r.case.variants ?? []).map((v) => v.id)]);
+    const declaredSwaps = new Set([...(r.case.swaps ?? r.case.worlds ?? []).map((w) => w.id), ...(r.case.variants ?? []).map((v) => v.id)]);
     for (const s of allSteps) {
-      if (s.action === 'world' && !declaredWorlds.has(s.world!)) {
-        return reply.code(422).send({ errors: [{ line: 1, message: `world step references "${s.world}" — not declared in this case's worlds/variants` }] });
+      if (s.action === 'swap' && !declaredSwaps.has(s.swap!)) {
+        return reply.code(422).send({ errors: [{ line: 1, message: `swap step references "${s.swap}" — not declared in this case's swaps/variants` }] });
       }
     }
     const screenRefs = new Set<string>();
@@ -637,8 +649,8 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       }
     }
     db.prepare(
-      `UPDATE templates SET name = ?, steps_json = ?, setup_json = ?, alerts_policy = ?, variants_json = ?, tags_json = ?, app_bundle_id = COALESCE(?, app_bundle_id), updated_at = ?, updated_by = ? WHERE id = ?`,
-    ).run(r.case.name, JSON.stringify(r.case.steps), r.case.setup ? JSON.stringify(r.case.setup) : null, r.case.alerts ? JSON.stringify(r.case.alerts) : null, r.case.variants ? JSON.stringify(r.case.variants) : (r.case.worlds ? JSON.stringify(r.case.worlds) : null), tagsToJson(r.case.tags), r.case.app ?? null, Date.now(), req.user?.name ?? null, id);
+      `UPDATE templates SET name = ?, steps_json = ?, setup_json = ?, alerts_policy = ?, variants_json = ?, tags_json = ?, app_bundle_id = COALESCE(?, app_bundle_id), entry_json = ?, updated_at = ?, updated_by = ? WHERE id = ?`,
+    ).run(r.case.name, JSON.stringify(r.case.steps), r.case.setup ? JSON.stringify(r.case.setup) : null, r.case.alerts ? JSON.stringify(r.case.alerts) : null, r.case.variants ? JSON.stringify(r.case.variants) : (r.case.swaps ? JSON.stringify(r.case.swaps) : (r.case.worlds ? JSON.stringify(r.case.worlds) : null)), tagsToJson(r.case.tags), r.case.app ?? null, r.case.entry ? JSON.stringify(r.case.entry) : null, Date.now(), req.user?.name ?? null, id);
     return rowToTemplate(db, db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow);
   });
 
