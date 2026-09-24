@@ -6,11 +6,13 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 
 interface Step { idx: number; flow_name: string; kind: string; name: string; status: string; reason: string | null; duration_ms: number; evidence_ids_json: string; evaluated_json?: string | null }
+interface EvidenceRow { id: string; type: string; path: string; bytes: number }
 interface Run { id: string; ticket_key: string; status: string; kind: string; triggered_by: string; device_udid: string; artifact_hash: string | null; freshness: string; launch_args_json: string; started_at: number | null; finished_at: number | null; template_id: string | null; app_version: string | null; app_build?: string | null; app_bundle_id?: string | null; blocked: number; note: string | null }
 
 const route = useRoute();
 const runId = route.params.id as string;
 const run = ref<Run | null>(null);
+const evidence = ref<EvidenceRow[]>([]);
 const steps = ref<Step[]>([]);
 const live = useLiveEvents();
 const now = ref(Date.now());
@@ -21,14 +23,22 @@ let tick: ReturnType<typeof setInterval> | null = null;
 const stepsOpen = ref(true);
 const netOpen = ref(true);
 const rawOpen = ref(true);
+const evOpen = ref(true);
+
+function fmtBytes(n: number): string {
+  if (n >= 1_048_576) return `${(n / 1_048_576).toFixed(1)} MB`;
+  if (n >= 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${n} B`;
+}
 
 async function load(): Promise<void> {
   const [r, s] = await Promise.all([
-    fetch(`/api/runs/${runId}`).then((x) => x.json()) as Promise<{ run: Run }>,
+    fetch(`/api/runs/${runId}`).then((x) => x.json()) as Promise<{ run: Run; evidence: EvidenceRow[] }>,
     fetch(`/api/runs/${runId}/steps`).then((x) => x.json()) as Promise<{ steps: Step[] }>,
   ]);
   run.value = r.run;
   steps.value = s.steps;
+  evidence.value = r.evidence ?? [];
   void loadTraffic();
   void loadDeviceName();
 }
@@ -235,6 +245,20 @@ onMounted(() => {
       <RouterLink class="btn btn-ghost" style="margin-left: auto;" to="/runs">back to log →</RouterLink>
     </div>
 
+    <!-- run evidence: video + screenshots for EVERY verdict (018-D) -->
+    <div v-if="evidence.length > 0" class="tlog">
+      <button class="tlog-head" @click="evOpen = !evOpen">evidence <span class="n">· {{ evidence.length }}</span><span class="arrow">{{ evOpen ? '▾' : '▸' }}</span></button>
+      <template v-if="evOpen">
+        <div class="evgrid">
+          <a v-for="ev in evidence" :key="ev.id" class="evcard" :href="`/api/evidence/${ev.id}/file`" target="_blank" :title="`open ${ev.type} (${fmtBytes(ev.bytes)})`">
+            <img v-if="ev.type === 'screenshot' || ev.type === 'diff'" :src="`/api/evidence/${ev.id}/file`" :alt="ev.type" />
+            <span v-else class="evicon">{{ ev.type === 'video' ? '▶' : '▤' }}</span>
+            <span class="evmeta">{{ ev.type }} · {{ fmtBytes(ev.bytes) }}</span>
+          </a>
+        </div>
+      </template>
+    </div>
+
     <!-- steps as log lines (auto-collapsed when ≤3) -->
     <div v-if="steps.length > 0" class="tlog">
       <button class="tlog-head" @click="stepsOpen = !stepsOpen">steps <span class="n">· {{ steps.length }}</span><span class="arrow">{{ stepsOpen ? '▾' : '▸' }}</span></button>
@@ -329,6 +353,14 @@ onMounted(() => {
 .btn:hover { border-color:var(--color-chalk); }
 .btn-ghost { color:var(--color-fog); }
 .badge { border:1px solid var(--color-slate); color:var(--color-fog); padding:2px 8px; font-size:var(--text-caption); border-radius:var(--r); }
+
+/* evidence grid */
+.evgrid { display:flex; flex-wrap:wrap; gap:12px; padding:12px 0; }
+.evcard { position:relative; border:1px solid var(--color-iron); border-radius:var(--r); overflow:hidden; background:var(--color-carbon); text-decoration:none; max-width:220px; }
+.evcard:hover { border-color:var(--color-slate); }
+.evcard img { display:block; width:220px; height:auto; }
+.evicon { display:flex; align-items:center; justify-content:center; width:220px; height:120px; font-size:28px; color:var(--color-fog); }
+.evmeta { display:block; padding:6px 10px; font-size:var(--text-caption); color:var(--color-steel); border-top:1px solid var(--color-iron); }
 
 /* log sections */
 .tlog { margin-top:20px; font-size:var(--text-label); }
