@@ -81,3 +81,14 @@ real cases start hitting the limit.
 - Evidence: screen-runner.ts world() SWAP_LIMIT branch; plan
   20260923T141446Z S5 notes.
 
+### 10. Recorder → swap cases (parked 2026-09-24, user-directed)
+Teach the manual recorder to emit R2 verbs (arrive/swap/refresh/expect
+screen) or add a "convert recording to worlds" flow. Genuinely open design:
+a recording has no natural moment where it *knows* a world swapped or a
+screen was entered — needs its own brainstorm (candidate ideas: a "mark
+world" hotkey during recording; post-recording conversion wizard that maps
+network-observed scenario changes to swap steps). Not part of the registry-UI
+arc (plans/20260924T052218Z-screen-registry-ui-plan.md lists it out of scope).
+- Evidence: session 2026-09-24 — user asked "what if I want to create a new
+  test case?"; recorder today emits v1 steps only.
+
