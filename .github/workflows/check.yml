@@ -15,7 +15,7 @@ jobs:
           version: latest
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 24.12.0   # pinned: 24.20 crashes worker startup on arm64 runners (node#RemoveEnvironmentCleanupHook assertion, ERR_IPC_CHANNEL_CLOSED) — verified green locally on 24.12
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter server check
