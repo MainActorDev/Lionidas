@@ -20,8 +20,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { TypedEventBus, AppEvents } from '../src/ws/bus.ts';
+import { hasAlloy } from './helpers/capabilities.ts';
+const describeIf = describe.skipIf(!(hasAlloy()));
 
-describe('defaultAwaitStreamLive — simdeckUrl contract', () => {
+// capability gate: needs the alloy runtime (scripts/setup.sh)
+describeIf('defaultAwaitStreamLive — simdeckUrl contract', () => {
   it('accepts simdeckUrl as stream-live proof (no fetch(undefined))', async () => {
     // ephemeral resolve-route stub
     let hits = 0;

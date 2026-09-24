@@ -89,8 +89,11 @@ afterEach(() => {
   rmSync(artifactsDir, { recursive: true, force: true });
 });
 import { afterEach } from 'vitest';
+import { hasAlloy } from './helpers/capabilities.ts';
+const describeIf = describe.skipIf(!(hasAlloy()));
 
-describe('executeRun (contract)', () => {
+// capability gate: needs the sibling Alloy repo (scripts/setup.sh)
+describeIf('executeRun (contract)', () => {
   it('engine-phased sequence: A install→open(hold:false)→logs | B video→flow | A capture | release last', async () => {
     await runtimeFor();
     const runId = await executeRun(

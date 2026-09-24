@@ -11,6 +11,18 @@ evidence management, and baseline governance — executing through
 per-phase implementation contracts: [plans/](./plans/) · UI direction:
 [plans/UI-direction.md](./plans/UI-direction.md).
 
+## Setup (one command)
+
+```bash
+bash scripts/setup.sh
+```
+
+Installs what's missing and reports honestly at each step: Node 24.12
+(pinned — 24.20 crashes worker pools on arm64), pnpm, dependencies, the
+[Alloy](https://github.com/MainActorDev/Alloy) engine as a sibling clone
+(`../alloy`), mitmproxy (the forge proxy), and checks Xcode/simctl. Safe to
+re-run; `pnpm doctor` is the check-only mode.
+
 ## Quick start
 
 ```bash
@@ -18,6 +30,16 @@ pnpm install
 pnpm dev            # server :9230 + web :5230
 curl localhost:9230/api/health
 ```
+
+## Checks
+
+```bash
+pnpm check          # typecheck + lint + scan + tests
+```
+
+Machine-bound test files (live mitmdump, the sibling Alloy repo, simctl)
+skip with a named reason when their capability is absent — an honest skip,
+never a fake pass. Provision everything via setup and they run for real.
 
 ## Design invariants
 
