@@ -2,10 +2,10 @@
 import { onMounted, ref } from 'vue';
 import PageHeader from '../components/PageHeader.vue';
 
-/** Screens page (A2, registry-UI stage 1) — read-only view of every app's
- *  screen registry: entry in plain terms, refresh gesture + anchors, states
- *  with their selector logic. Data: existing /api/apps/:bundle/screens.
- *  Editing lands in stage 2 (forms); probe in stage 3. */
+/** Screens page (A2, registry-UI stage 1) — the registry in the house row
+ *  idiom: bundle sections (.section-label), screens as hairline-divided
+ *  rows (id · entry · refresh · #states · used-by), click to expand the
+ *  state list. Data: /api/apps/screens + templates usage join. */
 
 interface ScreenSelector { identifier?: string; label?: string; labelContains?: string; ignoreCase?: boolean; point?: [number, number] }
 interface AppScreen {
@@ -19,18 +19,18 @@ type BundleScreens = { bundle: string; screens: AppScreen[] };
 const bundles = ref<BundleScreens[]>([]);
 const loading = ref(true);
 const error = ref('');
-
-/** which cases reference each screen (joined client-side from templates) */
+const openId = ref<string | null>(null); // expanded screen row
 const usage = ref<Record<string, string[]>>({});
+
+function toggle(s: AppScreen): void { openId.value = openId.value === s.id ? null : s.id; }
 
 onMounted(async () => {
   try {
-    const res = await fetch('/api/apps/screens'); // all-bundles listing
-    if (res.status === 404) { bundles.value = []; return; } // no registries yet
+    const res = await fetch('/api/apps/screens');
+    if (res.status === 404) { bundles.value = []; return; }
     if (!res.ok) throw new Error(`registry fetch failed (${res.status})`);
     const d = (await res.json()) as { registries: Array<{ bundle: string; screens: AppScreen[] }> };
     bundles.value = d.registries.map((r) => ({ bundle: r.bundle, screens: r.screens }));
-    // usage join: cases whose steps reference each screen
     const t = await (await fetch('/api/templates')).json() as { templates: Array<{ name: string; steps: Array<{ action: string; screen?: string; expectScreen?: { screen: string } }> }> };
     const use: Record<string, string[]> = {};
     for (const tpl of t.templates ?? []) {
@@ -49,87 +49,95 @@ onMounted(async () => {
   }
 });
 
-/** selector → plain terms ("label contains Batam", "element x exists") */
+/** selector → compact reading (expanded rows carry the detail; row cells
+ *  stay terse — the full sentence was the old page's noise) */
 function describeSelector(sel: ScreenSelector): string {
-  if (sel.identifier) return `element ${sel.identifier} exists`;
-  if (sel.label) return `label is "${sel.label}"${sel.ignoreCase ? ' (any case)' : ''}`;
-  if (sel.labelContains) return `label contains "${sel.labelContains}"${sel.ignoreCase ? ' (any case)' : ''}`;
+  if (sel.identifier) return sel.identifier;
+  if (sel.label) return `"${sel.label}"${sel.ignoreCase ? ' ·ci' : ''}`;
+  if (sel.labelContains) return `~"${sel.labelContains}"${sel.ignoreCase ? '' : ''}`;
   return '?';
 }
 function describeEntry(s: AppScreen): string {
-  if (s.entry.tab) return `tab ${s.entry.tab.label ?? s.entry.tab.identifier ?? '?'}${s.entry.tab.point ? ` @ ${s.entry.tab.point.join(', ')}` : ''}`;
-  if (s.entry.deepLink) return `deep link ${s.entry.deepLink}`;
-  if (s.entry.navigate) return `navigate (${s.entry.navigate.length} taps)`;
+  if (s.entry.tab) return `tab ${s.entry.tab.label ?? s.entry.tab.identifier ?? '?'}${s.entry.tab.point ? ` @${s.entry.tab.point.join(',')}` : ''}`;
+  if (s.entry.deepLink) return s.entry.deepLink;
+  if (s.entry.navigate) return `${s.entry.navigate.length} taps`;
   return '?';
 }
 function describeRefresh(s: AppScreen): string {
   const r = s.refresh;
   if (!r) return '—';
-  const anchor = (sel?: ScreenSelector & { point?: [number, number] }) => sel ? (sel.label ?? sel.identifier ?? (sel.point ? `${sel.point.join(', ')}` : '?')) : null;
-  if (r.gesture === 'back-forward') return `back-forward · away ${anchor(r.selector) ?? '?'} · back ${anchor(r.back) ?? 'entry'}`;
-  if (r.gesture === 'tab-retap') return `tab-retap ${anchor(r.selector) ?? ''}`.trim();
-  if (r.gesture === 'deepLink') return `deep link ${r.deepLink ?? '?'}`;
+  const nm = (sel?: ScreenSelector & { point?: [number, number] }) => sel ? (sel.label ?? sel.identifier ?? (sel.point ? `${sel.point.join(',')}` : '?')) : null;
+  if (r.gesture === 'back-forward') return `back-fwd · ${nm(r.selector) ?? '?'} → ${nm(r.back) ?? 'entry'}`;
+  if (r.gesture === 'tab-retap') return `retap ${nm(r.selector) ?? ''}`.trim();
+  if (r.gesture === 'deepLink') return r.deepLink ?? '?';
   return r.gesture;
+}
+function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): string {
+  const parts: string[] = [];
+  if (def.all?.length) parts.push(`all: ${def.all.map(describeSelector).join(' + ')}`);
+  if (def.any?.length) parts.push(`any: ${def.any.map(describeSelector).join(' / ')}`);
+  return parts.join(' · ') || '—';
 }
 </script>
 
 <template>
   <PageHeader title="screens" desc="per-app screen registry — entries, refresh gestures, assertion states" />
-  <div v-if="loading" class="loading">loading registries…</div>
-  <div v-else-if="error" class="err">{{ error }}</div>
-  <div v-else-if="bundles.length === 0" class="empty">
-    no screens registered yet — register one via the API, or wait for the editor (stage 2)
-  </div>
+  <div v-if="loading" class="hint">loading registries…</div>
+  <div v-else-if="error" class="hint err">{{ error }}</div>
+  <div v-else-if="bundles.length === 0" class="hint">no screens registered yet</div>
+
   <section v-for="b in bundles" :key="b.bundle" class="bundle">
-    <div class="bundle-head">
-      <span class="bundle-id">{{ b.bundle }}</span>
-      <span class="bundle-count">{{ b.screens.length }} screen{{ b.screens.length === 1 ? '' : 's' }}</span>
-    </div>
-    <div v-for="s in b.screens" :key="s.id" class="card">
-      <div class="card-head">
-        <span class="sid">{{ s.id }}</span>
-        <span class="used-by" v-if="usage[s.id]?.length" :title="usage[s.id]!.join(', ')">used by {{ usage[s.id]!.join(', ') }}</span>
-      </div>
-      <div class="card-body">
-        <div class="facts">
-          <div class="fact"><span class="k">entry</span><span class="v">{{ describeEntry(s) }}</span></div>
-          <div class="fact"><span class="k">refresh</span><span class="v">{{ describeRefresh(s) }}</span></div>
-        </div>
-        <div class="states">
-          <div class="states-h">states · {{ Object.keys(s.states).length }}</div>
-          <div v-for="(def, name) in s.states" :key="name" class="state-row">
-            <span class="state-nm">{{ name }}</span>
-            <span class="state-def">
-              <template v-if="def.all?.length && def.any?.length">all: {{ def.all.map(describeSelector).join(' + ') }} · any: {{ def.any.map(describeSelector).join(' / ') }}</template>
-              <template v-else-if="def.all?.length">{{ def.all.map(describeSelector).join(' + ') }}</template>
-              <template v-else-if="def.any?.length">any of {{ def.any.map(describeSelector).join(' / ') }}</template>
-              <template v-else>—</template>
-            </span>
-          </div>
+    <div class="section-label">{{ b.bundle }} · {{ b.screens.length }}</div>
+    <article v-for="s in b.screens" :key="s.id" class="scr" :class="{ open: openId === s.id }">
+      <button class="scr-row" :title="openId === s.id ? 'collapse states' : 'expand states'" @click="toggle(s)">
+        <span class="c-id">{{ s.id }}</span>
+        <span class="c-entry" :title="'entry — ' + describeEntry(s)">{{ describeEntry(s) }}</span>
+        <span class="c-refresh" :title="'refresh — ' + describeRefresh(s)">{{ describeRefresh(s) }}</span>
+        <span class="c-states-n">{{ Object.keys(s.states).length }} st</span>
+        <span class="c-used" v-if="usage[s.id]?.length" :title="usage[s.id]!.join(', ')">{{ usage[s.id]!.join(', ') }}</span>
+        <span class="c-arrow">{{ openId === s.id ? '▾' : '▸' }}</span>
+      </button>
+      <div v-if="openId === s.id" class="scr-states">
+        <div v-for="(def, name) in s.states" :key="name" class="state-row">
+          <span class="st-nm">{{ name }}</span>
+          <span class="st-def">{{ stateDef(def) }}</span>
         </div>
       </div>
-    </div>
+    </article>
   </section>
 </template>
 
 <style scoped>
-.loading, .empty { color: var(--color-steel); font-size: var(--text-label); padding: var(--s-4) 0; }
-.err { color: var(--color-ember); font-size: var(--text-label); padding: var(--s-4) 0; }
+.hint { color: var(--color-steel); font-size: var(--text-label); padding: var(--s-4) 0; }
+.hint.err { color: var(--color-ember); }
 .bundle { margin-bottom: var(--s-5); }
-.bundle-head { display: flex; gap: var(--s-3); align-items: baseline; margin-bottom: var(--s-3); }
-.bundle-id { color: var(--color-ash); font-size: var(--text-label); }
-.bundle-count { color: var(--color-steel); font-size: var(--text-caption); }
-.card { border: 1px solid var(--color-iron); background: var(--color-carbon); margin-bottom: var(--s-4); }
-.card-head { display: flex; gap: var(--s-3); align-items: baseline; padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--color-iron); }
-.sid { font-weight: var(--weight-bold); font-size: var(--text-label); }
-.used-by { color: var(--color-steel); font-size: var(--text-caption); margin-left: auto; max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card-body { padding: var(--s-3) var(--s-4); display: grid; grid-template-columns: 260px 1fr; gap: var(--s-4); }
-.fact { display: grid; grid-template-columns: 64px 1fr; gap: 2px var(--s-2); font-size: var(--text-caption); padding: 2px 0; }
-.fact .k { color: var(--color-steel); }
-.fact .v { color: var(--color-fog); }
-.states-h { font-size: var(--text-caption); color: var(--color-steel); text-transform: uppercase; letter-spacing: .08em; font-weight: var(--weight-bold); margin-bottom: var(--s-1); }
-.state-row { display: flex; gap: var(--s-3); align-items: baseline; padding: var(--s-1) 0; font-size: var(--text-label); border-bottom: 1px solid var(--color-iron); }
-.state-row:last-child { border-bottom: none; }
-.state-nm { color: var(--color-paper); min-width: 124px; }
-.state-def { color: var(--color-steel); }
+
+/* screens as hairline-divided rows — the house list idiom (a2-row pattern):
+   borderless rows on void, iron hairline between, hover raises the surface */
+.scr { border-bottom: 1px solid var(--color-iron); }
+.scr:first-of-type { border-top: 1px solid var(--color-iron); }
+.scr.open { background: var(--color-carbon); }
+.scr-row {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1.2fr) minmax(0, 1.4fr) 54px minmax(0, 1fr) 16px;
+  gap: var(--s-3);
+  align-items: baseline;
+  width: 100%;
+  padding: var(--s-2) 0;
+  font-size: var(--text-label);
+  text-align: left;
+  transition: background var(--t);
+}
+.scr-row:hover { background: var(--color-carbon); }
+.c-id { color: var(--color-paper); font-weight: var(--weight-bold); }
+.c-entry, .c-refresh { color: var(--color-fog); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.c-states-n { color: var(--color-steel); font-size: var(--text-caption); }
+.c-used { color: var(--color-steel); font-size: var(--text-caption); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.c-arrow { color: var(--color-pewter); font-size: var(--text-caption); }
+
+/* expanded state list — inset under the row, same column lead */
+.scr-states { padding: var(--s-1) 0 var(--s-3); }
+.state-row { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: var(--s-3); padding: 3px 0; font-size: var(--text-label); }
+.st-nm { color: var(--color-chalk); }
+.st-def { color: var(--color-steel); }
 </style>
