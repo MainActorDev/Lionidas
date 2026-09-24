@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import PageHeader from '../components/PageHeader.vue';
 
 /** Screens page (A2, registry-UI stage 1) — the registry in the house row
@@ -26,6 +26,87 @@ const editing = ref<string | null>(null); // screen id being edited
 const newStates = ref<Record<string, { name: string; kind: 'identifier' | 'labelContains' | 'label'; value: string }>>({});
 const saveMsg = ref('');
 const saveErr = ref('');
+
+// ── stage 3: live probe (B1 dialog) ──
+interface ProbeNode { index: number; label?: string; identifier?: string; type?: string; rect?: { x: number; y: number; width: number; height: number } }
+const probe = ref<{ open: boolean; bundle: string; screenId: string; sessionId: string | null; nodes: ProbeNode[]; filter: string; sel: ProbeNode | null; busy: string; err: string }>({
+  open: false, bundle: '', screenId: '', sessionId: null, nodes: [], filter: '', sel: null, busy: '', err: '',
+});
+const booted = ref<Array<{ udid: string; name: string | null }>>([]);
+
+async function openProbe(s: AppScreen, bundle: string): Promise<void> {
+  saveErr.value = '';
+  try {
+    const d = await (await fetch('/api/devices')).json() as { devices: Array<{ udid: string; state: string; name: string | null }> };
+    booted.value = (d.devices ?? []).filter((x) => x.state === 'Booted').map((x) => ({ udid: x.udid, name: x.name }));
+  } catch { booted.value = []; }
+  probe.value = { open: true, bundle, screenId: s.id, sessionId: null, nodes: [], filter: '', sel: null, busy: '', err: '' };
+  if (booted.value.length > 0) await fetchTree(booted.value[0]!.udid);
+}
+async function fetchTree(udid: string): Promise<void> {
+  probe.value.busy = 'fetching tree…';
+  probe.value.err = '';
+  try {
+    const res = await fetch(`/api/probe/${encodeURIComponent(udid)}/tree`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: probe.value.sessionId, bundle: probe.value.bundle }) });
+    if (res.status === 410) { // session expired — retry fresh (F5)
+      probe.value.sessionId = null;
+      return fetchTree(udid);
+    }
+    if (!res.ok) throw new Error(((await res.json()) as { error?: string }).error ?? `probe failed (${res.status})`);
+    const d = (await res.json()) as { sessionId: string; nodes: ProbeNode[] };
+    probe.value.sessionId = d.sessionId;
+    probe.value.nodes = d.nodes.filter((n) => (n.label ?? '') !== '' || (n.identifier ?? '') !== '');
+    probe.value.sel = null;
+  } catch (e) {
+    probe.value.err = e instanceof Error ? e.message : String(e);
+  } finally {
+    probe.value.busy = '';
+  }
+}
+const filteredNodes = computed(() => {
+  const f = probe.value.filter.trim().toLowerCase();
+  const list = probe.value.nodes;
+  if (!f) return list.slice(0, 200);
+  return list.filter((n) => (n.label ?? '').toLowerCase().includes(f) || (n.identifier ?? '').toLowerCase().includes(f)).slice(0, 200);
+});
+/** identifier preferred, label fallback — selectorMatches' own order (F6) */
+function proposeSelector(n: ProbeNode): { kind: 'identifier' | 'label'; value: string } | null {
+  if (n.identifier) return { kind: 'identifier', value: n.identifier };
+  if (n.label) return { kind: 'label', value: n.label };
+  return null;
+}
+/** add the picked element as a state on the probe's screen (reuses addState's
+ *  PUT path by injecting into the form + submitting) */
+async function addPickedAsState(): Promise<void> {
+  const n = probe.value.sel;
+  if (!n) return;
+  const prop = proposeSelector(n);
+  if (!prop) { probe.value.err = 'element has neither identifier nor label'; return; }
+  const b = bundles.value.find((x) => x.bundle === probe.value.bundle);
+  const s = b?.screens.find((x) => x.id === probe.value.screenId);
+  if (!b || !s) return;
+  const name = window.prompt(`state name for ${prop.kind} "${prop.value}"`) ?? '';
+  if (!name.trim()) return;
+  const sel = prop.kind === 'identifier' ? { identifier: prop.value } : { label: prop.value };
+  const updated: AppScreen = { ...s, states: { ...s.states, [name.trim()]: { all: [sel] } } };
+  const payload = { screens: b.screens.map((x) => (x.id === s.id ? updated : x)), revision: revision.value };
+  const res = await fetch(`/api/apps/${encodeURIComponent(probe.value.bundle)}/screens`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+  if (res.ok) {
+    const d = (await res.json()) as { revision: number };
+    revision.value = d.revision;
+    b.screens = payload.screens;
+    probe.value.open = false;
+    saveMsg.value = `state "${name.trim()}" added from live element`;
+  } else if (res.status === 409) {
+    const d = (await res.json()) as { screens: AppScreen[]; revision: number };
+    b.screens = d.screens;
+    revision.value = d.revision;
+    probe.value.err = 'registry changed while editing — review the screen and re-pick';
+  } else {
+    const d = (await res.json()) as { errors?: string[]; error?: string };
+    probe.value.err = (d.errors ?? [d.error ?? 'save failed']).join(' · ');
+  }
+}
 
 function toggle(s: AppScreen): void {
   openId.value = openId.value === s.id ? null : s.id;
@@ -195,12 +276,53 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
           <button class="as-add" @click="addState(s, b.bundle)">add state</button>
         </div>
         <div v-if="editing === s.id" class="edit-row">
-          <button class="st-edit" @click="beginEdit(s)">{{ editing === s.id ? 'editing…' : '' }}</button>
+          <button class="probe-open" title="pick a live element on a booted device" @click="openProbe(s, b.bundle)">probe device…</button>
         </div>
         <div v-if="saveMsg || saveErr" class="save-line" :class="{ err: !!saveErr }">{{ saveErr || saveMsg }}</div>
       </div>
     </article>
   </section>
+
+  <!-- B1 probe dialog: searchable live element list → selector proposal → add -->
+  <div v-if="probe.open" class="probe-overlay" @click.self="probe.open = false">
+    <div class="probe">
+      <div class="probe-head">
+        <span class="probe-title">{{ probe.screenId }} · pick an element</span>
+        <span class="probe-meta">{{ booted[0]?.name ?? booted[0]?.udid.slice(0, 8) ?? 'no device' }}<template v-if="probe.sessionId"> · {{ probe.sessionId }}</template></span>
+        <button class="probe-x" @click="probe.open = false">×</button>
+      </div>
+      <div v-if="booted.length === 0" class="probe-empty">
+        no booted device — boot one on the devices page, then probe here
+      </div>
+      <template v-else>
+        <div class="probe-bar">
+          <input v-model="probe.filter" class="probe-filter" placeholder="filter by label or identifier…">
+          <button class="probe-refresh" title="re-fetch the live tree" @click="fetchTree(booted[0]!.udid)">refresh</button>
+        </div>
+        <div v-if="probe.busy" class="probe-empty">{{ probe.busy }}</div>
+        <div v-else-if="probe.err" class="probe-empty err">{{ probe.err }}</div>
+        <div v-else class="probe-list">
+          <button v-for="n in filteredNodes" :key="n.index" class="probe-node" :class="{ sel: probe.sel?.index === n.index }" @click="probe.sel = n">
+            <span class="pn-dot"></span>
+            <span class="pn-main">
+              <span class="pn-label">{{ n.label || '—' }}</span>
+              <span class="pn-id">{{ n.identifier || '' }}</span>
+            </span>
+            <span class="pn-type">{{ n.type || '' }}</span>
+          </button>
+          <div v-if="filteredNodes.length === 0" class="probe-empty">no elements match "{{ probe.filter }}"</div>
+        </div>
+        <div v-if="probe.sel" class="probe-prop">
+          <div class="pp-h">proposed selector — identifier preferred</div>
+          <code class="pp-sel">{{ JSON.stringify(proposeSelector(probe.sel) ? (proposeSelector(probe.sel)!.kind === 'identifier' ? { identifier: proposeSelector(probe.sel)!.value } : { label: proposeSelector(probe.sel)!.value }) : null) }}</code>
+          <div class="pp-acts">
+            <span style="flex:1"></span>
+            <button class="pp-add" @click="addPickedAsState">add as state</button>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
 </template>
 
 <style scoped>
@@ -248,4 +370,36 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
 .as-add:hover { background: var(--color-ember); color: var(--color-paper); }
 .save-line { margin-top: var(--s-2); font-size: var(--text-caption); color: var(--color-fog); }
 .save-line.err { color: var(--color-ember); }
+.probe-open { border: 1px solid var(--color-iron); color: var(--color-fog); font-size: var(--text-caption); padding: 3px var(--s-2); transition: all var(--t); }
+.probe-open:hover { border-color: var(--color-slate); color: var(--color-paper); }
+.probe-overlay { position: fixed; inset: 0; z-index: 200; background: color-mix(in srgb, var(--color-void) 80%, transparent); display: grid; place-items: center; }
+.probe { width: min(640px, 92vw); max-height: 84vh; display: grid; grid-template-rows: auto auto auto 1fr auto; border: 1px solid var(--color-slate); background: var(--color-graphite); overflow: hidden; }
+.probe-head { display: flex; gap: var(--s-3); align-items: baseline; padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--color-iron); }
+.probe-title { font-weight: var(--weight-bold); font-size: var(--text-label); }
+.probe-meta { color: var(--color-steel); font-size: var(--text-caption); }
+.probe-x { margin-left: auto; color: var(--color-pewter); font-size: var(--text-label); }
+.probe-x:hover { color: var(--color-paper); }
+.probe-empty { color: var(--color-steel); font-size: var(--text-label); padding: var(--s-4); }
+.probe-empty.err { color: var(--color-ember); }
+.probe-bar { display: flex; gap: var(--s-2); padding: var(--s-3) var(--s-4) var(--s-2); }
+.probe-filter { flex: 1; background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-size: var(--text-label); padding: 5px var(--s-2); }
+.probe-filter:focus { outline: none; border-color: var(--color-slate); }
+.probe-refresh { border: 1px solid var(--color-iron); color: var(--color-fog); font-size: var(--text-caption); padding: 4px var(--s-2); }
+.probe-refresh:hover { border-color: var(--color-slate); color: var(--color-paper); }
+.probe-list { overflow-y: auto; margin: 0 var(--s-2) var(--s-2); }
+.probe-node { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: var(--s-2); width: 100%; padding: 5px var(--s-2); align-items: baseline; text-align: left; transition: background var(--t); }
+.probe-node:hover { background: var(--color-carbon); }
+.probe-node.sel { background: var(--color-carbon); border-left: 2px solid var(--color-ember); padding-left: calc(var(--s-2) - 2px); }
+.pn-dot { width: 6px; height: 6px; border: 1px solid var(--color-pewter); align-self: center; }
+.probe-node.sel .pn-dot { background: var(--color-ember); border-color: var(--color-ember); }
+.pn-main { min-width: 0; display: grid; }
+.pn-label { color: var(--color-paper); font-size: var(--text-label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pn-id { color: var(--color-steel); font-size: var(--text-caption); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pn-type { color: var(--color-pewter); font-size: var(--text-caption); }
+.probe-prop { border-top: 1px solid var(--color-iron); padding: var(--s-3) var(--s-4); background: var(--color-carbon); }
+.pp-h { font-size: var(--text-caption); color: var(--color-steel); text-transform: uppercase; letter-spacing: .08em; font-weight: var(--weight-bold); margin-bottom: var(--s-1); }
+.pp-sel { font-size: var(--text-label); color: var(--color-chalk); background: var(--color-void); border: 1px solid var(--color-iron); padding: var(--s-1) var(--s-3); display: inline-block; margin-bottom: var(--s-2); }
+.pp-acts { display: flex; gap: var(--s-2); align-items: center; }
+.pp-add { border: 1px solid var(--color-ember); color: var(--color-ember); font-size: var(--text-label); padding: 4px var(--s-3); transition: all var(--t); }
+.pp-add:hover { background: var(--color-ember); color: var(--color-paper); }
 </style>

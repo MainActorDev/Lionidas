@@ -295,6 +295,39 @@ export function registerManualRoutes(
     }
   });
 
+  /** Registry-UI stage 3 — probe: live AX tree for the screens page.
+   *  Creates (or reuses) a manual session on the given booted udid and
+   *  returns the element tree. Standalone route so the screens page doesn't
+   *  need the full manual-session lifecycle; the session id returns for
+   *  follow-up probes (tree refresh). Degrades 400/410 like the family. */
+  app.post('/api/probe/:udid/tree', async (req, reply) => {
+    const { udid } = req.params as { udid: string };
+    const b = req.body as { sessionId?: string; bundle?: string } | null;
+    const operator = req.user?.name;
+    if (!operator) return reply.code(400).send({ error: 'sign in required' });
+    const dev = db.prepare('SELECT udid FROM devices WHERE udid = ? AND state = ?').get(udid, 'Booted');
+    if (!dev) return reply.code(409).send({ error: `device ${udid.slice(0, 8)} is not booted — boot it on the devices page first`, code: 'DEVICE_NOT_BOOTED' });
+    try {
+      let sessionId = b?.sessionId;
+      if (sessionId) {
+        const alive = db.prepare('SELECT id FROM manual_sessions WHERE id = ? AND finished_at IS NULL').get(sessionId);
+        if (!alive) sessionId = undefined; // expired — start fresh (review F5 degrade)
+      }
+      if (!sessionId) {
+        // probing is registry-scoped: the caller names the app; the session
+        // binds to it (no Settings fallback — a Settings tree is useless for
+        // defining app screen states). startManualSession foregrounds it.
+        const s = await startManualSession({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, udid, req.user?.name ?? 'probe', b?.bundle ?? 'com.apple.Preferences');
+        sessionId = s.sessionId;
+      }
+      const tree = await manualTree({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, sessionId);
+      return { sessionId, nodes: tree.nodes, logicalW: tree.logicalW, logicalH: tree.logicalH, capturedAt: tree.capturedAt };
+    } catch (err) {
+      if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
+      throw err;
+    }
+  });
+
   app.post('/api/manual/:id/tree', async (req, reply) => {
     const { id } = req.params as { id: string };
     try {
