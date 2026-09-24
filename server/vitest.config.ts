@@ -8,5 +8,10 @@ export default defineConfig({
     // process per file, so process.env changes never cross files.
     testTimeout: 20_000,
     hookTimeout: 20_000,
+    // CI (macos runners) died with ERR_IPC_CHANNEL_CLOSED: 124 forked workers
+    // spawning at once under the runner's constrained CPU kill tinypool's IPC.
+    // A bounded pool (4) fixes the channel storm with no measurable local cost
+    // (971/971 in the same wall time on a 10-core dev box).
+    maxWorkers: process.env['CI'] ? 4 : undefined,
   },
 });
