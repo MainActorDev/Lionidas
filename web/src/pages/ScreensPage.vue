@@ -22,7 +22,7 @@ const loading = ref(true);
 const error = ref('');
 const openId = ref<string | null>(null); // expanded screen row
 const usage = ref<Record<string, string[]>>({});
-const revision = ref<number>(1);
+const revisions = ref<Record<string, number>>({}); // per-bundle — one registry each
 const editing = ref<string | null>(null); // screen id being edited
 const newStates = ref<Record<string, { name: string; kind: 'identifier' | 'labelContains' | 'label'; value: string }>>({});
 const saveMsg = ref('');
@@ -56,6 +56,37 @@ const editorErr = ref('');
 function openCreate(bundle: string): void {
   editor.value = { mode: 'create', bundle, originalId: null, id: '', entryMode: 'tab', entryLabel: '', entryPoint: '', refreshGesture: '', refreshAwayId: '', refreshBackLabel: '', refreshBackPoint: '' };
   editorErr.value = '';
+}
+
+// first screen of a brand-new app: the page-level entry. Sections only exist
+// for bundles with rows — this breaks the chicken-and-egg without curl.
+const newApp = ref<{ open: boolean; bundle: string }>({ open: false, bundle: '' });
+const knownApps = ref<string[]>([]);
+
+async function openNewApp(): Promise<void> {
+  newApp.value = { open: true, bundle: '' };
+  editorErr.value = '';
+  // autocomplete source: bundles the server already knows — registry apps,
+  // cases' app_bundle_id, installed artifacts. Typo prevention, not a gate.
+  try {
+    const [reg, tpls] = await Promise.all([
+      (await fetch('/api/apps/screens')).json() as Promise<{ registries: Array<{ bundle: string }> }>,
+      (await fetch('/api/templates')).json() as Promise<{ templates: Array<{ appBundleId?: string | null }> }>,
+    ]);
+    const set = new Set<string>();
+    for (const r of reg.registries ?? []) set.add(r.bundle);
+    for (const t of tpls.templates ?? []) if (t.appBundleId) set.add(t.appBundleId);
+    knownApps.value = [...set].sort();
+  } catch { knownApps.value = []; }
+}
+
+function confirmNewApp(): void {
+  const b = newApp.value.bundle.trim();
+  if (!/^([a-z0-9-]+\.)+[a-z0-9-]+$/i.test(b)) { editorErr.value = 'bundle id looks wrong — reverse-DNS, e.g. com.lionparcel.services.consumer'; return; }
+  if (bundles.value.some((x) => x.bundle === b)) { editorErr.value = 'this app already has a registry section below'; return; }
+  newApp.value.open = false;
+  bundles.value = [...bundles.value, { bundle: b, screens: [] }]; // empty section; register persists it
+  openCreate(b);
 }
 function openEditScreen(s: AppScreen, bundle: string): void {
   const e = s.entry;
@@ -123,10 +154,10 @@ async function saveScreen(): Promise<void> {
   const screens = f.mode === 'create'
     ? [...b.screens, scr]
     : b.screens.map((s) => (s.id === f.originalId ? scr : s));
-  const res = await fetch(`/api/apps/${encodeURIComponent(f.bundle)}/screens`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ screens, revision: revision.value }) });
+  const res = await fetch(`/api/apps/${encodeURIComponent(f.bundle)}/screens`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ screens, revision: revisions.value[b.bundle] }) });
   if (res.ok) {
     const d = (await res.json()) as { revision: number };
-    revision.value = d.revision;
+    revisions.value[b.bundle] = d.revision;
     b.screens = screens;
     editor.value = null;
     saveMsg.value = f.mode === 'create' ? `screen "${scr.id}" registered` : `screen "${scr.id}" saved`;
@@ -134,7 +165,7 @@ async function saveScreen(): Promise<void> {
   } else if (res.status === 409) {
     const d = (await res.json()) as { screens: AppScreen[]; revision: number };
     b.screens = d.screens;
-    revision.value = d.revision;
+    revisions.value[b.bundle] = d.revision;
     editorErr.value = 'registry changed while editing — review and re-save';
   } else {
     const d = (await res.json()) as { errors?: string[]; error?: string };
@@ -146,16 +177,16 @@ async function deleteScreen(s: AppScreen, bundle: string): Promise<void> {
   const b = bundles.value.find((x) => x.bundle === bundle);
   if (!b) return;
   const screens = b.screens.filter((x) => x.id !== s.id);
-  const res = await fetch(`/api/apps/${encodeURIComponent(bundle)}/screens`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ screens, revision: revision.value }) });
+  const res = await fetch(`/api/apps/${encodeURIComponent(bundle)}/screens`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ screens, revision: revisions.value[b.bundle] }) });
   if (res.ok) {
     const d = (await res.json()) as { revision: number };
-    revision.value = d.revision;
+    revisions.value[b.bundle] = d.revision;
     b.screens = screens;
     saveMsg.value = `screen "${s.id}" deleted`;
   } else if (res.status === 409) {
     const d = (await res.json()) as { screens: AppScreen[]; revision: number };
     b.screens = d.screens;
-    revision.value = d.revision;
+    revisions.value[b.bundle] = d.revision;
     saveErr.value = 'registry changed — review and retry';
   } else {
     const d = (await res.json()) as { errors?: string[]; error?: string };
@@ -180,7 +211,7 @@ async function importYaml(): Promise<void> {
     const g = await (await fetch(`/api/apps/${encodeURIComponent(y.bundle)}/screens`)).json() as { screens: AppScreen[]; revision: number };
     const b = bundles.value.find((x) => x.bundle === y.bundle);
     if (b) b.screens = g.screens;
-    revision.value = g.revision;
+    revisions.value[y.bundle] = g.revision;
     yamlModal.value = null;
     saveMsg.value = 'registry imported from yaml';
   } else {
@@ -274,18 +305,18 @@ async function addPickedAsState(): Promise<void> {
   if (!name.trim()) return;
   const sel = prop.kind === 'identifier' ? { identifier: prop.value } : { label: prop.value };
   const updated: AppScreen = { ...s, states: { ...s.states, [name.trim()]: { all: [sel] } } };
-  const payload = { screens: b.screens.map((x) => (x.id === s.id ? updated : x)), revision: revision.value };
+  const payload = { screens: b.screens.map((x) => (x.id === s.id ? updated : x)), revision: revisions.value[b.bundle] };
   const res = await fetch(`/api/apps/${encodeURIComponent(probe.value.bundle)}/screens`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
   if (res.ok) {
     const d = (await res.json()) as { revision: number };
-    revision.value = d.revision;
+    revisions.value[b.bundle] = d.revision;
     b.screens = payload.screens;
     probe.value.open = false;
     saveMsg.value = `state "${name.trim()}" added from live element`;
   } else if (res.status === 409) {
     const d = (await res.json()) as { screens: AppScreen[]; revision: number };
     b.screens = d.screens;
-    revision.value = d.revision;
+    revisions.value[b.bundle] = d.revision;
     probe.value.err = 'registry changed while editing — review the screen and re-pick';
   } else {
     const d = (await res.json()) as { errors?: string[]; error?: string };
@@ -318,11 +349,11 @@ async function addState(s: AppScreen, bundle: string): Promise<void> {
   const updated: AppScreen = { ...s, states: { ...s.states, [name]: { all: [sel] } } };
   const b = bundles.value.find((x) => x.bundle === bundle);
   if (!b) return;
-  const payload = { screens: b.screens.map((x) => (x.id === s.id ? updated : x)), revision: revision.value };
+  const payload = { screens: b.screens.map((x) => (x.id === s.id ? updated : x)), revision: revisions.value[b.bundle] };
   const res = await fetch(`/api/apps/${encodeURIComponent(bundle)}/screens`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
   if (res.ok) {
     const d = (await res.json()) as { revision: number };
-    revision.value = d.revision;
+    revisions.value[b.bundle] = d.revision;
     b.screens = payload.screens;
     newStates.value[s.id] = { name: '', kind: form.kind, value: '' };
     saveMsg.value = `state "${name}" added`;
@@ -330,7 +361,7 @@ async function addState(s: AppScreen, bundle: string): Promise<void> {
   } else if (res.status === 409) {
     const d = (await res.json()) as { screens: AppScreen[]; revision: number };
     b.screens = d.screens; // adopt the current registry; the user re-applies
-    revision.value = d.revision;
+    revisions.value[b.bundle] = d.revision;
     saveErr.value = 'registry changed while you were editing — your form is kept; re-apply to retry';
   } else {
     const d = (await res.json()) as { errors?: string[]; error?: string };
@@ -345,18 +376,18 @@ async function removeState(s: AppScreen, bundle: string, name: string): Promise<
   const states = { ...s.states };
   delete states[name];
   const updated: AppScreen = { ...s, states };
-  const payload = { screens: b.screens.map((x) => (x.id === s.id ? updated : x)), revision: revision.value };
+  const payload = { screens: b.screens.map((x) => (x.id === s.id ? updated : x)), revision: revisions.value[b.bundle] };
   const res = await fetch(`/api/apps/${encodeURIComponent(bundle)}/screens`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
   if (res.ok) {
     const d = (await res.json()) as { revision: number };
-    revision.value = d.revision;
+    revisions.value[b.bundle] = d.revision;
     b.screens = payload.screens;
     saveMsg.value = `state "${name}" removed`;
     saveErr.value = '';
   } else if (res.status === 409) {
     const d = (await res.json()) as { screens: AppScreen[]; revision: number };
     b.screens = d.screens;
-    revision.value = d.revision;
+    revisions.value[b.bundle] = d.revision;
     saveErr.value = 'registry changed while you were editing — review and retry';
   } else {
     const d = (await res.json()) as { errors?: string[]; error?: string };
@@ -382,9 +413,9 @@ onMounted(async () => {
       }
     }
     usage.value = use;
-    if (d.registries[0]) {
-      const g = await (await fetch(`/api/apps/${encodeURIComponent(d.registries[0].bundle)}/screens`)).json() as { revision: number };
-      revision.value = g.revision;
+    for (const r of d.registries) {
+      const g = await (await fetch(`/api/apps/${encodeURIComponent(r.bundle)}/screens`)).json() as { revision: number };
+      revisions.value[r.bundle] = g.revision;
     }
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);
@@ -431,7 +462,11 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
 </script>
 
 <template>
-  <PageHeader title="screens" desc="per-app screen registry — what each screen is, how to enter and refresh it, the states cases assert on" />
+  <PageHeader title="screens" desc="per-app screen registry — what each screen is, how to enter and refresh it, the states cases assert on">
+    <template #actions>
+      <button class="mini-act" title="register the first screen of a new app" @click="openNewApp">+ app</button>
+    </template>
+  </PageHeader>
   <div v-if="loading" class="hint">loading registries…</div>
   <div v-else-if="error" class="hint err">{{ error }}</div>
   <div v-else-if="bundles.length === 0" class="hint">no screens registered yet — register one below</div>
@@ -453,6 +488,8 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
       <span class="col-used">used by</span>
       <span class="col-acts"></span>
     </div>
+
+    <div v-if="b.screens.length === 0" class="hint inset">no screens yet — <button class="inline-link" @click="openCreate(b.bundle)">register the first one</button></div>
 
     <article v-for="s in b.screens" :key="s.id" class="scr-card" :class="{ editing: editing === s.id }">
       <div class="scr-row" :title="openId === s.id ? 'collapse' : 'expand states'" @click="toggle(s)">
@@ -498,6 +535,32 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
         <div v-if="saveMsg || saveErr" class="save-line" :class="{ err: !!saveErr }">{{ saveErr || saveMsg }}</div>
       </div>
     </article>
+  </div>
+
+  <!-- new-app prompt: first screen of a brand-new bundle -->
+  <div v-if="newApp.open" class="probe-overlay" @click.self="newApp.open = false">
+    <div class="probe narrow">
+      <div class="probe-head">
+        <span class="probe-title">register a new app</span>
+        <span class="probe-meta">the bundle id its cases will name in app:</span>
+        <button class="probe-x" @click="newApp.open = false">×</button>
+      </div>
+      <div class="ed-form">
+        <label class="ed-row">
+          <span class="ed-k">bundle</span>
+          <input v-model="newApp.bundle" class="ed-in" list="known-apps" placeholder="com.example.app" @keydown.enter="confirmNewApp">
+        </label>
+        <datalist id="known-apps">
+          <option v-for="a in knownApps" :key="a" :value="a" />
+        </datalist>
+        <div v-if="editorErr" class="ed-err">{{ editorErr }}</div>
+        <div class="ed-acts">
+          <span class="ed-hint">creates an empty registry section, then opens the screen form</span>
+          <span style="flex:1"></span>
+          <button class="pp-add" @click="confirmNewApp">continue →</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- screen editor: create + edit entry/refresh -->
@@ -614,6 +677,10 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
 .bundle-row { display: flex; align-items: baseline; gap: var(--s-2); }
 .bundle-row > span:first-child { flex: 1; }
 .bundle-acts { display: flex; gap: var(--s-1); }
+.inline-link { color: var(--color-fog); text-decoration: underline; text-underline-offset: 2px; }
+.inline-link:hover { color: var(--color-paper); }
+.hint.inset { padding: var(--s-3) 12px; }
+.probe.narrow { width: min(480px, 92vw); }
 .mini-act { border: 1px solid var(--color-iron); color: var(--color-pewter); font-size: var(--text-caption); padding: 1px var(--s-2); transition: all var(--t); }
 .mini-act:hover { border-color: var(--color-slate); color: var(--color-paper); }
 
