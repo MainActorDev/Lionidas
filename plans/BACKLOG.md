@@ -92,7 +92,7 @@ network-observed scenario changes to swap steps). Not part of the registry-UI
 arc (plans/20260924T052218Z-screen-registry-ui-plan.md lists it out of scope).
 - Evidence: session 2026-09-24 — user asked "what if I want to create a new
   test case?"; recorder today emits v1 steps only.
-### 11. Launch-arg live-refresh pattern (parked 2026-09-24, design agreed)
+### 11. [DONE 2026-09-25]  Launch-arg live-refresh pattern (parked 2026-09-24, design agreed)
 App-side change (ios-consumer, NOT Crucible): move home's country-recommendation
 fetch from willAppear to viewDidLoad-once (user's long-standing intent — fewer
 redundant fetches). Crucible-side consequence: the registry's back-forward
