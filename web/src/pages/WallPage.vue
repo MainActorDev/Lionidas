@@ -218,10 +218,14 @@ onUnmounted(() => {
           <tbody>
             <tr v-for="d in booted" :key="d.udid" :class="{ 'row-booted': true, 'row-active': sidebar?.device.udid === d.udid }" @click="openSidebar(d)">
               <td class="pcol" @click.stop><button class="pin" :class="{ on: d.pinned }" :title="d.pinned ? 'unpin — remove from pinned' : 'pin — keep at hand'" @click="togglePin(d)"><svg class="ic"><use href="#pin-glyph" /></svg></button></td>
-              <td @click.stop><DeviceMiniPreview :udid="d.udid" /></td>
-              <td>
-                <div style="color: var(--color-paper);">{{ d.name ?? d.udid.slice(0, 8) }}</div>
-                <div style="font-size: 10px; color: var(--color-steel); user-select: text;">{{ d.udid }}</div>
+              <td @click.stop>
+                <div class="dev-cell">
+                  <DeviceMiniPreview :udid="d.udid" />
+                  <div class="dev-text">
+                    <div style="color: var(--color-paper);">{{ d.name ?? d.udid.slice(0, 8) }}</div>
+                    <div style="font-size: 10px; color: var(--color-steel); user-select: text;">{{ d.udid }}</div>
+                  </div>
+                </div>
               </td>
               <td style="color: var(--color-paper);">{{ d.os_version ?? '—' }}</td>
               <td :style="{ color: (d.memoryRss ?? 0) > 1024 * 1024 * 1024 ? 'var(--color-ember)' : 'var(--color-fog)' }" title="host memory: every process referencing this device">{{ fmtBytes(d.memoryRss) }}</td>
@@ -330,5 +334,7 @@ onUnmounted(() => {
 .pin .ic { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
 .pin.on .ic { fill:currentColor; }
 th.pcol, td.pcol { width:44px; text-align:center; padding:0 4px; }
+.dev-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.dev-text { min-width: 0; }
 th.pcol .ic-h { width:12px; height:12px; fill:none; stroke:currentColor; stroke-width:2; vertical-align:middle; }
 </style>
