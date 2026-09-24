@@ -8,6 +8,8 @@ import { registerManualRoutes } from '../src/routes/manual.ts';
 import { __setAlloyForTest } from '../src/alloy/client.ts';
 import { __setForgeHealthForTest } from '../src/forge/health.ts';
 import type { FastifyInstance } from 'fastify';
+import { hasAlloy } from './helpers/capabilities.ts';
+const describeIfAlloy = describe.skipIf(!(hasAlloy()));  // play-all spawns playback which inits alloy (line 395 forge pre-check)
 
 /** Overview slice T2 — batch stamping. Every run minted by a batch engine
  *  (play-all / suite play) carries the SAME batch_id; the solo variant
@@ -52,7 +54,7 @@ afterEach(async () => {
   rmSync(tmp, { recursive: true, force: true });
 });
 
-describe('T2 — batch stamping', () => {
+describeIfAlloy('T2 — batch stamping', () => {
   /** playback is fire-and-forget: rows are stamped at INSERT but the loop
    *  keeps running past the assertions. Drain to terminal before afterEach
    *  closes the DB — otherwise the terminal write races teardown. */

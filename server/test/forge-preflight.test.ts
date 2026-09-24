@@ -7,6 +7,8 @@ import { migrateM1 } from '../src/db/schema.ts';
 import { registerManualRoutes } from '../src/routes/manual.ts';
 import { __setForgeHealthForTest, forgePreflight } from '../src/forge/health.ts';
 import type { FastifyInstance } from 'fastify';
+import { hasAlloy } from './helpers/capabilities.ts';
+const describeIfAlloy = describe.skipIf(!(hasAlloy()));  // playback forge pre-flight inits alloy
 
 /** T7 — forge pre-flight: a run that resolves a networkScenario must refuse
  *  FAST (before the run row / playback) when the forge chain is down, instead
@@ -51,7 +53,7 @@ async function drainRuns(budgetMs = 3000): Promise<void> {
   }
 }
 
-describe('T7 — forge pre-flight (scenario runs)', () => {
+describeIfAlloy('T7 — forge pre-flight (scenario runs)', () => {
   it('scenario + forge DOWN → fast 409 SCENARIO_INACTIVE, no run row', async () => {
     mkScenarioCase();
     __setForgeHealthForTest({ mitmRunning: false, routingEnabled: false });
@@ -107,7 +109,7 @@ describe('T7 — forge pre-flight (scenario runs)', () => {
   });
 });
 
-describe('forgePreflight (unit)', () => {
+describeIfAlloy('forgePreflight (unit)', () => {
   it('reports both knobs in the reason', () => {
     __setForgeHealthForTest({ mitmRunning: false, routingEnabled: false });
     const r = forgePreflight('countries-sg');
