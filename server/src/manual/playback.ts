@@ -615,6 +615,10 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       // merge; a world: step retargets it so ${env.X} follows the ACTIVE
       // world (the whole point of single-launch world swaps).
       let activeEnv = mergeVariantEnv(opts.variant ?? null, opts.env ?? {});
+      // R2 evidence attribution: which swap target the run is currently IN
+      // (starts as the entry lane's variant; each swap: step updates it) —
+      // the evidence sheet groups world screenshots by this, not by the lane
+      let activeSwap: string | null = opts.variant?.id ?? null;
       try {
         execSteps = expandFlows(steps as unknown as FlowStep[], (id) => {
           const row = deps.db.prepare('SELECT name, steps_json FROM templates WHERE id = ?').get(id) as { name: string; steps_json: string } | undefined;
@@ -1021,6 +1025,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 if (sid) ids.push(sid);
               }
               outcome = await screenRunner.swap(s.swap!, ids);
+              activeSwap = s.swap!; // evidence attribution: the world this run is IN from here on
             } else outcome = await screenRunner.expectScreen(s.expectScreen!.screen, s.expectScreen!.state, s.expectScreen!.negate === true);
             // per-state evidence: a PASSING expect screen captures the frame
             // that proved the state — swap cases get one screenshot per
@@ -1028,7 +1033,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             const passEv = outcome.ok && s.action === 'expectScreen' ? await recorder.captureStateEvidence() : null;
             const passEvidence = passEv ? JSON.stringify([passEv]) : '[]';
             if (outcome.ok) {
-              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, passEvidence, JSON.stringify({ action: s.action, note: outcome.note }));
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, passEvidence, JSON.stringify({ action: s.action, note: outcome.note, ...(activeSwap ? { swapTarget: activeSwap } : {}) }));
             } else {
               runStatus = 'failed';
               insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', `${outcome.code}: ${outcome.note}`, t0, Date.now() - t0, passEvidence, JSON.stringify({ action: s.action, code: outcome.code }));

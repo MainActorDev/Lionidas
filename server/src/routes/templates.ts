@@ -368,13 +368,17 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
 
     const itemsFor = (runId: string): Array<{ stepIdx: number; stepName: string; status: string; kind: string; evId: string }> => {
       const steps = db.prepare(
-        `SELECT idx, name, status, evidence_ids_json FROM run_steps WHERE run_id = ? AND evidence_ids_json != '[]' ORDER BY idx`,
-      ).all(runId) as Array<{ idx: number; name: string; status: string; evidence_ids_json: string }>;
-      const items: Array<{ stepIdx: number; stepName: string; status: string; kind: string; evId: string }> = [];
+        `SELECT idx, name, status, evidence_ids_json, evaluated_json FROM run_steps WHERE run_id = ? AND evidence_ids_json != '[]' ORDER BY idx`,
+      ).all(runId) as Array<{ idx: number; name: string; status: string; evidence_ids_json: string; evaluated_json: string | null }>;
+      const items: Array<{ stepIdx: number; stepName: string; status: string; kind: string; evId: string; swapTarget?: string }> = [];
       for (const st of steps) {
+        // R2: the step's evaluated payload names the swap target the run was
+        // IN when this evidence was captured — world screenshots group by it
+        let swapTarget: string | undefined;
+        try { swapTarget = (JSON.parse(st.evaluated_json ?? '{}') as { swapTarget?: string }).swapTarget; } catch { /* absent pre-R2 */ }
         for (const evId of JSON.parse(st.evidence_ids_json) as string[]) {
           const ev = db.prepare('SELECT type FROM evidence WHERE id = ?').get(evId) as { type: string } | undefined;
-          if (ev) items.push({ stepIdx: st.idx, stepName: st.name, status: st.status, kind: ev.type, evId });
+          if (ev) items.push({ stepIdx: st.idx, stepName: st.name, status: st.status, kind: ev.type, evId, ...(swapTarget ? { swapTarget } : {}) });
         }
       }
       const vid = db.prepare(`SELECT id FROM evidence WHERE bundle_id = ? AND type = 'video' LIMIT 1`).get(runId) as { id: string } | undefined;

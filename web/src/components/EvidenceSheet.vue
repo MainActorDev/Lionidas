@@ -8,7 +8,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import TapOverlayVideo from './TapOverlayVideo.vue';
 
-export interface EvidenceItem { stepIdx: number; stepName: string; status: string; kind: string; evId: string }
+export interface EvidenceItem { stepIdx: number; stepName: string; status: string; kind: string; evId: string; swapTarget?: string }
 export interface EvidenceLane {
   variantId: string | null; runId: string; runStatus: string; startedAt: number;
   env: Record<string, string> | null; items: EvidenceItem[];
@@ -25,6 +25,13 @@ const visibleLanes = computed(() => {
   return props.lanes.filter((l) => l.variantId === (filter.value === '' ? null : filter.value));
 });
 function laneLabel(l: EvidenceLane): string { return l.variantId ?? 'plain'; }
+/** swap runs carry worlds beyond the entry lane — badge shots with the world
+ *  they were captured in when it differs from the lane (sg lane showing my
+ *  shots is the swap case working, not a misfile). */
+function worldBadge(item: EvidenceItem, lane: EvidenceLane): string | null {
+  if (!item.swapTarget || item.swapTarget === lane.variantId) return null;
+  return `↹ ${item.swapTarget}`;
+}
 function laneFailed(l: EvidenceLane): boolean { return l.runStatus === 'failed' || l.items.some((i) => i.status === 'fail'); }
 
 /** per-lane artifact purge — DELETE /api/templates/:id/runs?variant=<lane>.
@@ -127,6 +134,7 @@ watch(() => props.open, (o) => { if (!o) { cinema.value = null; filter.value = '
                 :src="`/api/evidence/${item.evId}/file`" />
               <span v-if="item.kind === 'video'" class="vid-play"><span class="tri"></span></span>
               <span class="stamp" :class="{ fail: item.status === 'fail' }">{{ item.kind === 'video' ? 'video' : (item.status === 'fail' ? 'fail' : 'expect') }}</span>
+              <span v-if="worldBadge(item, l)" class="stamp world" :title="`captured in world “${item.swapTarget}”`">{{ worldBadge(item, l) }}</span>
               <span class="cap"><span class="ix">#{{ item.stepIdx >= 0 ? item.stepIdx + 1 : '·' }}</span>
                 <span class="nm">{{ item.stepName }}</span></span>
             </button>
@@ -205,6 +213,7 @@ watch(() => props.open, (o) => { if (!o) { cinema.value = null; filter.value = '
 .card.fail { border-style: dashed; }
 .card.fail .cap .nm { color: var(--color-paper); }
 .card .stamp { position: absolute; top: 6px; left: 6px; font-size: 9px; background: rgba(0, 0, 0, 0.75); color: var(--color-fog); padding: 1px 5px; border-radius: var(--r); }
+.stamp.world { background:var(--color-carbon); color:var(--color-fog); border-color:var(--color-slate); }
 .card .stamp.fail { color: var(--color-paper); border: 1px dashed var(--color-paper); }
 .tri { width: 0; height: 0; border-left: 12px solid var(--color-fog); border-top: 7px solid transparent; border-bottom: 7px solid transparent; }
 
