@@ -21,8 +21,82 @@ const loading = ref(true);
 const error = ref('');
 const openId = ref<string | null>(null); // expanded screen row
 const usage = ref<Record<string, string[]>>({});
+const revision = ref<number>(1);
+const editing = ref<string | null>(null); // screen id being edited
+const newStates = ref<Record<string, { name: string; kind: 'identifier' | 'labelContains' | 'label'; value: string }>>({});
+const saveMsg = ref('');
+const saveErr = ref('');
 
-function toggle(s: AppScreen): void { openId.value = openId.value === s.id ? null : s.id; }
+function toggle(s: AppScreen): void {
+  openId.value = openId.value === s.id ? null : s.id;
+  if (openId.value === s.id) {
+    editing.value = null;
+    saveMsg.value = '';
+    saveErr.value = '';
+  }
+}
+function beginEdit(s: AppScreen): void {
+  editing.value = s.id;
+  newStates.value[s.id] = { name: '', kind: 'identifier', value: '' };
+  saveMsg.value = '';
+  saveErr.value = '';
+}
+/** add one state from the inline form → PUT the whole registry (revision-
+ *  guarded); 422 errors render verbatim; 409 offers the current registry */
+async function addState(s: AppScreen, bundle: string): Promise<void> {
+  const form = newStates.value[s.id]!;
+  const name = form.name.trim();
+  const value = form.value.trim();
+  if (!name || !value) { saveErr.value = 'state name and value required'; return; }
+  const sel = form.kind === 'identifier' ? { identifier: value } : form.kind === 'labelContains' ? { labelContains: value } : { label: value };
+  const updated: AppScreen = { ...s, states: { ...s.states, [name]: { all: [sel] } } };
+  const b = bundles.value.find((x) => x.bundle === bundle);
+  if (!b) return;
+  const payload = { screens: b.screens.map((x) => (x.id === s.id ? updated : x)), revision: revision.value };
+  const res = await fetch(`/api/apps/${encodeURIComponent(bundle)}/screens`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+  if (res.ok) {
+    const d = (await res.json()) as { revision: number };
+    revision.value = d.revision;
+    b.screens = payload.screens;
+    newStates.value[s.id] = { name: '', kind: form.kind, value: '' };
+    saveMsg.value = `state "${name}" added`;
+    saveErr.value = '';
+  } else if (res.status === 409) {
+    const d = (await res.json()) as { screens: AppScreen[]; revision: number };
+    b.screens = d.screens; // adopt the current registry; the user re-applies
+    revision.value = d.revision;
+    saveErr.value = 'registry changed while you were editing — your form is kept; re-apply to retry';
+  } else {
+    const d = (await res.json()) as { errors?: string[]; error?: string };
+    saveErr.value = (d.errors ?? [d.error ?? 'save failed']).join(' · ');
+  }
+}
+/** delete a state → PUT the registry without it (confirm per house pattern) */
+async function removeState(s: AppScreen, bundle: string, name: string): Promise<void> {
+  if (!window.confirm(`delete state "${name}" from ${s.id}?`)) return;
+  const b = bundles.value.find((x) => x.bundle === bundle);
+  if (!b) return;
+  const states = { ...s.states };
+  delete states[name];
+  const updated: AppScreen = { ...s, states };
+  const payload = { screens: b.screens.map((x) => (x.id === s.id ? updated : x)), revision: revision.value };
+  const res = await fetch(`/api/apps/${encodeURIComponent(bundle)}/screens`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+  if (res.ok) {
+    const d = (await res.json()) as { revision: number };
+    revision.value = d.revision;
+    b.screens = payload.screens;
+    saveMsg.value = `state "${name}" removed`;
+    saveErr.value = '';
+  } else if (res.status === 409) {
+    const d = (await res.json()) as { screens: AppScreen[]; revision: number };
+    b.screens = d.screens;
+    revision.value = d.revision;
+    saveErr.value = 'registry changed while you were editing — review and retry';
+  } else {
+    const d = (await res.json()) as { errors?: string[]; error?: string };
+    saveErr.value = (d.errors ?? [d.error ?? 'save failed']).join(' · ');
+  }
+}
 
 onMounted(async () => {
   try {
@@ -42,6 +116,10 @@ onMounted(async () => {
       }
     }
     usage.value = use;
+    if (d.registries[0]) {
+      const g = await (await fetch(`/api/apps/${encodeURIComponent(d.registries[0].bundle)}/screens`)).json() as { revision: number };
+      revision.value = g.revision;
+    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -95,13 +173,31 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
         <span class="c-refresh" :title="'refresh — ' + describeRefresh(s)">{{ describeRefresh(s) }}</span>
         <span class="c-states-n">{{ Object.keys(s.states).length }} st</span>
         <span class="c-used" v-if="usage[s.id]?.length" :title="usage[s.id]!.join(', ')">{{ usage[s.id]!.join(', ') }}</span>
+        <span v-if="openId === s.id && editing !== s.id" class="c-edit" title="edit states" @click.stop="beginEdit(s)">edit</span>
         <span class="c-arrow">{{ openId === s.id ? '▾' : '▸' }}</span>
       </button>
       <div v-if="openId === s.id" class="scr-states">
         <div v-for="(def, name) in s.states" :key="name" class="state-row">
           <span class="st-nm">{{ name }}</span>
           <span class="st-def">{{ stateDef(def) }}</span>
+          <button v-if="editing === s.id" class="st-del" title="delete this state" @click="removeState(s, b.bundle, name)">delete</button>
         </div>
+        <!-- add-state form (stage 2): one selector row — the registry editor's
+             core loop; probe-sourced selectors land in stage 3 -->
+        <div v-if="editing === s.id" class="add-state">
+          <select v-model="newStates[s.id]!.kind" class="as-kind" title="selector kind">
+            <option value="identifier">identifier</option>
+            <option value="labelContains">contains</option>
+            <option value="label">label</option>
+          </select>
+          <input v-model="newStates[s.id]!.value" class="as-val" placeholder="value — e.g. home_check_rates_see_all_button" @keydown.enter="addState(s, b.bundle)">
+          <input v-model="newStates[s.id]!.name" class="as-name" placeholder="state name" @keydown.enter="addState(s, b.bundle)">
+          <button class="as-add" @click="addState(s, b.bundle)">add state</button>
+        </div>
+        <div v-if="editing === s.id" class="edit-row">
+          <button class="st-edit" @click="beginEdit(s)">{{ editing === s.id ? 'editing…' : '' }}</button>
+        </div>
+        <div v-if="saveMsg || saveErr" class="save-line" :class="{ err: !!saveErr }">{{ saveErr || saveMsg }}</div>
       </div>
     </article>
   </section>
@@ -140,4 +236,16 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
 .state-row { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: var(--s-3); padding: 3px 0; font-size: var(--text-label); }
 .st-nm { color: var(--color-chalk); }
 .st-def { color: var(--color-steel); }
+.st-del { color: var(--color-pewter); font-size: var(--text-caption); transition: color var(--t); }
+.st-del:hover { color: var(--color-ember); }
+.c-edit { color: var(--color-pewter); font-size: var(--text-caption); cursor: pointer; transition: color var(--t); }
+.c-edit:hover { color: var(--color-chalk); }
+.edit-row { display: none; }
+.add-state { display: grid; grid-template-columns: 110px minmax(0, 1fr) 140px auto; gap: var(--s-2); margin-top: var(--s-2); align-items: baseline; }
+.as-kind, .as-val, .as-name { background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-size: var(--text-label); padding: 4px var(--s-2); }
+.as-kind:focus, .as-val:focus, .as-name:focus { outline: none; border-color: var(--color-slate); }
+.as-add { border: 1px solid var(--color-ember); color: var(--color-ember); font-size: var(--text-label); padding: 4px var(--s-3); transition: all var(--t); }
+.as-add:hover { background: var(--color-ember); color: var(--color-paper); }
+.save-line { margin-top: var(--s-2); font-size: var(--text-caption); color: var(--color-fog); }
+.save-line.err { color: var(--color-ember); }
 </style>

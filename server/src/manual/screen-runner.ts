@@ -16,9 +16,8 @@
  *  All engine/DB interaction flows through injected seams so tests fake
  *  everything; playback passes the real ones. */
 import type Database from 'better-sqlite3';
-import type { AppScreen, ScreenSelector } from '@crucible/shared/app-screens';
+import { stateHolds, type AppScreen, type ScreenSelector, type SnapNode } from '@crucible/shared/app-screens';
 
-export interface SnapNode { type?: string; label?: string; identifier?: string; rect?: { x: number; y: number; width: number; height: number } }
 
 export interface ScreenRunnerDeps {
   db: Database.Database;
@@ -40,35 +39,7 @@ export type VerbOutcome =
   | { ok: true; note: string }
   | { ok: false; code: 'SWAP_NOT_CONFIRMED' | 'DISPLAY_DEAD' | 'UNKNOWN_SCREEN' | 'SCREEN_ENTRY_FAILED' | 'SWAP_UNKNOWN' | 'SWAP_LIMIT'; note: string };
 
-/** countMatches sibling of playback's (same semantics: label/identifier/
- *  labelContains with optional ignoreCase). Kept local to avoid coupling. */
-export function selectorMatches(nodes: SnapNode[], sel: ScreenSelector): number {
-  let n = 0;
-  for (const node of nodes) {
-    const label = node.label ?? '';
-    const ident = node.identifier ?? '';
-    if (sel.identifier !== undefined) { if (ident === sel.identifier) n++; continue; }
-    if (sel.label !== undefined) {
-      const eq = sel.ignoreCase ? label.toLowerCase() === sel.label.toLowerCase() : label === sel.label;
-      if (eq) n++; continue;
-    }
-    if (sel.labelContains !== undefined) {
-      const has = sel.ignoreCase ? label.toLowerCase().includes(sel.labelContains.toLowerCase()) : label.includes(sel.labelContains);
-      if (has) n++; continue;
-    }
-  }
-  return n;
-}
 
-/** state holds when all[] selectors each match ≥1 AND any[] matches ≥1 total */
-export function stateHolds(nodes: SnapNode[], state: { all?: ScreenSelector[]; any?: ScreenSelector[] }): boolean {
-  if (state.all && state.all.some((sel) => selectorMatches(nodes, sel) === 0)) return false;
-  if (state.any) {
-    const total = state.any.reduce((sum, sel) => sum + selectorMatches(nodes, sel), 0);
-    if (total === 0) return false;
-  }
-  return true;
-}
 
 export class ScreenRunner {
   private readonly d: ScreenRunnerDeps;

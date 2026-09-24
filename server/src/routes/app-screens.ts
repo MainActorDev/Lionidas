@@ -28,15 +28,21 @@ export function registerAppScreenRoutes(app: FastifyInstance, db: Database.Datab
       return screen;
     });
 
-  const replaceRegistry = (bundle: string, screens: Array<import('@crucible/shared/app-screens').AppScreen>): void => {
+  const replaceRegistry = (bundle: string, screens: Array<import('@crucible/shared/app-screens').AppScreen>): number => {
+    // F3: the registry revision persists ACROSS replaces — read before the
+    // delete, write back as nextRevision on every inserted row (one registry
+    // = one revision; per-row storage is the PK-friendly carrier)
+    const prev = (db.prepare('SELECT COALESCE(MAX(revision), 1) AS r FROM app_screens WHERE app_bundle_id = ?').get(bundle) as { r: number }).r;
+    const next = prev + 1;
     const tx = db.transaction((list: AppScreen[]) => {
       db.prepare('DELETE FROM app_screens WHERE app_bundle_id = ?').run(bundle);
-      const ins = db.prepare('INSERT INTO app_screens(app_bundle_id, screen_id, entry_json, refresh_json, states_json, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
+      const ins = db.prepare('INSERT INTO app_screens(app_bundle_id, screen_id, entry_json, refresh_json, states_json, updated_at, revision) VALUES (?, ?, ?, ?, ?, ?, ?)');
       for (const s of list) {
-        ins.run(bundle, s.id, JSON.stringify(s.entry), s.refresh ? JSON.stringify(s.refresh) : null, JSON.stringify(s.states), Date.now());
+        ins.run(bundle, s.id, JSON.stringify(s.entry), s.refresh ? JSON.stringify(s.refresh) : null, JSON.stringify(s.states), Date.now(), next);
       }
     });
     tx(screens);
+    return next;
   };
 
   /** All-bundles listing (registry-UI stage 1, A2 screens page): every
@@ -61,16 +67,29 @@ export function registerAppScreenRoutes(app: FastifyInstance, db: Database.Datab
 
   app.get('/api/apps/:bundle/screens', async (req) => {
     const { bundle } = req.params as { bundle: string };
-    return { screens: screensFor(bundle) };
+    // registry revision (F3): bumped on every replace; the UI echoes it on
+    // PUT and 409s on mismatch instead of silently clobbering a concurrent edit
+    const rev = (db.prepare('SELECT COALESCE(MAX(revision), 1) AS r FROM app_screens WHERE app_bundle_id = ?').get(bundle) as { r: number }).r;
+    return { screens: screensFor(bundle), revision: rev };
   });
 
   app.put('/api/apps/:bundle/screens', async (req, reply) => {
     const { bundle } = req.params as { bundle: string };
-    const b = req.body as { screens?: unknown };
+    const b = req.body as { screens?: unknown; revision?: number };
     const errors = validateRegistry(b?.screens);
     if (errors.length > 0) return reply.code(422).send({ errors });
-    replaceRegistry(bundle, b!.screens as AppScreen[]);
-    return { ok: true, count: (b!.screens as AppScreen[]).length };
+    // F3 revision guard: when the client echoes a revision, a mismatch means
+    // someone else replaced the registry since they loaded it — 409 with the
+    // CURRENT state so the editor can re-fetch and re-apply. Revisionless
+    // PUTs (scripts, yaml imports) keep the old last-write behavior.
+    if (typeof b?.revision === 'number') {
+      const cur = (db.prepare('SELECT COALESCE(MAX(revision), 1) AS r FROM app_screens WHERE app_bundle_id = ?').get(bundle) as { r: number }).r;
+      if (cur !== b.revision) {
+        return reply.code(409).send({ error: 'registry changed while you were editing', code: 'REGISTRY_STALE', revision: cur, screens: screensFor(bundle) });
+      }
+    }
+    const rev = replaceRegistry(bundle, b!.screens as AppScreen[]);
+    return { ok: true, count: (b!.screens as AppScreen[]).length, revision: rev };
   });
 
   app.delete('/api/apps/:bundle/screens/:id', async (req, reply) => {

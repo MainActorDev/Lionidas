@@ -3,7 +3,8 @@ import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ScreenRunner, stateHolds, selectorMatches, type SnapNode, type ScreenRunnerDeps } from '../src/manual/screen-runner.ts';
+import { ScreenRunner, type ScreenRunnerDeps } from '../src/manual/screen-runner.ts';
+import { stateHolds, selectorMatches, type SnapNode } from '@crucible/shared/app-screens';
 
 /** R2 S5 — screen-state runner guards. All engine/forge seams faked; the
  *  three load-bearing guards (traffic verification, swap-window bound,

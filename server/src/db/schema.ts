@@ -227,6 +227,7 @@ export function migrateM1(db: Database.Database): void {
       refresh_json TEXT,
       states_json TEXT NOT NULL,
       updated_at INTEGER NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1,
       PRIMARY KEY(app_bundle_id, screen_id)
     );
   `);
@@ -271,6 +272,9 @@ export function migrateM1(db: Database.Database): void {
     // the case enters, and via which mode) — persisted so the yaml
     // round-trip and playback agree without recovering it from steps
     'ALTER TABLE templates ADD COLUMN entry_json TEXT',
+    // registry-UI stage 2 (review F3): optimistic-concurrency revision on the
+    // screen registry — PUT with a stale revision 409s instead of last-write-wins
+    'ALTER TABLE app_screens ADD COLUMN revision INTEGER NOT NULL DEFAULT 1',
     // Batch 4 — suite management: runs carry their template (case) for
     // history/trend joins, the app build they tested, and the blocked
     // dimension (infra failure ≠ app failure; boolean, NOT a status value —
