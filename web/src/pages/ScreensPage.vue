@@ -35,6 +35,160 @@ const probe = ref<{ open: boolean; bundle: string; screenId: string; sessionId: 
 });
 const booted = ref<Array<{ udid: string; name: string | null }>>([]);
 
+// ── stage-2 completion: whole-screen editor (create + edit entry/refresh) ──
+type EntryMode = 'tab' | 'deepLink' | 'navigate';
+interface EditorForm {
+  mode: 'create' | 'edit';
+  bundle: string;
+  originalId: string | null; // edit: the id being changed (rename support)
+  id: string;
+  entryMode: EntryMode;
+  entryLabel: string;
+  entryPoint: string;        // "x,y" for tab; url for deepLink; "n" taps placeholder for navigate
+  refreshGesture: string;    // '' = none
+  refreshAwayId: string;     // identifier of the away anchor
+  refreshBackLabel: string;  // label of the back anchor
+  refreshBackPoint: string;  // "x,y"
+}
+const editor = ref<EditorForm | null>(null);
+const editorErr = ref('');
+
+function openCreate(bundle: string): void {
+  editor.value = { mode: 'create', bundle, originalId: null, id: '', entryMode: 'tab', entryLabel: '', entryPoint: '', refreshGesture: '', refreshAwayId: '', refreshBackLabel: '', refreshBackPoint: '' };
+  editorErr.value = '';
+}
+function openEditScreen(s: AppScreen, bundle: string): void {
+  const e = s.entry;
+  const r = s.refresh;
+  editor.value = {
+    mode: 'edit', bundle, originalId: s.id, id: s.id,
+    entryMode: e.tab ? 'tab' : e.deepLink ? 'deepLink' : 'navigate',
+    entryLabel: e.tab?.label ?? '',
+    entryPoint: e.tab?.point ? e.tab.point.join(',') : e.deepLink ?? '',
+    refreshGesture: r?.gesture ?? '',
+    refreshAwayId: r?.selector?.identifier ?? '',
+    refreshBackLabel: r?.back?.label ?? '',
+    refreshBackPoint: r?.back?.point ? r.back.point.join(',') : '',
+  };
+  editorErr.value = '';
+}
+/** parse "x,y" → [x, y]; null when malformed */
+function parsePoint(v: string): [number, number] | null {
+  const m = /^\s*(\d+)\s*,\s*(\d+)\s*$/.exec(v);
+  return m ? [Number(m[1]), Number(m[2])] : null;
+}
+/** form → AppScreen; returns null + editorErr when invalid (named, inline) */
+function formToScreen(f: EditorForm): AppScreen | null {
+  if (!/^[a-z][a-z0-9-]*$/.test(f.id)) { editorErr.value = 'screen id must be [a-z][a-z0-9-]*'; return null; }
+  let entry: AppScreen['entry'];
+  if (f.entryMode === 'tab') {
+    if (!f.entryLabel.trim()) { editorErr.value = 'tab entry needs a label'; return null; }
+    const pt = f.entryPoint.trim() ? parsePoint(f.entryPoint) : null;
+    if (f.entryPoint.trim() && !pt) { editorErr.value = 'entry point must be "x,y"'; return null; }
+    entry = { tab: { label: f.entryLabel.trim(), ...(pt ? { point: pt } : {}) } };
+  } else if (f.entryMode === 'deepLink') {
+    if (!f.entryPoint.trim()) { editorErr.value = 'deep link entry needs a url'; return null; }
+    entry = { deepLink: f.entryPoint.trim() };
+  } else {
+    entry = { navigate: [] };
+    editorErr.value = 'navigate entries are recorded, not authored — use the manual recorder'; return null;
+  }
+  let refresh: AppScreen['refresh'];
+  if (f.refreshGesture === 'back-forward') {
+    if (!f.refreshAwayId.trim()) { editorErr.value = 'back-forward needs the away anchor identifier'; return null; }
+    const bp = f.refreshBackPoint.trim() ? parsePoint(f.refreshBackPoint) : null;
+    if (f.refreshBackPoint.trim() && !bp) { editorErr.value = 'back point must be "x,y"'; return null; }
+    refresh = { gesture: 'back-forward', selector: { identifier: f.refreshAwayId.trim() }, ...(f.refreshBackLabel.trim() || bp ? { back: { ...(f.refreshBackLabel.trim() ? { label: f.refreshBackLabel.trim() } : {}), ...(bp ? { point: bp } : {}) } } : {}) };
+  } else if (f.refreshGesture === 'tab-retap') {
+    if (!f.refreshAwayId.trim()) { editorErr.value = 'tab-retap needs a selector identifier'; return null; }
+    refresh = { gesture: 'tab-retap', selector: { identifier: f.refreshAwayId.trim() } };
+  } else if (f.refreshGesture === 'pull') {
+    refresh = { gesture: 'pull' };
+  } else if (f.refreshGesture === 'deepLink') {
+    if (!f.refreshAwayId.trim()) { editorErr.value = 'deepLink refresh needs the url'; return null; }
+    refresh = { gesture: 'deepLink', deepLink: f.refreshAwayId.trim() };
+  }
+  // states ride along: create starts with a loaded placeholder the probe/form replaces
+  const existing = bundles.value.find((x) => x.bundle === f.bundle)?.screens.find((s) => s.id === (f.mode === 'edit' ? f.originalId : f.id));
+  const states = existing?.states ?? { loaded: { all: [{ label: f.id }] } };
+  return { id: f.id, entry, ...(refresh ? { refresh } : {}), states };
+}
+async function saveScreen(): Promise<void> {
+  const f = editor.value;
+  if (!f) return;
+  const scr = formToScreen(f);
+  if (!scr) return;
+  const b = bundles.value.find((x) => x.bundle === f.bundle);
+  if (!b) return;
+  const screens = f.mode === 'create'
+    ? [...b.screens, scr]
+    : b.screens.map((s) => (s.id === f.originalId ? scr : s));
+  const res = await fetch(`/api/apps/${encodeURIComponent(f.bundle)}/screens`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ screens, revision: revision.value }) });
+  if (res.ok) {
+    const d = (await res.json()) as { revision: number };
+    revision.value = d.revision;
+    b.screens = screens;
+    editor.value = null;
+    saveMsg.value = f.mode === 'create' ? `screen "${scr.id}" registered` : `screen "${scr.id}" saved`;
+    saveErr.value = '';
+  } else if (res.status === 409) {
+    const d = (await res.json()) as { screens: AppScreen[]; revision: number };
+    b.screens = d.screens;
+    revision.value = d.revision;
+    editorErr.value = 'registry changed while editing — review and re-save';
+  } else {
+    const d = (await res.json()) as { errors?: string[]; error?: string };
+    editorErr.value = (d.errors ?? [d.error ?? 'save failed']).join(' · ');
+  }
+}
+async function deleteScreen(s: AppScreen, bundle: string): Promise<void> {
+  if (!window.confirm(`delete screen "${s.id}" and all its states?`)) return;
+  const b = bundles.value.find((x) => x.bundle === bundle);
+  if (!b) return;
+  const screens = b.screens.filter((x) => x.id !== s.id);
+  const res = await fetch(`/api/apps/${encodeURIComponent(bundle)}/screens`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ screens, revision: revision.value }) });
+  if (res.ok) {
+    const d = (await res.json()) as { revision: number };
+    revision.value = d.revision;
+    b.screens = screens;
+    saveMsg.value = `screen "${s.id}" deleted`;
+  } else if (res.status === 409) {
+    const d = (await res.json()) as { screens: AppScreen[]; revision: number };
+    b.screens = d.screens;
+    revision.value = d.revision;
+    saveErr.value = 'registry changed — review and retry';
+  } else {
+    const d = (await res.json()) as { errors?: string[]; error?: string };
+    saveErr.value = (d.errors ?? [d.error ?? 'delete failed']).join(' · ');
+  }
+}
+
+// yaml import/export modal (plan 2c) — rides the server round-trip
+const yamlModal = ref<{ bundle: string; text: string } | null>(null);
+const yamlErr = ref('');
+async function openYaml(bundle: string): Promise<void> {
+  const res = await fetch(`/api/apps/${encodeURIComponent(bundle)}/screens.yaml`);
+  yamlModal.value = { bundle, text: await res.text() };
+  yamlErr.value = '';
+}
+async function importYaml(): Promise<void> {
+  const y = yamlModal.value;
+  if (!y) return;
+  const res = await fetch(`/api/apps/${encodeURIComponent(y.bundle)}/screens.yaml`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ yaml: y.text }) });
+  if (res.ok) {
+    // re-fetch the registry + revision (yaml path is revisionless by design)
+    const g = await (await fetch(`/api/apps/${encodeURIComponent(y.bundle)}/screens`)).json() as { screens: AppScreen[]; revision: number };
+    const b = bundles.value.find((x) => x.bundle === y.bundle);
+    if (b) b.screens = g.screens;
+    revision.value = g.revision;
+    yamlModal.value = null;
+    saveMsg.value = 'registry imported from yaml';
+  } else {
+    const d = (await res.json()) as { errors?: string[] };
+    yamlErr.value = (d.errors ?? ['import failed']).join(' · ');
+  }
+}
+
 // stage 3b: verify-against-live — run a state's selector-set against the
 // probe tree using the SAME stateHolds the runner asserts with (one
 // definition of "holds"; F1 moved it to shared for exactly this)
@@ -283,7 +437,13 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
   <div v-else-if="bundles.length === 0" class="hint">no screens registered yet</div>
 
   <section v-for="b in bundles" :key="b.bundle" class="bundle">
-    <div class="section-label">{{ b.bundle }} · {{ b.screens.length }}</div>
+    <div class="section-label bundle-row">
+      <span>{{ b.bundle }} · {{ b.screens.length }}</span>
+      <span class="bundle-acts">
+        <button class="mini-act" title="register a new screen" @click="openCreate(b.bundle)">+ screen</button>
+        <button class="mini-act" title="import/export the registry as yaml" @click="openYaml(b.bundle)">yaml</button>
+      </span>
+    </div>
     <article v-for="s in b.screens" :key="s.id" class="scr" :class="{ open: openId === s.id }">
       <button class="scr-row" :title="openId === s.id ? 'collapse states' : 'expand states'" @click="toggle(s)">
         <span class="c-id">{{ s.id }}</span>
@@ -291,7 +451,11 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
         <span class="c-refresh" :title="'refresh — ' + describeRefresh(s)">{{ describeRefresh(s) }}</span>
         <span class="c-states-n">{{ Object.keys(s.states).length }} st</span>
         <span class="c-used" v-if="usage[s.id]?.length" :title="usage[s.id]!.join(', ')">{{ usage[s.id]!.join(', ') }}</span>
-        <span v-if="openId === s.id && editing !== s.id" class="c-edit" title="edit states" @click.stop="beginEdit(s)">edit</span>
+        <span class="c-acts" @click.stop>
+          <button class="c-act" title="edit this screen (entry, refresh)" @click="openEditScreen(s, b.bundle)">edit</button>
+          <span v-if="openId === s.id && editing !== s.id" class="c-act" title="edit states" @click.stop="beginEdit(s)">states</span>
+          <button class="c-act danger" title="delete this screen" @click="deleteScreen(s, b.bundle)">delete</button>
+        </span>
         <span class="c-arrow">{{ openId === s.id ? '▾' : '▸' }}</span>
       </button>
       <div v-if="openId === s.id" class="scr-states">
@@ -321,6 +485,70 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
       </div>
     </article>
   </section>
+
+  <!-- screen editor: create + edit entry/refresh -->
+  <div v-if="editor" class="probe-overlay" @click.self="editor = null">
+    <div class="probe">
+      <div class="probe-head">
+        <span class="probe-title">{{ editor.mode === 'create' ? 'register screen' : `edit ${editor.originalId}` }}</span>
+        <span class="probe-meta">{{ editor.bundle }}</span>
+        <button class="probe-x" @click="editor = null">×</button>
+      </div>
+      <div class="ed-form">
+        <label class="ed-row"><span class="ed-k">id</span><input v-model="editor.id" class="ed-in" placeholder="home"></label>
+        <label class="ed-row"><span class="ed-k">entry</span>
+          <select v-model="editor.entryMode" class="ed-in ed-sel">
+            <option value="tab">tab</option>
+            <option value="deepLink">deep link</option>
+          </select>
+        </label>
+        <label v-if="editor.entryMode === 'tab'" class="ed-row"><span class="ed-k">tab label</span><input v-model="editor.entryLabel" class="ed-in" placeholder="Home"></label>
+        <label v-if="editor.entryMode === 'tab'" class="ed-row"><span class="ed-k">point</span><input v-model="editor.entryPoint" class="ed-in" placeholder="71,870 (optional)"></label>
+        <label v-else class="ed-row"><span class="ed-k">url</span><input v-model="editor.entryPoint" class="ed-in" placeholder="lionparcel://tarif"></label>
+        <label class="ed-row"><span class="ed-k">refresh</span>
+          <select v-model="editor.refreshGesture" class="ed-in ed-sel">
+            <option value="">none</option>
+            <option value="pull">pull</option>
+            <option value="tab-retap">tab-retap</option>
+            <option value="back-forward">back-forward</option>
+          </select>
+        </label>
+        <label v-if="editor.refreshGesture === 'back-forward' || editor.refreshGesture === 'tab-retap'" class="ed-row">
+          <span class="ed-k">{{ editor.refreshGesture === 'back-forward' ? 'away id' : 'selector id' }}</span>
+          <input v-model="editor.refreshAwayId" class="ed-in" placeholder="home_check_rates_see_all_button">
+        </label>
+        <template v-if="editor.refreshGesture === 'back-forward'">
+          <label class="ed-row"><span class="ed-k">back label</span><input v-model="editor.refreshBackLabel" class="ed-in" placeholder="Left"></label>
+          <label class="ed-row"><span class="ed-k">back point</span><input v-model="editor.refreshBackPoint" class="ed-in" placeholder="28,71 (optional)"></label>
+        </template>
+        <div v-if="editorErr" class="ed-err">{{ editorErr }}</div>
+        <div class="ed-acts">
+          <span style="flex:1"></span>
+          <button class="pp-add" @click="saveScreen">{{ editor.mode === 'create' ? 'register' : 'save' }}</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- yaml import/export -->
+  <div v-if="yamlModal" class="probe-overlay" @click.self="yamlModal = null">
+    <div class="probe">
+      <div class="probe-head">
+        <span class="probe-title">registry yaml</span>
+        <span class="probe-meta">{{ yamlModal.bundle }}</span>
+        <button class="probe-x" @click="yamlModal = null">×</button>
+      </div>
+      <div class="ed-form">
+        <textarea v-model="yamlModal.text" class="ed-yaml" spellcheck="false"></textarea>
+        <div v-if="yamlErr" class="ed-err">{{ yamlErr }}</div>
+        <div class="ed-acts">
+          <span class="ed-hint">edit + import replaces the registry (validators run server-side)</span>
+          <span style="flex:1"></span>
+          <button class="pp-add" @click="importYaml">import</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- B1 probe dialog: searchable live element list → selector proposal → add -->
   <div v-if="probe.open" class="probe-overlay" @click.self="probe.open = false">
@@ -417,6 +645,27 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
 .save-line.err { color: var(--color-ember); }
 .probe-open { border: 1px solid var(--color-iron); color: var(--color-fog); font-size: var(--text-caption); padding: 3px var(--s-2); transition: all var(--t); }
 .probe-open:hover { border-color: var(--color-slate); color: var(--color-paper); }
+.bundle-row { display: flex; align-items: baseline; gap: var(--s-2); }
+.bundle-row > span:first-child { flex: 1; }
+.bundle-acts { display: flex; gap: var(--s-1); }
+.mini-act { border: 1px solid var(--color-iron); color: var(--color-pewter); font-size: var(--text-caption); padding: 1px var(--s-2); transition: all var(--t); }
+.mini-act:hover { border-color: var(--color-slate); color: var(--color-paper); }
+.c-acts { display: flex; gap: var(--s-2); }
+.c-act { color: var(--color-pewter); font-size: var(--text-caption); transition: color var(--t); }
+.c-act:hover { color: var(--color-chalk); }
+.c-act.danger:hover { color: var(--color-ember); }
+.ed-form { display: grid; gap: var(--s-2); padding: var(--s-3) var(--s-4); }
+.ed-row { display: grid; grid-template-columns: 90px 1fr; gap: var(--s-2); align-items: baseline; }
+.ed-k { color: var(--color-steel); font-size: var(--text-caption); text-transform: uppercase; letter-spacing: .06em; }
+.ed-in { background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-size: var(--text-label); padding: 4px var(--s-2); }
+.ed-in:focus { outline: none; border-color: var(--color-slate); }
+.ed-sel { width: 200px; }
+.ed-err { color: var(--color-ember); font-size: var(--text-caption); }
+.ed-acts { display: flex; gap: var(--s-2); align-items: center; }
+.ed-hint { color: var(--color-pewter); font-size: var(--text-caption); }
+.ed-yaml { width: 100%; min-height: 320px; background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-label); padding: var(--s-2); resize: vertical; }
+.ed-yaml:focus { outline: none; border-color: var(--color-slate); }
+
 .probe-overlay { position: fixed; inset: 0; z-index: 200; background: color-mix(in srgb, var(--color-void) 80%, transparent); display: grid; place-items: center; }
 .probe { width: min(640px, 92vw); max-height: 84vh; display: grid; grid-template-rows: auto auto auto 1fr auto; border: 1px solid var(--color-slate); background: var(--color-graphite); overflow: hidden; }
 .probe-head { display: flex; gap: var(--s-3); align-items: baseline; padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--color-iron); }
