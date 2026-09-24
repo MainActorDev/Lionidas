@@ -39,6 +39,8 @@ function fakeAlloy(opts: { failStream?: boolean; failShutdown?: boolean }): Allo
 }
 
 import { initAlloyRuntime, resetAlloyRuntimeForTests } from '../src/alloy/runtime.ts';
+import { hasAlloy } from './helpers/capabilities.ts';
+const describeIfAlloy = describe.skipIf(!(hasAlloy()));  // heal paths init the alloy runtime
 
 beforeEach(async () => {
   db = new Database(':memory:');
@@ -57,7 +59,7 @@ afterEach(async () => {
   db.close();
 });
 
-describe('stream route (simdeck contract — no fallback)', () => {
+describeIfAlloy('stream route (simdeck contract — no fallback)', () => {
   it('engine healthy → 200 + engine WS URL', async () => {
     __setSimdeckEnsureForTest(async () => 8422);
     try {
@@ -101,7 +103,7 @@ describe('stream route (simdeck contract — no fallback)', () => {
   });
 });
 
-describe('power route boot is headless (ENGINE-A-CLI opt-in)', () => {
+describeIfAlloy('power route boot is headless (ENGINE-A-CLI opt-in)', () => {
   it('boot dispatch carries headless:true; shutdown does not', async () => {
     const bootInputs: Array<Record<string, unknown>> = [];
     __setAlloyForTest({
@@ -124,7 +126,7 @@ describe('power route boot is headless (ENGINE-A-CLI opt-in)', () => {
   });
 });
 
-describe('power route shutdown heal (74e0bf4 BACKFILL — shipped untested)', () => {
+describeIfAlloy('power route shutdown heal (74e0bf4 BACKFILL — shipped untested)', () => {
   it('DEVICE_IN_USE + no active run → release + retry → shutdown succeeds', async () => {
     __setAlloyForTest(fakeAlloy({ failShutdown: true }));
     const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/power`, payload: { action: 'shutdown' } });

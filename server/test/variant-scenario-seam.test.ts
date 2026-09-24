@@ -13,6 +13,8 @@ import { __setForgeHealthForTest } from '../src/forge/health.ts';
 import type { AlloyExports } from '../src/alloy/client.ts';
 import type { SnapNode } from '../src/manual/selector.ts';
 import { migrateM1 } from '../src/db/schema.ts';
+import { hasAlloy } from './helpers/capabilities.ts';
+const describeIfAlloy = describe.skipIf(!(hasAlloy()));  // scenario seams reach the alloy runtime
 
 let db: Database.Database;
 let tmp: string;
@@ -74,7 +76,7 @@ afterEach(async () => {
   rmSync(tmp, { recursive: true, force: true });
 });
 
-describe('variant scenario seam — name→id resolution', () => {
+describeIfAlloy('variant scenario seam — name→id resolution', () => {
   it('variant by NAME: snapshot non-NULL, activation fires, run records the choice', { timeout: 60_000 }, async () => {
     const r = await app.app.inject({ method: 'POST', url: '/api/templates/tpl_seam/play', payload: {} });
     expect(r.statusCode).toBe(200);
