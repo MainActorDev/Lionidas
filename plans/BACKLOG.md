@@ -110,3 +110,11 @@ playback always pass it — zero registry surface change, no per-screen
 deep-link registrations needed, which the user explicitly rejected as
 tail-wagging-dog). Until the app ships the arg: back-forward keeps working
 (willAppear still fetches today).
+
+### 12. [NOTE 2026-09-25] signal gesture superseded back-forward for home
+Plan 20260925T002337Z shipped; home's registry refresh is now `signal`
+(revision 9). back-forward remains valid grammar for screens with real
+navigation refresh paths. Known gap (review F5): YAML exporter drops
+`back:` anchors and selector `point:` — back-forward registries lose the
+return leg on YAML round-trip; fix before relying on YAML export for such
+registries.
