@@ -2,7 +2,8 @@
  *
  *  A screen is HOW the runner reaches it (entry: tab tap / deep link /
  *  navigate steps), HOW it refreshes (gesture: pull | tab-retap |
- *  back-forward | deepLink), and WHAT its named states look like
+ *  back-forward | deepLink | signal — a Darwin notification into the
+ *  sim, consumed by the app's uitest seam), and WHAT its named states look like
  *  (selector-sets, reusing the case selector vocabulary). Shared shape for
  *  the shared/ case schema (S4) and the server API — validated identically
  *  on both write paths so the registry can never hold a screen the runner
@@ -15,7 +16,7 @@ export interface ScreenSelector {
   ignoreCase?: boolean;
 }
 
-export type RefreshGesture = 'pull' | 'tab-retap' | 'back-forward' | 'deepLink';
+export type RefreshGesture = 'pull' | 'tab-retap' | 'back-forward' | 'deepLink' | 'signal';
 
 export interface ScreenEntry {
   /** tap a tab-bar item by selector */
@@ -53,7 +54,7 @@ export interface AppScreen {
 
 const SCREEN_ID_RE = /^[a-z][a-z0-9-]*$/;
 const STATE_ID_RE = /^[a-z][a-z0-9_-]*$/;
-const GESTURES: ReadonlySet<string> = new Set(['pull', 'tab-retap', 'back-forward', 'deepLink']);
+const GESTURES: ReadonlySet<string> = new Set(['pull', 'tab-retap', 'back-forward', 'deepLink', 'signal']);
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);

@@ -35,6 +35,13 @@ interface RawApp {
  *  registry: deep-link entries and deepLink refresh gestures land here —
  *  host-level op, same executor family as the other app ops in this module
  *  (device-boundary allowlisted). */
+/** Post a Darwin notification INTO the simulator's own notifyd domain
+ *  (host notifyutil does not reach the sim — must spawn inside it).
+ *  Consumed by the app's uitest refresh seam: signal => in-place refetch. */
+export async function postDarwinNotification(udid: string, name: string): Promise<void> {
+  await execFileAsync('xcrun', ['simctl', 'spawn', udid, 'notifyutil', '-p', name], { timeout: 5_000 });
+}
+
 export async function openSimulatorUrl(udid: string, url: string): Promise<void> {
   await execFileAsync('xcrun', ['simctl', 'openurl', udid, url], { timeout: 10_000 });
 }

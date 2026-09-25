@@ -138,6 +138,8 @@ function formToScreen(f: EditorForm): AppScreen | null {
   } else if (f.refreshGesture === 'deepLink') {
     if (!f.refreshAwayId.trim()) { editorErr.value = 'deepLink refresh needs the url'; return null; }
     refresh = { gesture: 'deepLink', deepLink: f.refreshAwayId.trim() };
+  } else if (f.refreshGesture === 'signal') {
+    refresh = { gesture: 'signal' };
   }
   // states ride along: create starts with a loaded placeholder the probe/form replaces
   const existing = bundles.value.find((x) => x.bundle === f.bundle)?.screens.find((s) => s.id === (f.mode === 'edit' ? f.originalId : f.id));
@@ -588,6 +590,8 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
             <option value="pull">pull</option>
             <option value="tab-retap">tab-retap</option>
             <option value="back-forward">back-forward</option>
+            <option value="deepLink">deepLink</option>
+            <option value="signal">signal</option>
           </select>
         </label>
         <label v-if="editor.refreshGesture === 'back-forward' || editor.refreshGesture === 'tab-retap'" class="ed-row">

@@ -76,6 +76,17 @@ export class ScreenRunner {
 
   /** host-level deep link via apps.openSimulatorUrl (allowlisted module —
    *  device ops stay inside the known surface). No engine involvement. */
+  /** post the Darwin refresh signal into the sim (device op in apps.ts) */
+  private async postSignal(name: string, what: string): Promise<VerbOutcome | null> {
+    try {
+      const { postDarwinNotification } = await import('./apps.ts');
+      await postDarwinNotification(this.d.udid, name);
+      return null;
+    } catch (err) {
+      return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `${what} failed: ${err instanceof Error ? err.message : String(err)} (device spawn broken? reboot the sim)` };
+    }
+  }
+
   private async openUrl(url: string, what: string): Promise<VerbOutcome | null> {
     try {
       const { openSimulatorUrl } = await import('./apps.ts');
@@ -227,6 +238,12 @@ export class ScreenRunner {
         : await this.arriveInternal(screenId);
       if (ret) return ret;
       await this.waitBack(screenId); // poll until a declared state holds again
+    } else if (gesture === 'signal') {
+      // in-place refetch: the app's uitest seam listens for a Darwin
+      // notification — no navigation, no relaunch. The device op lives in
+      // apps.ts (the allowlisted module); this file only calls through.
+      const fail = await this.postSignal(`com.crucible.refresh.${screenId}`, 'signal refresh');
+      if (fail) return fail;
     } else if (gesture === 'deepLink' && scr.refresh?.deepLink) {
       const fail = await this.openUrl(scr.refresh.deepLink, 'deep-link refresh');
       if (fail) return fail;
