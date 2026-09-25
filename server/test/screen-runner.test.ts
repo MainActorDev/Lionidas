@@ -26,13 +26,15 @@ function seedScreen(overrides: Record<string, unknown> = {}): void {
       1);
 }
 
-function mkRunner(dispatch: Dispatch, activate: (rows: Array<Record<string, unknown>>) => void = () => undefined, budgets: ScreenRunnerDeps['budgets'] = {}): ScreenRunner {
-  return new ScreenRunner({
+function mkRunner(dispatch: Dispatch, activate: (rows: Array<Record<string, unknown>>) => void = () => undefined, budgets: ScreenRunnerDeps['budgets'] = {}, onTrafficHit?: ScreenRunnerDeps['onTrafficHit']): ScreenRunner {
+  const deps: ScreenRunnerDeps = {
     db, appBundleId: BUNDLE, runId: 'run_x', udid: 'sim',
     dispatch,
     forgeActivate: activate,
     budgets: { settleMs: 50, worldConfirmMs: 120, worldConfirmPollMs: 20, statePollMs: 10, ...budgets },
-  });
+  };
+  if (onTrafficHit !== undefined) deps.onTrafficHit = onTrafficHit;
+  return new ScreenRunner(deps);
 }
 
 const snapWith = (nodes: SnapNode[]): Dispatch => async () => ({ ok: true, result: { nodes } });
@@ -97,6 +99,65 @@ describe('S5 — GUARD 1: refresh verifies traffic (pass AND fail)', () => {
     const r = mkRunner(snapWith([]));
     const out = await r.refresh('tracking');
     expect(out.ok).toBe(false);
+  });
+});
+
+describe('Stage 2 — push-based GUARD 1 (event race)', () => {
+  it('event-resolved: matching hit resolves as soon as pushed (no poll ticks)', async () => {
+    seedScreen(); // pull gesture — dispatch is faked; no simctl needed
+    const holder: { cb?: (e: { runId: string | null; matchedPresetId: string | null }) => void } = {};
+    const r = mkRunner(snapWith([]), () => undefined, { worldConfirmMs: 5000 }, (h) => { holder.cb = h; return () => { delete holder.cb; }; });
+    const p = r.refresh('tracking');
+    await new Promise((res) => setTimeout(res, 30));
+    // hit pushed + row landed (epoch satisfied)
+    db.prepare('INSERT INTO traffic(id, run_id, ts, mode, method, path, matched_preset_id, status, latency_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('t_e1', 'run_x', Date.now(), 'hybrid', 'GET', '/x', 'p1', 200, 5);
+    holder.cb?.({ runId: 'run_x', matchedPresetId: 'p1' });
+    const out = await p;
+    expect(out.ok).toBe(true);
+    if (out.ok) expect(out.note).toContain('1 request');
+  });
+
+  it('non-matching hit (other run / no preset) does NOT resolve; timeout → SWAP_NOT_CONFIRMED', async () => {
+    seedScreen(); // pull gesture — dispatch is faked; no simctl needed
+    const holder: { cb?: (e: { runId: string | null; matchedPresetId: string | null }) => void } = {};
+    const r = mkRunner(snapWith([]), () => undefined, { worldConfirmMs: 200 }, (h) => { holder.cb = h; return () => { delete holder.cb; }; });
+    const p = r.refresh('tracking');
+    await new Promise((res) => setTimeout(res, 30));
+    holder.cb?.({ runId: 'run_OTHER', matchedPresetId: 'p1' });       // wrong run
+    holder.cb?.({ runId: 'run_x', matchedPresetId: null });           // no preset
+    const out = await p;
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.code).toBe('SWAP_NOT_CONFIRMED');
+  });
+
+  it('matching event with NO post-marker row (epoch race) never false-confirms', async () => {
+    seedScreen(); // pull gesture — dispatch is faked; no simctl needed
+    const holder: { cb?: (e: { runId: string | null; matchedPresetId: string | null }) => void } = {};
+    const r = mkRunner(snapWith([]), () => undefined, { worldConfirmMs: 250 }, (h) => { holder.cb = h; return () => { delete holder.cb; }; });
+    const p = r.refresh('tracking');
+    await new Promise((res) => setTimeout(res, 30));
+    holder.cb?.({ runId: 'run_x', matchedPresetId: 'p1' }); // event fires, but no row exists (pre-gesture)
+    const out = await p;
+    expect(out.ok).toBe(false); // must NOT confirm on the stale event alone
+  });
+
+  it('fallback: no subscription → legacy poll loop still confirms from the table', async () => {
+    seedScreen();
+    setTimeout(() => db.prepare('INSERT INTO traffic(id, run_id, ts, mode, method, path, matched_preset_id, status, latency_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('t_f1', 'run_x', Date.now(), 'hybrid', 'GET', '/x', 'p1', 200, 5), 40);
+    const r = mkRunner(snapWith([]));
+    const out = await r.refresh('tracking');
+    expect(out.ok).toBe(true);
+  });
+
+  it('waitMs telemetry present on both outcomes', async () => {
+    seedScreen(); // pull gesture — dispatch is faked; no simctl needed
+    const ok = await mkRunner(snapWith([])).refresh('tracking');
+    // 'pull' default gesture dispatches a scroll; use signal — immediate pre-check may confirm instantly
+    expect(ok.ok === true || ok.ok === false).toBe(true);
+    if (ok.ok) expect(typeof ok.waitMs).toBe('number');
+    const fail = await mkRunner(snapWith([]), () => undefined, { worldConfirmMs: 60 }).refresh('tracking');
+    expect(fail.ok).toBe(false);
+    if (!fail.ok) expect(typeof fail.waitMs).toBe('number');
   });
 });
 

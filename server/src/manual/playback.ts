@@ -751,7 +751,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // settle budget injectable for tests (fake hierarchies are static;
             // 8s of real polling would blow vitest's 5s timeout)
             const settleBudgetMs = Number(process.env.CRUCIBLE_EXPECT_SETTLE_MS ?? 8000);
-            const settlePollMs = Number(process.env.CRUCIBLE_EXPECT_POLL_MS ?? 2000);
+            const settlePollMs = Number(process.env.CRUCIBLE_EXPECT_POLL_MS ?? 250);
             const readCount = async (): Promise<{ n: number; nodesL: SnapNode[] } | null> => {
               const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
                 | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
@@ -1011,9 +1011,12 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 udid,
                 dispatch: (tool, input) => alloy.dispatch(tool, input, deps.dispatchDeps) as never,
                 forgeActivate: (rows) => svc.activateScenario(rows),
+                // push-based GUARD 1: the typed bus emits forge.traffic.hit at
+                // traffic-insert time (manager.ts file ingest + proxy.ts live)
+                onTrafficHit: (cb) => deps.bus.on('forge.traffic.hit', cb),
               });
             }
-            let outcome: { ok: boolean; code?: string; note: string };
+            let outcome: { ok: boolean; code?: string; note: string; waitMs?: number };
             if (s.action === 'arrive') outcome = await screenRunner.arrive(s.screen!, r2case?.entry?.mode);
             else if (s.action === 'refresh') outcome = await screenRunner.refresh(s.screen!);
             else if (s.action === 'swap') {
@@ -1036,7 +1039,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             const passEv = outcome.ok && s.action === 'expectScreen' ? await recorder.captureStateEvidence() : null;
             const passEvidence = passEv ? JSON.stringify([passEv]) : '[]';
             if (outcome.ok) {
-              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, passEvidence, JSON.stringify({ action: s.action, note: outcome.note, ...(activeSwap ? { swapTarget: activeSwap } : {}) }));
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, passEvidence, JSON.stringify({ action: s.action, note: outcome.note, ...(activeSwap ? { swapTarget: activeSwap } : {}), ...(outcome.waitMs !== undefined ? { waitMs: outcome.waitMs, workMs: Math.max(0, (Date.now() - t0) - outcome.waitMs) } : {}) }));
             } else {
               runStatus = 'failed';
               insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', `${outcome.code}: ${outcome.note}`, t0, Date.now() - t0, passEvidence, JSON.stringify({ action: s.action, code: outcome.code }));

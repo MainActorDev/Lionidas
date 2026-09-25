@@ -24,6 +24,11 @@ export interface ScreenRunnerDeps {
   appBundleId: string;
   runId: string;
   udid: string;
+  /** push-based GUARD 1 (stage 2): subscribe to live traffic hits. When
+   *  present, refresh() races this feed against its budget instead of
+   *  polling SQLite — confirmation latency drops to the app's true fetch
+   *  time. Absent (tests/legacy callers) → verbatim poll fallback. */
+  onTrafficHit?: (cb: (e: { runId: string | null; matchedPresetId: string | null }) => void) => () => void;
   /** dispatch an alloy tool (snapshot / tap / screenshot) */
   dispatch: (tool: string, input: Record<string, unknown>) => Promise<{ ok: boolean; result?: unknown; error?: { message?: string } }>;
   /** activate a preset set on the forge; returns previous set for restore */
@@ -34,10 +39,13 @@ export interface ScreenRunnerDeps {
 }
 
 /** A step-level verdict: pass / fail with code+reason, mirroring how playback
- *  records step rows. Runner verbs NEVER throw — they return outcomes. */
+ *  records step rows. Runner verbs NEVER throw — they return outcomes.
+ *  `waitMs` (optional): time spent inside bounded wait loops (settle/state
+ *  polls, traffic confirm) — telemetry splits step duration into
+ *  wait-vs-work so latency tuning is measurable in the run report. */
 export type VerbOutcome =
-  | { ok: true; note: string }
-  | { ok: false; code: 'SWAP_NOT_CONFIRMED' | 'DISPLAY_DEAD' | 'UNKNOWN_SCREEN' | 'SCREEN_ENTRY_FAILED' | 'SWAP_UNKNOWN' | 'SWAP_LIMIT'; note: string };
+  | { ok: true; note: string; waitMs?: number }
+  | { ok: false; code: 'SWAP_NOT_CONFIRMED' | 'DISPLAY_DEAD' | 'UNKNOWN_SCREEN' | 'SCREEN_ENTRY_FAILED' | 'SWAP_UNKNOWN' | 'SWAP_LIMIT'; note: string; waitMs?: number };
 
 
 
@@ -52,8 +60,8 @@ export class ScreenRunner {
     this.budgets = {
       settleMs: Number(process.env['CRUCIBLE_EXPECT_SETTLE_MS'] ?? 8000),
       worldConfirmMs: 10_000,
-      worldConfirmPollMs: 500,
-      statePollMs: 1000,
+      worldConfirmPollMs: Number(process.env['CRUCIBLE_WORLD_CONFIRM_POLL_MS'] ?? 150),
+      statePollMs: Number(process.env['CRUCIBLE_STATE_POLL_MS'] ?? 250),
       maxSwaps: 8, // provisional (plan F5) — tuned from S6 data
       ...deps.budgets,
     };
@@ -163,38 +171,42 @@ export class ScreenRunner {
       return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `screen "${screenId}" declares no usable entry (${chosen})` };
     }
     const fail = await this.arriveInternal(screenId);
-    return fail ?? { ok: true, note: `arrived ${screenId} (${chosen})` };
+    return fail ?? { ok: true, note: `arrived ${screenId} (${chosen})`, waitMs: this.lastArriveWaitMs };
   }
 
   /** poll until NO declared state holds — i.e. we provably LEFT the screen
    *  (covering screen presented). Bounded by settleMs; returns regardless
    *  (honest degrade — the return tap still gets its chance). */
-  private async waitGone(screenId: string): Promise<void> {
+  private async waitGone(screenId: string): Promise<number> {
     const scr = this.screen(screenId);
-    if (!scr) return;
+    if (!scr) return 0;
     const start = Date.now();
     while (Date.now() - start < this.budgets.settleMs) {
       const nodes = await this.snapshot();
-      if (!Object.values(scr.states).some((st) => stateHolds(nodes, st))) return;
+      if (!Object.values(scr.states).some((st) => stateHolds(nodes, st))) return Date.now() - start;
       await new Promise((res) => setTimeout(res, this.budgets.statePollMs));
     }
+    return Date.now() - start;
   }
 
   /** poll until a declared state holds again — the screen is VISIBLY back
-   *  before the caller asserts world-specific states on it. */
-  private async waitBack(screenId: string): Promise<void> {
+   *  before the caller asserts world-specific states on it. Returns ms waited. */
+  private async waitBack(screenId: string): Promise<number> {
     const scr = this.screen(screenId);
-    if (!scr) return;
+    if (!scr) return 0;
     const start = Date.now();
     while (Date.now() - start < this.budgets.settleMs) {
       const nodes = await this.snapshot();
-      if (Object.values(scr.states).some((st) => stateHolds(nodes, st))) return;
+      if (Object.values(scr.states).some((st) => stateHolds(nodes, st))) return Date.now() - start;
       await new Promise((res) => setTimeout(res, this.budgets.statePollMs));
     }
+    return Date.now() - start;
   }
 
   /** settle: poll until any declared state holds (best-effort; arrival
-   *  itself doesn't fail on no-state — the next expect screen will). */
+   *  itself doesn't fail on no-state — the next expect screen will).
+   *  Records the waited ms for the caller's waitMs telemetry. */
+  private lastArriveWaitMs = 0;
   private async arriveInternal(screenId: string): Promise<VerbOutcome | null> {
     const scr = this.screen(screenId);
     if (!scr) return { ok: false, code: 'UNKNOWN_SCREEN', note: `screen "${screenId}" not in the registry` };
@@ -204,8 +216,13 @@ export class ScreenRunner {
       if (Object.values(scr.states).some((st) => stateHolds(nodes, st))) break;
       await new Promise((res) => setTimeout(res, this.budgets.statePollMs));
     }
+    this.lastArriveWaitMs = Date.now() - start;
     return null;
   }
+
+  /** wait time accumulated by the gesture itself (back-forward legs) before
+   *  GUARD 1 runs — added into the step's waitMs telemetry. Reset per refresh. */
+  private preGuardWaitMs = 0;
 
   /** refresh: the declared gesture + GUARD 1 (traffic verification). */
   async refresh(screenId: string): Promise<VerbOutcome> {
@@ -232,12 +249,12 @@ export class ScreenRunner {
       if (!scr.refresh?.selector) return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `screen "${screenId}": back-forward needs an away anchor (refresh.selector)` };
       const away = await this.tapAt(scr.refresh.selector, 'back-forward away');
       if (away) return away;
-      await this.waitGone(screenId); // poll until no declared state holds (we left)
+      this.preGuardWaitMs = await this.waitGone(screenId); // poll until no declared state holds (we left)
       const ret = scr.refresh?.back
         ? await this.tapAt(scr.refresh.back, 'back-forward return')
         : await this.arriveInternal(screenId);
       if (ret) return ret;
-      await this.waitBack(screenId); // poll until a declared state holds again
+      this.preGuardWaitMs += await this.waitBack(screenId) + this.lastArriveWaitMs; // poll until a declared state holds again
     } else if (gesture === 'signal') {
       // in-place refetch: the app's uitest seam listens for a Darwin
       // notification — no navigation, no relaunch. The device op lives in
@@ -253,15 +270,55 @@ export class ScreenRunner {
     // GUARD 1: new requests since the gesture, attributed to this run AND
     // answered by an ACTIVE preset (the swap's own presets) — the real
     // `traffic` table (TEXT ids, epoch ts; run attribution via setActiveRun).
+    // Two paths to the same verdict:
+    //   event race (stage 2) — onTrafficHit subscribed: resolve the moment a
+    //     matching hit is PUSHED (bus emits forge.traffic.hit at insert time);
+    //     the epoch (ts > markTs) rule is enforced by a post-resolution COUNT,
+    //     because the event payload carries runId/preset but not ts. A
+    //     resolution whose COUNT is 0 (pre-gesture backlog race) re-enters the
+    //     race with the remaining budget — never a false confirm.
+    //   poll fallback — verbatim legacy loop (tests, callers without a bus).
+    this.preGuardWaitMs = 0;
+    const confirmStart = Date.now();
+    const confirmCount = (): number =>
+      (this.d.db.prepare(
+        `SELECT COUNT(*) AS n FROM traffic WHERE ts > ? AND run_id = ? AND matched_preset_id IS NOT NULL`,
+      ).get(markTs, this.d.runId) as { n: number }).n;
+    // immediate pre-check: the row may already exist (fast app / slow runner)
+    const pre = confirmCount();
+    if (pre > 0) return { ok: true, note: `refresh ${screenId} (${gesture}) · ${pre} request(s) confirmed`, waitMs: this.preGuardWaitMs + (Date.now() - confirmStart) };
+    if (this.d.onTrafficHit) {
+      const deadline = confirmStart + this.budgets.worldConfirmMs;
+      while (Date.now() < deadline) {
+        const hit = await new Promise<{ matchedPresetId: string | null } | null>((resolve) => {
+          const off = this.d.onTrafficHit!((e) => {
+            if (e.runId === this.d.runId && e.matchedPresetId !== null) resolve(e);
+          });
+          const timer = setTimeout(() => { off(); resolve(null); }, deadline - Date.now());
+          // resolve-once hygiene: detach both arms when either fires
+          const orig = resolve;
+          resolve = ((v) => { clearTimeout(timer); off(); orig(v); }) as typeof resolve;
+        });
+        if (hit) {
+          // epoch guard: the pushed event proves a run-attributed preset hit,
+          // the COUNT proves it landed AFTER the gesture marker
+          const n = confirmCount();
+          if (n > 0) return { ok: true, note: `refresh ${screenId} (${gesture}) · ${n} request(s) confirmed`, waitMs: this.preGuardWaitMs + (Date.now() - confirmStart) };
+          // backlog race: hit predates markTs — keep waiting, remaining budget
+        } else {
+          break; // budget expired with no matching hit
+        }
+      }
+      return { ok: false, code: 'SWAP_NOT_CONFIRMED', note: `refresh played but NO preset-matched request reached the proxy within ${this.budgets.worldConfirmMs}ms — the app did not re-fetch (cache?) or the gesture hit nothing`, waitMs: this.preGuardWaitMs + (Date.now() - confirmStart) };
+    }
+    // poll fallback (legacy verbatim, plus waitMs telemetry)
     const start = Date.now();
     while (Date.now() - start < this.budgets.worldConfirmMs) {
-      const rows = this.d.db.prepare(
-        `SELECT COUNT(*) AS n FROM traffic WHERE ts > ? AND run_id = ? AND matched_preset_id IS NOT NULL`,
-      ).get(markTs, this.d.runId) as { n: number };
-      if (rows.n > 0) return { ok: true, note: `refresh ${screenId} (${gesture}) · ${rows.n} request(s) confirmed` };
+      const n = confirmCount();
+      if (n > 0) return { ok: true, note: `refresh ${screenId} (${gesture}) · ${n} request(s) confirmed`, waitMs: this.preGuardWaitMs + (Date.now() - start) };
       await new Promise((res) => setTimeout(res, this.budgets.worldConfirmPollMs));
     }
-    return { ok: false, code: 'SWAP_NOT_CONFIRMED', note: `refresh played but NO preset-matched request reached the proxy within ${this.budgets.worldConfirmMs}ms — the app did not re-fetch (cache?) or the gesture hit nothing` };
+    return { ok: false, code: 'SWAP_NOT_CONFIRMED', note: `refresh played but NO preset-matched request reached the proxy within ${this.budgets.worldConfirmMs}ms — the app did not re-fetch (cache?) or the gesture hit nothing`, waitMs: this.preGuardWaitMs + (Date.now() - start) };
   }
 
   /** world: swap the active preset set (deactivate current, activate the

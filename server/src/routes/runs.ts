@@ -170,9 +170,12 @@ export function registerRunRoutes(app: FastifyInstance, db: Database.Database, b
   app.get('/api/runs/:id/steps/:idx/triage', async (req, reply) => {
     const { id, idx } = req.params as { id: string; idx: string };
     const step = db.prepare('SELECT * FROM run_steps WHERE run_id = ? AND idx = ?').get(id, Number(idx)) as
-      | { idx: number; flow_name: string; status: string; reason: string | null; evidence_ids_json: string; duration_ms: number }
+      | { idx: number; flow_name: string; status: string; reason: string | null; evidence_ids_json: string; duration_ms: number; evaluated_json: string }
       | undefined;
     if (!step) return reply.code(404).send({ error: 'step not found' });
+    // wait-vs-work split (telemetry): verb steps carry waitMs/workMs in
+    // evaluated_json; absence = non-waiting step (tap/type/expect path)
+    const timing = (() => { try { const j = JSON.parse(step.evaluated_json) as { waitMs?: number; workMs?: number }; return { waitMs: j.waitMs ?? null, workMs: j.workMs ?? null }; } catch { return { waitMs: null, workMs: null }; } })();
     const evIds = JSON.parse(step.evidence_ids_json) as string[];
     const evidence = evIds.length
       ? (db.prepare(`SELECT id, type, path, sha256, bytes FROM evidence WHERE id IN (${evIds.map(() => '?').join(',')})`).all(...evIds) as Array<{ id: string; type: string; path: string; sha256: string; bytes: number }>)
@@ -181,7 +184,7 @@ export function registerRunRoutes(app: FastifyInstance, db: Database.Database, b
     const runEvidence = db.prepare(`SELECT id, type FROM evidence WHERE bundle_id = ? AND type IN ('video','logs','network')`).all(id) as Array<{ id: string; type: string }>;
     const run = db.prepare('SELECT * FROM runs WHERE id = ?').get(id) as Record<string, unknown>;
     return {
-      step: { idx: step.idx, flow: step.flow_name, status: step.status, reason: step.reason, durationMs: step.duration_ms },
+      step: { idx: step.idx, flow: step.flow_name, status: step.status, reason: step.reason, durationMs: step.duration_ms, waitMs: timing.waitMs, workMs: timing.workMs },
       evidence,
       runEvidence,
       run: { ticket: run['ticket_key'], artifactHash: run['artifact_hash'], freshness: run['freshness'], launchArgs: run['launch_args_json'], device: run['device_udid'] },

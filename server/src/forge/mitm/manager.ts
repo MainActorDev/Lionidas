@@ -208,7 +208,13 @@ export async function startMitm(deps: MitmDeps, port = 0): Promise<MitmHandle> {
     void attempt(0);
   });
 
-  tailTimer = setInterval(() => tailTraffic(deps), 1000);
+  // Tail cadence bounds how soon a fresh traffic row reaches SQLite AND the
+  // bus (forge.traffic.hit) — GUARD 1's event race waits on that emit, so a
+  // slow tail directly adds step latency (measured: 1s tick ≈ +3s per refresh
+  // step, event fires whole seconds after the proxy answered). 50ms keeps the
+  // emit within one animation frame of the proxy write; the read is one
+  // fstat + (usually zero-length) read per tick — negligible even at 20/s.
+  tailTimer = setInterval(() => tailTraffic(deps), Number(process.env['CRUCIBLE_MITM_TAIL_MS'] ?? 50));
   return {
     port: (proc as { _port?: number })._port ?? 0,
     pid: proc?.pid ?? 0,
