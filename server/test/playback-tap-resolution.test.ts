@@ -146,7 +146,8 @@ describe('tap resolution: selector confirms, never recentres (A6b)', () => {
     const steps = runRows(runId);
     expect(steps[0]!.status).toBe('pass');
     expect(ev(steps).resolvedBy).toBe('selector');
-    expect(lastActInput?.target).toEqual({ x: 240, y: 825 });
+    // Link aim = last-line center (inline links trail plain text)
+    expect(lastActInput?.target).toEqual({ x: 240, y: 832 });
   });
 
   it('launch-settle: point+selector skips the wait (projection); selector-only still waits for resolution', async () => {
@@ -164,7 +165,7 @@ describe('tap resolution: selector confirms, never recentres (A6b)', () => {
     const steps2 = runRows(runId2);
     expect(steps2[0]!.status).toBe('pass');
     expect(snapshotAttempts).toBeGreaterThanOrEqual(4); // settle gate ran
-    expect(lastActInput?.target).toEqual({ x: 240, y: 825 }); // resolved T&C center
+    expect(lastActInput?.target).toEqual({ x: 240, y: 832 }); // resolved T&C last-line center
   });
 
   it('cross-device: far scaled point + RECENTRE-UNSAFE container (scroll bar) → scaled coordinate fallback, never the wrapper center', async () => {
