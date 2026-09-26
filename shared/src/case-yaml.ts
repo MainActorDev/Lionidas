@@ -562,7 +562,20 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
     const optSuffix = (o: unknown): string => (o === true ? ', optional: true' : '');
     const whenSuffix = (w: unknown): string => (typeof w === 'string' && w ? `, when: ${yamlScalar(w)}` : '');
     if (action === 'tap') {
-      lines.push(`  - tap: { point: [${s['x']}, ${s['y']}]${on(s['selector']) ? `, ${on(s['selector'])!}` : ''}${icSuffix(s['selector'])}${optSuffix(s['optional'])}${whenSuffix(s['when'])} }`);
+      // point only when recorded — selector-only steps (identifier/label
+      // overloads) carry no coordinates and must not emit
+      // `point: [undefined, undefined]`
+      const parts: string[] = [];
+      if (s['x'] !== undefined && s['y'] !== undefined) parts.push(`point: [${s['x']}, ${s['y']}]`);
+      const onSel = on(s['selector']);
+      if (onSel) parts.push(onSel);
+      const ic = icSuffix(s['selector']);
+      if (ic) parts.push(ic.replace(/^, /, ''));
+      const opt = optSuffix(s['optional']);
+      if (opt) parts.push(opt.replace(/^, /, ''));
+      const wh = whenSuffix(s['when']);
+      if (wh) parts.push(wh.replace(/^, /, ''));
+      lines.push(`  - tap: { ${parts.join(', ')} }`);
     } else if (action === 'scroll') {
       lines.push(`  - scroll: ${s['direction']}`);
     } else if (action === 'alert') {
