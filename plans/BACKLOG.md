@@ -118,3 +118,19 @@ navigation refresh paths. Known gap (review F5): YAML exporter drops
 `back:` anchors and selector `point:` — back-forward registries lose the
 return leg on YAML round-trip; fix before relying on YAML export for such
 registries.
+
+### 13. [ACCEPTED 2026-09-26] iPhone 17 Pro Max disclaimer AX lateness — accepted floor
+Measured (same server, same template, same minute — runs c1db84f7 vs
+fabfff2f): Privacy Policy tap settle = 2.27s on iPhone 16 (A2102153) vs
+5.31s on iPhone 17 Pro Max (984FF244). Engine-side gates verified fast
+(loop exits within ~2 reads once the target exists; runner logs: 4.2s of
+the 5.3s is the app's text-kit layout latency before the disclaimer
+UITextView/Links enter the AX tree — target lateness, not gate slowness).
+Count-stability gate shipped in e88be1b.
+
+Accepted decision (operator, 2026-09-26: "C"): treat ~5.3s as the 17PM
+floor; no app-side change (replacing the UITextView disclaimer with
+discrete link buttons was considered and rejected — production UI change
+for a test-speed gain). Drills should prefer the pinned sim (A2102153).
+If this ever blocks a hard timeout: revisit via option (b) as a last
+resort.
