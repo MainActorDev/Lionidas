@@ -207,6 +207,20 @@ function hierarchySig(nodes: SnapNode[]): string {
     .join(';');
 }
 
+/** Structure-only signature: node TYPE+IDENTIFIER shape, label text excluded.
+ *  Some production screens animate a label's TEXT continuously (live: Home's
+ *  search-bar placeholder re-types itself ~10×/s — 31 sig changes in 12s),
+ *  which makes hierarchySig never repeat and holds every settle gate open for
+ *  its full budget (drill 2026-09-25: tap settle paid 8s/step for that alone).
+ *  Layout/structure churn (navigation, content streaming, node add/remove)
+ *  still changes this signature — only same-shape text mutation passes. */
+function structureSig(nodes: SnapNode[]): string {
+  return (nodes ?? [])
+    .map((n) => `${n.type ?? ''}|${n.identifier ?? ''}`)
+    .sort()
+    .join(';');
+}
+
 /** State-based settle: poll the hierarchy until two consecutive reads agree
  *  (animations/navigations done) or the budget expires. Replaces the engine's
  *  fixed ~2.4s post-action settle (measured live: settle:true dispatch ≈
@@ -223,8 +237,8 @@ async function awaitUiStable(
   while (Date.now() - t0 < budgetMs && !isAborted(runId)) {
     const nodes = await dispatchSnap();
     if (nodes) {
-      const sig = hierarchySig(nodes);
-      if (sig === prev) return true; // two identical reads — UI quiet
+      const sig = structureSig(nodes);
+      if (sig === prev) return true; // two structurally identical reads — UI quiet (label churn ignored)
       prev = sig;
     }
     await new Promise((r) => setTimeout(r, 60));
@@ -785,7 +799,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 read = await readCount();
                 if (!read) break;
                 if (read.n === 1) break;
-                const sig = hierarchySig(read.nodesL);
+                const sig = structureSig(read.nodesL);
                 if (sig === prevSig) {
                   quietReads += 1;
                   if (quietReads >= 2) break; // settled and still no match — done waiting
@@ -871,8 +885,18 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               lastSettleNodes = snap.ok ? (snap.result.nodes ?? []) : null;
               hit = snap.ok ? resolveSelector(snap.result.nodes ?? [], s.selector) : null;
               if (hit) {
-                const sig = hierarchySig(lastSettleNodes ?? []);
-                if (sig === prevSig) break; // quiet AND resolvable — dispatch
+                const sig = structureSig(lastSettleNodes ?? []);
+                if (sig === prevSig) break; // structurally quiet AND resolvable — dispatch (label-text churn ignored)
+                prevSig = sig;
+              } else if (lastSettleNodes && countMatches(lastSettleNodes, s.selector) > 0) {
+                // Present but NOT resolvable — the matched node is a container
+                // (resolveSelector nulls by design: its center may sit on a
+                // different control). The dispatch will use the recorded point
+                // anyway, so gate on presence + structural quietness instead of
+                // burning the whole budget. Live cost of the old gate: 8s/step
+                // on tab-bar/row selectors (drill 2026-09-25, taps 9.3-11s).
+                const sig = structureSig(lastSettleNodes);
+                if (sig === prevSig) break;
                 prevSig = sig;
               } else {
                 prevSig = null; // target absent: keep polling, no stability memory
@@ -1092,6 +1116,9 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           }
           // Task 2 — sig-before: reuse the settle poll's last read (selector
           // steps pay ZERO extra snapshots); coordinate steps take one read.
+          // NOTE: screenChanged deliberately uses hierarchySig (label text
+          // included) — a tap that only changes text IS a change worth
+          // surfacing; only the WAIT gates use the churn-immune structureSig.
           let sigBefore: string | null = null;
           if (s.action === 'tap' || s.action === 'type') {
             if (lastSettleNodes) {
