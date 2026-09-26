@@ -882,27 +882,39 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // wedges the runner's accessibility capture (live: Sign-Up screen,
             // run_f306cd7c step 2). Require TWO consecutive identical reads.
             let prevSig: string | null = null;
+            let prevCount: number | null = null;
             while (Date.now() - settleStart < settleBudgetMs && !isAborted(runId)) {
               const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
                 | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
               lastSettleNodes = snap.ok ? (snap.result.nodes ?? []) : null;
               hit = snap.ok ? resolveSelector(snap.result.nodes ?? [], s.selector) : null;
               if (hit) {
-                const sig = structureSig(lastSettleNodes ?? []);
-                if (sig === prevSig) break; // structurally quiet AND resolvable — dispatch (label-text churn ignored)
+                // quiet = full structure-sig repeat OR node-count stability
+                // (±2 for two consecutive reads). The sig alone over-waits on
+                // big sims where decorative structure (banners, page dots)
+                // reorders continuously while the target sits still and
+                // resolvable (measured 2026-09-26: 3.9-4.4s settle on a
+                // resolved target, runs c01c0f7a/49d0e794).
+                const nodes = lastSettleNodes ?? [];
+                const sig = structureSig(nodes);
+                const countStable = prevCount !== null && Math.abs(nodes.length - prevCount) <= 2;
+                if (sig === prevSig || countStable) break;
                 prevSig = sig;
+                prevCount = nodes.length;
               } else if (lastSettleNodes && countMatches(lastSettleNodes, s.selector) > 0) {
                 // Present but NOT resolvable — the matched node is a container
                 // (resolveSelector nulls by design: its center may sit on a
                 // different control). The dispatch will use the recorded point
-                // anyway, so gate on presence + structural quietness instead of
-                // burning the whole budget. Live cost of the old gate: 8s/step
-                // on tab-bar/row selectors (drill 2026-09-25, taps 9.3-11s).
-                const sig = structureSig(lastSettleNodes);
-                if (sig === prevSig) break;
-                prevSig = sig;
+                // anyway, so gate on presence + coarse stability: node count
+                // within ±2 for two consecutive reads. Full structure-sig
+                // equality over-waits on big sims where decorative structure
+                // settles slowly (measured 2026-09-26 run_c01c0f7a: 3.9s of
+                // settle on a resolved target, whole-sig never repeated).
+                if (prevCount !== null && Math.abs(lastSettleNodes.length - prevCount) <= 2) break;
+                prevCount = lastSettleNodes.length;
               } else {
                 prevSig = null; // target absent: keep polling, no stability memory
+                prevCount = null;
               }
               await new Promise((r) => setTimeout(r, settlePollMs));
             }
