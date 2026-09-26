@@ -926,28 +926,32 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               // scaled points carry KNOWN error — "near" must mean NEAR (Task 4)
               const slack = (scaleX !== 1 || scaleY !== 1) ? 24 : 44; // pt — covers two-line link rects vs visible text run
               // selector-only steps (no recorded point — identifier/label
-              // overloads): the resolved hit center IS the aim; no recorded
-              // point exists to confirm or recentre away from.
+              // overloads): the resolved hit center IS the aim, full stop.
+              // No recorded point exists to confirm, recentre, or fall back
+              // to — skip the near/recentre ladder entirely (the old
+              // fall-through mislabeled these 'selector-recentred' with a
+              // distance measured against the ORIGIN).
               if (s.x === undefined || s.y === undefined) {
                 tx = hit.x; ty = hit.y; resolvedBy = 'selector';
-              }
-              const near = sx !== undefined && sy !== undefined && s.x !== undefined && s.y !== undefined &&
-                sx >= hit.rect.x - slack && sx <= hit.rect.x + hit.rect.width + slack &&
-                sy >= hit.rect.y - slack && sy <= hit.rect.y + hit.rect.height + slack;
-              if (near) {
-                tx = sx as number; ty = sy as number;
-                resolvedBy = (sx !== undefined && sy !== undefined && sx === s.x && sy === s.y) ? 'selector' : 'selector-point-scaled';
               } else {
-                const safe = resolveSelector(lastSettleNodes ?? [], s.selector, 'recentre');
-                if (safe) {
-                  tx = safe.x; ty = safe.y; resolvedBy = 'selector-recentred';
-                  recentredAudit = { recentred: true, distance: Math.round(Math.hypot((tx ?? 0) - (sx ?? 0), (ty ?? 0) - (sy ?? 0))) };
+                const near = sx !== undefined && sy !== undefined &&
+                  sx >= hit.rect.x - slack && sx <= hit.rect.x + hit.rect.width + slack &&
+                  sy >= hit.rect.y - slack && sy <= hit.rect.y + hit.rect.height + slack;
+                if (near) {
+                  tx = sx as number; ty = sy as number;
+                  resolvedBy = (sx === s.x && sy === s.y) ? 'selector' : 'selector-point-scaled';
                 } else {
-                  // wrapper unsafe to recentre onto → scaled coordinate fallback
-                  if ((scaleX !== 1 || scaleY !== 1) && s.x !== undefined && s.y !== undefined) {
-                    tx = Math.round(s.x * scaleX); ty = Math.round(s.y * scaleY);
-                  } else { tx = s.x; ty = s.y; }
-                  resolvedBy = 'coordinate-fallback';
+                  const safe = resolveSelector(lastSettleNodes ?? [], s.selector, 'recentre');
+                  if (safe) {
+                    tx = safe.x; ty = safe.y; resolvedBy = 'selector-recentred';
+                    recentredAudit = { recentred: true, distance: Math.round(Math.hypot((tx ?? 0) - (sx ?? 0), (ty ?? 0) - (sy ?? 0))) };
+                  } else {
+                    // wrapper unsafe to recentre onto → scaled coordinate fallback
+                    if (scaleX !== 1 || scaleY !== 1) {
+                      tx = Math.round(s.x * scaleX); ty = Math.round(s.y * scaleY);
+                    } else { tx = s.x; ty = s.y; }
+                    resolvedBy = 'coordinate-fallback';
+                  }
                 }
               }
             } else {

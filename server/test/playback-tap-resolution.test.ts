@@ -134,12 +134,15 @@ describe('tap resolution: selector confirms, never recentres (A6b)', () => {
     expect(lastActInput?.target).toEqual({ x: 236, y: 824 });
   });
 
-  it('selector-only step (no recorded coords) → selector center', async () => {
+  it('selector-only step (no recorded coords) → selector center, labeled selector', async () => {
+    // contract change 2026-09-26: selector-only steps take the resolved hit
+    // center directly — no recentre ladder (the old fall-through mislabeled
+    // them 'selector-recentred' with distance-vs-origin garbage in the audit)
     seedTemplate('t4', [{ idx: 0, action: 'tap', selector: { label: 'Terms & Conditions', type: 'Link' } }]);
     const runId = await play('t4');
     const steps = runRows(runId);
     expect(steps[0]!.status).toBe('pass');
-    expect(ev(steps).resolvedBy).toBe('selector-recentred');
+    expect(ev(steps).resolvedBy).toBe('selector');
     expect(lastActInput?.target).toEqual({ x: 240, y: 825 });
   });
 
