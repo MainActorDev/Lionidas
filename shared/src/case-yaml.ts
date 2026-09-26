@@ -614,6 +614,12 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       // legacy stored form (pre-rename 2026-09-24) — emit the new vocabulary;
       // a stored world step must NEVER fall through to the placeholder path
       lines.push(`  - swap: ${yamlScalar(String(s['world'] ?? ''))}`);
+    } else if (action === 'ensureLogout') {
+      const el = s['ensureLogout'] as { button?: string; stay?: string; confirm?: string } | undefined;
+      const button = el?.button ?? '?';
+      const confirm = el?.confirm ?? '?';
+      const stay = el?.stay ? `, stay: ${yamlScalar(el.stay)}` : '';
+      lines.push(`  - ensure logout: { button: ${yamlScalar(button)}, confirm: ${yamlScalar(confirm)}${stay} }`);
     } else if (action === 'expectScreen') {
       const es = s['expectScreen'] as { screen?: string; state?: string; negate?: boolean } | undefined;
       const scr = es?.screen ?? '?';
@@ -622,9 +628,12 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
         ? `  - expect screen: ${yamlScalar(`${scr}.state != ${st}`)}`
         : `  - expect screen: ${yamlScalar(`${scr}.${st}`)}`);
     } else {
-      // unknown action in storage (future kinds) — serialize losslessly-ish as a comment guard
-      lines.push(`  # unrendered step kind: ${action}`);
-      lines.push(`  - scroll: down  # ⚠ placeholder — original step kind "${action}" has no yaml form yet`);
+      // unknown action in storage — REFUSE to render. The old placeholder
+      // (a real scroll step) silently destroyed the unrenderable step on
+      // save: the editor emitted it, the user saved, storage replaced the
+      // original with scroll (live 2026-09-26: this ate an ensure-logout
+      // setup step). A throw surfaces the gap at emit time instead.
+      throw new Error(`caseToYaml: no yaml form for action "${action}" — extend the emitter before exposing this step kind in the editor`);
     }
   }
   return lines.join('\n') + '\n';

@@ -49,7 +49,7 @@ describeIf('defaultAwaitStreamLive — simdeckUrl contract', () => {
       emit: (type: string, payload?: { phase?: string }) => { if (type === 'run.phase' && payload?.phase) phases.push(payload.phase); },
     } as unknown as TypedEventBus<AppEvents>;
     db.prepare(`INSERT INTO templates(id, name, udid, steps_json, app_bundle_id, created_by, created_at, updated_at)
-                VALUES ('t1','T','sim','[{"flow":"f","name":"noop","action":"expect_screen_contains","text":"x"}]', NULL, 'qa', 0, 0)`).run();
+                VALUES ('t1','T','sim','[{"flow":"f","name":"noop","action":"scroll","direction":"down"}]', NULL, 'qa', 0, 0)`).run();
     db.prepare(`INSERT INTO devices(udid, name, state, last_seen) VALUES ('sim','Sim','Booted',?)`).run(Date.now());
 
     // minimal template; the run must clear the gate (simdeckUrl) and abort
