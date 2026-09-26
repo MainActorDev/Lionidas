@@ -79,7 +79,7 @@ export interface PlaybackDeps {
 
 export interface PlaybackStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout';
   x?: number;
   y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
@@ -104,6 +104,8 @@ export interface PlaybackStep {
   alertAction?: 'accept' | 'dismiss';
   /** location action target — simulated GPS point (simctl location set) */
   location?: { latitude: number; longitude: number };
+  /** ensure logout: coordinate-free session preflight (identifier-first) */
+  ensureLogout?: { button: string; stay: string; confirm: string };
   /** R2 verbs (S5): arrive/refresh target screen; swap target id; expect screen parts */
   screen?: string;
   swap?: string;
@@ -126,8 +128,9 @@ interface TemplateRow {
 function stepName(s: PlaybackStep): string {
   if (s.action === 'expect') return `expect ${selectorLabel(s.selector ?? {})}`;
   if (s.action === 'runFlow') return `run flow ${s.templateId ?? '?'}`;
-  if (s.action === 'tap') return `tap ${s.x},${s.y}`;
+  if (s.action === 'tap') return s.x !== undefined ? `tap ${s.x},${s.y}` : `tap ${s.selector ? (s.selector.label ?? s.selector.identifier ?? 'selector') : '?'}`;
   if (s.action === 'scroll') return `scroll ${s.direction}`;
+  if (s.action === 'ensureLogout') return `ensure logout (${s.ensureLogout?.button ?? '?'})`;
   if (s.action === 'alert') return `alert ${s.alertAction ?? 'dismiss'}`;
   if (s.action === 'location') return `location ${s.location?.latitude ?? '?'}${s.location?.longitude !== undefined ? ',' : ''}${s.location?.longitude ?? ''}`;
   if (s.action === 'arrive') return `arrive ${s.screen ?? '?'}`;
@@ -922,12 +925,18 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               const sy = (scaleX !== 1 || scaleY !== 1) && s.y !== undefined ? Math.round(s.y * scaleY) : s.y;
               // scaled points carry KNOWN error — "near" must mean NEAR (Task 4)
               const slack = (scaleX !== 1 || scaleY !== 1) ? 24 : 44; // pt — covers two-line link rects vs visible text run
-              const near = sx !== undefined && sy !== undefined &&
+              // selector-only steps (no recorded point — identifier/label
+              // overloads): the resolved hit center IS the aim; no recorded
+              // point exists to confirm or recentre away from.
+              if (s.x === undefined || s.y === undefined) {
+                tx = hit.x; ty = hit.y; resolvedBy = 'selector';
+              }
+              const near = sx !== undefined && sy !== undefined && s.x !== undefined && s.y !== undefined &&
                 sx >= hit.rect.x - slack && sx <= hit.rect.x + hit.rect.width + slack &&
                 sy >= hit.rect.y - slack && sy <= hit.rect.y + hit.rect.height + slack;
               if (near) {
                 tx = sx as number; ty = sy as number;
-                resolvedBy = (sx === s.x && sy === s.y) ? 'selector' : 'selector-point-scaled';
+                resolvedBy = (sx !== undefined && sy !== undefined && sx === s.x && sy === s.y) ? 'selector' : 'selector-point-scaled';
               } else {
                 const safe = resolveSelector(lastSettleNodes ?? [], s.selector, 'recentre');
                 if (safe) {
@@ -1000,6 +1009,11 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 // on a DIFFERENT-SIZED device the raw recorded coordinates
                 // would land off-target (the scaling branch above is skipped
                 // when a selector exists). Scale the fallback coordinates too.
+                if (s.x === undefined || s.y === undefined) {
+                  // selector-only step whose selector never resolved — no
+                  // recorded point exists to fall back to. Fail honestly.
+                  throw new Error(`selector tap never resolved on: ${JSON.stringify(s.selector)} — no recorded point as fallback`);
+                }
                 if ((scaleX !== 1 || scaleY !== 1) && s.x !== undefined && s.y !== undefined) {
                   tx = Math.round(s.x * scaleX);
                   ty = Math.round(s.y * scaleY);
@@ -1098,7 +1112,60 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           // ok:true = a dialog was up and handled → pass. ok:false
           // "alert not found" = nothing up → no-op skip (inherently
           // conditional). Any other ok:false = real engine error → fail.
-          if (s.action === 'alert') {
+          if (s.action === 'ensureLogout') {
+            // coordinate-free session preflight: pass-through when logged
+            // out; when a session exists, tap the logout control (identifier
+            // preferred, label fallback), confirm the sheet, verify the
+            // session indicator is GONE. All resolution is live — no
+            // recorded points, cross-device safe by construction.
+            const cfg = s.ensureLogout!;
+            const snapNow = async () => {
+              const sn = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
+                | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
+              return sn.ok ? (sn.result.nodes ?? []) : null;
+            };
+            const findOne = (nodes: SnapNode[], key: string): { x: number; y: number } | null => {
+              // identifier exact, else label exact, else labelContains —
+              // exactly-one rule preserved (duplicate labels do NOT resolve)
+              const byId = resolveSelector(nodes, { identifier: key });
+              if (byId) return byId;
+              const byLabel = resolveSelector(nodes, { label: key });
+              if (byLabel) return byLabel;
+              const byContains = resolveSelector(nodes, { labelContains: key });
+              return byContains;
+            };
+            let nodes = await snapNow();
+            const sessionVisible = nodes ? findOne(nodes, cfg.button) !== null : false;
+            if (!sessionVisible) {
+              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure logout', 'pass', 'already logged out (no session)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, checked: cfg.button }));
+            } else {
+              const btn = nodes ? findOne(nodes, cfg.button) : null;
+              if (!btn) throw new Error(`ensure logout: session indicator ${JSON.stringify(cfg.button)} vanished between reads`);
+              const r1 = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'tap', x: btn.x, y: btn.y }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, 'ensure logout: open sheet')) as { ok: boolean; error?: { message: string } };
+              if (!r1.ok) throw new Error(r1.error?.message ?? 'ensure logout: sheet tap failed');
+              // wait for the confirm control (poll, bounded by the step watchdog)
+              let confirm: { x: number; y: number } | null = null;
+              for (let k = 0; k < 50 && !confirm && !isAborted(runId); k++) {
+                await new Promise((res2) => setTimeout(res2, 100));
+                nodes = await snapNow();
+                confirm = nodes ? findOne(nodes, cfg.confirm) : null;
+              }
+              if (!confirm) throw new Error(`ensure logout: confirm control ${JSON.stringify(cfg.confirm)} never appeared`);
+              const r2 = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'tap', x: confirm.x, y: confirm.y }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, 'ensure logout: confirm')) as { ok: boolean; error?: { message: string } };
+              if (!r2.ok) throw new Error(r2.error?.message ?? 'ensure logout: confirm tap failed');
+              // verify: session indicator gone (allow settle time)
+              let gone = false;
+              for (let k = 0; k < 30 && !gone && !isAborted(runId); k++) {
+                await new Promise((res2) => setTimeout(res2, 200));
+                nodes = await snapNow();
+                gone = nodes ? findOne(nodes, cfg.button) === null : false;
+              }
+              if (!gone) throw new Error('ensure logout: confirm tapped but the session indicator is still visible');
+              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure logout', 'pass', 'session logged out (button → confirm → verified gone)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, button: cfg.button, confirm: cfg.confirm }));
+            }
+            continue;
+          }
+                    if (s.action === 'alert') {
             const act = s.alertAction ?? 'dismiss';
             const alr = (await alloy.dispatch('alloy_alert', { udid, action: act }, deps.dispatchDeps)) as
               | { ok: true; result: { message?: string } }

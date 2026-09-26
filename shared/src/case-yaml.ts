@@ -19,7 +19,7 @@ import { parseVariants, type YamlVariant } from './yaml-variants.js';
 export interface YamlSelector { identifier?: string; label?: string; labelContains?: string; ignoreCase?: boolean; type?: string }
 export interface YamlStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout';
   x?: number; y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
   text?: string;
@@ -40,6 +40,10 @@ export interface YamlStep {
   location?: { latitude: number; longitude: number };
   /** R2 verbs — arrive: <screen-id>, refresh: <screen-id>, swap: <target-id> */
   screen?: string;
+  /** ensure logout: if a session indicator is visible, walk the app's logout
+   *  flow (list button → confirm sheet) by IDENTIFIER first, label second —
+   *  coordinate-free, cross-device safe. No-op pass when already logged out. */
+  ensureLogout?: { button: string; stay: string; confirm: string };
   /** swap: <id from this case's swaps/variants> */
   swap?: string;
   /** expect screen: "<screen>.<state>" — parsed into parts; negate for != */
@@ -72,7 +76,7 @@ export interface YamlError { line: number; message: string }
 const DROPPED_KEYS = new Set(['ts', 'thumb']); // capture artifacts — not semantics
 const STEP_KEYS = new Set(['action', 'x', 'y', 'direction', 'text', 'optional', 'selector', 'templateId', 'flow', 'count', 'atLeast']);
 const DIRECTIONS = new Set(['up', 'down', 'left', 'right']);
-const ACTIONS = new Set(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert', 'location', 'arrive', 'refresh', 'swap', 'world', 'expect screen']);
+const ACTIONS = new Set(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert', 'location', 'arrive', 'refresh', 'swap', 'world', 'expect screen', 'ensure logout']);
 const SCREEN_ID_RE = /^[a-z][a-z0-9-]*$/;
 /** runFlow references: name → id resolution is the CALLER's job (needs the DB);
  * the validator accepts both shapes and reports unresolved names. */
@@ -384,6 +388,18 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
         continue;
       }
       const b = body as Record<string, unknown>;
+      // ── ensure logout: coordinate-free session preflight ──
+      if (action === 'ensure logout') {
+        const bo = (b['button'] ?? b['on']) as unknown;
+        const stay = b['stay'] as unknown;
+        const confirm = b['confirm'] as unknown;
+        if (typeof bo !== 'string' || !bo.trim() || typeof confirm !== 'string' || !confirm.trim()) {
+          errors.push({ line: 1, message: `${prefix(i)}: ensure logout needs button: <label-or-id> and confirm: <label-or-id> (stay: optional sheet-title check)` });
+          continue;
+        }
+        stepsOut.push({ idx: stepsOut.length, action: 'ensureLogout', ensureLogout: { button: bo.trim(), stay: typeof stay === 'string' ? stay.trim() : '', confirm: confirm.trim() } });
+        continue;
+      }
       for (const bk of Object.keys(b)) {
         const known = ['point', 'on', 'text', 'optional', 'id', 'name', 'contains', 'ignoreCase', 'when', 'at'];
         if (action === 'expect') known.push('count', 'atLeast'); // cardinality is expect-only (A9)
@@ -397,11 +413,12 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
       if (action === 'tap' || action === 'type') {
         const step: YamlStep = { idx: stepsOut.length, action };
         const point = b['point'];
+        const slEarly = sel(b);
         if (Array.isArray(point) && point.length === 2 && typeof point[0] === 'number' && typeof point[1] === 'number') {
           step.x = point[0]; step.y = point[1];
-        } else if (action === 'tap' || !sel(b)) {
-          // tap always needs coordinates; type may be selector-only (on:)
-          errors.push({ line: 1, message: `${prefix(i)}: ${action} needs point: [x, y]` });
+        } else if (!slEarly) {
+          // no selector and no point — nothing to aim with
+          errors.push({ line: 1, message: `${prefix(i)}: ${action} needs point: [x, y] or on: <label or id> (identifier-only taps resolve live)` });
           continue;
         }
         if (action === 'type') {
