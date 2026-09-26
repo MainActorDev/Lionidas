@@ -714,9 +714,20 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       const scaleX = targetW && t.logical_w && t.logical_w > 0 ? targetW / t.logical_w : 1;
       const scaleY = targetH && t.logical_h && t.logical_h > 0 ? targetH / t.logical_h : 1;
 
+      // run-scoped dead-reckoning memory (plan A): selector → last resolved rect.
+      // `valid` flips false on ANY scroll (delta unknowable) or navigation
+      // action; expect steps keep entries (they don't move UI).
+      const lastRectBySelector = new Map<string, { x: number; y: number; w: number; h: number; valid: boolean }>();
       for (let si = 0; !skipAllSteps && si < execSteps.length; si++) {
         const s = execSteps[si]!;
         const t0 = Date.now();
+        // invalidation: scrolls and UI-moving actions retire remembered rects
+        if (si > 0) {
+          const prev = execSteps[si - 1]!;
+          if (prev.action === 'scroll' || prev.action === 'tap' || prev.action === 'type' || prev.action === 'arrive' || prev.action === 'refresh' || prev.action === 'swap' || prev.action === 'expectScreen' || prev.action === 'alert') {
+            for (const v of lastRectBySelector.values()) v.valid = false;
+          }
+        }
         // B2: operator abort — checked between steps; remaining steps skipped,
         // run aborted, device freed (B5 guard reads terminal status).
         if (isAborted(runId)) {
@@ -859,11 +870,44 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           // coordinates are the fallback, not the plan.
           let tx = s.x;
           let ty = s.y;
-          let resolvedBy: 'selector' | 'selector-recentred' | 'coordinate-fallback' | 'coordinate-fallback-scaled' | 'coordinate' | 'coordinate-scaled' | 'selector-point-scaled' | 'selector-sweep' | 'selector-engine' = 'coordinate';
+          let resolvedBy: 'selector' | 'selector-recentred' | 'coordinate-fallback' | 'coordinate-fallback-scaled' | 'coordinate' | 'coordinate-scaled' | 'selector-point-scaled' | 'selector-sweep' | 'selector-engine' | 'projected-point' | 'projected-rect' = 'coordinate';
           let recentredAudit: { recentred: true; distance: number } | null = null;
           let sweepAudit: { swept: boolean; probes: number; hits: number; latencyMs: number; container?: { x: number; y: number; width: number; height: number }; found?: SnapNodeLike } | null = null;
           let lastSettleNodes: SnapNode[] | null = null; // settle poll's last read — sig-before reuse (Task 2)
+          // A (sub-second taps plan 20260926T062210Z rev 2): dead-reckoning.
+          // projected-point: recorded point + selector → dispatch immediately at
+          //   the (scaled) point; selector demoted to post-hoc audit. Fixes
+          //   first-exposure targets (17PM text-kit AX lateness).
+          // projected-rect: selector seen earlier THIS run with no scroll or
+          //   navigation since → dispatch at the remembered rect center.
+          //   Scroll invalidates (delta unknowable — momentum-dependent).
+          // No in-step retry in either path: a miss is caught by the NEXT
+          // verifying step (operator decision 2026-09-26).
+          let projected: { x: number; y: number; by: 'projected-point' | 'projected-rect' } | null = null;
           if ((s.action === 'tap' || s.action === 'type') && s.selector && (s.selector.identifier || s.selector.label)) {
+            const selKey = JSON.stringify(Object.keys(s.selector).sort().reduce<Record<string, unknown>>((acc, k) => { acc[k] = (s.selector as Record<string, unknown>)[k]; return acc; }, {}));
+            const prevStep = si > 0 ? execSteps[si - 1]! : null;
+            const afterScroll = prevStep?.action === 'scroll';
+            if (s.action === 'tap' && s.x !== undefined && s.y !== undefined && !afterScroll) {
+              // recorded-point projection is only safe when no scroll intervened:
+              // a scroll moves targets by an unknowable delta and the recorded
+              // point then points at EMPTY SPACE (live miss 2026-09-26: tap at
+              // (93,644) while the link sat at (243,764) — run_d5b21193).
+              projected = { x: (scaleX !== 1 ? Math.round(s.x * scaleX) : s.x), y: (scaleY !== 1 ? Math.round(s.y * scaleY) : s.y), by: 'projected-point' };
+            } else {
+              const mem = lastRectBySelector.get(selKey);
+              if (mem && mem.valid) {
+                projected = { x: Math.round(mem.x + mem.w / 2), y: Math.round(mem.y + mem.h / 2), by: 'projected-rect' };
+              }
+            }
+            let hit: { x: number; y: number; rect: { x: number; y: number; width: number; height: number } } | null = null;
+            if (projected) {
+              // dead-reckoning fast path: dispatch NOW at the projected point;
+              // the selector is a post-hoc audit trail (resolution attempted
+              // opportunistically after dispatch for the record — never gates).
+              tx = projected.x; ty = projected.y;
+              resolvedBy = projected.by;
+            } else {
             // launch-settle poll (same class as expect A7): a fresh relaunch
             // takes ~2-3s to populate the AX hierarchy — resolving against
             // one immediate snapshot misses the selector and the coordinate
@@ -871,7 +915,6 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // settle budget expires, THEN fall back.
             const settleBudgetMs = Number(process.env.CRUCIBLE_STEP_SETTLE_MS ?? 8000);
             const settlePollMs = Number(process.env.CRUCIBLE_STEP_SETTLE_POLL_MS ?? 60);
-            let hit: { x: number; y: number; rect: { x: number; y: number; width: number; height: number } } | null = null;
             const settleStart = Date.now();
             // ⛔ keep the poll ABORT-AWARE: an operator ■ stop must not wait
             // out an 8s budget inside one step (B2's promise: abort ≤ one
@@ -889,6 +932,15 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               lastSettleNodes = snap.ok ? (snap.result.nodes ?? []) : null;
               hit = snap.ok ? resolveSelector(snap.result.nodes ?? [], s.selector) : null;
               if (hit) {
+                // remember the resolved rect for later dead-reckoning (plan A)
+                const k = JSON.stringify(Object.keys(s.selector!).sort().reduce<Record<string, unknown>>((acc, kk) => { acc[kk] = (s.selector as Record<string, unknown>)[kk]; return acc; }, {}));
+                const prevRect = lastRectBySelector.get(k);
+                lastRectBySelector.set(k, { x: hit.rect.x, y: hit.rect.y, w: hit.rect.width, h: hit.rect.height, valid: true });
+                // target-scoped quiet: the TARGET's own rect repeated across two
+                // reads — enough to act. Global structure still churns on big
+                // sims long after the target is stable (measured 2026-09-26).
+                if (prevRect && Math.abs(prevRect.x - hit.rect.x) <= 2 && Math.abs(prevRect.y - hit.rect.y) <= 2) break;
+                // legacy global gates (kept for the first resolving read):
                 // quiet = full structure-sig repeat OR node-count stability
                 // (±2 for two consecutive reads). The sig alone over-waits on
                 // big sims where decorative structure (banners, page dots)
@@ -918,7 +970,10 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               }
               await new Promise((r) => setTimeout(r, settlePollMs));
             }
-            if (hit) {
+            }
+            if (projected && hit === null) {
+              // projection already set tx/ty/resolvedBy; skip the ladder
+            } else if (hit) {
               // Recorded point is the ground truth of intent. The selector's
               // job is to CONFIRM the target is present, never to recentre:
               // ancestors/containers cover their children, so "point inside
@@ -1245,6 +1300,11 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           const nextStep = si + 1 < execSteps.length ? execSteps[si + 1]! : null;
           const nextPollsSelector = !!(nextStep && (nextStep.action === 'tap' || nextStep.action === 'type' || nextStep.action === 'expect')
             && nextStep.selector && (nextStep.selector.identifier || nextStep.selector.label));
+          // D elision is narrower than nextPollsSelector: ONLY an expect next
+          // step purely verifies. tap/type next steps still need this step's
+          // sig-after (the dialog interceptor keys on screenChanged===false —
+          // eliding it broke mid-run dialog correlation; test Task 3b).
+          const nextVerifiesByExpect = !!(nextStep && nextStep.action === 'expect' && nextStep.selector && (nextStep.selector.identifier || nextStep.selector.label));
           if (!nextPollsSelector) {
             const budgetMs = Number(process.env.CRUCIBLE_UI_STABLE_MS ?? 1500);
             await awaitUiStable(async () => {
@@ -1258,8 +1318,11 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           // v1 DECISION: no-change = WARN-pass (toggles/checkboxes legitimately
           // don't change the AX hierarchy); the reason surfaces the lie in the
           // run detail. Upgrade to hard-fail when usage shows warn-noise is low.
+          // D (sub-second taps plan 20260926T062210Z): when the NEXT step
+          // resolves by selector, its settle-poll IS the stronger check —
+          // the sig-after snapshot here is duplicate work and is elided.
           let screenChanged: boolean | undefined;
-          if (sigBefore !== null && (s.action === 'tap' || s.action === 'type')) {
+          if (sigBefore !== null && !nextVerifiesByExpect && (s.action === 'tap' || s.action === 'type')) {
             try {
               const post = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
                 | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
