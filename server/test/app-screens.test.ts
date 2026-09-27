@@ -147,3 +147,58 @@ describe('S3 — YAML round-trip', () => {
     expect(imp.statusCode).toBe(422);
   });
 });
+
+/** navigate selector steps (register-flow S1) — the login half moved to
+ *  the app-level procedure (below). */
+describe('navigate selector steps (register-flow S1)', () => {
+  const mk = (steps: Array<Record<string, unknown>>) => [{ id: 's', entry: { navigate: steps }, states: { ok: { all: [{ label: 'X' }] } } }];
+  it('navigate steps accept on: OR x/y — neither or both → named errors', () => {
+    expect(validateRegistry(mk([{ on: 'menu_button' }]))).toEqual([]);
+    expect(validateRegistry(mk([{ x: 10, y: 20 }]))).toEqual([]);
+    expect(validateRegistry(mk([{ on: 'a', x: 1, y: 2 }]))).not.toEqual([]);
+    const errs = validateRegistry(mk([{ }]));
+    expect(errs.some((e) => e.includes('needs on:'))).toBe(true);
+    const unk = validateRegistry(mk([{ on: 'a', tap: 1 }]));
+    expect(unk.some((e) => e.includes('unknown key "tap"'))).toBe(true);
+  });
+  it('yaml import carries navigate on: steps', async () => {
+    const yaml = [
+      '- id: deep',
+      '  entry:',
+      '    navigate:',
+      '      - on: menu_button',
+      '      - on: account_legal_privacy_row',
+      '  states:',
+      '    ok:',
+      '      all:',
+      '        - { identifier: legal_doc }',
+    ].join('\n') + '\n';
+    const YAML = await import('yaml');
+    const parsed = YAML.parse(yaml);
+    expect(validateRegistry(parsed)).toEqual([]);
+    const nav = (parsed[0]['entry'] as { navigate: Array<Record<string, unknown>> })['navigate'];
+    expect(nav![0]!['on']).toBe('menu_button');
+  });
+});
+
+
+/** login as an app-level procedure (plan rev 2): validateAppLogin cross-
+ *  references, screens reject login on new data. */
+import { validateAppLogin } from '@crucible/shared/app-screens';
+describe('app-level login procedure', () => {
+  const screens = [{ id: 'auth', entry: { tab: { label: 'x' } }, states: { logged_in: { all: [{ identifier: 'lo' }] } } }];
+  const good = { entry: { navigate: [{ on: 'a' }, { on: 'b' }] }, phone: 'p', password: 'q', submit: 's', verify: { screen: 'auth', state: 'logged_in' } };
+  it('valid procedure passes', () => expect(validateAppLogin(good, screens)).toEqual([]));
+  it('verify referencing an unknown screen / state → named errors', () => {
+    expect(validateAppLogin({ ...good, verify: { screen: 'nope', state: 'x' } }, screens)[0]).toContain('verify.screen "nope" is not in this app');
+    expect(validateAppLogin({ ...good, verify: { screen: 'auth', state: 'zz' } }, screens)[0]).toContain('verify.state "zz" is not a state');
+  });
+  it('entry must be exactly one kind; controls non-empty', () => {
+    expect(validateAppLogin({ ...good, entry: { tab: { identifier: 't' }, deepLink: 'x://' } }, screens).some((e) => e.includes('only one of'))).toBe(true);
+    expect(validateAppLogin({ ...good, phone: '' }, screens).some((e) => e.includes('login flow.phone'))).toBe(true);
+  });
+  it('screens reject login on NEW data (the era ends loudly)', () => {
+    const errs = validateRegistry([{ id: 's', entry: { tab: { label: 'L' } }, states: { ok: { all: [{ label: 'X' }] } }, login: good } as never]);
+    expect(errs.some((e) => e.includes('login is app-level now'))).toBe(true);
+  });
+});

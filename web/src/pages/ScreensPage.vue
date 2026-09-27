@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import PageHeader from '../components/PageHeader.vue';
+import ScreenDocPanel from '../components/ScreenDocPanel.vue';
+import LoginFlowPanel from '../components/LoginFlowPanel.vue';
 import { stateHolds, type SnapNode } from '@crucible/shared/app-screens';
 
 /** Screens page (A2, registry-UI stage 1) — the registry in the house row
@@ -53,6 +55,35 @@ interface EditorForm {
 const editor = ref<EditorForm | null>(null);
 const editorErr = ref('');
 
+const docPanel = ref<null | { bundle: string; yaml: string; mode: 'create' | 'edit' }>(null);
+const loginFlow = ref<string | null>(null);
+function screensWithStates(bundle: string): Array<{ id: string; states: string[] }> {
+  const b = bundles.value.find((x) => x.bundle === bundle);
+  return (b?.screens ?? []).map((s) => ({ id: s.id, states: Object.keys(s.states) }));
+}
+async function onLoginFlowSaved(): Promise<void> { loginFlow.value = null; await loadRegistries(); }
+function screenToDoc(s: AppScreen): string {
+  const L: string[] = [];
+  L.push(`- id: ${s.id}`);
+  const e = s.entry;
+  if (e.tab) { const t = e.tab; L.push('  entry:', '    tab:', `      ${t.identifier ? 'identifier: ' + JSON.stringify(t.identifier) : 'label: ' + JSON.stringify(t.label ?? '')}`); }
+  else if (e.deepLink) L.push('  entry:', `    deepLink: ${JSON.stringify(e.deepLink)}`);
+  else if (e.navigate) { L.push('  entry:', '    navigate:'); for (const st of e.navigate) L.push(`      - on: ${JSON.stringify(String(st['on'] ?? ''))}`); }
+  if (s.refresh) L.push('  refresh:', `    gesture: ${s.refresh.gesture}`);
+  if (Object.keys(s.states).length > 0) {
+    L.push('  states:');
+    for (const [name, def] of Object.entries(s.states)) {
+      L.push(`    ${name}:`, '      all:');
+      for (const sel of def.all ?? []) L.push(`        - { identifier: ${JSON.stringify(sel.identifier ?? sel.label ?? '')} }`);
+    }
+  }
+  const login = (s as unknown as { login?: Record<string, string> | null }).login;
+  if (login) { L.push('  login:'); for (const k of ['entry', 'phoneField', 'passwordField', 'submit', 'session']) L.push(`    ${k}: ${JSON.stringify(login[k] ?? '')}`); }
+  return L.join('\n') + '\n';
+}
+function openDocCreate(bundle: string): void { docPanel.value = { bundle, yaml: '- id: \n', mode: 'create' }; }
+function openDocEdit(s: AppScreen, bundle: string): void { docPanel.value = { bundle, yaml: screenToDoc(s), mode: 'edit' }; }
+async function onDocSaved(): Promise<void> { docPanel.value = null; await loadRegistries(); }
 function openCreate(bundle: string): void {
   editor.value = { mode: 'create', bundle, originalId: null, id: '', entryMode: 'tab', entryLabel: '', entryPoint: '', refreshGesture: '', refreshAwayId: '', refreshBackLabel: '', refreshBackPoint: '' };
   editorErr.value = '';
@@ -88,92 +119,8 @@ function confirmNewApp(): void {
   bundles.value = [...bundles.value, { bundle: b, screens: [] }]; // empty section; register persists it
   openCreate(b);
 }
-function openEditScreen(s: AppScreen, bundle: string): void {
-  const e = s.entry;
-  const r = s.refresh;
-  editor.value = {
-    mode: 'edit', bundle, originalId: s.id, id: s.id,
-    entryMode: e.tab ? 'tab' : e.deepLink ? 'deepLink' : 'navigate',
-    entryLabel: e.tab?.label ?? '',
-    entryPoint: e.tab?.point ? e.tab.point.join(',') : e.deepLink ?? '',
-    refreshGesture: r?.gesture ?? '',
-    refreshAwayId: r?.selector?.identifier ?? '',
-    refreshBackLabel: r?.back?.label ?? '',
-    refreshBackPoint: r?.back?.point ? r.back.point.join(',') : '',
-  };
-  editorErr.value = '';
-}
 /** parse "x,y" → [x, y]; null when malformed */
-function parsePoint(v: string): [number, number] | null {
-  const m = /^\s*(\d+)\s*,\s*(\d+)\s*$/.exec(v);
-  return m ? [Number(m[1]), Number(m[2])] : null;
-}
 /** form → AppScreen; returns null + editorErr when invalid (named, inline) */
-function formToScreen(f: EditorForm): AppScreen | null {
-  if (!/^[a-z][a-z0-9-]*$/.test(f.id)) { editorErr.value = 'screen id must be [a-z][a-z0-9-]*'; return null; }
-  let entry: AppScreen['entry'];
-  if (f.entryMode === 'tab') {
-    if (!f.entryLabel.trim()) { editorErr.value = 'tab entry needs a label'; return null; }
-    const pt = f.entryPoint.trim() ? parsePoint(f.entryPoint) : null;
-    if (f.entryPoint.trim() && !pt) { editorErr.value = 'entry point must be "x,y"'; return null; }
-    entry = { tab: { label: f.entryLabel.trim(), ...(pt ? { point: pt } : {}) } };
-  } else if (f.entryMode === 'deepLink') {
-    if (!f.entryPoint.trim()) { editorErr.value = 'deep link entry needs a url'; return null; }
-    entry = { deepLink: f.entryPoint.trim() };
-  } else {
-    entry = { navigate: [] };
-    editorErr.value = 'navigate entries are recorded, not authored — use the manual recorder'; return null;
-  }
-  let refresh: AppScreen['refresh'];
-  if (f.refreshGesture === 'back-forward') {
-    if (!f.refreshAwayId.trim()) { editorErr.value = 'back-forward needs the away anchor identifier'; return null; }
-    const bp = f.refreshBackPoint.trim() ? parsePoint(f.refreshBackPoint) : null;
-    if (f.refreshBackPoint.trim() && !bp) { editorErr.value = 'back point must be "x,y"'; return null; }
-    refresh = { gesture: 'back-forward', selector: { identifier: f.refreshAwayId.trim() }, ...(f.refreshBackLabel.trim() || bp ? { back: { ...(f.refreshBackLabel.trim() ? { label: f.refreshBackLabel.trim() } : {}), ...(bp ? { point: bp } : {}) } } : {}) };
-  } else if (f.refreshGesture === 'tab-retap') {
-    if (!f.refreshAwayId.trim()) { editorErr.value = 'tab-retap needs a selector identifier'; return null; }
-    refresh = { gesture: 'tab-retap', selector: { identifier: f.refreshAwayId.trim() } };
-  } else if (f.refreshGesture === 'pull') {
-    refresh = { gesture: 'pull' };
-  } else if (f.refreshGesture === 'deepLink') {
-    if (!f.refreshAwayId.trim()) { editorErr.value = 'deepLink refresh needs the url'; return null; }
-    refresh = { gesture: 'deepLink', deepLink: f.refreshAwayId.trim() };
-  } else if (f.refreshGesture === 'signal') {
-    refresh = { gesture: 'signal' };
-  }
-  // states ride along: create starts with a loaded placeholder the probe/form replaces
-  const existing = bundles.value.find((x) => x.bundle === f.bundle)?.screens.find((s) => s.id === (f.mode === 'edit' ? f.originalId : f.id));
-  const states = existing?.states ?? { loaded: { all: [{ label: f.id }] } };
-  return { id: f.id, entry, ...(refresh ? { refresh } : {}), states };
-}
-async function saveScreen(): Promise<void> {
-  const f = editor.value;
-  if (!f) return;
-  const scr = formToScreen(f);
-  if (!scr) return;
-  const b = bundles.value.find((x) => x.bundle === f.bundle);
-  if (!b) return;
-  const screens = f.mode === 'create'
-    ? [...b.screens, scr]
-    : b.screens.map((s) => (s.id === f.originalId ? scr : s));
-  const res = await fetch(`/api/apps/${encodeURIComponent(f.bundle)}/screens`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ screens, revision: revisions.value[b.bundle] }) });
-  if (res.ok) {
-    const d = (await res.json()) as { revision: number };
-    revisions.value[b.bundle] = d.revision;
-    b.screens = screens;
-    editor.value = null;
-    saveMsg.value = f.mode === 'create' ? `screen "${scr.id}" registered` : `screen "${scr.id}" saved`;
-    saveErr.value = '';
-  } else if (res.status === 409) {
-    const d = (await res.json()) as { screens: AppScreen[]; revision: number };
-    b.screens = d.screens;
-    revisions.value[b.bundle] = d.revision;
-    editorErr.value = 'registry changed while editing — review and re-save';
-  } else {
-    const d = (await res.json()) as { errors?: string[]; error?: string };
-    editorErr.value = (d.errors ?? [d.error ?? 'save failed']).join(' · ');
-  }
-}
 async function deleteScreen(s: AppScreen, bundle: string): Promise<void> {
   if (!window.confirm(`delete screen "${s.id}" and all its states?`)) return;
   const b = bundles.value.find((x) => x.bundle === bundle);
@@ -397,7 +344,7 @@ async function removeState(s: AppScreen, bundle: string, name: string): Promise<
   }
 }
 
-onMounted(async () => {
+async function loadRegistries(): Promise<void> {
   try {
     const res = await fetch('/api/apps/screens');
     if (res.status === 404) { bundles.value = []; return; }
@@ -424,7 +371,8 @@ onMounted(async () => {
   } finally {
     loading.value = false;
   }
-});
+}
+onMounted(loadRegistries);
 
 /** selector → compact reading (expanded rows carry the detail; row cells
  *  stay terse — the full sentence was the old page's noise) */
@@ -434,6 +382,7 @@ function describeSelector(sel: ScreenSelector): string {
   if (sel.labelContains) return `~"${sel.labelContains}"${sel.ignoreCase ? '' : ''}`;
   return '?';
 }
+const loginMsg = ref('');
 function describeEntry(s: AppScreen): string {
   if (s.entry.tab) return `tab ${s.entry.tab.label ?? s.entry.tab.identifier ?? '?'}${s.entry.tab.point ? ` @${s.entry.tab.point.join(',')}` : ''}`;
   if (s.entry.deepLink) return s.entry.deepLink;
@@ -477,7 +426,8 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
     <div class="section-label bundle-row">
       <span>{{ b.bundle }}</span>
       <span class="bundle-acts">
-        <button class="mini-act" title="register a new screen" @click="openCreate(b.bundle)">+ screen</button>
+        <button class="mini-act" title="edit the app's login flow" @click="loginFlow = b.bundle">login flow</button>
+          <button class="mini-act" title="register a new screen" @click="openDocCreate(b.bundle)">+ screen</button>
         <button class="mini-act" title="import/export the registry as yaml" @click="openYaml(b.bundle)">yaml</button>
       </span>
     </div>
@@ -501,7 +451,7 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
         <span class="col-states">{{ Object.keys(s.states).length }}</span>
         <span class="col-used" :title="usage[s.id]?.join(', ')">{{ usage[s.id]?.length ? usage[s.id]!.join(', ') : '—' }}</span>
         <span class="col-acts" @click.stop>
-          <button class="c-act" title="edit entry/refresh" @click="openEditScreen(s, b.bundle)">edit</button>
+          <button class="c-act" title="edit this screen in the document panel" @click="openDocEdit(s, b.bundle)">edit</button>
           <button class="c-act" title="add/remove states, probe a live device" @click="beginEdit(s)">states</button>
           <button class="c-act danger" title="delete this screen" @click="deleteScreen(s, b.bundle)">delete</button>
         </span>
@@ -565,51 +515,10 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
     </div>
   </div>
 
-  <!-- screen editor: create + edit entry/refresh -->
-  <div v-if="editor" class="probe-overlay" @click.self="editor = null">
-    <div class="probe">
-      <div class="probe-head">
-        <span class="probe-title">{{ editor.mode === 'create' ? 'register screen' : `edit ${editor.originalId}` }}</span>
-        <span class="probe-meta">{{ editor.bundle }}</span>
-        <button class="probe-x" @click="editor = null">×</button>
-      </div>
-      <div class="ed-form">
-        <label class="ed-row"><span class="ed-k">id</span><input v-model="editor.id" class="ed-in" placeholder="home"></label>
-        <label class="ed-row"><span class="ed-k">entry</span>
-          <select v-model="editor.entryMode" class="ed-in ed-sel">
-            <option value="tab">tab</option>
-            <option value="deepLink">deep link</option>
-          </select>
-        </label>
-        <label v-if="editor.entryMode === 'tab'" class="ed-row"><span class="ed-k">tab label</span><input v-model="editor.entryLabel" class="ed-in" placeholder="Home"></label>
-        <label v-if="editor.entryMode === 'tab'" class="ed-row"><span class="ed-k">point</span><input v-model="editor.entryPoint" class="ed-in" placeholder="71,870 (optional)"></label>
-        <label v-else class="ed-row"><span class="ed-k">url</span><input v-model="editor.entryPoint" class="ed-in" placeholder="lionparcel://tarif"></label>
-        <label class="ed-row"><span class="ed-k">refresh</span>
-          <select v-model="editor.refreshGesture" class="ed-in ed-sel">
-            <option value="">none</option>
-            <option value="pull">pull</option>
-            <option value="tab-retap">tab-retap</option>
-            <option value="back-forward">back-forward</option>
-            <option value="deepLink">deepLink</option>
-            <option value="signal">signal</option>
-          </select>
-        </label>
-        <label v-if="editor.refreshGesture === 'back-forward' || editor.refreshGesture === 'tab-retap'" class="ed-row">
-          <span class="ed-k">{{ editor.refreshGesture === 'back-forward' ? 'away id' : 'selector id' }}</span>
-          <input v-model="editor.refreshAwayId" class="ed-in" placeholder="home_check_rates_see_all_button">
-        </label>
-        <template v-if="editor.refreshGesture === 'back-forward'">
-          <label class="ed-row"><span class="ed-k">back label</span><input v-model="editor.refreshBackLabel" class="ed-in" placeholder="Left"></label>
-          <label class="ed-row"><span class="ed-k">back point</span><input v-model="editor.refreshBackPoint" class="ed-in" placeholder="28,71 (optional)"></label>
-        </template>
-        <div v-if="editorErr" class="ed-err">{{ editorErr }}</div>
-        <div class="ed-acts">
-          <span style="flex:1"></span>
-          <button class="pp-add" @click="saveScreen">{{ editor.mode === 'create' ? 'register' : 'save' }}</button>
-        </div>
-      </div>
-    </div>
-  </div>
+
+  <LoginFlowPanel v-if="loginFlow" :bundle="loginFlow" :screens="screensWithStates(loginFlow)" @close="loginFlow = null" @saved="onLoginFlowSaved" />
+
+  <ScreenDocPanel v-if="docPanel" :bundle="docPanel.bundle" :screen-yaml="docPanel.yaml" :mode="docPanel.mode" @close="docPanel = null" @saved="onDocSaved" />
 
   <div v-if="yamlModal" class="probe-overlay" @click.self="yamlModal = null">
     <div class="probe">
@@ -669,7 +578,10 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
         </div>
       </template>
     </div>
+
+
   </div>
+
 </template>
 <style scoped>
 .hint { color: var(--color-steel); font-size: var(--text-label); padding: var(--s-4) 0; }
@@ -704,6 +616,7 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
 .scr-row { padding: 8px 12px; min-height: 44px; cursor: pointer; }
 .scr-row:hover { background: var(--color-graphite); }
 .scr-id { color: var(--color-paper); font-weight: var(--weight-bold); font-size: var(--text-label); }
+.lb-foot { font-size: 11px; color: var(--color-steel); margin-top: var(--s-2); }
 .col-entry, .col-refresh, .col-used { color: var(--color-fog); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .col-states { color: var(--color-fog); font-size: 12px; }
 .col-acts { display: flex; gap: var(--s-2); justify-content: flex-end; }

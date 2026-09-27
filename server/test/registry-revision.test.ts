@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
+import { migrateM1 } from '../src/db/schema.ts';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -26,7 +27,7 @@ async function put(body: unknown): Promise<{ status: number; body: Record<string
 beforeEach(async () => {
   tmp = mkdtempSync(join(tmpdir(), 'reg-rev-'));
   db = new Database(join(tmp, 't.db'));
-  db.exec(`CREATE TABLE app_screens(app_bundle_id TEXT NOT NULL, screen_id TEXT NOT NULL, entry_json TEXT NOT NULL, refresh_json TEXT, states_json TEXT NOT NULL, updated_at INTEGER NOT NULL, revision INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(app_bundle_id, screen_id))`);
+  migrateM1(db); // real schema (incl. login_json) — hand-rolled DDL drifted
   app = Fastify();
   registerAppScreenRoutes(app, db);
   await app.ready();

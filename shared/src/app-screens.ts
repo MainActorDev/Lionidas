@@ -77,9 +77,13 @@ export function validateScreen(screen: unknown): string[] {
   const errors: string[] = [];
   if (!isPlainObject(screen)) return ['screen must be a mapping'];
   const s = screen as Record<string, unknown>;
+  // login no longer lives on screens (login-as-app-procedure plan): the
+  // key is rejected for NEW data; stored legacy rows keep working through
+  // playback's read-only fallback, and the procedure itself is validated
+  // by validateAppLogin below.
   for (const k of Object.keys(s)) {
     if (k !== 'id' && k !== 'entry' && k !== 'refresh' && k !== 'states') {
-      errors.push(`unknown key "${k}" — allowed: id, entry, refresh, states`);
+      errors.push(`unknown key "${k}" — allowed: id, entry, refresh, states${k === 'login' ? " (login is app-level now — edit it via the app's login flow)" : ''}`);
     }
   }
   const id = s['id'];
@@ -101,6 +105,18 @@ export function validateScreen(screen: unknown): string[] {
     if (entry['navigate'] !== undefined) {
       if (!Array.isArray(entry['navigate']) || entry['navigate'].length === 0 || !entry['navigate'].every(isPlainObject)) {
         errors.push('entry.navigate must be a non-empty list of step mappings');
+      } else {
+        // each step: exactly one of `on: <selector-ref>` | `x`+`y` (D1 plan rev 2 —
+        // selector steps replace coordinates for multi-hop entries)
+        (entry['navigate'] as Array<Record<string, unknown>>).forEach((st, i) => {
+          const hasOn = typeof st['on'] === 'string' && (st['on'] as string).trim().length > 0;
+          const hasXY = typeof st['x'] === 'number' && typeof st['y'] === 'number';
+          if (hasOn && hasXY) errors.push(`entry.navigate step ${i + 1}: use on: OR x/y, not both`);
+          if (!hasOn && !hasXY) errors.push(`entry.navigate step ${i + 1}: needs on: <selector> or x/y`);
+          for (const k of Object.keys(st)) {
+            if (k !== 'on' && k !== 'x' && k !== 'y') errors.push(`entry.navigate step ${i + 1}: unknown key "${k}" — allowed: on, x, y`);
+          }
+        });
       }
     }
     for (const k of Object.keys(entry)) {
@@ -174,6 +190,65 @@ export function validateRegistry(screens: unknown): string[] {
       else seen.set(id, i + 1);
     }
   });
+  return errors;
+}
+
+// ─── Login as an app-level procedure (login-as-app-procedure plan) ───
+// One per app: entry (full entry object), phone/password/submit controls,
+// verify = (screen, state) REFERENCE — states stay screen facts.
+
+export interface AppLogin {
+  entry: { tab?: { identifier?: string; label?: string; point?: [number, number] }; deepLink?: string; navigate?: Array<Record<string, unknown>> };
+  phone: string;
+  password: string;
+  submit: string;
+  verify: { screen: string; state: string };
+}
+
+export function validateAppLogin(login: unknown, screens: unknown): string[] {
+  const errors: string[] = [];
+  if (!isPlainObject(login)) return ['login flow must be a mapping'];
+  const l = login as Record<string, unknown>;
+  const allowed = ['entry', 'phone', 'password', 'submit', 'verify'];
+  for (const k of Object.keys(l)) if (!allowed.includes(k)) errors.push(`login flow: unknown key "${k}" — allowed: ${allowed.join(', ')}`);
+
+  // entry: reuse the screen entry rules (exactly one of tab/deepLink/navigate)
+  const entry = l['entry'];
+  if (!isPlainObject(entry)) errors.push('login flow needs an entry (tab / deepLink / navigate)');
+  else {
+    const modes = ['tab', 'deepLink', 'navigate'].filter((m) => (entry as Record<string, unknown>)[m] !== undefined);
+    if (modes.length === 0) errors.push('login flow entry needs exactly one of: tab, deepLink, navigate');
+    if (modes.length > 1) errors.push(`login flow entry: use only one of tab/deepLink/navigate (got ${modes.join(' + ')})`);
+    if (modes.includes('tab')) {
+      const t = (entry as Record<string, unknown>)['tab'];
+      if (!isPlainObject(t) || !(('identifier' in t) || ('label' in t) || ('labelContains' in t))) errors.push('login flow entry.tab needs identifier | label | labelContains');
+    }
+    if (modes.includes('navigate')) {
+      const nav = (entry as Record<string, unknown>)['navigate'];
+      if (!Array.isArray(nav) || nav.length === 0 || !nav.every((st) => isPlainObject(st) && (typeof (st as Record<string, unknown>)['on'] === 'string' || (typeof (st as Record<string, unknown>)['x'] === 'number' && typeof (st as Record<string, unknown>)['y'] === 'number')))) {
+        errors.push('login flow entry.navigate must be a non-empty list of steps (on: or x/y)');
+      }
+    }
+  }
+
+  for (const k of ['phone', 'password', 'submit'] as const) {
+    const v = l[k];
+    if (typeof v !== 'string' || v.trim().length === 0) errors.push(`login flow.${k} must be a non-empty identifier`);
+  }
+
+  // verify: (screen, state) reference — cross-validated against the app's registry
+  const verify = l['verify'];
+  if (!isPlainObject(verify) || typeof (verify as Record<string, unknown>)['screen'] !== 'string' || typeof (verify as Record<string, unknown>)['state'] !== 'string') {
+    errors.push('login flow.verify must be { screen: <id>, state: <name> }');
+  } else if (Array.isArray(screens)) {
+    const scr = (screens as Array<Record<string, unknown>>).find((x) => x['id'] === (verify as Record<string, unknown>)['screen']);
+    if (!scr) errors.push(`login flow.verify.screen "${(verify as Record<string, unknown>)['screen']}" is not in this app's registry`);
+    else {
+      const states = scr['states'];
+      const names = isPlainObject(states) ? Object.keys(states as Record<string, unknown>) : [];
+      if (!names.includes((verify as Record<string, unknown>)['state'] as string)) errors.push(`login flow.verify.state "${(verify as Record<string, unknown>)['state']}" is not a state of "${(verify as Record<string, unknown>)['screen']}" (has: ${names.join(', ') || 'none'})`);
+    }
+  }
   return errors;
 }
 

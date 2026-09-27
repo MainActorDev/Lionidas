@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>register screen · yaml-first</title>
+<link rel="stylesheet" href="../../005-env-page/tokens.css">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  button { background: none; border: none; color: inherit; font: inherit; cursor: pointer; }
+  body { background: var(--color-void); font-family: var(--font-mono); color: var(--color-paper); font-size: var(--text-body); padding: var(--s-4) var(--s-5); }
+
+  .page-header { border-bottom: 1px solid var(--color-iron); padding-bottom: var(--s-3); margin-bottom: var(--s-4); }
+  .ph-row1 { display: flex; align-items: center; gap: var(--s-3); }
+  .ph-title { font-size: var(--text-heading-sm); font-weight: var(--weight-bold); }
+
+  .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: var(--s-4); margin-top: var(--s-3); }
+  .pane-h { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-steel); margin-bottom: var(--s-2); }
+
+  /* form side */
+  .fld { display: flex; align-items: center; gap: var(--s-2); margin-bottom: var(--s-2); }
+  .fld .k { width: 100px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-steel); flex-shrink: 0; }
+  .fld input, .fld select { background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 6px var(--s-2); flex: 1; }
+  .btn { display: inline-flex; align-items: center; padding: 4px var(--s-2); background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-fog); font-size: var(--text-caption); min-height: 24px; cursor: pointer; }
+  .btn:hover { border-color: var(--color-slate); color: var(--color-paper); }
+  .row-add { display: flex; gap: var(--s-2); margin-top: var(--s-2); }
+  .row-add input { background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 4px var(--s-2); }
+
+  /* yaml side — live document */
+  .yaml { background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: var(--s-3); font-size: var(--text-caption); line-height: 1.7; color: var(--color-fog); min-height: 380px; white-space: pre; overflow: auto; }
+  .yaml .k { color: var(--color-paper); }
+  .yaml .v { color: var(--color-chalk); }
+  .yaml .c { color: var(--color-steel); }
+  .err { font-size: var(--text-caption); color: var(--color-ember); margin-top: var(--s-2); min-height: 16px; }
+  .acts { display: flex; gap: var(--s-2); justify-content: flex-end; margin-top: var(--s-3); }
+  .btn-primary { background: var(--color-ember); border-color: var(--color-ember); color: var(--color-paper); font-weight: var(--weight-bold); min-height: 30px; padding: 6px var(--s-3); }
+  .toast { position: fixed; right: var(--s-4); bottom: var(--s-4); background: var(--color-graphite); border: 1px solid var(--color-slate); border-radius: var(--r-sm); color: var(--color-fog); font-size: var(--text-caption); padding: var(--s-2) var(--s-3); display: none; z-index: 20; }
+</style>
+</head>
+<body>
+  <div class="page-header"><div class="ph-row1"><span class="ph-title">register screen</span></div></div>
+
+  <div class="split">
+    <div>
+      <div class="pane-h">form — edit and the yaml follows</div>
+      <div class="fld"><span class="k">id</span><input placeholder="shipment-details" oninput="D.id=this.value;sync()"></div>
+      <div class="fld"><span class="k">entry</span><select onchange="D.entryMode=this.value;sync()">
+        <option value="tab">tab tap</option><option value="deepLink">deep link</option><option value="navigate">navigate steps</option>
+      </select></div>
+      <div id="entry-f"></div>
+      <div class="fld"><span class="k">refresh</span><select onchange="D.refresh=this.value;sync()">
+        <option value="">none</option><option value="pull">pull</option><option value="tab-retap">tab-retap</option><option value="signal">signal</option>
+      </select></div>
+      <div class="pane-h" style="margin-top:var(--s-4)">states</div>
+      <div id="states-f"></div>
+      <div class="row-add"><input id="st-n" placeholder="name" style="flex:0 0 90px"><input id="st-a" placeholder="{identifier: …}" onkeydown="if(event.key==='Enter')addState()"><button class="btn" onclick="addState()">+</button></div>
+      <div class="pane-h" style="margin-top:var(--s-4)">login recipe</div>
+      <label style="font-size:var(--text-caption);color:var(--color-fog)"><input type="checkbox" onchange="D.login=this.checked;sync()"> carries login</label>
+      <div id="login-f"></div>
+    </div>
+    <div>
+      <div class="pane-h">the document — what cases and the agent read</div>
+      <div class="yaml" id="y"></div>
+      <div class="err" id="err"></div>
+      <div class="acts">
+        <button class="btn">cancel</button>
+        <button class="btn btn-primary" onclick="save()">save screen</button>
+      </div>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+<script>
+const D = { id: '', entryMode: 'tab', tabSel: '', steps: [], refresh: '', states: [], login: false, loginF: { entry:'', phoneField:'', passwordField:'', submit:'', session:'' } };
+function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+function sync() {
+  document.getElementById('entry-f').innerHTML = D.entryMode === 'tab'
+    ? `<div class="fld"><span class="k">selector</span><input placeholder="home_tab_tracking" oninput="D.tabSel=this.value;sync()"></div>`
+    : D.entryMode === 'deepLink'
+    ? `<div class="fld"><span class="k">url</span><input placeholder="lionparcel://tracking" oninput="D.tabSel=this.value;sync()"></div>`
+    : `<div id="steps-f">${D.steps.map((s,i) => `<div class="fld"><span class="k">step ${i+1}</span><input value="${esc(s)}" oninput="D.steps[${i}]=this.value;sync()"><button class="btn" onclick="D.steps.splice(${i},1);sync()">×</button></div>`).join('')}</div><div class="row-add"><input id="nv-step" placeholder="identifier" onkeydown="if(event.key==='Enter'){D.steps.push(this.value);this.value='';sync()}"><button class="btn" onclick="D.steps.push(document.getElementById('nv-step').value);document.getElementById('nv-step').value='';sync()">+</button></div>`;
+  document.getElementById('states-f').innerHTML = D.states.map((s, i) =>
+    `<div class="fld"><span class="k">${esc(s.name)}</span><input value="${esc(s.assert)}" oninput="D.states[${i}].assert=this.value;sync()"><button class="btn" onclick="D.states.splice(${i},1);sync()">×</button></div>`).join('');
+  const fs = ['entry','phoneField','passwordField','submit','session'];
+  document.getElementById('login-f').innerHTML = D.login
+    ? fs.map(f => `<div class="fld"><span class="k">${f}</span><input value="${esc(D.loginF[f])}" oninput="D.loginF['${f}']=this.value;sync()"></div>`).join('') : '';
+  const y = [];
+  y.push(`<span class="c"># screen — cases arrive/refresh/assert against it</span>`);
+  y.push(`<span class="k">id:</span> <span class="v">${esc(D.id) || '?'}</span>`);
+  if (D.entryMode === 'tab') y.push(`<span class="k">entry:</span> { <span class="k">tab:</span> { <span class="k">${D.tabSel.includes(' ') ? 'label' : 'identifier'}:</span> <span class="v">${esc(D.tabSel) || '?'}</span> } }`);
+  if (D.entryMode === 'deepLink') y.push(`<span class="k">entry:</span> { <span class="k">deepLink:</span> <span class="v">${esc(D.tabSel) || '?'}</span> }`);
+  if (D.entryMode === 'navigate') y.push(`<span class="k">entry:</span> { <span class="k">navigate:</span> [\n${D.steps.map(s => `  { <span class="k">on:</span> <span class="v">${esc(s)}</span> }`).join('\n') || '  ?'}\n] }`);
+  if (D.refresh) y.push(`<span class="k">refresh:</span> { <span class="k">gesture:</span> <span class="v">${D.refresh}</span> }`);
+  if (D.states.length) y.push(`<span class="k">states:</span>\n${D.states.map(s => `  <span class="k">${esc(s.name)}:</span> { <span class="k">all:</span> [ <span class="v">${esc(s.assert)}</span> ] }`).join('\n')}`);
+  if (D.login) y.push(`<span class="k">login:</span>\n${Object.entries(D.loginF).map(([k, v]) => `  <span class="k">${k}:</span> <span class="v">${esc(v) || '?'}</span>`).join('\n')}`);
+  document.getElementById('y').innerHTML = y.join('\n');
+  const missing = [];
+  if (!D.id) missing.push('id');
+  if (D.entryMode === 'navigate' ? D.steps.length === 0 : !D.tabSel) missing.push('entry');
+  if (D.login && Object.values(D.loginF).some(v => !v)) missing.push('login recipe fields');
+  document.getElementById('err').textContent = missing.length ? '✕ missing: ' + missing.join(', ') : '';
+}
+function addState() { const n = document.getElementById('st-n'), a = document.getElementById('st-a'); if (!n.value.trim() || !a.value.trim()) return; D.states.push({ name: n.value.trim(), assert: a.value.trim() }); n.value = ''; a.value = ''; sync(); }
+function save() {
+  if (document.getElementById('err').textContent) return toast('✕ fix the missing fields first');
+  toast(`saved ${D.id}`);
+}
+function toast(m) { const t = document.getElementById('toast'); t.textContent = m; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 2000); }
+sync();
+</script>
+</body>
+</html>

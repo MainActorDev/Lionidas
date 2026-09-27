@@ -159,9 +159,46 @@ export class ScreenRunner {
       const fail = await this.openUrl(entry.deepLink, 'deep link');
       if (fail) return fail;
     } else if (chosen === 'navigate' && entry.navigate) {
-      for (const step of entry.navigate) {
-        const x = typeof step['x'] === 'number' ? step['x'] : null;
-        const y = typeof step['y'] === 'number' ? step['y'] : null;
+      for (const [i, step] of entry.navigate.entries()) {
+        // selector steps (D1 plan rev 2): `on:` resolves live like a tap
+        // selector — identifier/label/labelContains — then presses the hit.
+        // legacy x/y steps keep working (mixed lists allowed).
+        const onRef = typeof step['on'] === 'string' ? (step['on'] as string).trim() : '';
+        let x: number | null = typeof step['x'] === 'number' ? step['x'] : null;
+        let y: number | null = typeof step['y'] === 'number' ? step['y'] : null;
+        if (onRef) {
+          const sel = /^[A-Za-z][A-Za-z0-9_-]*$/.test(onRef) && (/[ _]/.test(onRef) === false)
+            ? { identifier: onRef } : { label: onRef };
+          // Selector entries resolve against the live tree like taps. The
+          // first snapshot after the app-open gate can race the AX surface,
+          // and the shared resolver can refuse a unique hittable match when
+          // its rect is missing — so: poll, resolve via the shared resolver,
+          // and fall back to the UNIQUE match's own rect center (the match
+          // IS the target; it is not a container guess). Bounded: 10 × 500ms.
+          let done = false;
+          let lastNote = `navigate step ${i + 1}: selector ${onRef} not found in the live tree`;
+          for (let attempt = 0; attempt < 10 && !done; attempt++) {
+            const nodes = await this.snapshot();
+            const { resolveSelector } = await import('./selector.ts');
+            const hit = resolveSelector(nodes as never, sel as never, 'recentre');
+            let x: number | null = null;
+            let y: number | null = null;
+            if (hit) { x = Math.round(hit.x); y = Math.round(hit.y); }
+            else {
+              const matches = nodes.filter((n) => (n as { identifier?: string }).identifier === onRef || (n as { label?: string }).label === onRef);
+              const r = matches.length === 1 ? (matches[0] as { rect?: { x: number; y: number; width: number; height: number } }).rect : undefined;
+              if (r) { x = Math.round(r.x + r.width / 2); y = Math.round(r.y + r.height / 2); }
+            }
+            if (x != null && y != null) {
+              const r2 = await this.act({ action: 'press', target: { x, y }, settle: false });
+              if (r2.ok) { done = true; } else lastNote = `navigate step ${i + 1} tap failed: ${r2.error?.message ?? 'engine error'}`;
+            }
+            if (!done) await new Promise((res) => setTimeout(res, 500));
+          }
+          if (!done) return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: lastNote };
+          await new Promise((res) => setTimeout(res, 400)); // settle between taps
+          continue;
+        }
         if (x == null || y == null) continue;
         const r = await this.act({ action: 'press', target: { x, y }, settle: false });
         if (!r.ok) return { ok: false, code: 'SCREEN_ENTRY_FAILED', note: `navigate step failed: ${r.error?.message ?? 'engine error'}` };
