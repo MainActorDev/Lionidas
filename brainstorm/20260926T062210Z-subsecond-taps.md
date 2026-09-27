@@ -40,7 +40,7 @@ The 0.9s dispatch + 0.2s post-check already nearly fill a 1s budget alone. So �
 
 ### C. Faster dispatch: cut the 0.9s tap round-trip
 
-**Idea:** the tap command itself costs ~0.9s (accepted → completed in runner logs — XCUITest coordinate tap with app-guard checks). Investigate: (1) the FAST_APP_GUARD re-check on every act, (2) alloy_act payload shape (settle:false already), (3) whether a cheaper primitive exists in agent-device (e.g., a raw touch event vs XCUITest tap). This is agent-device/alloy territory — measurable win for EVERY step, not just late-AX ones.
+**Idea:** the tap command itself costs ~0.9s (accepted → completed in runner logs — XCUITest coordinate tap with app-guard checks). Investigate: (1) the FAST_APP_GUARD re-check on every act, (2) alloy_act payload shape (settle:false already), (3) whether a cheaper primitive exists in the device daemon (e.g., a raw touch event vs XCUITest tap). This is the device daemon/alloy territory — measurable win for EVERY step, not just late-AX ones.
 
 ### D. Post-check elision for verified chains
 
@@ -64,9 +64,9 @@ Without C, the floor is ~1.0-1.1s (dispatch alone) — right at the boundary, no
 ## Open questions
 
 1. Is weakening pre-tap verification to post-tap verification acceptable for drill trust? (The run still fails loudly on a miss — just one step later. Evidence capture already screenshots every step.)
-2. C requires touching agent-device/alloy (shared surfaces other tools consume). In scope for this arc, or Crucible-only first (A+D) and C as a follow-up?
+2. C requires touching the device daemon/alloy (shared surfaces other tools consume). In scope for this arc, or Crucible-only first (A+D) and C as a follow-up?
 3. Should projection (A) be recorded-point-only (template author's intent, scaled per device) or last-rect-based (adapts to layout drift)? Recorded-point is simpler and matches the existing coordinate-fallback semantics.
 
 ## Next step
 
-Operator picks scope: (i) A+D now (Crucible-only, ~1.0-1.1s floor), (ii) A+D+C (needs agent-device/alloy work, targets ~0.6s), or (iii) B added on top. Then plan-mode for the chosen scope.
+Operator picks scope: (i) A+D now (Crucible-only, ~1.0-1.1s floor), (ii) A+D+C (needs the device daemon/alloy work, targets ~0.6s), or (iii) B added on top. Then plan-mode for the chosen scope.

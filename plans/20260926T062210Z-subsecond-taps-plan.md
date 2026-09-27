@@ -2,13 +2,13 @@
 
 - Source brainstorm: `brainstorm/20260926T062210Z-subsecond-taps.md` (2026-09-26T06:22Z)
 - Plan status: **Ready (rev 2)** — review-folded 2026-09-26 (reviews/20260926T062210Z-subsecond-taps-plan-review.md: F1 opt 1 point-projection, F2 opt a no-retry C3, F3 no scroll-delta, F4 prefetch in sleep gaps, F5-F7 minors). Operator: "Apply the fixes. Then proceed."
-- Scope: D → A(point-projection) → B in Crucible; C (dispatch cost) as a separate agent-device investigation brief, no code here.
+- Scope: D → A(point-projection) → B in Crucible; C (dispatch cost) as a separate the device daemon investigation brief, no code here.
 - Baseline: iPhone 16 (A2102153) PP tap 2.27s; iPhone 17 Pro Max 5.31s (runs c1db84f7/fabfff2f).
 
 ## Decision log (operator, chat 2026-09-26)
 
 1. Post-tap verification accepted: a projected tap that misses fails at the NEXT verifying step, loudly, with evidence — failure locality moves one step, trust model unchanged.
-2. All levers in scope; C deferred to a separate agent-device investigation.
+2. All levers in scope; C deferred to a separate the device daemon investigation.
 3. Projection source: **last-seen rect within the same run** (live geometry), never cross-run. Cross-device scaling ONLY as a candidate followed by verify-then-retry; the existing fail-honestly cross-device guards for coordinate-only steps stay byte-identical.
 4. Projection invalidated by any navigation action (push/pop/tab switch/arrive/refresh verbs) — only scrolls preserve geometry.
 
@@ -23,7 +23,7 @@ Every selector-backed tap step ≤1.0s on the pinned sim (iPhone 16, A2102153), 
 ## In / out of scope
 
 In: `server/src/manual/playback.ts` (settle loop, dispatch, post-check), run-scoped selector→rect map, prefetch of next-step selector, tests.
-Out: agent-device/alloy dispatch cost (C — separate investigation doc + benchmark, no code), app-side changes (BACKLOG #13 stands), screen-runner verbs (arrive/refresh untouched).
+Out: the device daemon/alloy dispatch cost (C — separate investigation doc + benchmark, no code), app-side changes (BACKLOG #13 stands), screen-runner verbs (arrive/refresh untouched).
 
 ## Design
 
@@ -60,7 +60,7 @@ Prefetch polls run in the FOREGROUND loop's sleep gaps (F4 fix): at each `setTim
 2. A + tests (validity rules, projected label, cold path unchanged, navigation clears map).
 3. B + tests (map writes, in-flight guard).
 4. Verification drills: 3× A2102153 + 3× 984FF244, record step timings; before/after table in the PR body.
-5. C scoping doc (separate file, `plans/` — investigation brief for agent-device dispatch cost: FAST_APP_GUARD re-check, XCUITest tap ceremony, benchmark protocol) — no C code.
+5. C scoping doc (separate file, `plans/` — investigation brief for the device daemon dispatch cost: FAST_APP_GUARD re-check, XCUITest tap ceremony, benchmark protocol) — no C code.
 
 ## Edge and failure cases
 
@@ -79,4 +79,4 @@ Prefetch polls run in the FOREGROUND loop's sleep gaps (F4 fix): at each `setTim
 
 ## Rollout
 
-Single Crucible PR on `feat/screen-state-runner` after commits 0ee0756/e88be1b/b8101bf (already local). No schema changes (evaluated_json keys additive). C brief delivered as a plans/ doc for the agent-device repo's own workflow.
+Single Crucible PR on `feat/screen-state-runner` after commits 0ee0756/e88be1b/b8101bf (already local). No schema changes (evaluated_json keys additive). C brief delivered as a plans/ doc for the the device daemon repo's own workflow.
