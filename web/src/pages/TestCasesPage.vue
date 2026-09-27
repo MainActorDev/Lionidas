@@ -371,9 +371,9 @@ watch(statusFilter, () => void load());
 /** counts for the chips come from the SERVER's unfiltered view — chip math on
  *  the client would lie the moment a status filter narrows `templates`. */
 const statusCounts = ref<Record<Lifecycle | 'all', number>>({ all: 0, active: 0, draft: 0, deprecated: 0 });
-let statusCountsDirty = true;
+const statusCountsDirty = ref(true); // ref, not let — the async recount flip must re-render the tabs
 function recountStatuses(): void {
-  if (!statusCountsDirty) return;
+  if (!statusCountsDirty.value) return;
   // recount only when the full list is loaded (no status filter active)
   void (async () => {
     try {
@@ -386,7 +386,7 @@ function recountStatuses(): void {
         draft: all.filter((t) => t.status === 'draft').length,
         deprecated: all.filter((t) => t.status === 'deprecated').length,
       };
-      statusCountsDirty = false;
+      statusCountsDirty.value = false;
     } catch { /* counts stay stale — chips show nothing rather than lie */ }
   })();
 }
@@ -413,7 +413,7 @@ async function setStatus(t: Template, to: Lifecycle): Promise<void> {
     if (r.ok) {
       // optimistic row update + chip counts go stale (server owns the truth)
       t.status = to;
-      statusCountsDirty = true;
+      statusCountsDirty.value = true;
       recountStatuses();
     }
   } finally { setStatusBusy.value = null; }
