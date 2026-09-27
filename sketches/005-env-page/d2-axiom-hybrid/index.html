@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>env · hybrid (axiom)</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  /* house global reset (components.css) */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  button { background: none; border: none; color: inherit; font: inherit; cursor: pointer; }
+  body { background: var(--color-void); font-family: var(--font-mono); color: var(--color-paper); font-size: var(--text-body); padding: var(--s-4) var(--s-5); }
+
+  /* PageHeader two-row anatomy (shared PageHeader.vue) */
+  .page-header { border-bottom: 1px solid var(--color-iron); padding-bottom: var(--s-3); margin-bottom: var(--s-4); }
+  .ph-row1 { display: flex; align-items: center; gap: var(--s-3); }
+  .ph-title { font-size: var(--text-heading-sm); font-weight: var(--weight-bold); }
+  .ph-row1 .acts { margin-left: auto; display: flex; gap: var(--s-2); }
+  .ph-row2 { display: flex; align-items: baseline; gap: var(--s-3); margin-top: var(--s-1); }
+  .ph-desc { font-size: var(--text-caption); color: var(--color-steel); }
+  .ph-syms { margin-left: auto; font-size: var(--text-caption); color: var(--color-steel); }
+
+  /* shared .btn (components.css) */
+  .btn { display: inline-flex; align-items: center; gap: var(--s-2); padding: 6px var(--s-3); background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-body); cursor: pointer; transition: all var(--t); min-height: 30px; }
+  .btn:hover { background: var(--color-graphite); border-color: var(--color-slate); }
+  .btn-primary { background: var(--color-ember); border-color: var(--color-ember); color: var(--color-paper); font-weight: var(--weight-bold); }
+  .btn-primary:hover { background: var(--color-ember-dim); border-color: var(--color-ember-dim); }
+  .btn-sm { min-height: 24px; padding: 2px var(--s-2); font-size: var(--text-caption); }
+
+  /* toolbar */
+  .toolbar { display: flex; align-items: center; gap: var(--s-2); margin-bottom: var(--s-3); }
+  .toolbar input[type=text] { background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 5px var(--s-2); width: 220px; }
+  .seg { display: inline-flex; border: 1px solid var(--color-iron); border-radius: var(--r-sm); overflow: hidden; }
+  .seg button { padding: 4px var(--s-3); font-size: var(--text-caption); color: var(--color-steel); }
+  .seg button.on { background: var(--color-carbon); color: var(--color-paper); }
+
+  /* gaps strip — inset carbon panel (boxed insets, not list items) */
+  .gaps { background: var(--color-carbon); border: 1px solid var(--color-iron); border-left: 2px solid var(--color-ember); padding: var(--s-2) var(--s-3); margin-bottom: var(--s-3); display: none; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+  .gaps.has { display: flex; }
+  .gaps .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-ember); font-weight: var(--weight-bold); }
+  .gap-chip { display: inline-flex; align-items: center; gap: var(--s-2); border: 1px solid var(--color-slate); border-radius: var(--r-sm); padding: 3px var(--s-2); font-size: var(--text-caption); }
+  .gap-chip .k { color: var(--color-paper); font-weight: var(--weight-bold); }
+  .gap-chip .u { color: var(--color-steel); font-size: 10px; }
+
+  /* scope sections — house list idiom: sticky uppercase thead, hairline rows, 44px, graphite hover */
+  .scope-block { margin-bottom: var(--s-4); }
+  .scope-head { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-2) 0; cursor: pointer; user-select: none; }
+  .scope-head .caret { color: var(--color-steel); font-size: 10px; width: 10px; }
+  .scope-head .tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-fog); border: 1px solid var(--color-slate); border-radius: var(--r-sm); padding: 1px var(--s-2); }
+  .scope-head .owner { color: var(--color-paper); font-size: var(--text-caption); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .scope-head .cnt { color: var(--color-steel); font-size: var(--text-caption); border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 0 var(--s-2); }
+  .scope-head .grow { flex: 1; }
+  .scope-head .btn-sm { border: 1px solid var(--color-iron); background: var(--color-carbon); color: var(--color-fog); }
+  .scope-head .btn-sm:hover { border-color: var(--color-slate); color: var(--color-paper); }
+  .scope-body { display: none; }
+  .scope-block.open .scope-body { display: block; }
+  .env-thead, .env-row { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr) minmax(0, 0.8fr) minmax(0, 150px) minmax(0, 120px); gap: var(--s-2); align-items: center; }
+  .env-thead { position: sticky; top: 0; z-index: 2; background: var(--color-graphite); padding: 8px 12px; font-size: 10px; color: var(--color-steel); text-transform: uppercase; letter-spacing: 0.08em; }
+  .env-card { border-bottom: 1px solid var(--color-iron); }
+  .env-row { padding: 8px 12px; min-height: 44px; }
+  .env-row:hover { background: var(--color-graphite); }
+  .env-key { color: var(--color-paper); font-weight: var(--weight-bold); font-size: var(--text-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .env-val { color: var(--color-fog); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .env-val.masked { color: var(--color-steel); letter-spacing: 0.2em; }
+  .env-note { color: var(--color-ash); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .env-meta { color: var(--color-steel); font-size: 10px; white-space: nowrap; }
+  .env-acts { display: flex; gap: var(--s-2); justify-content: flex-end; }
+  .env-acts button { color: var(--color-pewter); font-size: var(--text-caption); transition: color var(--t); }
+  .env-acts button:hover { color: var(--color-chalk); }
+  .env-acts button.danger:hover { color: var(--color-ember); }
+  .badge { font-size: 10px; padding: 0 var(--s-2); border: 1px solid var(--color-slate); border-radius: var(--r-sm); color: var(--color-ash); margin-left: var(--s-1); }
+  .badge.set { color: var(--color-fog); border-color: var(--color-slate); }
+  .badge.ovr { color: var(--color-ember); border-color: var(--color-ember-dim); }
+
+  /* inline add — inset under the section (scr-body idiom) */
+  .inline-add { display: none; gap: var(--s-2); padding: var(--s-2) var(--s-3); background: var(--color-carbon); border-top: 1px solid var(--color-iron); align-items: center; }
+  .inline-add.open { display: flex; }
+  .inline-add input { background: var(--color-graphite); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 5px var(--s-2); }
+  .inline-add input.k { width: 200px; } .inline-add input.v { flex: 1; }
+
+  /* effective mode */
+  .eff-bar { display: none; gap: var(--s-2); align-items: center; margin-bottom: var(--s-3); }
+  body.mode-eff .eff-bar { display: flex; }
+  body.mode-eff .gaps, body.mode-eff #scopes { display: none; }
+  .eff-bar .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-steel); }
+  .eff-bar select { background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 5px var(--s-2); width: auto; }
+  .eff-wrap { display: none; }
+  body.mode-eff .eff-wrap { display: block; }
+
+  /* modal — graphite inset */
+  .dlg-wrap { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: none; align-items: center; justify-content: center; z-index: 10; }
+  .dlg-wrap.open { display: flex; }
+  .dlg { background: var(--color-graphite); border: 1px solid var(--color-slate); border-radius: var(--r-sm); padding: var(--s-4); width: 420px; }
+  .dlg h3 { font-size: var(--text-caption); font-weight: var(--weight-bold); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-fog); margin-bottom: var(--s-3); }
+  .dlg label { font-size: 10px; color: var(--color-steel); display: block; margin: var(--s-2) 0 var(--s-1); text-transform: uppercase; letter-spacing: 0.08em; }
+  .dlg input { width: 100%; background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 6px var(--s-2); }
+  .dlg .row { display: flex; gap: var(--s-2); justify-content: flex-end; margin-top: var(--s-4); }
+  .toast { position: fixed; right: var(--s-4); bottom: var(--s-4); background: var(--color-graphite); border: 1px solid var(--color-slate); border-radius: var(--r-sm); color: var(--color-fog); font-size: var(--text-caption); padding: var(--s-2) var(--s-3); display: none; z-index: 20; }
+</style>
+</head>
+<body class="mode-manage">
+
+  <div class="page-header">
+    <div class="ph-row1">
+      <span class="ph-title">env</span>
+      <span class="acts"><button class="btn" onclick="mode('eff')">effective</button></span>
+    </div>
+    <div class="ph-row2">
+      <span class="ph-desc">global &lt; app &lt; plan &lt; request &lt; variant</span>
+      <span class="ph-syms" id="counts"></span>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <input type="text" id="q" placeholder="search key…">
+    <div class="seg">
+      <button id="seg-m" class="on" onclick="mode('manage')">manage</button>
+      <button id="seg-e" onclick="mode('eff')">effective</button>
+    </div>
+  </div>
+
+  <div class="gaps" id="gaps"></div>
+
+  <div class="eff-bar">
+    <span class="lbl">app</span>
+    <select id="e-app"></select>
+    <span class="lbl">plan</span>
+    <select id="e-plan"></select>
+  </div>
+  <div class="eff-wrap">
+    <div class="env-thead"><span>key</span><span>resolved value</span><span>note</span><span>source</span><span>used by</span></div>
+    <div id="eff"></div>
+  </div>
+
+  <div id="scopes"></div>
+
+  <div class="dlg-wrap" id="dlg"><div class="dlg">
+    <h3 id="d-title">edit</h3>
+    <label>value <span id="d-keep" style="text-transform:none">(blank keeps current secret)</span></label>
+    <input type="text" id="d-val">
+    <label>note</label>
+    <input type="text" id="d-note">
+    <div class="row">
+      <button class="btn" onclick="closeDlg()">cancel</button>
+      <button class="btn btn-primary" onclick="saveDlg()">save</button>
+    </div>
+  </div></div>
+  <div class="toast" id="toast"></div>
+
+<script>
+const APPS = ['com.lioparcel.services.consumer.int-dev', 'com.lioparcel.services.consumer.int'];
+const PLANS = ['pl_regression', 'pl_smoke', 'pl_release'];
+const USAGE = { DRILL_PHONE: 4, DRILL_PASSWORD: 2, FORGE_TLS_PIN: 1, COUNTRY_CODE: 1, STAGING_PIN: 2 };
+let DATA = {
+  global: { owner:'every app · every plan', open:true, vars: [
+    { key:'FORGE_TLS_PIN', value:'sha256/9m3k…', secret:false, note:'mitm pin for forge', by:'qa', at:'09-24 14:02' },
+    { key:'DRILL_PHONE', value:'1112131415', secret:false, note:'fallback drill phone', by:'qa', at:'09-26 19:12' },
+  ]},
+  apps: [
+    { bundle:APPS[0], open:true, vars: [
+      { key:'DRILL_PHONE', value:'1112131415', secret:false, note:'app override', by:'qa', at:'09-26 19:12' },
+      { key:'DRILL_PASSWORD', value:null, secret:true, note:'int-dev drill creds', by:'qa', at:'09-26 19:12' },
+    ]},
+    { bundle:APPS[1], open:false, vars:[] },
+  ],
+  plans: [
+    { name:'pl_regression', open:false, vars: [ { key:'COUNTRY_CODE', value:'ID', secret:false, note:'lane scope test', by:'qa', at:'09-25 10:40' } ]},
+    { name:'pl_smoke', open:false, vars:[] },
+  ],
+};
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+const badges = (v, isOvr) => (v.secret ? '<span class="badge set">set</span>' : '') + (USAGE[v.key] ? `<span class="badge" title="${USAGE[v.key]} cases reference this key">×${USAGE[v.key]}</span>` : '') + (isOvr ? '<span class="badge ovr">ovr</span>' : '');
+function gapsList() {
+  const set = new Set([...DATA.global.vars, ...DATA.apps.flatMap(a=>a.vars), ...DATA.plans.flatMap(p=>p.vars)].map(v=>v.key));
+  return Object.keys(USAGE).filter(k => USAGE[k] > 0 && !set.has(k));
+}
+function renderGaps() {
+  const g = gapsList(); const el = document.getElementById('gaps');
+  el.className = 'gaps' + (g.length ? ' has' : '');
+  el.innerHTML = g.length ? '<span class="lbl">missing</span>' + g.map(k =>
+    `<span class="gap-chip"><span class="k">${k}</span><span class="u">×${USAGE[k]} · set nowhere</span><button class="btn btn-sm" onclick="fixGap('${k}')">set in app…</button></span>`).join('') : '';
+}
+function envRow(v, path, realIdx, isOvr) {
+  return `<div class="env-card"><div class="env-row">
+    <span class="env-key">${esc(v.key)}${badges(v, isOvr)}</span>
+    <span class="env-val ${v.secret?'masked':''}">${v.secret?'•••••':esc(v.value)}</span>
+    <span class="env-note" title="${esc(v.note)}">${esc(v.note)||'—'}</span>
+    <span class="env-meta">${v.by} ${v.at}</span>
+    <span class="env-acts"><button onclick="openDlg('${path}',${realIdx})">edit</button><button class="danger" onclick="delVar('${path}',${realIdx})">delete</button></span>
+  </div></div>`;
+}
+function addRow(id) {
+  return `<div class="inline-add" id="add-${id}"><input class="k" placeholder="KEY_NAME"><input class="v" placeholder="value"><label style="font-size:11px;color:var(--color-steel)"><input type="checkbox" class="sec"> secret</label><button class="btn btn-sm" onclick="doAdd('${id}')">add</button></div>`;
+}
+function render() {
+  const q = document.getElementById('q').value.toLowerCase();
+  const match = v => !q || v.key.toLowerCase().includes(q);
+  let h = '';
+  const block = (tag, owner, cnt, open, id) =>
+    `<div class="scope-head" onclick="toggleG('${id}')"><span class="caret">${open?'▾':'▸'}</span><span class="tag">${tag}</span><span class="owner" title="${esc(owner)}">${esc(owner)}</span><span class="cnt">${cnt}</span><span class="grow"></span><button class="btn btn-sm" onclick="event.stopPropagation();toggleAdd('${id}')">+ var</button></div>`;
+  const thead = '<div class="env-thead"><span>key</span><span>value</span><span>note</span><span>updated</span><span></span></div>';
+  const gv = DATA.global.vars.filter(match);
+  h += `<div class="scope-block ${DATA.global.open&&gv.length?'open':''}" id="g-g">${block('global', DATA.global.owner, gv.length, DATA.global.open,'g')}`;
+  h += gv.length ? thead + gv.map(v => envRow(v,'global',DATA.global.vars.indexOf(v))).join('') : '';
+  h += addRow('g') + '</div>';
+  for (const [ai, app] of DATA.apps.entries()) {
+    const av = app.vars.filter(match);
+    if (q && av.length === 0) continue;
+    h += `<div class="scope-block ${app.open&&av.length?'open':''}" id="g-a${ai}">${block('app', app.bundle, av.length, app.open,'a'+ai)}`;
+    h += av.length ? thead + av.map(v => envRow(v, `app:${ai}`, app.vars.indexOf(v), DATA.global.vars.some(g=>g.key===v.key))).join('') : (q?'':'<div class="env-row" style="color:var(--color-steel)">no vars — falls back to global</div>');
+    h += addRow('a'+ai) + '</div>';
+  }
+  for (const [pi, plan] of DATA.plans.entries()) {
+    const pv = plan.vars.filter(match);
+    if (q && pv.length === 0) continue;
+    h += `<div class="scope-block ${plan.open&&pv.length?'open':''}" id="g-p${pi}">${block('plan', plan.name, pv.length, plan.open,'p'+pi)}`;
+    h += pv.length ? thead + pv.map(v => envRow(v, `plan:${pi}`, plan.vars.indexOf(v))).join('') : (q?'':'<div class="env-row" style="color:var(--color-steel)">no vars</div>');
+    h += addRow('p'+pi) + '</div>';
+  }
+  document.getElementById('scopes').innerHTML = h;
+  const total = DATA.global.vars.length + DATA.apps.reduce((n,a)=>n+a.vars.length,0) + DATA.plans.reduce((n,p)=>n+p.vars.length,0);
+  document.getElementById('counts').textContent = `${total} vars · ${gapsList().length} missing`;
+  renderGaps();
+}
+function toggleG(id) { document.getElementById('g-'+id).classList.toggle('open'); }
+function toggleAdd(id) { document.getElementById('add-'+id).classList.toggle('open'); }
+function scopeOf(id) { return id==='g' ? DATA.global : id[0]==='a' ? DATA.apps[+id.slice(1)] : DATA.plans[+id.slice(1)]; }
+function doAdd(id) {
+  const el = document.getElementById('add-'+id);
+  const k = el.querySelector('.k').value.trim(), v = el.querySelector('.v').value, sec = el.querySelector('.sec').checked;
+  if (!k || v==='') return toast('key and value required');
+  scopeOf(id).vars.push({ key:k, value:sec?null:v, secret:sec, note:'', by:'qa', at:'now' });
+  render(); toast('added '+k);
+}
+let __edit = null;
+function resolve(path, i) { const kind = path.split(':')[0], gi = +(path.split(':')[1]||0); return kind==='global' ? DATA.global.vars[i] : kind==='app' ? DATA.apps[gi].vars[i] : DATA.plans[gi].vars[i]; }
+function openDlg(path, i) {
+  const v = resolve(path, i); __edit = { path, i };
+  document.getElementById('d-title').textContent = 'edit ' + v.key;
+  document.getElementById('d-keep').style.display = v.secret ? 'inline' : 'none';
+  document.getElementById('d-val').value = ''; document.getElementById('d-note').value = v.note;
+  document.getElementById('dlg').classList.add('open');
+}
+function delVar(path, i) {
+  const kind = path.split(':')[0], gi = +(path.split(':')[1]||0);
+  const arr = kind==='global' ? DATA.global.vars : kind==='app' ? DATA.apps[gi].vars : DATA.plans[gi].vars;
+  const v = arr.splice(i,1)[0];
+  render(); toast('deleted ' + v.key + (USAGE[v.key] ? ' — was used ×'+USAGE[v.key] : ''));
+}
+function fixGap(k) {
+  DATA.apps[0].vars.push({ key:k, value:'', secret:false, note:'', by:'qa', at:'now' });
+  DATA.apps[0].open = true;
+  render(); openDlg('app:0', DATA.apps[0].vars.length - 1);
+}
+function closeDlg() { document.getElementById('dlg').classList.remove('open'); }
+function saveDlg() {
+  if (!__edit) return closeDlg();
+  const v = resolve(__edit.path, __edit.i);
+  const nv = document.getElementById('d-val').value;
+  if (nv !== '') v.value = nv;
+  v.note = document.getElementById('d-note').value;
+  closeDlg(); render(); toast('saved ' + v.key);
+}
+function mode(m) {
+  document.body.className = 'mode-' + m;
+  document.getElementById('seg-m').classList.toggle('on', m==='manage');
+  document.getElementById('seg-e').classList.toggle('on', m==='eff');
+  if (m==='eff') renderEff();
+}
+function renderEff() {
+  const app = APPS[+(document.getElementById('e-app').value||0)];
+  const pv = document.getElementById('e-plan').value;
+  const plan = pv === '' ? null : PLANS[+pv];
+  const layers = [['global', DATA.global.vars], ['app', (DATA.apps.find(a=>a.bundle===app)||{vars:[]}).vars], ...(plan ? [['plan', (DATA.plans.find(p=>p.name===plan)||{vars:[]}).vars]] : [])];
+  const eff = new Map();
+  for (const [src, vars] of layers) for (const v of vars) eff.set(v.key, { v, src });
+  document.getElementById('eff').innerHTML = Array.from(eff.entries()).map(([k,{v,src}]) =>
+    `<div class="env-card"><div class="env-row">
+      <span class="env-key">${esc(k)}${badges(v,false)}</span>
+      <span class="env-val ${v.secret?'masked':''}">${v.secret?'•••••':esc(v.value)}</span>
+      <span class="env-note">${esc(v.note)||'—'}</span>
+      <span class="env-meta" style="color:${src==='global'?'var(--color-steel)':'var(--color-ember)'}">${src}</span>
+      <span class="env-meta">${USAGE[k]?'×'+USAGE[k]:'—'}</span>
+    </div></div>`).join('');
+}
+document.getElementById('e-app').innerHTML = APPS.map((a,i)=>`<option value="${i}">${a}</option>`).join('');
+document.getElementById('e-plan').innerHTML = `<option value="">—</option>` + PLANS.map((p,i)=>`<option value="${i}">${p}</option>`).join('');
+document.getElementById('e-app').onchange = renderEff;
+document.getElementById('e-plan').onchange = renderEff;
+document.getElementById('q').oninput = render;
+function toast(m) { const t = document.getElementById('toast'); t.textContent = m; t.style.display='block'; setTimeout(()=>t.style.display='none',1800); }
+render();
+</script>
+</body>
+</html>

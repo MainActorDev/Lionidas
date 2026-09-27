@@ -48,6 +48,7 @@ watch(() => route.fullPath, () => void loadMe());
         <RouterLink to="/flakes" class="nav-item" :class="{ active: isActive('flakes') }">flaky tests</RouterLink>
         <RouterLink to="/templates" class="nav-item" :class="{ active: isActive('templates') }">test cases</RouterLink>
         <RouterLink to="/screens" class="nav-item" :class="{ active: isActive('screens') }">screens</RouterLink>
+        <RouterLink to="/env" class="nav-item" :class="{ active: isActive('env') }">env</RouterLink>
         <RouterLink to="/monitoring" class="nav-item" :class="{ active: isActive('monitoring') }">monitoring</RouterLink>
       </div>
       <div class="nav-group">

@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>env · inspector</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+/* alias shim (a/b/c legacy short names → shared tokens) */
+:root { --void:var(--color-void); --carbon:var(--color-carbon); --graphite:var(--color-graphite); --iron:var(--color-iron); --slate:var(--color-slate); --pewter:var(--color-pewter); --steel:var(--color-steel); --ash:var(--color-ash); --fog:var(--color-fog); --chalk:var(--color-chalk); --paper:var(--color-paper); --ember:var(--color-ember); --ember-dim:var(--color-ember-dim); --moss:var(--color-fog); --mono:var(--font-mono); }
+
+  * { box-sizing:border-box; margin:0; padding:0; }
+  
+  body { background:var(--void); font-family:var(--mono); color:var(--paper); font-size:12px; height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+  header { padding:14px 20px; border-bottom:1px solid var(--iron); }
+  .page-title { font-size:15px; font-weight:700; }
+  .page-sub { font-size:9px; color:var(--steel); margin-top:2px; }
+  .frame { display:flex; flex:1; min-height:0; }
+  .tree { width:250px; border-right:1px solid var(--iron); overflow-y:auto; padding:10px 0; }
+  .tree .node { padding:6px 14px; cursor:pointer; display:flex; gap:8px; align-items:center; color:var(--fog); font-size:11px; }
+  .tree .node:hover { background:var(--graphite); }
+  .tree .node.sel { background:var(--carbon); border-left:2px solid var(--ember); color:var(--paper); }
+  .tree .node .tag { font-size:8px; letter-spacing:.1em; text-transform:uppercase; padding:1px 5px; border:1px solid var(--slate); color:var(--steel); }
+  .tree .node.app .tag { border-color:var(--ember-dim); color:var(--ember); }
+  .tree .node.plan .tag { border-color:var(--moss); color:var(--moss); }
+  .tree .node .cnt { margin-left:auto; font-size:9px; color:var(--steel); }
+  .main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  .list { flex:1; overflow-y:auto; }
+  .vrow { display:flex; gap:16px; padding:10px 20px; border-bottom:1px solid var(--graphite); cursor:pointer; align-items:baseline; }
+  .vrow:hover, .vrow.sel { background:var(--graphite); }
+  .key { font-weight:700; min-width:190px; }
+  .val { color:var(--chalk); flex:1; word-break:break-all; }
+  .masked { color:var(--steel); letter-spacing:.2em; }
+  .badge { font-size:8px; letter-spacing:.12em; padding:1px 5px; margin-left:6px; border:1px solid var(--moss); color:var(--moss); text-transform:uppercase; }
+  .meta { color:var(--steel); font-size:9px; white-space:nowrap; }
+  .editor { border-top:1px solid var(--iron); background:var(--carbon); padding:16px 20px; display:none; }
+  .editor.open { display:block; }
+  .editor label { font-size:9px; color:var(--steel); display:block; margin:10px 0 4px; letter-spacing:.1em; text-transform:uppercase; }
+  .editor input { width:420px; max-width:100%; background:var(--graphite); border:1px solid var(--iron); color:var(--paper); font-family:var(--mono); font-size:11px; padding:7px 9px; }
+  .editor .acts { margin-top:12px; display:flex; gap:8px; }
+  .editor button { font-family:var(--mono); font-size:10px; padding:6px 14px; cursor:pointer; }
+  .editor .save { background:var(--ember); border:none; color:#000; font-weight:700; }
+  .editor .ghost { background:none; border:1px solid var(--slate); color:var(--fog); }
+  .editor .danger { background:none; border:1px solid var(--ember-dim); color:var(--ember); margin-left:auto; }
+  .editor .hint { color:var(--steel); font-size:9px; margin-top:8px; }
+  .addrow { display:flex; gap:8px; padding:12px 20px; border-top:1px solid var(--iron); align-items:center; background:var(--carbon); }
+  .addrow input { background:var(--graphite); border:1px solid var(--iron); color:var(--paper); font-family:var(--mono); font-size:10px; padding:6px 8px; }
+  .addrow .k { width:170px; } .addrow .v { flex:1; }
+  .addrow button { background:var(--ember); border:none; color:#000; font-family:var(--mono); font-size:10px; font-weight:700; padding:6px 12px; cursor:pointer; }
+  .resline { padding:8px 20px; border-bottom:1px solid var(--iron); background:var(--carbon); font-size:10px; color:var(--ash); }
+  .resline b { color:var(--fog); }
+  .toast { position:fixed; right:16px; bottom:16px; background:var(--carbon); border:1px solid var(--moss); color:var(--moss); font-size:10px; padding:8px 12px; display:none; }
+</style>
+</head>
+<body>
+<header>
+  <div class="page-title">env</div>
+  <div class="page-sub">scope tree · effective value per key · global &lt; app &lt; plan &lt; request &lt; variant</div>
+</header>
+<div class="frame">
+  <nav class="tree" id="tree"></nav>
+  <div class="main">
+    <div class="resline" id="resline"></div>
+    <div class="list" id="list"></div>
+    <div class="editor" id="editor">
+      <label>value <span style="color:var(--steel)" id="e-keep">(blank keeps current secret)</span></label>
+      <input type="text" id="e-val">
+      <label>note</label>
+      <input type="text" id="e-note">
+      <div class="acts">
+        <button class="ghost" onclick="closeEd()">cancel</button>
+        <button class="save" onclick="saveEd()">save</button>
+        <button class="danger" onclick="delEd()">delete</button>
+      </div>
+      <div class="hint">a set secret never displays again · scope chain: narrower wins</div>
+    </div>
+    <div class="addrow">
+      <input class="k" id="n-key" placeholder="KEY_NAME">
+      <input class="v" id="n-val" placeholder="value">
+      <label style="font-size:9px;color:var(--steel)"><input type="checkbox" id="n-sec"> secret</label>
+      <button onclick="add()">add to scope</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const TREE = [
+  { id:'global', tag:'global', label:'global', vars:[
+    { key:'FORGE_TLS_PIN', value:'sha256/9m3k…', secret:false, note:'mitm pin for forge', by:'qa', at:'09-24 14:02' },
+    { key:'DRILL_PHONE', value:'1112131415', secret:false, note:'fallback drill phone', by:'qa', at:'09-26 19:12' },
+  ]},
+  { id:'app:0', tag:'app', label:'consumer.int-dev', vars:[
+    { key:'DRILL_PHONE', value:'1112131415', secret:false, note:'app override of global', by:'qa', at:'09-26 19:12' },
+    { key:'DRILL_PASSWORD', value:null, secret:true, note:'int-dev drill creds', by:'qa', at:'09-26 19:12' },
+  ]},
+  { id:'app:1', tag:'app', label:'consumer.int (prod)', vars:[] },
+  { id:'plan:0', tag:'plan', label:'pl_regression', vars:[
+    { key:'COUNTRY_CODE', value:'ID', secret:false, note:'lane scope test', by:'qa', at:'09-25 10:40' },
+  ]},
+];
+let sel = 'global', editing = null;
+function scope() { return TREE.find(t => t.id === sel); }
+function renderTree() {
+  document.getElementById('tree').innerHTML = TREE.map(t =>
+    `<div class="node ${t.tag} ${t.id===sel?'sel':''}" onclick="pick('${t.id}')">
+      <span class="tag">${t.tag}</span><span>${t.label}</span><span class="cnt">${t.vars.length}</span>
+    </div>`).join('');
+}
+function renderList() {
+  const s = scope();
+  // effective preview: which global keys are overridden in this app scope
+  const globals = TREE[0].vars;
+  const overridden = s.id.startsWith('app:') ? new Set(s.vars.map(v=>v.key)) : new Set();
+  document.getElementById('resline').innerHTML = s.id === 'global'
+    ? `<b>global</b> — applies everywhere unless an app/plan scope overrides the key`
+    : `<b>${s.label}</b> — ${s.vars.length} var(s); overrides: ${[...overridden].map(k=>`<b>${k}</b>`).join(', ') || 'none'}`;
+  document.getElementById('list').innerHTML = s.vars.map((v,i) => `
+    <div class="vrow ${editing===i?'sel':''}" onclick="openEd(${i})">
+      <span class="key">${v.key}${v.secret?'<span class="badge">set</span>':''}</span>
+      <span class="${v.secret?'masked':'val'}">${v.secret?'•••••':v.value}</span>
+      <span class="meta">${v.by} ${v.at}</span>
+    </div>`).join('') || '<div style="padding:24px 20px;color:var(--steel)">no vars in this scope — add one below</div>';
+}
+function pick(id) { sel = id; editing = null; closeEd(); renderTree(); renderList(); }
+function openEd(i) {
+  editing = i; const v = scope().vars[i];
+  document.getElementById('e-keep').style.display = v.secret ? 'inline' : 'none';
+  document.getElementById('e-val').value = ''; document.getElementById('e-note').value = v.note;
+  document.getElementById('editor').classList.add('open'); renderList();
+}
+function closeEd() { editing = null; document.getElementById('editor').classList.remove('open'); renderList(); }
+function saveEd() {
+  if (editing === null) return;
+  const v = scope().vars[editing];
+  const nv = document.getElementById('e-val').value;
+  if (nv !== '') v.value = nv;
+  v.note = document.getElementById('e-note').value;
+  closeEd(); toast('saved ' + v.key);
+}
+function delEd() {
+  if (editing === null) return;
+  const v = scope().vars.splice(editing,1)[0];
+  closeEd(); toast('deleted ' + v.key);
+}
+function add() {
+  const k = document.getElementById('n-key').value.trim();
+  const val = document.getElementById('n-val').value;
+  const sec = document.getElementById('n-sec').checked;
+  if (!k || val === '') return toast('key and value required');
+  scope().vars.push({ key:k, value: sec ? null : val, secret:sec, note:'', by:'qa', at:'now' });
+  document.getElementById('n-key').value=''; document.getElementById('n-val').value=''; document.getElementById('n-sec').checked=false;
+  renderTree(); renderList(); toast('added ' + k);
+}
+function toast(m) { const t = document.getElementById('toast'); t.textContent = m; t.style.display='block'; setTimeout(()=>t.style.display='none',1500); }
+renderTree(); renderList();
+</script>
+</body>
+</html>
