@@ -97,6 +97,14 @@ describe('role guards', () => {
     expect(ok.statusCode).toBe(200);
   });
 
+  it('admin passes operator-tier routes (highest authority — no 403 on operator gates)', async () => {
+    const adminSid = await loginAs('admin@lionparcel.com', ADMIN_PW);
+    // duplicate is operator-gated; admin must pass (regression: requireRole
+    // did exact membership and refused admin on all 17 operator routes)
+    const dup = await app.inject({ method: 'POST', url: '/api/templates/tpl_nope/duplicate', headers: { cookie: `crucible_session=${adminSid}` } });
+    expect(dup.statusCode).toBe(404); // auth PASSED — not found is the honest answer
+  });
+
   it('unauthenticated → 401', async () => {
     const r = await app.inject({ method: 'GET', url: '/api/users' });
     expect(r.statusCode).toBe(401);

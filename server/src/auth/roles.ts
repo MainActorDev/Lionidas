@@ -92,6 +92,10 @@ export function requireRole(...roles: Role[]): (req: FastifyRequest, reply: Fast
   return async (req, reply) => {
     if (!req.user) return void (await reply.code(401).send({ error: 'sign in required' }));
     if (roles.includes(req.user.role)) return;
+    // admin is the highest authority — it passes EVERY tier (a route that
+    // must exclude admin says so explicitly by NOT listing roles it accepts
+    // and handling auth itself; nothing in this codebase does)
+    if (req.user.role === 'admin') return;
     // bot sessions pass operator-tier routes (they ARE the pipelines)
     if (req.user.role === 'bot' && roles.includes('operator')) return;
     await reply.code(403).send({ error: `requires role: ${roles.join(' or ')}` });
