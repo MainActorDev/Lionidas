@@ -46,7 +46,7 @@ async function signIn(): Promise<void> {
   <div class="login-wrap">
     <div class="card login-card">
       <div class="brand">
-        <img class="mark" src="/icons/lionidas-avatar-dark-512.png" alt="" width="96" height="96" />
+        <img class="mark" src="/icons/lionidas-mascot-512.png" alt="" width="96" height="96" />
         <span class="nm">lionidas</span>
         <span class="sub">internal · LAN</span>
       </div>

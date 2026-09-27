@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="web/public/icons/lionidas-avatar-dark-512.png" width="160" alt="Lionidas" />
+  <img src="web/public/icons/lionidas-mascot-512.png" width="160" alt="Lionidas" />
 </div>
 
 <h1 align="center">Lionidas</h1>
