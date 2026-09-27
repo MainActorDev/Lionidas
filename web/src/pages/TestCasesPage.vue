@@ -364,6 +364,29 @@ const shown = (): Template[] => {
     t.name.toLowerCase().includes(f) || (t.ticketKey ?? '').toLowerCase().includes(f) || (t.tags ?? []).some((tg) => tg.toLowerCase().includes(f)));
 };
 
+// ── app-grouped list (plan 20260928T003500Z): sections per bundle from the
+// POST-FILTER rows; a group whose every row filtered out renders nothing.
+const NO_APP = '<<no-app>>'; // sentinel sort-key; a real reverse-DNS bundle can never equal it
+interface RowGroup { key: string; label: string; rows: Template[] }
+const groups = computed<RowGroup[]>(() => {
+  const by = new Map<string, RowGroup>();
+  for (const t of shown()) {
+    const key = t.appBundleId || NO_APP;
+    let g = by.get(key);
+    if (!g) { g = { key, label: key === NO_APP ? 'no app' : t.appBundleId!, rows: [] }; by.set(key, g); }
+    g.rows.push(t);
+  }
+  const list = [...by.values()];
+  list.sort((a, b) => (a.key === NO_APP ? 1 : b.key === NO_APP ? -1 : a.label.localeCompare(b.label)));
+  return list;
+});
+const collapsed = ref(new Set<string>());
+function toggleGroup(key: string): void {
+  const next = new Set(collapsed.value);
+  if (next.has(key)) next.delete(key); else next.add(key);
+  collapsed.value = next;
+}
+
 // ── phase E: status lifecycle — chips (server-filtered), pill, kebab actions ──
 type Lifecycle = 'draft' | 'active' | 'deprecated';
 const statusFilter = ref<'' | Lifecycle>('');
@@ -541,6 +564,9 @@ async function confirmImport(): Promise<void> {
 
 function openYaml(t: Template): void {
   if (yamlOpenId.value === t.id) { yamlOpenId.value = null; return; } // toggle
+  // a collapsed section must open before the editor mounts inside it (review F2)
+  const gk = t.appBundleId || NO_APP;
+  if (collapsed.value.has(gk)) toggleGroup(gk);
   if (yamlOpenId.value !== null && panel()?.isDirty()) {
     pendingSwitch.value = t.id;
     return;
@@ -718,9 +744,6 @@ const suiteSummary = computed(() => {
             </div>
           </div>
         </div>
-        <button v-if="!editing" class="btn" :disabled="playingAll || shown().length === 0" @click="playAll()" title="sequentially run every case matching the filter">
-          {{ playingAll ? 'running…' : '▶ run filtered' }}
-        </button>
         <button v-if="playingAll" class="btn btn-danger" @click="stopAll"
           title="abort the running case and every queued one">■ stop all</button>
       </template>
@@ -743,7 +766,7 @@ const suiteSummary = computed(() => {
     <div class="a2-table">
       <div class="a2-thead">
         <span class="col-case">case</span>
-        <span class="col-app">app</span>
+        <span class="col-ver" title="app version — stamped live by the runner">ver</span>
         <span class="col-steps">steps</span>
         <span class="col-updated">updated</span>
         <span class="col-trend" title="last 3 runs (dots) + direction vs prior 3 (↑ → ↓)">trend</span>
@@ -752,7 +775,13 @@ const suiteSummary = computed(() => {
         <span class="col-actions"></span>
       </div>
 
-      <article v-for="t in shown()" :key="t.id" class="a2-row-card" :class="{ editing: yamlOpenId === t.id, deprecated: t.status === 'deprecated' }">
+      <template v-for="g in groups" :key="g.key">
+      <div class="a2-group-head" @click.stop="toggleGroup(g.key)" :title="g.key === NO_APP ? 'cases without an app' : g.label">
+        <span class="caret">{{ collapsed.has(g.key) ? '▸' : '▾' }}</span>
+        <span class="owner">{{ g.label }}</span>
+        <span class="n">{{ g.rows.length }}</span>
+      </div>
+      <article v-for="t in g.rows" v-show="!collapsed.has(g.key)" :key="t.id" class="a2-row-card" :class="{ editing: yamlOpenId === t.id, deprecated: t.status === 'deprecated' }">
         <div class="a2-row" @click="openYaml(t)" title="click to edit this case">
           <span class="col-case">
             <span class="a2-name">{{ t.name }}</span>
@@ -761,15 +790,9 @@ const suiteSummary = computed(() => {
             <span v-if="t.ticketKey" class="a2-ticket">{{ t.ticketKey }}</span>
             <span v-for="tg in t.tags ?? []" :key="tg" class="chip" title="click to filter by this tag" @click.stop="filter = tg">{{ tg }}</span>
           </span>
-          <span class="col-app">
-            <template v-if="t.appBundleId">
-              <img v-if="t.udid" class="a2-app-icon" alt=""
-                :src="`/api/devices/${t.udid}/apps/${encodeURIComponent(t.appBundleId)}/icon`"
-                @error="(e: Event) => (e.target as HTMLImageElement).style.display = 'none'" />
-              <span class="a2-app-name">{{ t.appBundleId ?? '—' }}</span>
-              <span v-if="t.appVersion" class="a2-app-ver">v{{ t.appVersion }}</span>
-            </template>
-            <span v-else class="a2-app-none">no app</span>
+          <span class="col-ver" :title="`${t.appBundleId ?? 'no app'} · ${t.appVersion ?? 'unversioned'}`">
+            <span v-if="t.appVersion" class="a2-ver-val">v{{ t.appVersion }}</span>
+            <span v-else class="a2-app-none">—</span>
           </span>
           <span class="col-steps" :title="stepsTitle(t)">
             {{ t.steps.length }}<span v-if="coverageOf(t) && coverageOf(t)!.locked < coverageOf(t)!.total"
@@ -872,6 +895,7 @@ const suiteSummary = computed(() => {
         </div>
 
 </article>
+      </template>
     </div>
 
     <div v-if="playMsg" class="a2-note">{{ playMsg }}</div>
@@ -1072,7 +1096,7 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 }
 .a2-thead {
   position: sticky; top: 0; z-index: 2; background: var(--color-graphite);
-  display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 64px) minmax(0, 235px) minmax(0, 200px);
+  display: grid; grid-template-columns: minmax(0, 2.0fr) minmax(0, 70px) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 64px) minmax(0, 235px) minmax(0, 200px);
   gap: var(--s-2); padding: 8px 12px;
   font-size: 10px; color: var(--color-steel); text-transform: uppercase; letter-spacing: 0.08em;
 }
@@ -1080,7 +1104,7 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 .a2-row-card.editing { border-color: var(--color-ember); }
 .a2-row-card.editing .a2-row { background: color-mix(in srgb, var(--color-ember) 6%, transparent); }
 .a2-row {
-  position: relative; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 64px) minmax(0, 235px) minmax(0, 200px);
+  position: relative; display: grid; grid-template-columns: minmax(0, 2.0fr) minmax(0, 70px) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 64px) minmax(0, 235px) minmax(0, 200px);
   gap: var(--s-2); align-items: center; padding: 8px 12px; min-height: 44px; cursor: pointer;
 }
 .a2-row:hover { background: var(--color-graphite); }
@@ -1093,6 +1117,25 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 .steps-cov.warn { color: var(--color-ember, #e5484d); }
 .a2-name { color: var(--color-paper); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .col-app { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.col-ver { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
+.a2-ver-val { color: var(--color-steel); }
+/* app group head — env-page scope-head rhythm; IN-FLOW (never sticky —
+   the thead owns sticky; review F1) */
+.a2-group-head {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; gap: var(--s-2);
+  padding: 7px 12px;
+  border-top: 1px solid var(--color-iron);
+  background: var(--color-void);
+  cursor: pointer; user-select: none;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em;
+  color: var(--color-pewter);
+}
+.a2-group-head:first-of-type { border-top: none; }
+.a2-group-head:hover { color: var(--color-paper); background: var(--color-graphite); }
+.a2-group-head .caret { width: 12px; color: var(--color-steel); }
+.a2-group-head .owner { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.a2-group-head .n { color: var(--color-steel); margin-left: auto; }
 /* verdict pill ellipsizes inside its track at extreme narrow widths (the
    pill is the unbreakable floor: mono text can't wrap) */
 .col-evidence { display: flex; align-items: center; overflow: visible; }
