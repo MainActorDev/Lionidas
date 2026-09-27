@@ -887,27 +887,49 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
           </span>
           <span class="col-actions" @click.stop>
             <template v-if="tracker.isRunning(t.id)">
-              <button class="btn btn-sm btn-danger" :disabled="aborting === t.id" @click.stop="abortCase(t)"
+              <button class="ibtn danger" :disabled="aborting === t.id" @click.stop="abortCase(t)"
                 :title="`abort ${tracker.activeRun(t.id)?.runId ?? ''} — lands after the current step finishes`">
-                {{ aborting === t.id ? 'aborting…' : '■ abort' }}</button>
+                <svg viewBox="0 0 20 20"><rect x="5" y="5" width="10" height="10" rx="1.5" fill="currentColor"/></svg>
+                <span class="ib-label">{{ aborting === t.id ? 'aborting…' : 'abort' }}</span>
+              </button>
             </template>
             <template v-else>
               <span class="run-menu">
-                <button class="btn btn-sm" :disabled="playing !== null" @click.stop="play(t)"
+                <button class="ibtn accent" :disabled="playing !== null" @click.stop="play(t)"
                   title="run and open the live stream panel">
-                  {{ playing === t.id ? 'starting…' : 'run' }}</button>
-                <button class="btn btn-sm run-menu-toggle" :class="{ open: runMenuOpen === t.id }" @click.stop="toggleRunMenu(t.id, $event)"
-                  aria-haspopup="menu" :aria-expanded="runMenuOpen === t.id" title="run without the stream panel">▾</button>
+                  <svg viewBox="0 0 20 20"><path d="M6 3.5l11 6.5-11 6.5v-13z" fill="currentColor"/></svg>
+                  <span class="ib-label">{{ playing === t.id ? 'starting…' : 'run' }}</span>
+                </button>
+                <button class="ibtn run-menu-toggle" :class="{ open: runMenuOpen === t.id }" @click.stop="toggleRunMenu(t.id, $event)"
+                  aria-haspopup="menu" :aria-expanded="runMenuOpen === t.id" title="run without the stream panel">
+                  <svg viewBox="0 0 20 20"><path d="M5 8l5 5 5-5H5z" fill="currentColor"/></svg>
+                  <span class="ib-label">run options</span>
+                </button>
               </span>
             </template>
-            <button class="btn btn-sm btn-ghost" @click.stop="openYaml(t)" title="edit this case — metadata + yaml">edit</button>
-            <button class="btn btn-sm btn-ghost" :disabled="duplicating !== null" @click.stop="duplicateCase(t)"
-              :title="`copy this case into a new draft — ${t.name} (copy)`">{{ duplicating === t.id ? 'copying…' : 'duplicate' }}</button>
-            <button class="btn btn-sm btn-ghost" @click.stop="exportOne(t)" title="download this case as a .yaml file">export</button>
-            <button class="btn btn-sm btn-ghost" @click.stop="remove(t.id)">delete</button>
-            <button class="btn btn-sm btn-ghost kebab" :class="{ open: statusMenuOpen === t.id }" :disabled="setStatusBusy === t.id"
+            <button class="ibtn" @click.stop="openYaml(t)" title="edit this case — metadata + yaml">
+              <svg viewBox="0 0 20 20"><path d="M13.5 2.5l4 4L8 16H4v-4l9.5-9.5zm-2.8 3.7l1.6-1.6-1.2-1.2-1.6 1.6 1.2 1.2zM12.9 8.4l1.6-1.6-1.2-1.2-1.6 1.6 1.2 1.2zM5 13v2h2l1-1-2-2-1 1z" fill="currentColor"/></svg>
+              <span class="ib-label">edit</span>
+            </button>
+            <button class="ibtn" :disabled="duplicating !== null" @click.stop="duplicateCase(t)"
+              :title="`copy this case into a new draft — ${t.name} (copy)`">
+              <svg viewBox="0 0 20 20"><rect x="7" y="7" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M13 4.5V3H3v10h1.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+              <span class="ib-label">{{ duplicating === t.id ? 'copying…' : 'duplicate' }}</span>
+            </button>
+            <button class="ibtn" @click.stop="exportOne(t)" title="download this case as a .yaml file">
+              <svg viewBox="0 0 20 20"><path d="M10 2v9m0 0l-3.5-3.5M10 11l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 13v3.5h14V13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+              <span class="ib-label">export</span>
+            </button>
+            <button class="ibtn" @click.stop="remove(t.id)" title="delete this case">
+              <svg viewBox="0 0 20 20"><path d="M4 6h12M8 6V4h4v2m-7 0l1 11h8l1-11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="ib-label">delete</span>
+            </button>
+            <button class="ibtn kebab" :class="{ open: statusMenuOpen === t.id }" :disabled="setStatusBusy === t.id"
               aria-haspopup="menu" :aria-expanded="statusMenuOpen === t.id" title="case status — draft / active / deprecated"
-              @click.stop="toggleStatusMenu(t.id, $event)">{{ setStatusBusy === t.id ? '…' : '⋯' }}</button>
+              @click.stop="toggleStatusMenu(t.id, $event)">
+              <svg viewBox="0 0 20 20"><circle cx="10" cy="4.5" r="1.8" fill="currentColor"/><circle cx="10" cy="10" r="1.8" fill="currentColor"/><circle cx="10" cy="15.5" r="1.8" fill="currentColor"/></svg>
+              <span class="ib-label">status</span>
+            </button>
           </span>
         </div>
 
@@ -1073,7 +1095,30 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 article.a2-row-card.deprecated .a2-name { color: var(--color-ash); }
 article.a2-row-card.deprecated .a2-row { opacity: 0.55; }
 article.a2-row-card.deprecated .a2-row:hover { opacity: 0.8; }
-button.kebab { letter-spacing: 1px; padding: 2px 7px; }
+button.kebab { letter-spacing: 0; padding: 0; }
+/* icon buttons — house icon language (20×20 viewBox, fill:currentColor,
+   16px glyph in a 28×28 hit box, hover label). Hit-target floor rule. */
+.ibtn {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0;
+  background: none; border: none; border-radius: 5px;
+  color: var(--color-pewter, #8a8f98); cursor: pointer;
+}
+.ibtn svg { width: 16px; height: 16px; pointer-events: none; }
+.ibtn:hover { color: var(--color-paper, #f5f2ea); background: var(--color-graphite, #24262b); }
+.ibtn:disabled { opacity: 0.45; cursor: default; }
+.ibtn.accent:hover { color: var(--color-ember, #ff9f40); }
+.ibtn.danger:hover { color: var(--color-paper, #f5f2ea); background: var(--color-ember, #ff9f40); }
+.ibtn .ib-label {
+  position: absolute; top: calc(100% + 5px); right: 0; z-index: 70;
+  padding: 3px 8px; border-radius: 4px; white-space: nowrap;
+  background: var(--color-graphite, #24262b); border: 1px solid var(--color-iron, #3a3d44);
+  font-family: var(--font-mono, monospace); font-size: 10px; letter-spacing: 0.03em;
+  color: var(--color-paper, #f5f2ea); pointer-events: none; opacity: 0;
+  transition: opacity 90ms ease;
+}
+.ibtn:hover .ib-label, .ibtn:focus-visible .ib-label { opacity: 1; }
 button.kebab.open { color: var(--color-ember); border-color: var(--color-ember); }
 .status-menu-pop .menu-label {
   padding: 4px 10px 2px; color: var(--color-pewter); font-size: 10px;
