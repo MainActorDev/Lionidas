@@ -46,7 +46,7 @@ async function signIn(): Promise<void> {
   <div class="login-wrap">
     <div class="card login-card">
       <div class="brand">
-        <img class="mark" src="/icons/lionidas-app-192.png" alt="" width="96" height="96" />
+        <img class="mark" src="/icons/lionidas-avatar-dark-512.png" alt="" width="96" height="96" />
         <span class="nm">lionidas</span>
         <span class="sub">internal · LAN</span>
       </div>
@@ -77,7 +77,7 @@ async function signIn(): Promise<void> {
 .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--color-void); }
 .login-card { width: min(380px, 94vw); padding: 26px 26px 22px; }
 .brand { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-bottom: 22px; }
-.brand .mark { width: 96px; height: 96px; border-radius: 20px; }
+.brand .mark { width: 96px; height: 96px; border-radius: 20px; } /* radius kept: avatar plate is rounded-friendly */
 .brand .nm { font-size: 14px; font-weight: 700; }
 .brand .sub { font-size: 9px; color: var(--color-steel); margin-left: 0; }
 .field { margin-bottom: 14px; }
