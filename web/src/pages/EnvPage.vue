@@ -332,7 +332,7 @@ onMounted(load);
 .gap-chip .k { color: var(--color-paper); font-weight: var(--weight-bold); }
 .gap-chip .u { color: var(--color-steel); font-size: 10px; }
 
-.scope-block { margin-bottom: var(--s-4); }
+.scope-block { margin-bottom: var(--s-4); border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); overflow-x: hidden; }
 /* head anatomy comes from the shared .a2-group-head (components.css);
    these are env-only extras: the scope tag chip and the grow spacer */
 .scope-head { }

@@ -337,3 +337,13 @@ a.chip:hover, button.chip:hover, .chip-click:hover { color: var(--color-paper); 
 .a2-tab.on { color: var(--color-ember); background: var(--color-graphite); }
 .a2-tab.on .n { color: var(--color-ember); }
 .a2-tab.dep.on { color: var(--color-steel); }
+
+/* ── a2-list: the shared list-container chrome (bordered scroll box).
+   Every grouped table page wraps thead+group-heads+rows in one of these —
+   no naked unboxed lists. */
+.a2-list {
+  border: 1px solid var(--color-iron);
+  border-radius: var(--r-sm);
+  background: var(--color-carbon);
+  overflow-x: hidden;
+}

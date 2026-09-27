@@ -315,7 +315,7 @@ async function saveEditor(): Promise<void> {
 
     <div v-if="error" class="su-err">{{ error }}</div>
 
-    <div class="su-table">
+    <div class="su-table a2-list">
       <div class="su-thead">
         <span>suite</span><span>members</span><span>updated</span><span>verdict</span><span></span>
       </div>
@@ -480,10 +480,7 @@ async function saveEditor(): Promise<void> {
 .su-err { color: var(--color-paper); border: 1px dashed var(--color-slate); padding: var(--s-2) var(--s-3); font-size: 11px; }
 
 /* table — own scroll region, sticky head */
-.su-table {
-  flex: 0 1 auto; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
-  border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon);
-}
+.su-table { flex: 0 1 auto; overflow-y: auto; overscroll-behavior: contain; }
 .su-thead, .su-row {
   display: grid;
   grid-template-columns: minmax(0, 2.0fr) minmax(0, 150px) minmax(0, 92px) minmax(0, 1.2fr) minmax(0, 170px);

@@ -429,7 +429,7 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
   <div v-else-if="error" class="hint err">{{ error }}</div>
   <div v-else-if="bundles.length === 0" class="hint">no screens registered yet — register one below</div>
 
-  <div v-for="b in bundles" :key="b.bundle" class="registry">
+  <div v-for="b in bundles" :key="b.bundle" class="registry a2-list">
     <div class="a2-group-head" @click="toggleBundle(b.bundle)" :title="b.bundle">
       <span class="caret">{{ collapsedBundles.has(b.bundle) ? '▸' : '▾' }}</span>
       <span class="owner">{{ b.bundle }}</span>
@@ -595,7 +595,7 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
 <style scoped>
 .hint { color: var(--color-steel); font-size: var(--text-label); padding: var(--s-4) 0; }
 .hint.err { color: var(--color-ember); }
-.registry { margin-bottom: var(--s-5); }
+.registry { margin-bottom: var(--s-4); }
 
 /* ── house list idiom (su-thead/a2-thead pattern): sticky uppercase thead,
    hairline rows, graphite hover, actions right ── */

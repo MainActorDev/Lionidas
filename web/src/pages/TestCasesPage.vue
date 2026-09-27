@@ -763,7 +763,7 @@ const suiteSummary = computed(() => {
       <input ref="filterEl" v-model="filter" class="a2-search" placeholder="search cases…  ⌘F" />
     </div>
     <!-- ── case table: own scroll region, sticky header ── -->
-    <div class="a2-table">
+    <div class="a2-table a2-list">
       <div class="a2-thead">
         <span class="col-case">case</span>
         <span class="col-ver" title="app version — stamped live by the runner">ver</span>
@@ -1073,15 +1073,7 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 
 /* table region — content-sized: no stretch, no forced height. Scrolls only
    when the list outgrows the available space (flex shrink engages then). */
-.a2-table {
-  flex: 0 1 auto;
-  /* fit the width — never h-scroll: overflow-y:auto computes overflow-x to
-     auto too (CSS spec), so lock x to hidden explicitly. The grid's
-     minmax(0, fr) columns compress; long names ellipsize. */
-  overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
-  border: 1px solid var(--color-iron); border-radius: var(--r-sm);
-  background: var(--color-carbon);
-}
+.a2-table { flex: 0 1 auto; overflow-y: auto; overscroll-behavior: contain; }
 .a2-thead {
   position: sticky; top: 0; z-index: 2; background: var(--color-graphite);
   display: grid; grid-template-columns: minmax(0, 2.0fr) minmax(0, 70px) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 64px) minmax(0, 235px) minmax(0, 200px);
