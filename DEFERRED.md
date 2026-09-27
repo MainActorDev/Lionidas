@@ -113,7 +113,7 @@ batch, plan at `docs/plans/2026-09-01-suite-management.md`).*
 ### B11. Unauthenticated API — conceptual, accepted
 - **What:** any local process can drive devices / read captured bodies
   (including auth tokens). Accepted for single-QA localhost tool.
-- **Trigger:** if Crucible ever leaves localhost.
+- **Trigger:** if Lionidas ever leaves localhost.
 
 ---
 
@@ -179,7 +179,7 @@ Both items are honest v1 limits of the shipped pool, not unbuilt core.*
   over the tab bar) were swallowing sweep points — isContentLeaf now
   keeps band interiors probeable. Live re-verified: clock/Dynamic
   Island/cellular/battery + all 4 tab buttons in the engine tree;
-  crucible fixture re-captured, regression test flipped to parity.
+  lionidas fixture re-captured, regression test flipped to parity.
   E0 FULLY CLOSED.
 ### E1. Per-device traffic attribution for parallel batches
 - **What:** parallel (multi-lane) batches run with forge attribution OFF —
@@ -246,7 +246,7 @@ comment). The entry was describing intentional behavior as pending work.*
 
 *Source: viewtree probe P3 (mechanism B) executed + live-verified —
 `docs/research/2026-09-18-viewtree-p3-probe.md`. The pause-free in-process
-probe is BUILT (fork PR MainActorDev/Baguette#3, Crucible commits
+probe is BUILT (fork PR MainActorDev/Baguette#3, Lionidas commits
 820c232/b2be6d7/6b68761+). Remaining, deliberately deferred:*
 
 - **P2.3 inspector UI toggle** (semantic ⟷ structural tree mode): still

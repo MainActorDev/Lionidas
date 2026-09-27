@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Crucible setup — one command from clone to green checks.
-# Provisions every capability Crucible uses, detects what exists, and
+# Lionidas setup — one command from clone to green checks.
+# Provisions every capability Lionidas uses, detects what exists, and
 # reports honestly. Safe to re-run: each step is idempotent.
 #
 #   bash scripts/setup.sh          # install what's missing (prompts on brew)

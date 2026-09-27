@@ -345,7 +345,7 @@ const leaseHeldElsewhere = computed(() => !!props.leaseDisplay && props.leaseDis
 const takeControlBlocked = computed(() => !booted.value || props.runActive === true || leaseHeldElsewhere.value);
 const takeControlWhy = computed(() => !booted.value ? 'device not booted' : props.runActive === true ? 'run in progress' : leaseHeldElsewhere.value ? `held by ${props.leaseDisplay}` : '');
 // display name of the signed-in user (status line + audit surface) + the
-// server's stream format default — avcc (crucible-screenstream is the only engine)
+// server's stream format default — avcc (lionidas-screenstream is the only engine)
 const meName = ref('');
 const streamFormat = ref<'avcc' | 'mjpeg' | null>(null);
 let startedFormat: 'avcc' | 'mjpeg' | null = null; // set at stream.start
@@ -389,7 +389,7 @@ async function loadAppOptions(): Promise<void> {
 watch(() => props.device?.udid, () => { appOptionsLoaded = false; appOptions.value = []; appBundleId.value = ''; }, { immediate: true });
 
 // ── install app card: artifact picker (discovery: build dirs + DerivedData
-// + the Crucible store, freshest first) → explicit install → refresh list. ──
+// + the Lionidas store, freshest first) → explicit install → refresh list. ──
 interface ArtifactRow { path: string; bundleId: string; version: string | null; mtimeMs: number; source: string }
 const artifacts = ref<ArtifactRow[]>([]);
 const artifactsLoaded = ref(false);

@@ -25,9 +25,8 @@
   letter-spacing: 0.02em;
 }
 .logo .logo-mark {
-  width: 14px; height: 14px;
-  background: var(--color-ember);
-  clip-path: polygon(50% 0, 100% 100%, 0 100%); /* crucible vessel */
+  width: 20px; height: 20px;
+  border-radius: 4px;
   flex-shrink: 0;
 }
 
