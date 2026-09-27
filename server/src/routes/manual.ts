@@ -610,7 +610,7 @@ export function registerManualRoutes(
   // Shared by play-all AND plans (one engine). ──
   // authenticated identity wins for attribution; body triggeredBy only for
   // bots/agents whose user IS the machine. Mirrors the manual-session rule.
-  async function runBatch(b: { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string>; cases?: Array<{ templateId: string; variantIds?: string[] | null }>; suiteId?: string }, reqUser?: { name: string } | null):
+  async function runBatch(b: { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string>; cases?: Array<{ templateId: string; variantIds?: string[] | null }>; suiteId?: string; planId?: string }, reqUser?: { name: string } | null):
     Promise<{ ok: true; runIds: string[]; count: number; batchId?: string; lanes?: Array<{ device: { udid: string; name: string | null }; runIds: string[]; skipped: string[]; haltedAt?: string; haltedReason?: string }> } | { ok: false; code: 400 | 409; error: string; runIds: string[]; appBundleId?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null }> {
     const { selectTemplates } = await import('./templates.ts');
     const { planLanes } = await import('../manual/batch/plan.ts');
@@ -684,7 +684,8 @@ export function registerManualRoutes(
       ...(by !== undefined ? { triggeredBy: by } : {}),
       ...(b.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}),
       ...(b.env !== undefined ? { env: b.env } : {}),
-      ...(b.suiteId !== undefined ? { suiteId: b.suiteId } : {}), // T4: stamp runs with their spawning suite
+      ...(b.suiteId !== undefined ? { suiteId: b.suiteId } : {}),
+      ...(b.planId !== undefined ? { planId: b.planId } : {}),
       ...(multiLane ? { forgeAttribution: false } : {}), // proxy can't tell sims apart
     };
 
@@ -833,6 +834,7 @@ export function registerManualRoutes(
       ...(p.udid !== null ? { udid: p.udid } : {}),
       ...(p.scenarioId !== null ? { scenarioId: p.scenarioId } : {}),
       env: p.env,
+      planId: id, // F4: plan-scope env_vars resolve for every case in this play
     }, req.user); // session user wins for run attribution
     if (!r.ok) return reply.code(r.code).send({ error: r.error, code: r.code === 409 ? 'DEVICE_BUSY' : undefined, runIds: r.runIds });
     return { runIds: r.runIds, count: r.count };
