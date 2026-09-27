@@ -2,7 +2,8 @@
 /** Test cases — the A2 design, natively: a viewport-locked column of
  *  header / case table (own scroll) / yaml panel. The minimal header is not
  *  a "locked variant" — it IS the page chrome (mockup: a2-split-panel-scroll).
- *  The advanced run controls (network scenario, env, plans) live in a
+ *  Run controls: filter toolbar (tabs + search) above the table; env is
+ *  managed on the env page (scoped vars resolve server-side at play time).
  *  disclosure row that collapses away while editing yaml.
  *  Everything from the old page is ported: verdicts/trends, play/playAll,
  *  plans, rename/edit/delete, step expander (param/optional, + subflow,
@@ -31,7 +32,6 @@ interface Template {
   selectorCoverage?: { locked: number; total: number };
   createdBy: string; createdAt: number; updatedAt: number; updatedBy?: string | null;
 }
-interface Plan { id: string; name: string; tags: string[]; udid: string | null; appBundleId: string | null; scenarioId: string | null; env: Record<string, string> }
 
 const templates = ref<Template[]>([]);
 async function loadBootedDevices(): Promise<void> {
@@ -39,7 +39,6 @@ async function loadBootedDevices(): Promise<void> {
     const r = await fetch('/api/devices');
     const b = (await r.json()) as { devices?: Array<{ udid: string; name: string; state: string; resolution: string | null }> };
     bootedDevices.value = (b.devices ?? []).filter((d) => d.state === 'Booted');
-    if (runDevice.value && !bootedDevices.value.some((d) => d.udid === runDevice.value)) runDevice.value = '';
   } catch { /* picker stays empty; auto resolution applies */ }
 }
 const loading = ref(true);
@@ -102,46 +101,23 @@ const artifactModal = ref(false);
 const artifactList = ref<Array<{ path: string; bundleId: string; version: string | null; mtimeMs: number; source: string }>>([]);
 const artifactLoading = ref(false);
 const playingAll = ref(false);
-// network choice (phase 4): scenarios group presets; the selector applies to
 // every run started while set — presets active for the run's duration only
 const scenarios = ref<Array<{ id: string; name: string }>>([]);
-const runScenario = ref<string>('');
 // explicit device choice for plays (empty = auto: recorded-if-booted, else
 // the single booted sim; 2+ booted without a choice → DEVICE_AMBIGUOUS 409)
 const bootedDevices = ref<Array<{ udid: string; name: string; resolution: string | null }>>([]);
-const runDevice = ref('');
 
 /** env map for plays: KEY=value lines. Prompted once, reused for every play
  *  until cleared — the Maestro envFile equivalent. */
-const envText = ref('');
-const envOpen = ref(false); // collapsed until asked — env is an advanced control
-function parseEnv(): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const line of envText.value.split('\n')) {
-    const i = line.indexOf('=');
-    if (i > 0) {
-      const k = line.slice(0, i).trim();
-      const v = line.slice(i + 1);
-      if (k) out[k] = v;
-    }
-  }
-  return out;
-}
-const envKeyCount = computed(() => Object.keys(parseEnv()).length);
 
 async function play(t: Template, mode: RunMode = 'watch'): Promise<void> {
   if (playing.value) return;
   playing.value = t.id;
   playMsg.value = '';
   try {
-    const env = parseEnv();
     const r = await fetch(`/api/templates/${t.id}/play`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        ...(runDevice.value ? { udid: runDevice.value } : {}),
-        ...(runScenario.value ? { scenarioId: runScenario.value } : {}),
-        ...(Object.keys(env).length ? { env } : {}),
-      }),
+      body: JSON.stringify({}),
     });
     // no "running · run_x" status line — the row's progress pill and the
     // dock (watch mode) are the live surfaces; playMsg stays for ERRORS
@@ -151,9 +127,9 @@ async function play(t: Template, mode: RunMode = 'watch'): Promise<void> {
     // after lane 1 STARTS, not after the whole play finishes.
     const b = (await r.json()) as { runId?: string; runIds?: string[]; laneCount?: number; udid?: string; error?: string; code?: string; appBundleId?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null };
     if (b.code === 'DEVICE_AMBIGUOUS') {
-      playMsg.value = 'several devices booted — pick one (device selector in advanced controls)';
-      advancedOpen.value = true;
       await loadBootedDevices();
+      const names = bootedDevices.value.map((d) => d.name ?? d.udid.slice(0, 8)).join(', ');
+      playMsg.value = `several devices booted (${names}) — boot exactly one, or pass ?udid via the API`;
     } else if (b.runId) {
       if (mode === 'watch') {
         runPanel.value = { runId: b.runId, templateId: t.id, caseName: t.name, udid: b.udid ?? t.udid, laneCount: (b.laneCount ?? (b.runIds?.length || 0)) || 1 };
@@ -299,14 +275,9 @@ async function playAll(): Promise<void> {
   playingAll.value = true;
   playMsg.value = `playing ${visible.length} templates…`;
   try {
-    const env = parseEnv();
     const r = await fetch('/api/templates/play-all', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        tags,
-        ...(runScenario.value ? { scenarioId: runScenario.value } : {}),
-        ...(Object.keys(env).length ? { env } : {}),
-      }),
+      body: JSON.stringify({ tags }),
     });
     const b = (await r.json()) as { runIds?: string[]; count?: number; error?: string };
     playMsg.value = b.runIds ? `queued ${b.count} runs · ${b.runIds.join(' ')}` : (b.error ?? 'failed');
@@ -465,6 +436,22 @@ function panel(): InstanceType<typeof CaseEditorPanel> | null {
   return Array.isArray(el) ? (el[0] ?? null) : (el ?? null);
 }
 const pendingSwitch = ref<string | null>(null); // case awaiting the decision
+// single row-tooltip: .ibtn hover drives a FIXED element centered under the
+// icon — never clipped by the table's overflow container
+function ibtnEnter(el: HTMLElement): void {
+  const label = el.querySelector('.ib-label')?.textContent ?? el.title;
+  const tip = document.getElementById('rowtip');
+  if (!tip || !label) return;
+  tip.textContent = label;
+  const r = el.getBoundingClientRect();
+  tip.style.left = `${r.left + r.width / 2}px`;
+  tip.style.top = `${r.bottom + 5}px`;
+  tip.classList.add('show');
+}
+function ibtnLeave(): void {
+  document.getElementById('rowtip')?.classList.remove('show');
+}
+
 // ── duplicate / export / import (plan 20260927T164000Z) ──────────────────
 const note = ref('');
 let noteTimer: ReturnType<typeof setTimeout> | null = null;
@@ -589,7 +576,15 @@ function onCmdF(ev: KeyboardEvent): void {
 onMounted(() => window.addEventListener('keydown', onCmdF));
 onBeforeUnmount(() => { window.removeEventListener('keydown', onCmdF); });
 
-onMounted(() => { void load().then(() => void adoptRunningRun()); void loadPlans(); void loadBootedDevices(); initActiveRuns(); recountStatuses(); });
+onMounted(() => {
+  void load().then(() => void adoptRunningRun()); void loadBootedDevices(); initActiveRuns(); recountStatuses();
+  // delegated tooltip wiring for every .ibtn (current + future rows)
+  const enter = (e: Event) => { const b = (e.target as HTMLElement).closest?.('.ibtn'); if (b) ibtnEnter(b as HTMLElement); };
+  const leave = (e: Event) => { if ((e.target as HTMLElement).closest?.('.ibtn')) ibtnLeave(); };
+  document.addEventListener('mouseover', enter);
+  document.addEventListener('mouseout', leave);
+  onBeforeUnmount(() => { document.removeEventListener('mouseover', enter); document.removeEventListener('mouseout', leave); });
+});
 // deep-link from a run's version chip: /templates?case=<id>&rev=<n> —
 // opens that case's editor with the history disclosure on that revision.
 const route = useRoute();
@@ -687,57 +682,6 @@ const suiteSummary = computed(() => {
   };
 });
 
-// ── B4: plans ──
-const plans = ref<Plan[]>([]);
-const planMsg = ref('');
-const runningPlan = ref<string | null>(null);
-async function loadPlans(): Promise<void> {
-  try {
-    const r = await fetch('/api/plans');
-    plans.value = ((await r.json()) as { plans: Plan[] }).plans ?? [];
-  } catch { /* plans optional */ }
-}
-async function savePlanFromCurrent(): Promise<void> {
-  const name = window.prompt('plan name (saves current filter, device, network choice and env):')?.trim();
-  if (!name) return;
-  try {
-    const activeTags = filter.value.trim().split(',').map((s) => s.trim()).filter(Boolean);
-    const r = await fetch('/api/plans', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name, tags: activeTags, scenarioId: runScenario.value || undefined, env: parseEnv() }),
-    });
-    if (!r.ok) { planMsg.value = ((await r.json()) as { error?: string }).error ?? 'failed'; return; }
-    planMsg.value = '';
-    await loadPlans();
-  } catch { planMsg.value = 'failed'; }
-}
-async function runPlan(p: Plan): Promise<void> {
-  if (runningPlan.value) return;
-  runningPlan.value = p.id;
-  planMsg.value = '';
-  try {
-    const r = await fetch(`/api/plans/${p.id}/run`, { method: 'POST' });
-    const b = (await r.json()) as { runIds?: string[]; count?: number; error?: string };
-    planMsg.value = b.error ? b.error : (b.count ? `plan ran ${b.count} case(s)` : 'no cases matched');
-    await load(); // refresh verdicts
-  } catch { planMsg.value = 'plan run failed'; }
-  finally { runningPlan.value = null; }
-}
-async function deletePlan(p: Plan): Promise<void> {
-  if (!window.confirm(`delete plan "${p.name}"?`)) return;
-  try { await fetch(`/api/plans/${p.id}`, { method: 'DELETE' }); } catch { /* ignore */ }
-  await loadPlans();
-}
-function planDesc(p: Plan): string {
-  const bits = [p.tags.length ? `#${p.tags.join(' #')}` : 'all cases'];
-  if (p.scenarioId) bits.push(`net:${p.scenarioId}`);
-  if (Object.keys(p.env).length) bits.push(`env:${Object.keys(p.env).length} vars`);
-  return bits.join(' · ');
-}
-
-// the advanced-controls disclosure is collapsed while the yaml panel is open
-const advancedOpen = ref(false);
-watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 </script>
 <template>
   <section class="a2-page" :class="{ editing: yamlOpenId !== null }">
@@ -752,19 +696,13 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
         <span v-if="suiteSummary.never" class="sym" title="never run">◌{{ suiteSummary.never }}</span>
       </span>
       <template #actions>
-        <span class="a2-chips" v-if="!editing">
-          <button v-for="s in ([['', 'all'], ['active', 'active'], ['draft', 'draft'], ['deprecated', 'deprecated']] as Array<['' | Lifecycle, string]>)"
-            :key="s[1]" class="chip status-chip" :class="{ on: statusFilter === s[0], dep: s[0] === 'deprecated' }"
-            :title="s[0] === '' ? 'every case regardless of lifecycle' : `lifecycle: ${s[1]} (deprecated never runs in batches)`"
-            @click="statusFilter = s[0]">{{ s[1] }} <span class="n">{{ statusCountsDirty ? '·' : statusCounts[s[0] === '' ? 'all' : s[0]] }}</span></button>
-        </span>
-        <input ref="filterEl" v-model="filter" class="a2-search" placeholder="search cases…  ⌘F" />
         <button class="btn" :disabled="playingAll" @click="createCaseYaml" title="hand-author a new case as yaml — opens the editor with a minimal starter">+ case (yaml)</button>
         <button class="btn" @click="exportZip" title="download every case as a zip of .yaml files + manifest">export zip</button>
         <button class="btn" @click="($refs.importFile as HTMLInputElement).click()" title="import cases from a .yaml (single or multi-doc) or a previously exported .zip">import</button>
         <input ref="importFile" type="file" accept=".yaml,.yml,.zip" style="display:none" @change="pickImport" />
         <span v-if="note" class="import-note">{{ note }}</span>
-        <div v-if="importing" class="import-modal">
+        <div id="rowtip" aria-hidden="true"></div>
+  <div v-if="importing" class="import-modal">
           <div class="import-card">
             <div class="import-h">import cases</div>
             <div v-if="importPreview">
@@ -788,37 +726,19 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
       </template>
     </PageHeader>
 
-    <!-- ── advanced controls disclosure (hidden while editing yaml) ── -->
-    <div v-if="!editing" class="a2-advanced">
-      <button class="btn btn-ghost a2-adv-toggle" :class="{ active: advancedOpen || envOpen || !!envText || runScenario !== '' }" @click="advancedOpen = !advancedOpen">
-        advanced {{ advancedOpen ? '▾' : '▸' }}
-      </button>
-      <template v-if="advancedOpen">
-        <select v-model="runDevice" class="a2-select" title="which booted simulator runs the case — empty = auto (recorded device if booted, else the only booted sim)">
-          <option value="">device: auto</option>
-          <option v-for="d in bootedDevices" :key="d.udid" :value="d.udid">{{ d.name }}{{ d.resolution ? ` · ${d.resolution}` : '' }}</option>
-        </select>
-        <select v-model="runScenario" class="a2-select" title="network scenario active during runs — its presets fake endpoints for the run's duration, then restore">
-          <option value="">network: live</option>
-          <option v-for="s in scenarios" :key="s.id" :value="s.id">{{ s.name }}</option>
-        </select>
-        <button class="btn btn-ghost" :class="{ active: envOpen || !!envText }" @click="envOpen = !envOpen" title="run-time env values (KEY=value lines) sent with every play — never stored in cases">
-          env{{ envKeyCount ? ` · ${envKeyCount}` : '' }} {{ envOpen ? '▾' : '▸' }}
-        </button>
-        <button class="btn btn-ghost" @click="savePlanFromCurrent" title="save the current filter + network choice + env as a named plan — one click replays this exact suite later">+ plan</button>
-        <span v-if="planMsg" class="a2-note">{{ planMsg }}</span>
-      </template>
-      <span v-if="plans.length > 0" class="a2-plans">
-        <button v-for="p in plans" :key="p.id" class="chip chip-click-wrap" :title="planDesc(p)">
-          <span class="chip-click" :disabled="runningPlan !== null" @click="runPlan(p)">{{ runningPlan === p.id ? 'running…' : `▶ ${p.name}` }}</span>
-          <span class="chip-x" title="delete this plan" @click="deletePlan(p)">✕</span>
-        </button>
-      </span>
-    </div>
-    <div v-if="!editing && envOpen" class="a2-env">
-      <textarea v-model="envText" rows="3" spellcheck="false" placeholder="secrets at play time — one KEY=value per line (e.g. PASSWORD=hunter2). never stored in cases." />
-    </div>
 
+
+    <!-- ── filter toolbar (was the advanced row): tabs + search own the line ── -->
+    <div v-if="!editing" class="a2-toolbar">
+      <div class="a2-tabs" role="tablist">
+        <button v-for="s in ([['', 'all'], ['active', 'active'], ['draft', 'draft'], ['deprecated', 'deprecated']] as Array<['' | Lifecycle, string]>)"
+          :key="s[1]" class="a2-tab" :class="{ on: statusFilter === s[0], dep: s[0] === 'deprecated' }" role="tab"
+          :aria-selected="statusFilter === s[0]"
+          :title="s[0] === '' ? 'every case regardless of lifecycle' : `lifecycle: ${s[1]} (deprecated never runs in batches)`"
+          @click="statusFilter = s[0]">{{ s[1] }} <span class="n">{{ statusCountsDirty ? '·' : statusCounts[s[0] === '' ? 'all' : s[0]] }}</span></button>
+      </div>
+      <input ref="filterEl" v-model="filter" class="a2-search" placeholder="search cases…  ⌘F" />
+    </div>
     <!-- ── case table: own scroll region, sticky header ── -->
     <div class="a2-table">
       <div class="a2-thead">
@@ -1068,6 +988,22 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 /* the run dock is a pure overlay: no layout shift when it opens — it sits
    above the table (fixed, z-80), the table never reflows */
 /* header */
+/* ── filter toolbar (revamped; was the advanced disclosure row) ── */
+.a2-toolbar { display: flex; align-items: center; gap: var(--s-3); flex: none; padding: 0; }
+.a2-tabs { display: inline-flex; align-items: stretch; border: 1px solid var(--color-iron); border-radius: var(--r-sm); overflow: hidden; background: var(--color-void); }
+.a2-tab {
+  appearance: none; border: none; border-right: 1px solid var(--color-iron); background: transparent;
+  padding: 6px 14px; cursor: pointer;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--color-pewter); transition: color 90ms ease, background 90ms ease;
+}
+.a2-tab:last-child { border-right: none; }
+.a2-tab .n { color: var(--color-steel); margin-left: 4px; }
+.a2-tab:hover { color: var(--color-paper); background: var(--color-graphite); }
+.a2-tab.on { color: var(--color-ember); background: var(--color-graphite); }
+.a2-tab.on .n { color: var(--color-ember); }
+.a2-tab.dep.on { color: var(--color-steel); }
+.a2-toolbar .a2-search { flex: 0 1 260px; margin-left: auto; }
 .a2-search {
   background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm);
   color: var(--color-fog); font: inherit; font-size: 12px; padding: 4px 10px; width: 220px;
@@ -1075,17 +1011,8 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 .a2-search:focus { outline: none; border-color: var(--color-ember); }
 
 /* ── phase E: status lifecycle (sketch 013-A chips + kebab, 1:1) ── */
-.a2-chips { display: inline-flex; gap: 6px; align-items: center; }
-.status-chip {
-  font-size: 11px; color: var(--color-ash); border: 1px solid var(--color-slate);
-  border-radius: var(--r-sm); padding: 2px 9px; cursor: pointer; background: none;
-  font-family: inherit;
-}
-.status-chip .n { color: var(--color-pewter); margin-left: 4px; }
-.status-chip.on { color: var(--color-ember); border-color: var(--color-ember); }
 .status-chip.on .n { color: var(--color-ember-dim); }
 .status-chip:hover { color: var(--color-fog); }
-.status-chip.on:hover { color: var(--color-ember); }
 .lifecycle-pill {
   font-size: 11px; border: 1px solid var(--color-slate); color: var(--color-ash);
   border-radius: var(--r-sm); padding: 1px 7px; white-space: nowrap; margin-left: 6px;
@@ -1110,15 +1037,18 @@ button.kebab { letter-spacing: 0; padding: 0; }
 .ibtn:disabled { opacity: 0.45; cursor: default; }
 .ibtn.accent:hover { color: var(--color-ember, #ff9f40); }
 .ibtn.danger:hover { color: var(--color-paper, #f5f2ea); background: var(--color-ember, #ff9f40); }
-.ibtn .ib-label {
-  position: absolute; top: calc(100% + 5px); right: 0; z-index: 70;
+/* single page-level tooltip (escapes the table's clip; centered under the
+   hovered icon) — .ib-label spans are inert markers carrying the text */
+#rowtip {
+  position: fixed; z-index: 120; transform: translateX(-50%);
   padding: 3px 8px; border-radius: 4px; white-space: nowrap;
   background: var(--color-graphite, #24262b); border: 1px solid var(--color-iron, #3a3d44);
   font-family: var(--font-mono, monospace); font-size: 10px; letter-spacing: 0.03em;
   color: var(--color-paper, #f5f2ea); pointer-events: none; opacity: 0;
   transition: opacity 90ms ease;
 }
-.ibtn:hover .ib-label, .ibtn:focus-visible .ib-label { opacity: 1; }
+#rowtip.show { opacity: 1; }
+.ib-label { display: none; }
 button.kebab.open { color: var(--color-ember); border-color: var(--color-ember); }
 .status-menu-pop .menu-label {
   padding: 4px 10px 2px; color: var(--color-pewter); font-size: 10px;
@@ -1127,19 +1057,7 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 .status-menu-pop button.warn b { color: var(--color-ember); }
 
 /* advanced disclosure */
-.a2-advanced { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; flex: none; }
-.a2-adv-toggle.active { border-color: var(--color-ember); color: var(--color-ember); }
-.a2-select {
-  background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm);
-  color: var(--color-fog); font: inherit; font-size: 12px; padding: 4px 8px;
-}
 .a2-note { color: var(--color-steel); font-size: 11px; }
-.a2-plans { display: flex; gap: 4px; flex-wrap: wrap; }
-.a2-env { flex: none; }
-.a2-env textarea {
-  width: 100%; background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm);
-  color: var(--color-paper); font-family: var(--font-mono); font-size: 11px; padding: var(--s-2);
-}
 
 /* table region — content-sized: no stretch, no forced height. Scrolls only
    when the list outgrows the available space (flex shrink engages then). */
