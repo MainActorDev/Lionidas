@@ -143,8 +143,12 @@ describe('Stage 2 — push-based GUARD 1 (event race)', () => {
 
   it('fallback: no subscription → legacy poll loop still confirms from the table', async () => {
     seedScreen();
+    // insert AFTER the first poll tick so the PRE-CHECK cannot catch it — this
+    // pins the LOOP, not the clock. Budget widened: CI runners stretch timers
+    // (a 20ms poll sleep coalesced to 100ms+ starved the 120ms window and
+    // flaked GH Actions while passing 3/3 locally under 8-way CPU load).
     setTimeout(() => db.prepare('INSERT INTO traffic(id, run_id, ts, mode, method, path, matched_preset_id, status, latency_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('t_f1', 'run_x', Date.now(), 'hybrid', 'GET', '/x', 'p1', 200, 5), 40);
-    const r = mkRunner(snapWith([]));
+    const r = mkRunner(snapWith([]), () => undefined, { worldConfirmMs: 2_000 });
     const out = await r.refresh('tracking');
     expect(out.ok).toBe(true);
   });
