@@ -465,6 +465,93 @@ function panel(): InstanceType<typeof CaseEditorPanel> | null {
   return Array.isArray(el) ? (el[0] ?? null) : (el ?? null);
 }
 const pendingSwitch = ref<string | null>(null); // case awaiting the decision
+// ── duplicate / export / import (plan 20260927T164000Z) ──────────────────
+const note = ref('');
+let noteTimer: ReturnType<typeof setTimeout> | null = null;
+function flash(msg: string): void {
+  note.value = msg;
+  if (noteTimer) clearTimeout(noteTimer);
+  noteTimer = setTimeout(() => { note.value = ''; }, 4000);
+}
+const duplicating = ref<string | null>(null);
+async function duplicateCase(t: Template): Promise<void> {
+  if (duplicating.value !== null) return;
+  duplicating.value = t.id;
+  try {
+    const r = await fetch(`/api/templates/${t.id}/duplicate`, { method: 'POST' });
+    const b = await r.json() as { id?: string; name?: string; error?: string };
+    if (!r.ok || !b.id) { flash(`duplicate failed: ${b.error ?? r.status}`); return; }
+    await load(); // refresh list so the copy shows
+    const copy = templates.value.find((c) => c.id === b.id);
+    if (copy) openYaml(copy); // operator decision: jump into the copy
+    flash(`duplicated → ${b.name}`);
+  } catch (e) { flash(`duplicate failed: ${e instanceof Error ? e.message : String(e)}`); }
+  finally { duplicating.value = null; }
+}
+
+function exportOne(t: Template): void {
+  const a = document.createElement('a');
+  const slug = t.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'case';
+  a.href = `/api/templates/${t.id}/yaml`;
+  a.download = `${slug}.yaml`;
+  a.click(); // browser fetches + saves; auth cookie rides along
+}
+
+function exportZip(): void {
+  const a = document.createElement('a');
+  a.href = '/api/templates/export';
+  a.click();
+}
+
+const importing = ref(false);
+const importPreview = ref<Array<{ label: string; name: string; steps: number }> | null>(null);
+const importBusy = ref(false);
+let importPayload: { yaml?: string; filename?: string; zipBase64?: string } | null = null;
+
+async function pickImport(ev: Event): Promise<void> {
+  const f = (ev.target as HTMLInputElement).files?.[0];
+  (ev.target as HTMLInputElement).value = '';
+  if (!f) return;
+  importPayload = null; importPreview.value = null;
+  try {
+    if (f.name.endsWith('.zip')) {
+      const buf = new Uint8Array(await f.arrayBuffer());
+      let bin = '';
+      for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+      importPayload = { filename: f.name, zipBase64: btoa(bin) };
+      importPreview.value = [{ label: f.name, name: `${f.name} (contents checked on import)`, steps: -1 }];
+    } else {
+      const yaml = await f.text();
+      importPayload = { yaml };
+      // pre-flight preview via the validate endpoint per document
+      const docs = yaml.split(/^---\s*$/m).map((d) => d.trim()).filter(Boolean);
+      const pv: Array<{ label: string; name: string; steps: number }> = [];
+      for (let i = 0; i < docs.length; i++) {
+        const r = await fetch('/api/templates/yaml/validate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ yaml: docs[i] }) });
+        const b = await r.json() as { ok?: boolean; errors?: Array<{ message: string }>; case?: { name?: string; steps?: unknown[] } | null };
+        if (!b.ok) { flash(`document ${i + 1}: ${b.errors?.[0]?.message ?? 'invalid'}`); importPayload = null; importPreview.value = null; return; }
+        pv.push({ label: `document ${i + 1}`, name: b.case?.name ?? '(unnamed)', steps: b.case?.steps?.length ?? 0 });
+      }
+      importPreview.value = pv;
+    }
+    importing.value = true;
+  } catch (e) { flash(`read failed: ${e instanceof Error ? e.message : String(e)}`); }
+}
+
+async function confirmImport(): Promise<void> {
+  if (!importPayload) return;
+  importBusy.value = true;
+  try {
+    const r = await fetch('/api/templates/import', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(importPayload) });
+    const b = await r.json() as { imported?: Array<{ name: string }>; renamed?: Array<{ to: string }>; error?: string };
+    if (!r.ok) { flash(`import rejected: ${b.error ?? r.status}`); return; }
+    await load();
+    flash(`imported ${b.imported?.length ?? 0} case(s)${b.renamed?.length ? ` · ${b.renamed.length} renamed` : ''}`);
+    importing.value = false; importPayload = null; importPreview.value = null;
+  } catch (e) { flash(`import failed: ${e instanceof Error ? e.message : String(e)}`); }
+  finally { importBusy.value = false; }
+}
+
 function openYaml(t: Template): void {
   if (yamlOpenId.value === t.id) { yamlOpenId.value = null; return; } // toggle
   if (yamlOpenId.value !== null && panel()?.isDirty()) {
@@ -673,6 +760,26 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
         </span>
         <input ref="filterEl" v-model="filter" class="a2-search" placeholder="search cases…  ⌘F" />
         <button class="btn" :disabled="playingAll" @click="createCaseYaml" title="hand-author a new case as yaml — opens the editor with a minimal starter">+ case (yaml)</button>
+        <button class="btn" @click="exportZip" title="download every case as a zip of .yaml files + manifest">export zip</button>
+        <button class="btn" @click="($refs.importFile as HTMLInputElement).click()" title="import cases from a .yaml (single or multi-doc) or a previously exported .zip">import</button>
+        <input ref="importFile" type="file" accept=".yaml,.yml,.zip" style="display:none" @change="pickImport" />
+        <span v-if="note" class="import-note">{{ note }}</span>
+        <div v-if="importing" class="import-modal">
+          <div class="import-card">
+            <div class="import-h">import cases</div>
+            <div v-if="importPreview">
+              <div v-for="p in importPreview" :key="p.label" class="import-row">
+                <span class="import-label">{{ p.label }}</span>
+                <span class="import-name">{{ p.name }}</span>
+                <span class="import-steps">{{ p.steps >= 0 ? `${p.steps} steps` : '' }}</span>
+              </div>
+            </div>
+            <div class="import-actions">
+              <button class="btn" :disabled="importBusy" @click="importing = false; importPayload = null; importPreview = null">cancel</button>
+              <button class="btn btn-primary" :disabled="importBusy" @click="confirmImport">{{ importBusy ? 'importing…' : 'import' }}</button>
+            </div>
+          </div>
+        </div>
         <button v-if="!editing" class="btn" :disabled="playingAll || shown().length === 0" @click="playAll()" title="sequentially run every case matching the filter">
           {{ playingAll ? 'running…' : '▶ run filtered' }}
         </button>
@@ -794,6 +901,9 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
               </span>
             </template>
             <button class="btn btn-sm btn-ghost" @click.stop="openYaml(t)" title="edit this case — metadata + yaml">edit</button>
+            <button class="btn btn-sm btn-ghost" :disabled="duplicating !== null" @click.stop="duplicateCase(t)"
+              :title="`copy this case into a new draft — ${t.name} (copy)`">{{ duplicating === t.id ? 'copying…' : 'duplicate' }}</button>
+            <button class="btn btn-sm btn-ghost" @click.stop="exportOne(t)" title="download this case as a .yaml file">export</button>
             <button class="btn btn-sm btn-ghost" @click.stop="remove(t.id)">delete</button>
             <button class="btn btn-sm btn-ghost kebab" :class="{ open: statusMenuOpen === t.id }" :disabled="setStatusBusy === t.id"
               aria-haspopup="menu" :aria-expanded="statusMenuOpen === t.id" title="case status — draft / active / deprecated"
@@ -1040,6 +1150,15 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 .a2-trend-none { color: var(--color-steel); }
 /* actions: always-visible final column — no overlay, never covers the verdict */
 .col-actions { display: flex; gap: 4px; justify-content: flex-end; }
+.import-note { font-size: var(--text-caption, 11px); color: var(--color-ash, inherit); align-self: center; }
+.import-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 60; }
+.import-card { background: var(--color-void, #111); border: 1px solid var(--color-iron, #333); border-radius: 8px; padding: var(--s-4, 16px); min-width: 380px; max-width: 560px; max-height: 70vh; overflow: auto; }
+.import-h { font-family: var(--font-mono, monospace); font-weight: var(--weight-bold, 700); font-size: var(--text-body, 13px); margin-bottom: var(--s-3, 12px); }
+.import-row { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--color-iron, #2a2a2a); font-size: 12px; }
+.import-label { color: var(--color-steel, #888); min-width: 90px; }
+.import-name { flex: 1; }
+.import-steps { color: var(--color-steel, #888); }
+.import-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: var(--s-3, 12px); }
 
 /* ── run menu (sticky watch/background) — content-sized, no fixed widths ── */
 .run-menu { position: relative; display: inline-flex; }
