@@ -19,7 +19,7 @@ import { parseVariants, type YamlVariant } from './yaml-variants.js';
 export interface YamlSelector { identifier?: string; label?: string; labelContains?: string; ignoreCase?: boolean; type?: string }
 export interface YamlStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin';
   x?: number; y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
   text?: string;
@@ -44,6 +44,7 @@ export interface YamlStep {
    *  flow (list button → confirm sheet) by IDENTIFIER first, label second —
    *  coordinate-free, cross-device safe. No-op pass when already logged out. */
   ensureLogout?: { button: string; stay: string; confirm: string };
+  ensureLogin?: { entry: string; phoneField: string; passwordField: string; submit: string; session: string; phone: string; password: string; screen?: string };
   /** swap: <id from this case's swaps/variants> */
   swap?: string;
   /** expect screen: "<screen>.<state>" — parsed into parts; negate for != */
@@ -76,7 +77,7 @@ export interface YamlError { line: number; message: string }
 const DROPPED_KEYS = new Set(['ts', 'thumb']); // capture artifacts — not semantics
 const STEP_KEYS = new Set(['action', 'x', 'y', 'direction', 'text', 'optional', 'selector', 'templateId', 'flow', 'count', 'atLeast']);
 const DIRECTIONS = new Set(['up', 'down', 'left', 'right']);
-const ACTIONS = new Set(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert', 'location', 'arrive', 'refresh', 'swap', 'world', 'expect screen', 'ensure logout']);
+const ACTIONS = new Set(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert', 'location', 'arrive', 'refresh', 'swap', 'world', 'expect screen', 'ensure logout', 'ensure login']);
 const SCREEN_ID_RE = /^[a-z][a-z0-9-]*$/;
 /** runFlow references: name → id resolution is the CALLER's job (needs the DB);
  * the validator accepts both shapes and reports unresolved names. */
@@ -388,6 +389,68 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
         continue;
       }
       const b = body as Record<string, unknown>;
+      // ── ensure login: coordinate-free login preflight ──
+      if (action === 'ensure login') {
+        // screen-form (plan rev 2 S4): selectors come from the screens
+        // registry (login_json); only the env refs ride the step. screen is
+        // MUTUALLY EXCLUSIVE with inline selectors — validator error, never
+        // last-wins.
+        const screenRef = b['screen'] as unknown;
+        if (typeof screenRef === 'string' && screenRef.trim()) {
+          const inlinePresent = ['entry', 'on', 'phoneField', 'passwordField', 'submit', 'session'].some((k) => typeof b[k] === 'string' && (b[k] as string).trim());
+          if (inlinePresent) {
+            errors.push({ line: 1, message: `${prefix(i)}: screen: and inline selectors are mutually exclusive — pick one` });
+            continue;
+          }
+          const phoneS = b['phone'] ?? b['phoneEnv'];
+          const passwordS = b['password'] ?? b['passwordEnv'];
+          if (typeof phoneS !== 'string' || !phoneS.trim() || typeof passwordS !== 'string' || !passwordS.trim()) {
+            errors.push({ line: 1, message: `${prefix(i)}: ensure login (screen form) needs screen: <id> plus phone/password env refs` });
+            continue;
+          }
+          stepsOut.push({ idx: stepsOut.length, action: 'ensureLogin', ensureLogin: { entry: '', phoneField: '', passwordField: '', submit: '', session: '', phone: phoneS.trim(), password: passwordS.trim(), screen: screenRef.trim() } });
+          continue;
+        }
+        // screenless form (login-as-app-procedure plan F2): the app's login
+        // procedure supplies every selector — the step carries env refs ONLY.
+        // Runs AFTER the legacy inline branch (which requires the full 5
+        // selectors): a step with phone+password and no selectors is
+        // screenless; a step with any selector falls through to inline
+        // validation below and gets the legacy error if incomplete.
+        {
+          const phoneS = b['phone'] ?? b['phoneEnv'];
+          const passwordS = b['password'] ?? b['passwordEnv'];
+          const SEL_KEYS = ['entry', 'phoneField', 'passwordField', 'submit', 'session'] as const;
+          const selectorsPresent = SEL_KEYS.filter((k) => typeof b[k] === 'string' && (b[k] as string).trim());
+          if (typeof phoneS === 'string' && phoneS.trim() && typeof passwordS === 'string' && passwordS.trim()) {
+            if (selectorsPresent.length > 0 && selectorsPresent.length < SEL_KEYS.length) {
+              // partial selectors + env refs: neither the screenless form nor
+              // a complete inline form — name the conflict honestly
+              errors.push({ line: 1, message: `${prefix(i)}: ensure login carries partial selectors (${selectorsPresent.join(', ')}) with phone/password — use the app-procedure form (env refs only) or the full inline form (all 5 selectors)` });
+              continue;
+            }
+            if (selectorsPresent.length === 0) {
+              stepsOut.push({ idx: stepsOut.length, action: 'ensureLogin', ensureLogin: { entry: '', phoneField: '', passwordField: '', submit: '', session: '', phone: phoneS.trim(), password: passwordS.trim() } });
+              continue;
+            }
+            // full inline (5 selectors) falls through to the legacy branch below
+          }
+        }
+        const entry = (b['entry'] ?? b['on']) as unknown;
+        const phoneField = b['phoneField'] as unknown;
+        const passwordField = b['passwordField'] as unknown;
+        const submit = b['submit'] as unknown;
+        const session = b['session'] as unknown;
+        const phone = (b['phone'] ?? b['phoneEnv']) as unknown;
+        const password = (b['password'] ?? b['passwordEnv']) as unknown;
+        const strs = [entry, phoneField, passwordField, submit, session, phone, password];
+        if (strs.some((v) => typeof v !== 'string' || !String(v).trim())) {
+          errors.push({ line: 1, message: `${prefix(i)}: ensure login needs entry/phoneField/passwordField/submit/session selectors and phone/password env refs` });
+          continue;
+        }
+        stepsOut.push({ idx: stepsOut.length, action: 'ensureLogin', ensureLogin: { entry: String(entry).trim(), phoneField: String(phoneField).trim(), passwordField: String(passwordField).trim(), submit: String(submit).trim(), session: String(session).trim(), phone: String(phone).trim(), password: String(password).trim() } });
+        continue;
+      }
       // ── ensure logout: coordinate-free session preflight ──
       if (action === 'ensure logout') {
         const bo = (b['button'] ?? b['on']) as unknown;
@@ -616,10 +679,31 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       lines.push(`  - swap: ${yamlScalar(String(s['world'] ?? ''))}`);
     } else if (action === 'ensureLogout') {
       const el = s['ensureLogout'] as { button?: string; stay?: string; confirm?: string } | undefined;
-      const button = el?.button ?? '?';
-      const confirm = el?.confirm ?? '?';
-      const stay = el?.stay ? `, stay: ${yamlScalar(el.stay)}` : '';
-      lines.push(`  - ensure logout: { button: ${yamlScalar(button)}, confirm: ${yamlScalar(confirm)}${stay} }`);
+      lines.push(`  - ensure logout:`);
+      lines.push(`      button: ${yamlScalar(el?.button ?? '?')}`);
+      lines.push(`      confirm: ${yamlScalar(el?.confirm ?? '?')}`);
+      if (el?.stay) lines.push(`      stay: ${yamlScalar(el.stay)}`);
+    } else if (action === 'ensureLogin') {
+      const el = s['ensureLogin'] as { entry?: string; phoneField?: string; passwordField?: string; submit?: string; session?: string; phone?: string; password?: string; screen?: string } | undefined;
+      if (el?.screen) {
+        lines.push(`  - ensure login:`);
+        lines.push(`      screen: ${yamlScalar(el.screen)}`);
+        lines.push(`      phone: ${yamlScalar(el?.phone ?? '?')}`);
+        lines.push(`      password: ${yamlScalar(el?.password ?? '?')}`);
+      } else if (el?.phone && !el.entry) {
+        lines.push(`  - ensure login:`);
+        lines.push(`      phone: ${yamlScalar(el.phone)}`);
+        lines.push(`      password: ${yamlScalar(el?.password ?? '?')}`);
+      } else {
+      lines.push(`  - ensure login:`);
+      lines.push(`      entry: ${yamlScalar(el?.entry ?? '?')}`);
+      lines.push(`      phoneField: ${yamlScalar(el?.phoneField ?? '?')}`);
+      lines.push(`      passwordField: ${yamlScalar(el?.passwordField ?? '?')}`);
+      lines.push(`      submit: ${yamlScalar(el?.submit ?? '?')}`);
+      lines.push(`      session: ${yamlScalar(el?.session ?? '?')}`);
+      lines.push(`      phone: ${yamlScalar(el?.phone ?? '?')}`);
+      lines.push(`      password: ${yamlScalar(el?.password ?? '?')}`);
+      }
     } else if (action === 'expectScreen') {
       const es = s['expectScreen'] as { screen?: string; state?: string; negate?: boolean } | undefined;
       const scr = es?.screen ?? '?';

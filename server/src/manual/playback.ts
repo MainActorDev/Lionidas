@@ -25,7 +25,8 @@ import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { crucibleAlloy } from '../alloy/client.ts';
 import { dispatchWithHeal } from '../alloy/heal.ts';
 import type { ForgeState } from '../forge/proxy.ts';
-import { substituteStep } from './template-env.ts';
+import { substituteStep, expandEnvText } from './template-env.ts';
+import { resolveEnv } from './env-store.ts';
 import { forgeStateService } from '../forge/state.ts';
 import { classifyBlocked } from '../db/blocked.ts';
 import { resolveSelector, countMatches, selectorLabel, matchesSelector, captureSelectorAt, type StepSelector } from './selector.ts';
@@ -79,7 +80,7 @@ export interface PlaybackDeps {
 
 export interface PlaybackStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin';
   x?: number;
   y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
@@ -106,6 +107,9 @@ export interface PlaybackStep {
   location?: { latitude: number; longitude: number };
   /** ensure logout: coordinate-free session preflight (identifier-first) */
   ensureLogout?: { button: string; stay: string; confirm: string };
+  /** ensure login: coordinate-free login preflight; phone/password are
+   *  ${env.X} refs resolved at playback — never literal secrets */
+  ensureLogin?: { entry: string; phoneField: string; passwordField: string; submit: string; session: string; phone: string; password: string; screen?: string };
   /** R2 verbs (S5): arrive/refresh target screen; swap target id; expect screen parts */
   screen?: string;
   swap?: string;
@@ -131,6 +135,7 @@ function stepName(s: PlaybackStep): string {
   if (s.action === 'tap') return s.x !== undefined ? `tap ${s.x},${s.y}` : `tap ${s.selector ? (s.selector.label ?? s.selector.identifier ?? 'selector') : '?'}`;
   if (s.action === 'scroll') return `scroll ${s.direction}`;
   if (s.action === 'ensureLogout') return `ensure logout (${s.ensureLogout?.button ?? '?'})`;
+  if (s.action === 'ensureLogin') return `ensure login (${s.ensureLogin?.screen ? `screen ${s.ensureLogin.screen}` : s.ensureLogin?.entry ?? '?'})`;
   if (s.action === 'alert') return `alert ${s.alertAction ?? 'dismiss'}`;
   if (s.action === 'location') return `location ${s.location?.latitude ?? '?'}${s.location?.longitude !== undefined ? ',' : ''}${s.location?.longitude ?? ''}`;
   if (s.action === 'arrive') return `arrive ${s.screen ?? '?'}`;
@@ -267,7 +272,7 @@ async function withWatchdog<T>(runId: string, dispatch: Promise<T>, stepNameForE
 }
 
 
-export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string; bundleId?: string; env?: Record<string, string>; forgeAttribution?: boolean; variant?: YamlVariant | null; suiteId?: string | null; batchId?: string | null }): Promise<{ runId: string; udid: string; done: Promise<void> }> {
+export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string; bundleId?: string; env?: Record<string, string>; forgeAttribution?: boolean; variant?: YamlVariant | null; suiteId?: string | null; batchId?: string | null; planId?: string | null }): Promise<{ runId: string; udid: string; done: Promise<void> }> {
   const t = deps.db.prepare('SELECT id, name, ticket_key, udid, steps_json, setup_json, alerts_policy, app_bundle_id, logical_w, logical_h FROM templates WHERE id = ?').get(templateId) as TemplateRow | undefined;
   if (!t) throw new Error(`template ${templateId} not found`);
   const tpl: TemplateRow = t;
@@ -406,6 +411,12 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     .prepare(`SELECT 1 FROM runs WHERE template_id = ? AND status IN ('queued','running') AND id != ? LIMIT 1`)
     .get(templateId, runId);
   if (!runningSibling) prunePreviousRunArtifacts({ db: deps.db, artifactsDir: deps.artifactsDir }, { templateId, variantId: opts.variant?.id ?? null }, runId);
+
+  // managed env (plan rev 2 S2): resolved ONCE before the run starts — the
+  // done closure's activeEnv seeds from it AND the finally-block audit line
+  // reads its source counts. Scope chain: global < app < plan < request body
+  // (< variant, merged later by mergeVariantEnv — narrowest wins).
+  const resolvedBase = resolveEnv(deps.db, { appBundleId: tpl.app_bundle_id, planId: opts.planId ?? null, requestEnv: opts.env ?? {} });
 
   // background execution — route returns immediately; done settles at finish
   const done = (async () => {
@@ -631,10 +642,14 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       })();
       // R2 S5: lazy screen-state runner (verbs construct it on first use)
       let screenRunner: InstanceType<typeof import('./screen-runner.ts').ScreenRunner> | null = null;
-      // R2 S6: active substitution env — starts as the invocation variant's
-      // merge; a world: step retargets it so ${env.X} follows the ACTIVE
-      // world (the whole point of single-launch world swaps).
-      let activeEnv = mergeVariantEnv(opts.variant ?? null, opts.env ?? {});
+      // R2 S6 + managed env (plan rev 2 S2): activeEnv = variant over
+      // resolvedBase (managed scopes global < app < plan under the request
+      // body; variants stay narrowest — pinned contract). resolvedBase is
+      // declared ABOVE the done closure so the finally-block audit line can
+      // read it; a world: step re-merges its variant over the SAME base —
+      // never over bare opts.env (review F1: that would drop every managed
+      // value mid-run).
+      let activeEnv = mergeVariantEnv(opts.variant ?? null, resolvedBase.env);
       // R2 evidence attribution: which swap target the run is currently IN
       // (starts as the entry lane's variant; each swap: step updates it) —
       // the evidence sheet groups world screenshots by this, not by the lane
@@ -1132,7 +1147,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               // resolve the swap target id → its scenario ids (swaps ∪ variants)
               const pool = [...(r2case?.swaps ?? r2case?.worlds ?? []), ...(r2case?.variants ?? [])];
               const w = pool.find((x) => x.id === s.swap) ?? null;
-              if (w) activeEnv = mergeVariantEnv(w, opts.env ?? {}); // ${env.X} follows the active swap target now
+              if (w) activeEnv = mergeVariantEnv(w, resolvedBase.env); // ${env.X} follows the active swap target, managed scopes preserved (F1)
               const names = w ? variantScenarioNames(w) : [];
               const ids: string[] = [];
               for (const n of names) {
@@ -1183,6 +1198,248 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           // ok:true = a dialog was up and handled → pass. ok:false
           // "alert not found" = nothing up → no-op skip (inherently
           // conditional). Any other ok:false = real engine error → fail.
+          if (s.action === 'ensureLogin') {
+            // coordinate-free login preflight: no-op when a session indicator
+            // is already visible; else entry → type credentials (env-resolved)
+            // → submit → verify the session indicator appears. Login returns
+            // to the origin tab (popToRoot semantics), so verification runs
+            // against the entry screen's tree.
+            const cfgRaw = s.ensureLogin!;
+            // screen-form (plan rev 2 S4.2): selectors resolve from the
+            // screens registry login_json. Unknown screen / missing recipe /
+            // partial recipe → explicit step failure, never silent skip.
+            // login resolution (login-as-app-procedure plan): the APP's
+            // procedure wins (app_login row); a legacy screen-level block is
+            // the read-only fallback; inline selectors remain for old cases.
+            // The procedure carries a REAL entry object (tab/deepLink/
+            // navigate) — multi-step entries play per-step (review F1 — the
+            // join('>') hack is gone), verify references (screen, state).
+            type SelSource = { entry: string; phoneField: string; passwordField: string; submit: string; session: string };
+            let selSource: SelSource | null = null;
+            let sessionStateName: string | null = null; // poll this STATE instead of a raw identifier
+            let sessionStateScreen: string | null = null; // …on THIS screen
+            let procedureEntry: { tab?: { identifier?: string; label?: string }; deepLink?: string; navigate?: Array<Record<string, unknown>> } | null = null; // app procedure: play via the entry player
+            const screenRef = (cfgRaw as { screen?: string }).screen;
+            const appLoginRow = (tpl.app_bundle_id
+              ? deps.db.prepare('SELECT login_json FROM app_login WHERE bundle_id = ?').get(tpl.app_bundle_id) as { login_json: string } | undefined
+              : undefined);
+            if (appLoginRow) {
+              type ProcShape = { entry?: { tab?: { identifier?: string; label?: string }; deepLink?: string; navigate?: Array<Record<string, unknown>> }; phone?: string; password?: string; submit?: string; verify?: { screen?: string; state?: string } };
+              let proc: ProcShape | null = null;
+              try { proc = JSON.parse(appLoginRow.login_json) as ProcShape; } catch { proc = null; }
+              if (!proc || !proc.entry || !proc.phone || !proc.password || !proc.submit || !proc.verify?.screen || !proc.verify?.state) {
+                runStatus = 'failed';
+                insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'fail', `ensure login: the app's login flow is incomplete — edit it on the screens page`, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action }));
+                break;
+              }
+              procedureEntry = proc.entry;
+              selSource = { entry: '', phoneField: proc.phone, passwordField: proc.password, submit: proc.submit, session: proc.verify.state };
+              sessionStateName = proc.verify.state;
+              sessionStateScreen = proc.verify.screen;
+            }
+            if (screenRef) {
+              const row = deps.db.prepare('SELECT entry_json, states_json, login_json FROM app_screens WHERE app_bundle_id = ? AND screen_id = ?').get(tpl.app_bundle_id, screenRef) as { entry_json: string; states_json: string; login_json: string | null } | undefined;
+              const failRecipe = (why: string): void => {
+                runStatus = 'failed';
+                insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'fail', `ensure login: screen "${screenRef}" ${why}`, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action }));
+              };
+              if (!row) { failRecipe('is not in the screens registry for this app'); break; }
+              let recipe: Record<string, string> | null = null;
+              try { recipe = row.login_json ? (JSON.parse(row.login_json) as Record<string, string>) : null; } catch { recipe = null; }
+              if (!recipe) { failRecipe('has no login capability'); break; }
+              if ('phone' in recipe) {
+                // v2: controls from the block; entry + session from the screen's own facts
+                const gaps = (['phone', 'password', 'submit', 'session'] as const).filter((k) => typeof recipe[k] !== 'string' || !recipe[k]!.trim());
+                if (gaps.length > 0) { failRecipe(`login capability is missing ${gaps.join(', ')}`); break; }
+                type ScreenEntryShape = { tab?: { identifier?: string; label?: string }; deepLink?: string; navigate?: Array<Record<string, unknown>> };
+                let screenEntry: ScreenEntryShape | null = null;
+                let screenStates: Record<string, unknown> | null = null;
+                try { screenEntry = JSON.parse(row.entry_json) as ScreenEntryShape; } catch { screenEntry = null; }
+                try { screenStates = JSON.parse(row.states_json) as Record<string, unknown>; } catch { screenStates = null; }
+                if (!screenEntry || !screenStates) { failRecipe('has malformed entry/states — cannot derive the login flow'); break; }
+                if (!(recipe['session']! in screenStates)) { failRecipe(`login.session "${recipe['session']}" is not one of its states (has: ${Object.keys(screenStates).join(', ')})`); break; }
+                // legacy v2 fallback routes through the SAME entry player as
+                // the app procedure (per-step navigate playback — the join
+                // hack is dead everywhere, review F1)
+                const hasUsableEntry = !!screenEntry.tab || !!screenEntry.deepLink || (Array.isArray(screenEntry.navigate) && screenEntry.navigate.length > 0);
+                if (!hasUsableEntry) { failRecipe('declares no usable entry for the login flow'); break; }
+                procedureEntry = screenEntry;
+                selSource = { entry: '', phoneField: recipe['phone']!, passwordField: recipe['password']!, submit: recipe['submit']!, session: recipe['session']! };
+                sessionStateName = recipe['session']!;
+                sessionStateScreen = screenRef;
+              } else {
+                // legacy 5-field: literal values as stored
+                const gaps = (['entry', 'phoneField', 'passwordField', 'submit', 'session'] as const).filter((k) => typeof recipe[k] !== 'string' || !recipe[k]!.trim());
+                if (gaps.length > 0) { failRecipe(`login recipe is missing ${gaps.join(', ')}`); break; }
+                selSource = { entry: recipe['entry']!, phoneField: recipe['phoneField']!, passwordField: recipe['passwordField']!, submit: recipe['submit']!, session: recipe['session']! };
+              }
+            }
+            const cfg: Record<string, string | null> = {
+              entry: selSource ? selSource.entry : cfgRaw.entry || null,
+              phoneField: selSource ? selSource.phoneField : cfgRaw.phoneField || null,
+              passwordField: selSource ? selSource.passwordField : cfgRaw.passwordField || null,
+              submit: selSource ? selSource.submit : cfgRaw.submit || null,
+              session: selSource ? selSource.session : cfgRaw.session || null,
+              phone: cfgRaw.phone !== undefined ? expandEnvText(cfgRaw.phone, activeEnv) : null,
+              password: cfgRaw.password !== undefined ? expandEnvText(cfgRaw.password, activeEnv) : null,
+            };
+            const missing = Object.entries(cfg).filter(([, v]) => v === null || v === undefined).map(([k]) => k);
+            if (missing.length > 0) {
+              runStatus = 'failed';
+              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'fail', `missing env: ${missing.join(', ')}`, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action }));
+              break;
+            }
+            const cfgResolved = cfg as unknown as { entry: string; phoneField: string; passwordField: string; submit: string; session: string; phone: string; password: string };
+            const snapNow = async () => {
+              const sn = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
+                | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
+              return sn.ok ? (sn.result.nodes ?? []) : null;
+            };
+            const findOne = (nodes: SnapNode[], key: string): { x: number; y: number } | null => {
+              const byId = resolveSelector(nodes, { identifier: key });
+              if (byId) return byId;
+              const byLabel = resolveSelector(nodes, { label: key });
+              if (byLabel) return byLabel;
+              return resolveSelector(nodes, { labelContains: key });
+            };
+            const settleFind = async (key: string, budgetMs = 10_000): Promise<{ x: number; y: number } | null> => {
+              const t1 = Date.now();
+              while (Date.now() - t1 < budgetMs && !isAborted(runId)) {
+                const nodes = await snapNow();
+                const hit = nodes ? findOne(nodes, key) : null;
+                if (hit) return hit;
+                await new Promise((res2) => setTimeout(res2, 150));
+              }
+              return null;
+            };
+            // session test (D4): v2 = the screen's named STATE holds;
+            // legacy/inline = the raw identifier is present
+            const sessionHolds = async (currentNodes: SnapNode[] | null): Promise<boolean> => {
+              if (!currentNodes) return false;
+              if (!sessionStateName) return findOne(currentNodes, cfgResolved.session) !== null;
+              const stateScreen = sessionStateScreen ?? screenRef;
+              if (!stateScreen) return false;
+              const stateRow = deps.db.prepare('SELECT states_json FROM app_screens WHERE app_bundle_id = ? AND screen_id = ?').get(tpl.app_bundle_id, stateScreen) as { states_json: string } | undefined;
+              if (!stateRow) return false;
+              try {
+                const states = JSON.parse(stateRow.states_json) as Record<string, { all?: Array<Record<string, string>>; any?: Array<Record<string, string>> }>;
+                const def = states[sessionStateName];
+                if (!def) return false;
+                if (def.all && !def.all.every((sel) => findOne(currentNodes, sel.identifier ?? sel.label ?? '') !== null)) return false;
+                if (def.any && !def.any.some((sel) => findOne(currentNodes, sel.identifier ?? sel.label ?? '') !== null)) return false;
+                return true;
+              } catch { return false; }
+            };
+            let nodes = await snapNow();
+            const alreadyIn = await sessionHolds(nodes);
+            if (alreadyIn) {
+              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'pass', sessionStateName ? `already logged in (state "${sessionStateName}" holds)` : 'already logged in (session visible)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, checked: cfgResolved.session }));
+            } else {
+              // state restoration can land the app DIRECTLY on the login
+              // form (iOS scene restore after terminate). If the form is
+              // already up, the entry tap is unnecessary — skip it.
+              const formAlreadyUp = await settleFind(cfgResolved.phoneField, 1500);
+              if (!formAlreadyUp) {
+                if (procedureEntry) {
+                  // the entry PLAYER (review F1): navigate lists play
+                  // PER-STEP (resolve on:/x-y, tap, settle); tab is one
+                  // selector tap; deepLink opens are not tap-playable here.
+                  const playEntryStep = async (onRef: string | undefined, x?: number, y?: number): Promise<void> => {
+                    let tx: number | null = typeof x === 'number' ? x : null;
+                    let ty: number | null = typeof y === 'number' ? y : null;
+                    if (onRef) {
+                      let hit: { x: number; y: number } | null = null;
+                      for (let attempt = 0; attempt < 10 && !hit; attempt++) {
+                        const ns = await snapNow();
+                        hit = ns ? findOne(ns, onRef) : null;
+                        if (!hit) await new Promise((res2) => setTimeout(res2, 500));
+                      }
+                      if (!hit) throw new Error(`ensure login: entry step ${JSON.stringify(onRef)} never appeared`);
+                      tx = hit.x; ty = hit.y;
+                    }
+                    if (tx == null || ty == null) throw new Error('ensure login: entry step has neither on: nor x/y');
+                    const rStep = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: tx, y: ty }, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message?: string } }>, 'ensure login: entry step')) as { ok: boolean; error?: { message?: string } };
+                    if (!rStep.ok) throw new Error(rStep.error?.message ?? 'ensure login: entry step tap failed');
+                    await new Promise((res2) => setTimeout(res2, 400)); // settle between taps
+                  };
+                  const pe = procedureEntry;
+                  if (Array.isArray(pe.navigate) && pe.navigate.length > 0) {
+                    for (const st of pe.navigate) {
+                      const rec = st as Record<string, unknown>;
+                      if (typeof rec['on'] === 'string') await playEntryStep(rec['on']);
+                      else if (typeof rec['x'] === 'number' && typeof rec['y'] === 'number') await playEntryStep(undefined, rec['x'], rec['y']);
+                      else throw new Error('ensure login: entry navigate step has neither on: nor x/y');
+                    }
+                  } else if (pe.tab) {
+                    const tRef = pe.tab.identifier ?? pe.tab.label ?? '';
+                    if (!tRef) throw new Error('ensure login: entry tab has no identifier/label');
+                    await playEntryStep(tRef);
+                  } else {
+                    throw new Error('ensure login: the login flow declares no usable entry');
+                  }
+                } else {
+                  const entryPt = await settleFind(cfgResolved.entry);
+                  if (!entryPt) throw new Error(`ensure login: entry ${JSON.stringify(cfgResolved.entry)} never appeared`);
+                  const r1 = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: entryPt.x, y: entryPt.y }, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message?: string } }>, 'ensure login: open form')) as { ok: boolean; error?: { message?: string } };
+                  if (!r1.ok) throw new Error(r1.error?.message ?? 'ensure login: entry tap failed');
+                }
+              }
+              // resilient fill: custom text fields can fail the runner's
+              // typed-text CONFIRMATION even when the text landed (live
+              // 2026-09-26: phone visibly contained the digits, the error
+              // claimed otherwise). The verb's real gate is downstream —
+              // submit + session-indicator verification — so a fill that
+              // only fails confirmation is retried once (keyboard-state
+              // reset) and then tolerated.
+              const resilientFill = async (x: number, y: number, text: string, what: string): Promise<void> => {
+                for (let attempt = 0; attempt < 2; attempt++) {
+                  const r = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'fill', target: { x, y }, text, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message?: string } }>, `ensure login: ${what}`)) as { ok: boolean; error?: { message?: string } };
+                  if (r.ok) return;
+                  const msg = r.error?.message ?? '';
+                  // secure fields mask their display: the runner reads back
+                  // "⬤ ⬤ ⬤…" and compares against PLAINTEXT — always a
+                  // mismatch. Tolerate when the masked glyph COUNT equals the
+                  // typed length (10 dots for a 10-char password = the fill
+                  // landed); a count mismatch is a wrong fill and fails
+                  // honestly.
+                  const vm = /text entry verification failed: expected .+?, observed ["']([^"']*)["']/i.exec(msg);
+                  if (vm) {
+                    const glyphs = (vm[1] ?? '').replace(/[^⬤•*●]/g, '').length;
+                    if (glyphs === text.length) {
+                      await alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: 370, y: 790 }, settle: false }, deps.dispatchDeps).catch(() => undefined);
+                      await new Promise((res2) => setTimeout(res2, 400));
+                      continue; // mask-parity proves the fill; session check gates
+                    }
+                    throw new Error(`ensure login: ${what} — typed ${text.length} chars but field shows ${glyphs} mask glyphs`);
+                  }
+                  if (!/could not confirm the typed text/i.test(msg)) throw new Error(msg || `ensure login: ${what} failed`);
+                  await alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: 370, y: 790 }, settle: false }, deps.dispatchDeps).catch(() => undefined);
+                  await new Promise((res2) => setTimeout(res2, 400));
+                }
+              };
+              const phone = formAlreadyUp ?? await settleFind(cfgResolved.phoneField);
+              if (!phone) throw new Error(`ensure login: phone field ${JSON.stringify(cfgResolved.phoneField)} never appeared`);
+              await resilientFill(phone.x, phone.y, cfgResolved.phone, 'type phone');
+              const pw = await settleFind(cfgResolved.passwordField);
+              if (!pw) throw new Error(`ensure login: password field ${JSON.stringify(cfgResolved.passwordField)} never appeared`);
+              await resilientFill(pw.x, pw.y, cfgResolved.password, 'type password');
+              const submit = await settleFind(cfgResolved.submit);
+              if (!submit) throw new Error(`ensure login: submit ${JSON.stringify(cfgResolved.submit)} never appeared`);
+              const r4 = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: submit.x, y: submit.y }, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, 'ensure login: submit')) as { ok: boolean; error?: { message: string } };
+              if (!r4.ok) throw new Error(r4.error?.message ?? 'ensure login: submit failed');
+              // verify the session: sessionHolds (hoisted) — v2 polls the
+              // screen's named state; legacy/inline the raw identifier
+              let seen = false;
+              for (let k = 0; k < 60 && !seen && !isAborted(runId); k++) {
+                await new Promise((res2) => setTimeout(res2, 250));
+                nodes = await snapNow();
+                seen = await sessionHolds(nodes);
+              }
+              if (!seen) throw new Error(sessionStateName ? `ensure login: submitted but the screen state "${sessionStateName}" never held` : 'ensure login: submitted but the session indicator never appeared');
+              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'pass', 'logged in (entry → type → submit → verified)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, entry: cfgResolved.entry }));
+            }
+            continue;
+          }
           if (s.action === 'ensureLogout') {
             // coordinate-free session preflight: pass-through when logged
             // out; when a session exists, tap the logout control (identifier
@@ -1467,6 +1724,13 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
         // activeRunId implicitly via the null default — this one is explicit.)
         try { forgeStateService(deps).setActiveRun(null); } catch { /* clear best-effort */ }
       }
+      // managed-env audit (plan rev 2 S2.3): source COUNTS only, never values
+      try {
+        const s = resolvedBase.sources;
+        const parts = [`global(${s.global})`, `app(${s.app})`, `plan(${s.plan})`, `request(${s.request})`];
+        const cur0 = (deps.db.prepare('SELECT note FROM runs WHERE id = ?').get(runId) as { note: string | null } | undefined)?.note ?? '';
+        deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run((cur0 ? `${cur0}\n` : '') + `env sources: ${parts.join(' ')}`, runId);
+      } catch { /* audit line best-effort */ }
       // policy audit lines — appended to whatever note exists
       if (noteLines.length > 0) {
         try {

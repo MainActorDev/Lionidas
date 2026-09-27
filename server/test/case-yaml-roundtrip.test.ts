@@ -93,3 +93,161 @@ describe('caseToYaml — R2 verb emitters (data-loss pin)', () => {
     expect(back.case!.variants?.[0]?.scenarios).toEqual(['one', 'two']);
   });
 });
+
+/** ensure login/logout emit as BLOCK steps — one field per line. The old
+ *  flow-map emission crammed 7 selectors into one ~200-char line; block
+ *  form keeps the YAML human-readable while parsing to the identical
+ *  structure (both forms parse identically — the block form is now the
+ *  canonical emission). */
+describe('caseToYaml — ensure verbs block form', () => {
+  it('ensure login emits one field per line and round-trips losslessly', () => {
+    const src = [
+      'name: li',
+      'steps:',
+      '  - ensure login:',
+      '      entry: home_login_bar_login_button',
+      '      phoneField: auth_login_phone_field',
+      '      passwordField: auth_login_password_field',
+      '      submit: auth_login_button',
+      '      session: account_logout_button',
+      "      phone: '${env.DRILL_PHONE}'",
+      "      password: '${env.DRILL_PASSWORD}'",
+    ].join('\n') + '\n';
+    const parsed = parseCaseYaml(src);
+    expect(parsed.ok).toBe(true);
+    const out = caseToYaml({ name: 'li', tags: [], variants: [], steps: parsed.case!.steps as unknown[] });
+    for (const line of [
+      '  - ensure login:',
+      '      entry: home_login_bar_login_button',
+      '      phoneField: auth_login_phone_field',
+      '      passwordField: auth_login_password_field',
+      '      submit: auth_login_button',
+      '      session: account_logout_button',
+      "      phone: '${env.DRILL_PHONE}'",
+      "      password: '${env.DRILL_PASSWORD}'",
+    ]) expect(out).toContain(line);
+    // no single-line flow form for the verb body
+    expect(out).not.toMatch(/ensure login: *\{/);
+    const back = parseCaseYaml(out);
+    expect(back.ok).toBe(true);
+    expect(JSON.stringify(back.case!.steps)).toBe(JSON.stringify(parsed.case!.steps));
+  });
+
+  it('ensure logout emits block form; stay renders only when set', () => {
+    const mk = (stay: boolean) => parseCaseYaml([
+      'name: lo',
+      'steps:',
+      '  - ensure logout:',
+      '      button: account_logout_button',
+      '      confirm: Confirm',
+      ...(stay ? ['      stay: Log out?'] : []),
+    ].join('\n') + '\n');
+    const withStay = mk(true);
+    expect(withStay.ok).toBe(true);
+    const out = caseToYaml({ name: 'lo', tags: [], variants: [], steps: withStay.case!.steps as unknown[] });
+    expect(out).toContain('  - ensure logout:');
+    expect(out).toContain('      button: account_logout_button');
+    expect(out).toContain('      confirm: Confirm');
+    expect(out).toContain('      stay: \'Log out?\'');
+    const back = parseCaseYaml(out);
+    expect(JSON.stringify(back.case!.steps)).toBe(JSON.stringify(withStay.case!.steps));
+    const noStay = mk(false);
+    const out2 = caseToYaml({ name: 'lo', tags: [], variants: [], steps: noStay.case!.steps as unknown[] });
+    expect(out2).not.toContain('stay:');
+    expect(JSON.stringify(parseCaseYaml(out2).case!.steps)).toBe(JSON.stringify(noStay.case!.steps));
+  });
+});
+
+/** screen-form ensure login (plan rev 2 S4): selectors resolve from the
+ *  screens registry at play time; only env refs ride the step. Pins:
+ *  compact emission, lossless round-trip, and the screen XOR inline rule. */
+describe('caseToYaml — ensure login screen form', () => {
+  it('screen form emits screen/phone/password and round-trips losslessly', () => {
+    const src = [
+      'name: sf',
+      'steps:',
+      '  - ensure login:',
+      '      screen: auth',
+      "      phone: '${env.DRILL_PHONE}'",
+      "      password: '${env.DRILL_PASSWORD}'",
+    ].join('\n') + '\n';
+    const parsed = parseCaseYaml(src);
+    expect(parsed.ok).toBe(true);
+    const el = parsed.case!.steps[0] as unknown as { ensureLogin: { screen: string; phone: string; password: string; entry: string } };
+    expect(el.ensureLogin.screen).toBe('auth');
+    expect(el.ensureLogin.entry).toBe('');
+    const out = caseToYaml({ name: 'sf', tags: [], variants: [], steps: parsed.case!.steps as unknown[] });
+    expect(out).toContain('  - ensure login:');
+    expect(out).toContain('      screen: auth');
+    expect(out).not.toMatch(/entry:/);
+    const back = parseCaseYaml(out);
+    expect(back.ok).toBe(true);
+    expect(JSON.stringify(back.case!.steps)).toBe(JSON.stringify(parsed.case!.steps));
+  });
+
+  it('screen + inline selectors → validator error (mutual exclusion)', () => {
+    const src = [
+      'name: both',
+      'steps:',
+      '  - ensure login:',
+      '      screen: auth',
+      '      entry: home_login_bar_login_button',
+      "      phone: '${env.P}'",
+      "      password: '${env.Q}'",
+    ].join('\n') + '\n';
+    const parsed = parseCaseYaml(src);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.errors.some((e) => e.message.includes('mutually exclusive'))).toBe(true);
+  });
+
+  it('screen form without phone/password → validator error', () => {
+    const src = 'name: bare\nsteps:\n  - ensure login:\n      screen: auth\n';
+    const parsed = parseCaseYaml(src);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.errors.some((e) => e.message.includes('phone/password env refs'))).toBe(true);
+  });
+
+  it('inline form still parses and emits unchanged (back-compat)', () => {
+    const src = [
+      'name: inline',
+      'steps:',
+      '  - ensure login:',
+      '      entry: home_login_bar_login_button',
+      '      phoneField: auth_login_phone_field',
+      '      passwordField: auth_login_password_field',
+      '      submit: auth_login_button',
+      '      session: account_logout_button',
+      "      phone: '${env.DRILL_PHONE}'",
+      "      password: '${env.DRILL_PASSWORD}'",
+    ].join('\n') + '\n';
+    const parsed = parseCaseYaml(src);
+    expect(parsed.ok).toBe(true);
+    expect((parsed.case!.steps[0] as unknown as { ensureLogin: { screen?: string } }).ensureLogin.screen).toBeUndefined();
+    const out = caseToYaml({ name: 'inline', tags: [], variants: [], steps: parsed.case!.steps as unknown[] });
+    expect(out).toContain('entry: home_login_bar_login_button');
+    expect(out).not.toContain('screen:');
+  });
+});
+
+/** screenless ensure login (login-as-app-procedure F2): the step carries
+ *  env refs only — the app's login flow supplies every selector. */
+describe('ensure login — screenless app-procedure form', () => {
+  it('parses, emits, round-trips', () => {
+    const src = "name: sf\nsteps:\n  - ensure login:\n      phone: '${env.DRILL_PHONE}'\n      password: '${env.DRILL_PASSWORD}'\n";
+    const parsed = parseCaseYaml(src);
+    expect(parsed.ok).toBe(true);
+    const el = parsed.case!.steps[0] as unknown as { ensureLogin: { screen?: string; phone: string } };
+    expect(el.ensureLogin.screen).toBeUndefined();
+    const out = caseToYaml({ name: 'sf', tags: [], variants: [], steps: parsed.case!.steps as unknown[] });
+    expect(out).toContain('phone:');
+    expect(out).not.toContain('screen:');
+    const back = parseCaseYaml(out);
+    expect(JSON.stringify(back.case!.steps)).toBe(JSON.stringify(parsed.case!.steps));
+  });
+  it('selectors in the screenless form → error (they live in the app flow)', () => {
+    const src = "name: bad\nsteps:\n  - ensure login:\n      phone: '${env.P}'\n      password: '${env.Q}'\n      submit: some_button\n";
+    const parsed = parseCaseYaml(src);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.errors.some((e) => e.message.includes('partial selectors'))).toBe(true);
+  });
+});
