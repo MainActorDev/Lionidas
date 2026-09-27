@@ -32,7 +32,7 @@ watch(() => route.fullPath, () => void loadMe());
   <!-- public routes (login) own the full viewport — no app chrome -->
   <router-view v-if="isPublic" />
   <div v-else class="app">
-    <div class="logo"><span class="logo-mark" /> crucible</div>
+    <div class="logo"><img class="logo-mark" src="/icons/lionidas-app-128.png" alt="" width="20" height="20" /> lionidas</div>
 
     <nav class="sidebar">
       <div class="nav-group">

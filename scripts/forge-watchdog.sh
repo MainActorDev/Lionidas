@@ -1,9 +1,9 @@
 #!/bin/sh
-# Crucible forge watchdog — the dead-man switch.
+# Lionidas forge watchdog — the dead-man switch.
 #
 # Every run (launchd: 15s interval): for every network service, if the web
 # proxy is ENABLED, points at localhost, and NOTHING is listening on that
-# port, disable it. A wedged/killed Crucible then costs at most one interval
+# port, disable it. A wedged/killed Lionidas then costs at most one interval
 # of broken CFNetwork traffic; SSH/VNC are never affected (raw TCP, no
 # system-proxy obedience). Non-localhost proxies (corp) are never touched.
 #

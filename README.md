@@ -1,8 +1,8 @@
-# Crucible
+# Lionidas
 
 > The E2E testing control dashboard. *Your app. Proven.*
 
-Crucible gives QA and engineers one shared control surface over end-to-end UI
+Lionidas gives QA and engineers one shared control surface over end-to-end UI
 testing: a live device wall, test-run orchestration, acceptance-criteria status,
 evidence management, and baseline governance — executing through
 [Alloy](https://github.com/MainActorDev/Alloy) (in-process, engine-neutral).

@@ -2,7 +2,7 @@
 
 Status: accepted (2026-09-05)
 Deciders: user + agent, after the platform-ambition review
-Context: Crucible's stated goal is a super-tool for E2E UI testing —
+Context: Lionidas's stated goal is a super-tool for E2E UI testing —
 iOS/Android, probably web. Current and near-term focus remains iOS only.
 This ADR records the preparation doctrine so the future is an addition,
 not a rewrite.
@@ -52,7 +52,7 @@ Rule of thumb: **no new iOS-ism may land without a named seam.**
 The long-game architecture, when demanded:
 
 ```
-Crucible core (runs, cases, evidence, verdicts, queue)   ← platform-blind
+Lionidas core (runs, cases, evidence, verdicts, queue)   ← platform-blind
         │
    PlatformAdapter { power, stream, grants, selectorStrategy, capabilities }
         │

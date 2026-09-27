@@ -1,5 +1,5 @@
 #!/bin/bash
-# Crucible Forge TLS — one-time CA setup (human-run; double-click me)
+# Lionidas Forge TLS — one-time CA setup (human-run; double-click me)
 #
 # Generates an Apple-compliant CA hierarchy (root → intermediate) for the MITM
 # proxy and trusts the ROOT in the login keychain. macOS will prompt for your
@@ -22,13 +22,13 @@ if [ ! -f "$CONFDIR/mitmproxy-ca.pem" ]; then
   # root (self-signed, 10y)
   openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes \
     -keyout "$CONFDIR/root.key" -out "$CONFDIR/root.crt" \
-    -subj "/CN=Forge Root/O=Crucible" \
+    -subj "/CN=Forge Root/O=Lionidas" \
     -addext "basicConstraints=critical,CA:TRUE" \
     -addext "keyUsage=critical,keyCertSign,cRLSign"
   # intermediate signed by root (5y, pathlen 0)
   openssl req -newkey rsa:2048 -nodes \
     -keyout "$CONFDIR/int.key" -out "$CONFDIR/int.csr" \
-    -subj "/CN=Forge Intermediate/O=Crucible"
+    -subj "/CN=Forge Intermediate/O=Lionidas"
   openssl x509 -req -in "$CONFDIR/int.csr" \
     -CA "$CONFDIR/root.crt" -CAkey "$CONFDIR/root.key" -CAcreateserial \
     -days 1825 -sha256 -out "$CONFDIR/int.crt" \

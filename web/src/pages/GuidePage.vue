@@ -53,14 +53,14 @@ const groups = computed(() => {
 <div v-if="active === 'yourday'">
   <div class="page-title">your day</div>
   <p style="color: var(--color-ash); margin: var(--s-2) 0 var(--s-4); font-size: var(--text-body); line-height: 1.6;">
-    What you actually do with Crucible, as three tasks. Every page exists to serve one of them.
+    What you actually do with Lionidas, as three tasks. Every page exists to serve one of them.
   </p>
 
   <div class="section-label">1 · check the app</div>
   <div class="card">
     <div class="meta-row"><span class="k">path</span><b class="mono">home page → run all cases → read verdicts</b></div>
     <p style="color: var(--color-fog); font-size: var(--text-body); line-height: 1.6; margin: var(--s-2) 0 0;">
-      Open Crucible. The home page lists every test case as a card with its latest verdict. Press <b>run all cases</b>
+      Open Lionidas. The home page lists every test case as a card with its latest verdict. Press <b>run all cases</b>
       and every case replays back-to-back — cards flip to their new verdict as runs finish. A passing card needs
       nothing from you. Click a red one to see exactly which step broke, with the screenshot at the moment it broke.
     </p>
@@ -72,7 +72,7 @@ const groups = computed(() => {
     <p style="color: var(--color-fog); font-size: var(--text-body); line-height: 1.6; margin: var(--s-2) 0 0;">
       Have a flow worth keeping? Go to <b>devices</b>, boot a simulator, click <b>take control</b>, and turn on
       <b>record</b>. Now just use the app — every tap, scroll, and typed text becomes a step in the sidebar as you go.
-      Before saving, add a check with <b>assert</b>: type something you can see on screen ("Login"), and Crucible
+      Before saving, add a check with <b>assert</b>: type something you can see on screen ("Login"), and Lionidas
       confirms it points at exactly one element. Save the recording, name it, tag it — it's now a test case that
       replays forever.
     </p>
@@ -112,9 +112,9 @@ const groups = computed(() => {
 </div>
 
 <div v-if="active === 'quickstart'">
-        <div class="page-title">how to use crucible</div>
+        <div class="page-title">how to use lionidas</div>
         <p style="color: var(--color-ash); margin: var(--s-2) 0 var(--s-4); font-size: var(--text-body); line-height: 1.6;">
-          Crucible verifies that your app works on a real device. It runs test flows on simulators,
+          Lionidas verifies that your app works on a real device. It runs test flows on simulators,
           records evidence (video, screenshots, logs), and shows you exactly what passed or failed —
           with the proof one click away.
         </p>
@@ -379,7 +379,7 @@ const groups = computed(() => {
       <!-- ═══ FLAKES ═══ -->
       <div v-if="active === 'flakes'">
         <div class="page-title">flaky tests</div>
-        <p style="color: var(--color-ash); margin: var(--s-2) 0;">A flaky flow passes and fails alternately — it makes the matrix lie. Crucible detects and sidelines them.</p>
+        <p style="color: var(--color-ash); margin: var(--s-2) 0;">A flaky flow passes and fails alternately — it makes the matrix lie. Lionidas detects and sidelines them.</p>
 
         <div class="slice-demo"><GuideSlices show="flakes" /></div>
 
@@ -458,8 +458,8 @@ const groups = computed(() => {
         <div class="card">
           <div class="meta-row"><span class="k">pre-check</span><b>a case whose app is not installed on the booted simulator refuses to start — no wasted run, no cryptic engine error</b></div>
           <div class="meta-row"><span class="k">install hint</span><b>the refusal carries a one-click fix: install the last-known build, then the case auto-runs once</b></div>
-          <div class="meta-row"><span class="k">choose artifact…</span><b>pick any build found on disk (ios-consumer build folders, Xcode DerivedData, or Crucible's own store) — each row shows version, origin, and age</b></div>
-          <div class="meta-row"><span class="k">own store</span><b>whatever you pick is cloned into Crucible's storage first — a repo clean or Xcode cache prune can never break installed apps or recorded history</b></div>
+          <div class="meta-row"><span class="k">choose artifact…</span><b>pick any build found on disk (ios-consumer build folders, Xcode DerivedData, or Lionidas's own store) — each row shows version, origin, and age</b></div>
+          <div class="meta-row"><span class="k">own store</span><b>whatever you pick is cloned into Lionidas's storage first — a repo clean or Xcode cache prune can never break installed apps or recorded history</b></div>
           <div class="meta-row"><span class="k">device panel</span><b>take control → "install app" — the same picker, standalone, for any booted simulator</b></div>
         </div>
 

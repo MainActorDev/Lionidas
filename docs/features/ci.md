@@ -1,6 +1,6 @@
-# Crucible in CI
+# Lionidas in CI
 
-The `crucible` CLI executes template suites against a running Crucible server
+The `lionidas` CLI executes template suites against a running Lionidas server
 and reports machine-readable results. One execution path: the server (and its
 wall) stay the source of truth; the CLI is a client.
 
@@ -19,7 +19,7 @@ app failure is the actionable signal.
 ## Usage
 
 ```
-crucible run [--tags smoke] [--app <bundle>] [--udid <udid> | --boot <udid>]
+lionidas run [--tags smoke] [--app <bundle>] [--udid <udid> | --boot <udid>]
              [--env KEY=VAL ...] [--junit out.xml] [--json] [--timeout 900]
 ```
 
@@ -32,7 +32,7 @@ crucible run [--tags smoke] [--app <bundle>] [--udid <udid> | --boot <udid>]
 Repo-local invocation (until the bin is packaged):
 
 ```
-cd crucible/server && node --import tsx src/cli/index.ts run --boot <udid> --junit results.xml
+cd lionidas/server && node --import tsx src/cli/index.ts run --boot <udid> --junit results.xml
 ```
 
 ## GitHub Actions (macOS runner sketch)
@@ -48,10 +48,10 @@ jobs:
       - run: xcodebuild -downloadPlatform iOS   # runtime for the sim
       - name: boot simulator
         run: xcrun simctl boot "iPhone 16" || true
-      - name: start crucible stack
-        run: cd crucible && ./scripts/dev.sh start
+      - name: start lionidas stack
+        run: cd lionidas && ./scripts/dev.sh start
       - name: run smoke suite
-        run: cd crucible/server && node --import tsx src/cli/index.ts run
+        run: cd lionidas/server && node --import tsx src/cli/index.ts run
              --boot "$SIM_UDID" --tags smoke --junit results.xml
       - uses: actions/upload-artifact@v4
         if: always()

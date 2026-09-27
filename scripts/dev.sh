@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# dev.sh — start the Crucible dev stack (server 9230 + web 5230), the safe way.
+# dev.sh — start the Lionidas dev stack (server 9230 + web 5230), the safe way.
 #
 # Wraps `pnpm dev` with the environment fixes this Mac needs:
 #   • Node v24 first on PATH — better-sqlite3 native is ABI 137; the v22 at

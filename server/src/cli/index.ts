@@ -1,4 +1,4 @@
-/** crucible run — CI client. One execution path: the running server's API.
+/** lionidas run — CI client. One execution path: the running server's API.
  *  Exit codes: 0 all-pass · 1 app failure · 2 infra. */
 import { awaitRuns, fetchFailedStep, mapExitCode, type InfraError, type RunSummary } from './runner.ts';
 import { junitXml } from './junit.ts';
@@ -12,9 +12,9 @@ interface Args {
   help: boolean;
 }
 
-const USAGE = `crucible run — execute a template suite against a running Crucible server
+const USAGE = `lionidas run — execute a template suite against a running Lionidas server
 
-usage: crucible run [options]
+usage: lionidas run [options]
   --tags <list>        comma-list tag filter (AND semantics), e.g. smoke
   --app <bundle>       restrict to one app bundle id
   --udid <udid>        target device (explicit — never auto-picked)
@@ -54,13 +54,13 @@ function parseArgs(argv: string[]): Args {
 }
 
 function fail2(msg: string): never {
-  console.error(`crucible: ${msg}`);
+  console.error(`lionidas: ${msg}`);
   process.exit(2);
 }
 
 async function main(): Promise<number> {
   const argv = process.argv.slice(2);
-  if (argv[0] === 'run') argv.shift(); // subcommand form: crucible run --flags
+  if (argv[0] === 'run') argv.shift(); // subcommand form: lionidas run --flags
   const a = parseArgs(argv);
   if (a.help) { console.log(USAGE); return 0; }
   const base = (process.env.CRUCIBLE_URL ?? 'http://127.0.0.1:9230').replace(/\/$/, '');
@@ -72,7 +72,7 @@ async function main(): Promise<number> {
       const r = await fetch(`${base}/api/devices/${a.boot}/power`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'boot' }) });
       if (!r.ok) { const b = (await r.json().catch(() => ({ error: String(r.status) }))) as { error?: string }; fail2(`boot failed: ${b.error}`); }
     } catch (err) {
-      fail2(`server unreachable at ${base} — is the Crucible stack running? (${err instanceof Error ? err.message : String(err)})`);
+      fail2(`server unreachable at ${base} — is the Lionidas stack running? (${err instanceof Error ? err.message : String(err)})`);
     }
   }
 
@@ -91,7 +91,7 @@ async function main(): Promise<number> {
     batch = (await r.json().catch(() => ({ error: `play-all ${r.status}` }))) as { runIds?: string[]; count?: number; error?: string };
     if (!r.ok) fail2(`batch failed: ${batch.error ?? r.status}`);
   } catch (err) {
-    if ((err as { message?: string }).message?.startsWith('crucible:')) throw err;
+    if ((err as { message?: string }).message?.startsWith('lionidas:')) throw err;
     fail2(`server unreachable at ${base} (${err instanceof Error ? err.message : String(err)})`);
   }
   const runIds = batch.runIds ?? [];
@@ -128,7 +128,7 @@ function report(a: Args, runs: RunSummary[], infra?: InfraError): void {
 
 function writeJunit(a: Args, base: string, runs: RunSummary[], infra?: InfraError): void {
   const xml = junitXml({
-    suiteName: `crucible${a.tags ? `:${a.tags}` : ''}`,
+    suiteName: `lionidas${a.tags ? `:${a.tags}` : ''}`,
     baseUrl: base, runs,
     properties: a.properties,
     ...(infra ? { infraMessage: infra.kind === 'timeout' ? 'timed out awaiting terminal run states' : infra.message } : {}),
@@ -137,7 +137,7 @@ function writeJunit(a: Args, base: string, runs: RunSummary[], infra?: InfraErro
     if (a.junit!.includes('/')) mkdirSync(dirname(a.junit!), { recursive: true });
     writeFileSync(a.junit!, xml);
   } catch (err) {
-    console.error(`crucible: junit write failed (${err instanceof Error ? err.message : String(err)}) — runs reported above`);
+    console.error(`lionidas: junit write failed (${err instanceof Error ? err.message : String(err)}) — runs reported above`);
     process.exit(2);
   }
 }
