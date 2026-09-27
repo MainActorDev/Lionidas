@@ -59,6 +59,31 @@ function shown(): Suite[] {
   if (!f) return suites.value;
   return suites.value.filter((s) =>
     s.name.toLowerCase().includes(f) || (s.appBundleId ?? '').toLowerCase().includes(f));
+};
+// app-grouped list (uniform anatomy, plan 20260928T012000Z): sections per
+// suite bundle from post-filter rows; empty group ⇒ no head.
+const SU_NO_APP = '<<no-app>>';
+const suGroups = computed(() => {
+  const by = new Map<string, { key: string; label: string; rows: Suite[] }>();
+  for (const s of shown()) {
+    const key = s.appBundleId || SU_NO_APP;
+    let g = by.get(key);
+    if (!g) { g = { key, label: key === SU_NO_APP ? 'no app' : s.appBundleId!, rows: [] }; by.set(key, g); }
+    g.rows.push(s);
+  }
+  const list = [...by.values()];
+  list.sort((a, b) => (a.key === SU_NO_APP ? 1 : b.key === SU_NO_APP ? -1 : a.label.localeCompare(b.label)));
+  return list;
+});
+const suCollapsed = ref(new Set<string>());
+function toggleSuGroup(key: string): void {
+  const next = new Set(suCollapsed.value);
+  if (next.has(key)) next.delete(key); else next.add(key);
+  suCollapsed.value = next;
+}
+function expandForSuite(s: Suite): void {
+  const gk = s.appBundleId || SU_NO_APP;
+  if (suCollapsed.value.has(gk)) toggleSuGroup(gk);
 }
 function onKey(ev: KeyboardEvent): void {
   if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'f') {
@@ -118,6 +143,7 @@ const openId = ref<string | null>(null); // suite id or 'draft'
 const mode = ref<'preview' | 'edit'>('preview');
 
 function togglePanel(s: Suite): void {
+  expandForSuite(s);
   if (openId.value === s.id) { openId.value = null; return; }
   if (openId.value !== null && mode.value === 'edit' && isDirty() && !window.confirm('discard unsaved changes?')) return;
   openId.value = s.id;
@@ -291,14 +317,13 @@ async function saveEditor(): Promise<void> {
 
     <div class="su-table">
       <div class="su-thead">
-        <span>suite</span><span>app</span><span>members</span><span>updated</span><span>verdict</span><span></span>
+        <span>suite</span><span>members</span><span>updated</span><span>verdict</span><span></span>
       </div>
 
       <!-- draft card — creating -->
       <article v-if="openId === 'draft'" class="su-row-card editing">
         <div class="su-row draft">
           <span class="su-name su-newname">new suite</span>
-          <span class="su-bundle">—</span>
           <span class="su-members">0</span>
           <span class="su-updated">now</span>
           <span><span class="status status-none">never run</span></span>
@@ -342,10 +367,15 @@ async function saveEditor(): Promise<void> {
         </div>
       </article>
 
-      <article v-for="s in shown()" :key="s.id" class="su-row-card" :class="{ editing: openId === s.id }">
+      <template v-for="g in suGroups" :key="g.key">
+      <div class="a2-group-head" @click.stop="toggleSuGroup(g.key)" :title="g.key === SU_NO_APP ? 'suites without an app' : g.label">
+        <span class="caret">{{ suCollapsed.has(g.key) ? '▸' : '▾' }}</span>
+        <span class="owner">{{ g.label }}</span>
+        <span class="n">{{ g.rows.length }}</span>
+      </div>
+      <article v-for="s in g.rows" v-show="!suCollapsed.has(g.key)" :key="s.id" class="su-row-card" :class="{ editing: openId === s.id }">
         <div class="su-row" @click="togglePanel(s)" :title="openId === s.id ? 'click to collapse' : 'click to preview members'">
           <span class="su-name">{{ s.name }}</span>
-          <span class="su-bundle" :title="s.appBundleId ?? 'no app'">{{ shortBundle(s.appBundleId) }}</span>
           <span class="su-members" :title="`${s.members?.length ?? s.memberCount ?? 0} members`">
             {{ s.members?.length ?? s.memberCount ?? 0 }}
             <span v-if="driftCount(s)" class="su-drift" :title="`${driftCount(s)} member(s) drifted out of ${s.appBundleId} — skipped at play`">drift</span>
@@ -429,6 +459,7 @@ async function saveEditor(): Promise<void> {
           </div>
         </div>
       </article>
+      </template>
 
       <div v-if="!loading && shown().length === 0 && openId !== 'draft'" class="su-empty">
         {{ filter ? 'no matches' : 'no suites — + suite' }}
@@ -455,7 +486,7 @@ async function saveEditor(): Promise<void> {
 }
 .su-thead, .su-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 150px) minmax(0, 92px) minmax(0, 1.2fr) minmax(0, 170px);
+  grid-template-columns: minmax(0, 2.0fr) minmax(0, 150px) minmax(0, 92px) minmax(0, 1.2fr) minmax(0, 170px);
   gap: var(--s-2); align-items: center;
 }
 .su-thead {

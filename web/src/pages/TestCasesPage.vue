@@ -1012,21 +1012,9 @@ const suiteSummary = computed(() => {
 /* the run dock is a pure overlay: no layout shift when it opens — it sits
    above the table (fixed, z-80), the table never reflows */
 /* header */
-/* ── filter toolbar (revamped; was the advanced disclosure row) ── */
+/* ── filter toolbar (revamped; was the advanced disclosure row) ──
+   a2-tabs/a2-tab are global (components.css) — shared with the env page */
 .a2-toolbar { display: flex; align-items: center; gap: var(--s-3); flex: none; padding: 0; }
-.a2-tabs { display: inline-flex; align-items: stretch; border: 1px solid var(--color-iron); border-radius: var(--r-sm); overflow: hidden; background: var(--color-void); }
-.a2-tab {
-  appearance: none; border: none; border-right: 1px solid var(--color-iron); background: transparent;
-  padding: 6px 14px; cursor: pointer;
-  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase;
-  color: var(--color-pewter); transition: color 90ms ease, background 90ms ease;
-}
-.a2-tab:last-child { border-right: none; }
-.a2-tab .n { color: var(--color-steel); margin-left: 4px; }
-.a2-tab:hover { color: var(--color-paper); background: var(--color-graphite); }
-.a2-tab.on { color: var(--color-ember); background: var(--color-graphite); }
-.a2-tab.on .n { color: var(--color-ember); }
-.a2-tab.dep.on { color: var(--color-steel); }
 .a2-toolbar .a2-search { flex: 0 1 260px; margin-left: auto; }
 .a2-search {
   background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm);
@@ -1119,23 +1107,7 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 .col-app { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .col-ver { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
 .a2-ver-val { color: var(--color-steel); }
-/* app group head — env-page scope-head rhythm; IN-FLOW (never sticky —
-   the thead owns sticky; review F1) */
-.a2-group-head {
-  grid-column: 1 / -1;
-  display: flex; align-items: center; gap: var(--s-2);
-  padding: 7px 12px;
-  border-top: 1px solid var(--color-iron);
-  background: var(--color-void);
-  cursor: pointer; user-select: none;
-  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em;
-  color: var(--color-pewter);
-}
-.a2-group-head:first-of-type { border-top: none; }
-.a2-group-head:hover { color: var(--color-paper); background: var(--color-graphite); }
-.a2-group-head .caret { width: 12px; color: var(--color-steel); }
-.a2-group-head .owner { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.a2-group-head .n { color: var(--color-steel); margin-left: auto; }
+/* .a2-group-head lives in global components.css (shared across list pages) */
 /* verdict pill ellipsizes inside its track at extreme narrow widths (the
    pill is the unbreakable floor: mono text can't wrap) */
 .col-evidence { display: flex; align-items: center; overflow: visible; }

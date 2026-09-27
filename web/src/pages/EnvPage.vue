@@ -147,9 +147,9 @@ onMounted(load);
       <span class="ph-desc">global &lt; app &lt; plan &lt; request &lt; variant</span>
       <span class="ph-syms">{{ counts }}</span>
       <template #actions>
-        <div class="seg">
-          <button :class="{ on: mode === 'manage' }" @click="mode = 'manage'">manage</button>
-          <button :class="{ on: mode === 'eff' }" @click="mode = 'eff'">effective</button>
+        <div class="a2-tabs" role="tablist">
+          <button class="a2-tab" :class="{ on: mode === 'manage' }" role="tab" @click="mode = 'manage'">manage</button>
+          <button class="a2-tab" :class="{ on: mode === 'eff' }" role="tab" @click="mode = 'eff'">effective</button>
         </div>
       </template>
     </PageHeader>
@@ -196,7 +196,7 @@ onMounted(load);
     <div v-if="mode === 'manage'" id="scopes">
       <!-- global -->
       <div class="scope-block" :class="{ open: openSections.has('g') }">
-        <div class="scope-head" @click="toggleSec('g')">
+        <div class="a2-group-head scope-head" @click="toggleSec('g')">
           <span class="caret">{{ openSections.has('g') ? '▾' : '▸' }}</span>
           <span class="tag">global</span>
           <span class="owner">every app · every plan</span>
@@ -229,7 +229,7 @@ onMounted(load);
 
       <!-- per-app -->
       <div v-for="g in appGroups" :key="g.bundle" class="scope-block" :class="{ open: openSections.has(`a:${g.bundle}`) }">
-        <div class="scope-head" @click="toggleSec(`a:${g.bundle}`)">
+        <div class="a2-group-head scope-head" @click="toggleSec(`a:${g.bundle}`)">
           <span class="caret">{{ openSections.has(`a:${g.bundle}`) ? '▾' : '▸' }}</span>
           <span class="tag">app</span>
           <span class="owner" :title="g.bundle">{{ g.bundle }}</span>
@@ -263,7 +263,7 @@ onMounted(load);
 
       <!-- per-plan -->
       <div v-for="g in planGroups" :key="g.plan.id" class="scope-block" :class="{ open: openSections.has(`p:${g.plan.id}`) }">
-        <div class="scope-head" @click="toggleSec(`p:${g.plan.id}`)">
+        <div class="a2-group-head scope-head" @click="toggleSec(`p:${g.plan.id}`)">
           <span class="caret">{{ openSections.has(`p:${g.plan.id}`) ? '▾' : '▸' }}</span>
           <span class="tag">plan</span>
           <span class="owner" :title="g.plan.id">{{ g.plan.name }}</span>
@@ -333,10 +333,10 @@ onMounted(load);
 .gap-chip .u { color: var(--color-steel); font-size: 10px; }
 
 .scope-block { margin-bottom: var(--s-4); }
-.scope-head { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-2) 0; cursor: pointer; user-select: none; }
-.scope-head .caret { color: var(--color-steel); font-size: 10px; width: 10px; }
+/* head anatomy comes from the shared .a2-group-head (components.css);
+   these are env-only extras: the scope tag chip and the grow spacer */
+.scope-head { }
 .scope-head .tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-fog); border: 1px solid var(--color-slate); border-radius: var(--r-sm); padding: 1px var(--s-2); }
-.scope-head .owner { color: var(--color-paper); font-size: var(--text-caption); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .scope-head .cnt { color: var(--color-steel); font-size: var(--text-caption); border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 0 var(--s-2); }
 .scope-head .grow { flex: 1; }
 .scope-body { display: none; }

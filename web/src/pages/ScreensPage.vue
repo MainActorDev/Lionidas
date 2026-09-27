@@ -20,6 +20,13 @@ interface AppScreen {
 type BundleScreens = { bundle: string; screens: AppScreen[] };
 
 const bundles = ref<BundleScreens[]>([]);
+// collapsible bundle heads (uniform anatomy, plan 20260928T012000Z)
+const collapsedBundles = ref(new Set<string>());
+function toggleBundle(bundle: string): void {
+  const next = new Set(collapsedBundles.value);
+  if (next.has(bundle)) next.delete(bundle); else next.add(bundle);
+  collapsedBundles.value = next;
+}
 const loading = ref(true);
 const error = ref('');
 const openId = ref<string | null>(null); // expanded screen row
@@ -415,7 +422,7 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
 <template>
   <PageHeader title="screens" desc="per-app screen registry — what each screen is, how to enter and refresh it, the states cases assert on">
     <template #actions>
-      <button class="mini-act" title="register the first screen of a new app" @click="openNewApp">+ app</button>
+      <button class="btn" title="register the first screen of a new app" @click="openNewApp">+ app</button>
     </template>
   </PageHeader>
   <div v-if="loading" class="hint">loading registries…</div>
@@ -423,16 +430,18 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
   <div v-else-if="bundles.length === 0" class="hint">no screens registered yet — register one below</div>
 
   <div v-for="b in bundles" :key="b.bundle" class="registry">
-    <div class="section-label bundle-row">
-      <span>{{ b.bundle }}</span>
-      <span class="bundle-acts">
+    <div class="a2-group-head" @click="toggleBundle(b.bundle)" :title="b.bundle">
+      <span class="caret">{{ collapsedBundles.has(b.bundle) ? '▸' : '▾' }}</span>
+      <span class="owner">{{ b.bundle }}</span>
+      <span class="n">{{ b.screens.length }}</span>
+      <span class="bundle-acts" @click.stop>
         <button class="mini-act" title="edit the app's login flow" @click="loginFlow = b.bundle">login flow</button>
           <button class="mini-act" title="register a new screen" @click="openDocCreate(b.bundle)">+ screen</button>
         <button class="mini-act" title="import/export the registry as yaml" @click="openYaml(b.bundle)">yaml</button>
       </span>
     </div>
 
-    <div class="scr-thead">
+    <div v-show="!collapsedBundles.has(b.bundle)" class="scr-thead">
       <span class="col-id">screen</span>
       <span class="col-entry">entry</span>
       <span class="col-refresh">refresh</span>
@@ -441,9 +450,9 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
       <span class="col-acts"></span>
     </div>
 
-    <div v-if="b.screens.length === 0" class="hint inset">no screens yet — <button class="inline-link" @click="openCreate(b.bundle)">register the first one</button></div>
+    <div v-if="b.screens.length === 0" v-show="!collapsedBundles.has(b.bundle)" class="hint inset">no screens yet — <button class="inline-link" @click="openCreate(b.bundle)">register the first one</button></div>
 
-    <article v-for="s in b.screens" :key="s.id" class="scr-card" :class="{ editing: editing === s.id }">
+    <article v-for="s in b.screens" v-show="!collapsedBundles.has(b.bundle)" :key="s.id" class="scr-card" :class="{ editing: editing === s.id }">
       <div class="scr-row" :title="openId === s.id ? 'collapse' : 'expand states'" @click="toggle(s)">
         <span class="col-id"><span class="scr-id">{{ s.id }}</span></span>
         <span class="col-entry">{{ describeEntry(s) }}</span>

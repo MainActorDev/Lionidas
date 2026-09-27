@@ -301,3 +301,39 @@ a.chip:hover, button.chip:hover, .chip-click:hover { color: var(--color-paper); 
   overflow-y: auto;
   line-height: 1.6;
 }
+
+/* ── a2-group-head: the shared collapsible group/scope head for list pages
+   (test cases, suites, screens, env). In-flow (never sticky — the page's
+   thead owns sticky); caret + mono owner + count right. In-head actions
+   must @click.stop so the head's click-to-collapse doesn't swallow them. */
+.a2-group-head {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; gap: var(--s-2);
+  padding: 7px 12px;
+  border-top: 1px solid var(--color-iron);
+  background: var(--color-void);
+  cursor: pointer; user-select: none;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em;
+  color: var(--color-pewter);
+}
+.a2-group-head:first-of-type { border-top: none; }
+.a2-group-head:hover { color: var(--color-paper); background: var(--color-graphite); }
+.a2-group-head .caret { width: 12px; color: var(--color-steel); flex: none; }
+.a2-group-head .owner { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.a2-group-head .n { color: var(--color-steel); margin-left: auto; }
+.a2-group-head .head-act { margin-left: 0; } /* inline actions sit AFTER .n */
+
+/* ── a2-tabs: shared segmented tab control (filter tabs, mode toggles) */
+.a2-tabs { display: inline-flex; align-items: stretch; border: 1px solid var(--color-iron); border-radius: var(--r-sm); overflow: hidden; background: var(--color-void); }
+.a2-tab {
+  appearance: none; border: none; border-right: 1px solid var(--color-iron); background: transparent;
+  padding: 6px 14px; cursor: pointer;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--color-pewter); transition: color 90ms ease, background 90ms ease;
+}
+.a2-tab:last-child { border-right: none; }
+.a2-tab .n { color: var(--color-steel); margin-left: 4px; }
+.a2-tab:hover { color: var(--color-paper); background: var(--color-graphite); }
+.a2-tab.on { color: var(--color-ember); background: var(--color-graphite); }
+.a2-tab.on .n { color: var(--color-ember); }
+.a2-tab.dep.on { color: var(--color-steel); }
