@@ -104,54 +104,68 @@ afterEach(() => {
 });
 
 describe('tap resolution: selector confirms, never recentres (A6b)', () => {
-  it('recorded point inside container rect → taps the RECORDED point, not the container center', async () => {
-    // selector = page-dots container (center (215,840) = Privacy Policy);
-    // recorded (236,824) = Terms & Conditions, INSIDE the container rect
+  it('recorded point + selector → projected-point dispatches at the RECORDED point (dead-reckoning)', async () => {
+    // sub-second taps plan A (rev 2): a step with BOTH point and selector
+    // dispatches immediately at the recorded point; the selector is the
+    // post-hoc audit trail. Container-center confusion is structurally
+    // impossible — the recorded point IS the aim.
     seedTemplate('t1', [{ idx: 0, action: 'tap', x: 236, y: 824, selector: { label: 'Horizontal scroll bar, 1 page', type: 'Other' } }]);
     const runId = await play('t1');
     const steps = runRows(runId);
     expect(steps[0]!.status).toBe('pass');
-    expect(ev(steps).resolvedBy).toBe('selector');
-    expect(lastActInput?.target).toEqual({ x: 236, y: 824 }); // NOT (215,840)
+    expect(ev(steps).resolvedBy).toBe('projected-point');
+    expect(lastActInput?.target).toEqual({ x: 236, y: 824 }); // the recorded point
   });
 
-  it('recorded point FAR from matched rect (element moved) → selector center (recentred)', async () => {
-    // recorded (30,60) — nowhere near the T&C link at (200..280, 812..838)
+  it('recorded point far from current rect → projected-point still dispatches at the recorded point (verify-next policy)', async () => {
+    // the recentre ladder no longer runs for point+selector steps; a stale
+    // point is caught by the NEXT verifying step (operator decision 2026-09-26)
     seedTemplate('t2', [{ idx: 0, action: 'tap', x: 30, y: 60, selector: { label: 'Terms & Conditions', type: 'Link' } }]);
     const runId = await play('t2');
     const steps = runRows(runId);
     expect(steps[0]!.status).toBe('pass');
-    expect(ev(steps).resolvedBy).toBe('selector-recentred');
-    expect(lastActInput?.target).toEqual({ x: 240, y: 825 }); // T&C center
+    expect(ev(steps).resolvedBy).toBe('projected-point');
+    expect(lastActInput?.target).toEqual({ x: 30, y: 60 }); // recorded point, verify-next
   });
 
-  it('selector never resolves (gone) → coordinate fallback, tap still dispatched', async () => {
+  it('selector never resolves (gone) but point present → projected-point, tap still dispatched', async () => {
     seedTemplate('t3', [{ idx: 0, action: 'tap', x: 236, y: 824, selector: { label: 'No Such Element', type: 'Link' } }]);
     const runId = await play('t3');
     const steps = runRows(runId);
     expect(steps[0]!.status).toBe('pass');
-    expect(ev(steps).resolvedBy).toBe('coordinate-fallback');
+    expect(ev(steps).resolvedBy).toBe('projected-point');
     expect(lastActInput?.target).toEqual({ x: 236, y: 824 });
   });
 
-  it('selector-only step (no recorded coords) → selector center', async () => {
+  it('selector-only step (no recorded coords) → selector center, labeled selector', async () => {
+    // contract change 2026-09-26: selector-only steps take the resolved hit
+    // center directly — no recentre ladder (the old fall-through mislabeled
+    // them 'selector-recentred' with distance-vs-origin garbage in the audit)
     seedTemplate('t4', [{ idx: 0, action: 'tap', selector: { label: 'Terms & Conditions', type: 'Link' } }]);
     const runId = await play('t4');
     const steps = runRows(runId);
     expect(steps[0]!.status).toBe('pass');
-    expect(ev(steps).resolvedBy).toBe('selector-recentred');
-    expect(lastActInput?.target).toEqual({ x: 240, y: 825 });
+    expect(ev(steps).resolvedBy).toBe('selector');
+    // Link aim = last-line center (inline links trail plain text)
+    expect(lastActInput?.target).toEqual({ x: 240, y: 832 });
   });
 
-  it('launch-settle: selector appears only after N snapshots → waits, then taps recorded point', async () => {
+  it('launch-settle: point+selector skips the wait (projection); selector-only still waits for resolution', async () => {
     settleAfterAttempts = 3; // root-only for 2 polls, then the full tree
     seedTemplate('t5', [{ idx: 0, action: 'tap', x: 236, y: 824, selector: { label: 'Terms & Conditions', type: 'Link' } }]);
     const runId = await play('t5');
     const steps = runRows(runId);
     expect(steps[0]!.status).toBe('pass');
-    expect(ev(steps).resolvedBy).toBe('selector');
+    expect(ev(steps).resolvedBy).toBe('projected-point'); // no settle wait — the point IS the aim
     expect(lastActInput?.target).toEqual({ x: 236, y: 824 });
-    expect(snapshotAttempts).toBeGreaterThanOrEqual(4); // settle gate + step poll actually polled
+    // selector-only variant: no recorded point → the settle wait still applies
+    settleAfterAttempts = 3;
+    seedTemplate('t5b', [{ idx: 0, action: 'tap', selector: { label: 'Terms & Conditions', type: 'Link' } }]);
+    const runId2 = await play('t5b');
+    const steps2 = runRows(runId2);
+    expect(steps2[0]!.status).toBe('pass');
+    expect(snapshotAttempts).toBeGreaterThanOrEqual(4); // settle gate ran
+    expect(lastActInput?.target).toEqual({ x: 240, y: 832 }); // resolved T&C last-line center
   });
 
   it('cross-device: far scaled point + RECENTRE-UNSAFE container (scroll bar) → scaled coordinate fallback, never the wrapper center', async () => {
@@ -165,7 +179,7 @@ describe('tap resolution: selector confirms, never recentres (A6b)', () => {
     const runId = await play('t6');
     const steps = runRows(runId);
     expect(steps[0]!.status).toBe('pass');
-    expect(ev(steps).resolvedBy).toBe('coordinate-fallback');
+    expect(ev(steps).resolvedBy).toBe('projected-point'); // scaled recorded point via projection
     expect(lastActInput?.target).toEqual({ x: 118, y: 412 }); // scaled recorded point, NOT the container center
   });
 });

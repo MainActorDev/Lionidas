@@ -8,10 +8,13 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import TapOverlayVideo from './TapOverlayVideo.vue';
 
-export interface EvidenceItem { stepIdx: number; stepName: string; status: string; kind: string; evId: string }
+export interface EvidenceItem { stepIdx: number; stepName: string; status: string; kind: string; evId: string; swapTarget?: string }
 export interface EvidenceLane {
   variantId: string | null; runId: string; runStatus: string; startedAt: number;
   env: Record<string, string> | null; items: EvidenceItem[];
+  /** B1 (2026-09-24): a swap run is its own lane — worldSeq carries the
+   *  full sequence (entry + swaps); single-world lanes leave both absent. */
+  swapRun?: boolean; worldSeq?: string[];
 }
 
 const props = defineProps<{ open: boolean; caseName: string; templateId: string; lanes: EvidenceLane[] }>();
@@ -24,7 +27,17 @@ const visibleLanes = computed(() => {
   if (filter.value === 'failed') return props.lanes.filter(laneFailed);
   return props.lanes.filter((l) => l.variantId === (filter.value === '' ? null : filter.value));
 });
-function laneLabel(l: EvidenceLane): string { return l.variantId ?? 'plain'; }
+/** B1 tiers: shots are the row; video is the strip below. */
+function shotItems(l: EvidenceLane): EvidenceItem[] { return l.items.filter((i) => i.kind !== 'video'); }
+function videoItems(l: EvidenceLane): EvidenceItem[] { return l.items.filter((i) => i.kind === 'video'); }
+
+function laneLabel(l: EvidenceLane): string { return l.swapRun ? 'swap run' : (l.variantId ?? 'plain'); }
+/** world stamp (B1): on a swap lane every shot carries its world; on a
+ *  single-world lane the lane already says it — no stamp needed. */
+function worldBadge(item: EvidenceItem, lane: EvidenceLane): string | null {
+  if (!lane.swapRun || !item.swapTarget) return null;
+  return item.swapTarget;
+}
 function laneFailed(l: EvidenceLane): boolean { return l.runStatus === 'failed' || l.items.some((i) => i.status === 'fail'); }
 
 /** per-lane artifact purge — DELETE /api/templates/:id/runs?variant=<lane>.
@@ -50,7 +63,6 @@ function timeOf(ts: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 function shotCount(l: EvidenceLane): number { return l.items.filter((i) => i.kind === 'screenshot').length; }
-function hasVideo(l: EvidenceLane): boolean { return l.items.some((i) => i.kind === 'video'); }
 
 // ── cinema overlay (card click) ──
 const cinema = ref<{ lane: number; item: number } | null>(null);
@@ -108,29 +120,38 @@ watch(() => props.open, (o) => { if (!o) { cinema.value = null; filter.value = '
         <section v-for="(l, li) in visibleLanes" :key="l.runId" class="grp">
           <div class="grp-head">
             <span class="grp-name">{{ laneLabel(l) }}</span>
-            <span class="grp-env">{{ envText(l) }} · {{ l.runId }} · {{ timeOf(l.startedAt) }}</span>
+            <span class="grp-env">{{ l.swapRun ? (l.worldSeq ?? []).join(' → ') : envText(l) }} · {{ l.runId }} · {{ timeOf(l.startedAt) }}</span>
             <span class="grp-status">
               <span class="grp-verb" :class="{ fail: laneFailed(l) }">{{ laneFailed(l) ? 'failed' : (l.runStatus || 'passed') }}</span>
               <span v-if="shotCount(l)"> · <b>{{ shotCount(l) }} shot{{ shotCount(l) === 1 ? '' : 's' }}</b></span>
-              <span v-if="hasVideo(l)"> · <b>video</b></span>
+              <span v-if="l.swapRun"> · <b>{{ (l.worldSeq?.length ?? 1) - 1 }} swap{{ ((l.worldSeq?.length ?? 1) - 1) === 1 ? '' : 's' }}</b></span>
             </span>
             <button class="grp-del" title="delete this variant lane's artifacts"
               @click.stop="deleteLane(l)">delete lane</button>
           </div>
           <div class="row">
-            <button v-for="item in l.items" :key="item.evId" class="card"
+            <button v-for="item in shotItems(l)" :key="item.evId" class="card"
               :class="{ fail: item.status === 'fail' }"
               :title="`${item.stepName} — ${item.status}`" @click="openCinema(li, item)">
-              <video v-if="item.kind === 'video'" class="thumb vid-thumb" muted playsinline preload="metadata"
-                :src="`/api/evidence/${item.evId}/file#t=0.1`"></video>
-              <img v-else class="thumb" alt="" loading="lazy"
+              <img class="thumb" alt="" loading="lazy"
                 :src="`/api/evidence/${item.evId}/file`" />
-              <span v-if="item.kind === 'video'" class="vid-play"><span class="tri"></span></span>
-              <span class="stamp" :class="{ fail: item.status === 'fail' }">{{ item.kind === 'video' ? 'video' : (item.status === 'fail' ? 'fail' : 'expect') }}</span>
+              <span class="stamp" :class="{ fail: item.status === 'fail' }">{{ item.status === 'fail' ? 'fail' : 'expect' }}</span>
+              <span v-if="worldBadge(item, l)" class="stamp world" :title="`captured in world “${item.swapTarget}”`">{{ worldBadge(item, l) }}</span>
               <span class="cap"><span class="ix">#{{ item.stepIdx >= 0 ? item.stepIdx + 1 : '·' }}</span>
                 <span class="nm">{{ item.stepName }}</span></span>
             </button>
           </div>
+          <!-- B1 tier 2: the whole-run video as a subordinated full-width strip
+               (chronology, not a gallery peer — the shots above are the proof) -->
+          <button v-for="item in videoItems(l)" :key="item.evId" class="vid-strip"
+            :title="`whole run — click to play`" @click="openCinema(li, item)">
+            <span class="vid-glyph"><span class="tri"></span></span>
+            <span class="vid-info">
+              <span class="t">whole run</span>
+              <span class="m">{{ l.swapRun ? (l.worldSeq ?? []).join(' → ') : laneLabel(l) }} · tap overlay available</span>
+            </span>
+            <span class="vid-len">cinema →</span>
+          </button>
         </section>
       </div>
 
@@ -193,6 +214,14 @@ watch(() => props.open, (o) => { if (!o) { cinema.value = null; filter.value = '
 
 /* ── contact cards ── */
 .row { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.vid-strip { display:flex; align-items:center; gap:var(--s-3); margin:var(--s-2) var(--s-4) var(--s-4); border:1px solid var(--color-iron); border-radius:var(--r); background:var(--color-carbon); padding:10px 14px; cursor:pointer; width:calc(100% - var(--s-4)*2); text-align:left; transition:border-color var(--t); }
+.vid-strip:hover { border-color:var(--color-slate); }
+.vid-glyph { width:36px; height:36px; border-radius:var(--r); background:var(--color-void); display:flex; align-items:center; justify-content:center; border:1px solid var(--color-iron); flex:none; }
+.vid-glyph .tri, .vid-strip .vid-glyph .tri { border-left:11px solid var(--color-fog); border-top:7px solid transparent; border-bottom:7px solid transparent; margin-left:3px; width:0; height:0; }
+.vid-info { display:flex; flex-direction:column; gap:1px; min-width:0; }
+.vid-info .t { color:var(--color-paper); font-size:var(--text-label); font-weight:600; }
+.vid-info .m { color:var(--color-steel); font-size:var(--text-caption); font-family:var(--font-mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.vid-len { margin-left:auto; color:var(--color-steel); font-size:var(--text-caption); font-family:var(--font-mono); flex:none; }
 .card { position: relative; border: 1px solid var(--color-iron); border-radius: var(--r); background: var(--color-carbon); padding: 0; overflow: hidden; text-align: left; transition: border-color var(--t); }
 .card:hover { border-color: var(--color-chalk); }
 .card .thumb { aspect-ratio: 390 / 844; width: 100%; background: var(--color-graphite); object-fit: cover; object-position: top; display: block; }
@@ -205,6 +234,7 @@ watch(() => props.open, (o) => { if (!o) { cinema.value = null; filter.value = '
 .card.fail { border-style: dashed; }
 .card.fail .cap .nm { color: var(--color-paper); }
 .card .stamp { position: absolute; top: 6px; left: 6px; font-size: 9px; background: rgba(0, 0, 0, 0.75); color: var(--color-fog); padding: 1px 5px; border-radius: var(--r); }
+.stamp.world { background:var(--color-carbon); color:var(--color-fog); border-color:var(--color-slate); }
 .card .stamp.fail { color: var(--color-paper); border: 1px dashed var(--color-paper); }
 .tri { width: 0; height: 0; border-left: 12px solid var(--color-fog); border-top: 7px solid transparent; border-bottom: 7px solid transparent; }
 

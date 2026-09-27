@@ -25,7 +25,8 @@ import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { crucibleAlloy } from '../alloy/client.ts';
 import { dispatchWithHeal } from '../alloy/heal.ts';
 import type { ForgeState } from '../forge/proxy.ts';
-import { substituteStep } from './template-env.ts';
+import { substituteStep, expandEnvText } from './template-env.ts';
+import { resolveEnv } from './env-store.ts';
 import { forgeStateService } from '../forge/state.ts';
 import { classifyBlocked } from '../db/blocked.ts';
 import { resolveSelector, countMatches, selectorLabel, matchesSelector, captureSelectorAt, type StepSelector } from './selector.ts';
@@ -42,7 +43,7 @@ import { setLocation, clearLocation, prodExecute } from './location.ts';
 import { ensureLocationGrant } from './location-tcc.ts';
 import { internalAuthHeaders } from '../auth/roles.ts';
 import { snapshotCaseVersion } from './case-versions.ts';
-import { mergeVariantEnv, type YamlVariant } from '@crucible/shared/yaml-variants';
+import { mergeVariantEnv, variantScenarioNames, type YamlVariant } from '@crucible/shared/yaml-variants';
 
 const defaultListApps = (udid: string): Promise<Array<{ bundleId: string }>> =>
   listSimulatorApps(udid).then((apps) => apps.map((a) => ({ bundleId: a.bundleId })));
@@ -79,7 +80,7 @@ export interface PlaybackDeps {
 
 export interface PlaybackStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin';
   x?: number;
   y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
@@ -104,6 +105,15 @@ export interface PlaybackStep {
   alertAction?: 'accept' | 'dismiss';
   /** location action target — simulated GPS point (simctl location set) */
   location?: { latitude: number; longitude: number };
+  /** ensure logout: coordinate-free session preflight (identifier-first) */
+  ensureLogout?: { button: string; stay: string; confirm: string };
+  /** ensure login: coordinate-free login preflight; phone/password are
+   *  ${env.X} refs resolved at playback — never literal secrets */
+  ensureLogin?: { entry: string; phoneField: string; passwordField: string; submit: string; session: string; phone: string; password: string; screen?: string };
+  /** R2 verbs (S5): arrive/refresh target screen; swap target id; expect screen parts */
+  screen?: string;
+  swap?: string;
+  expectScreen?: { screen: string; state: string; negate?: boolean };
 }
 
 interface TemplateRow {
@@ -122,10 +132,16 @@ interface TemplateRow {
 function stepName(s: PlaybackStep): string {
   if (s.action === 'expect') return `expect ${selectorLabel(s.selector ?? {})}`;
   if (s.action === 'runFlow') return `run flow ${s.templateId ?? '?'}`;
-  if (s.action === 'tap') return `tap ${s.x},${s.y}`;
+  if (s.action === 'tap') return s.x !== undefined ? `tap ${s.x},${s.y}` : `tap ${s.selector ? (s.selector.label ?? s.selector.identifier ?? 'selector') : '?'}`;
   if (s.action === 'scroll') return `scroll ${s.direction}`;
+  if (s.action === 'ensureLogout') return `ensure logout (${s.ensureLogout?.button ?? '?'})`;
+  if (s.action === 'ensureLogin') return `ensure login (${s.ensureLogin?.screen ? `screen ${s.ensureLogin.screen}` : s.ensureLogin?.entry ?? '?'})`;
   if (s.action === 'alert') return `alert ${s.alertAction ?? 'dismiss'}`;
   if (s.action === 'location') return `location ${s.location?.latitude ?? '?'}${s.location?.longitude !== undefined ? ',' : ''}${s.location?.longitude ?? ''}`;
+  if (s.action === 'arrive') return `arrive ${s.screen ?? '?'}`;
+  if (s.action === 'refresh') return `refresh ${s.screen ?? '?'}`;
+  if (s.action === 'swap') return `swap ${s.swap ?? '?'}`;
+  if (s.action === 'expectScreen') return `expect screen ${s.expectScreen?.screen ?? '?'}.${s.expectScreen?.state ?? '?'}${s.expectScreen?.negate ? ' (absent)' : ''}`;
   return `type "${(s.text ?? '').slice(0, 20)}"`;
 }
 
@@ -135,6 +151,10 @@ function stepLabel(s: PlaybackStep): string {
   if (s.action === 'runFlow') return `run flow ${s.templateId ?? '?'}`;
   if (s.action === 'tap') return s.selector ? `tap ${s.selector.label ?? s.selector.identifier ?? ''}`.trim() : `tap ${s.x},${s.y}`;
   if (s.action === 'scroll') return `scroll ${s.direction}`;
+  if (s.action === 'arrive') return `arrive ${s.screen ?? '?'}`;
+  if (s.action === 'refresh') return `refresh ${s.screen ?? '?'}`;
+  if (s.action === 'swap') return `swap ${s.swap ?? '?'}`;
+  if (s.action === 'expectScreen') return `screen ${s.expectScreen?.screen ?? '?'}.${s.expectScreen?.state ?? '?'}`;
   if (s.action === 'alert') return `alert ${s.alertAction ?? 'dismiss'}`;
   if (s.action === 'location') return `location ${s.location?.latitude ?? '?'}${s.location?.longitude !== undefined ? ',' : ''}${s.location?.longitude ?? ''}`;
   return `type "${(s.text ?? '').slice(0, 20)}"`;
@@ -195,6 +215,20 @@ function hierarchySig(nodes: SnapNode[]): string {
     .join(';');
 }
 
+/** Structure-only signature: node TYPE+IDENTIFIER shape, label text excluded.
+ *  Some production screens animate a label's TEXT continuously (live: Home's
+ *  search-bar placeholder re-types itself ~10×/s — 31 sig changes in 12s),
+ *  which makes hierarchySig never repeat and holds every settle gate open for
+ *  its full budget (drill 2026-09-25: tap settle paid 8s/step for that alone).
+ *  Layout/structure churn (navigation, content streaming, node add/remove)
+ *  still changes this signature — only same-shape text mutation passes. */
+function structureSig(nodes: SnapNode[]): string {
+  return (nodes ?? [])
+    .map((n) => `${n.type ?? ''}|${n.identifier ?? ''}`)
+    .sort()
+    .join(';');
+}
+
 /** State-based settle: poll the hierarchy until two consecutive reads agree
  *  (animations/navigations done) or the budget expires. Replaces the engine's
  *  fixed ~2.4s post-action settle (measured live: settle:true dispatch ≈
@@ -211,8 +245,8 @@ async function awaitUiStable(
   while (Date.now() - t0 < budgetMs && !isAborted(runId)) {
     const nodes = await dispatchSnap();
     if (nodes) {
-      const sig = hierarchySig(nodes);
-      if (sig === prev) return true; // two identical reads — UI quiet
+      const sig = structureSig(nodes);
+      if (sig === prev) return true; // two structurally identical reads — UI quiet (label churn ignored)
       prev = sig;
     }
     await new Promise((r) => setTimeout(r, 60));
@@ -238,7 +272,7 @@ async function withWatchdog<T>(runId: string, dispatch: Promise<T>, stepNameForE
 }
 
 
-export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string; bundleId?: string; env?: Record<string, string>; forgeAttribution?: boolean; variant?: YamlVariant | null; suiteId?: string | null; batchId?: string | null }): Promise<{ runId: string; udid: string; done: Promise<void> }> {
+export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string; bundleId?: string; env?: Record<string, string>; forgeAttribution?: boolean; variant?: YamlVariant | null; suiteId?: string | null; batchId?: string | null; planId?: string | null }): Promise<{ runId: string; udid: string; done: Promise<void> }> {
   const t = deps.db.prepare('SELECT id, name, ticket_key, udid, steps_json, setup_json, alerts_policy, app_bundle_id, logical_w, logical_h FROM templates WHERE id = ?').get(templateId) as TemplateRow | undefined;
   if (!t) throw new Error(`template ${templateId} not found`);
   const tpl: TemplateRow = t;
@@ -328,13 +362,19 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
   let version: ReturnType<typeof snapshotCaseVersion>;
   // D3: variant scenario overrides the invocation's (narrowest scope);
   // variant without scenario INHERITS the invocation's.
+  // S2: variants may carry a scenario SET (plural) — resolve every name to
+  // its id; activation applies the union (dedupe by preset id below).
   // Variants carry scenario NAMES (phase B vocabulary validates names);
   // snapshot + activation key on ids — resolve, and keep the raw CHOICE for
   // run provenance (a deleted scenario still records what was requested).
-  const scenarioChoice = opts.variant?.networkScenario ?? opts.scenarioId ?? null;
-  const scenarioId = scenarioChoice
-    ? ((deps.db.prepare('SELECT id FROM scenarios WHERE id = ? OR name = ? LIMIT 1').get(scenarioChoice, scenarioChoice) as { id: string } | undefined)?.id ?? null)
-    : null;
+  const scenarioNames = variantScenarioNames(opts.variant ?? null);
+  const scenarioChoice = scenarioNames.length > 0 ? scenarioNames.join('+') : opts.scenarioId ?? null;
+  const scenarioIds: string[] = [];
+  for (const name of scenarioNames.length > 0 ? scenarioNames : (opts.scenarioId ? [opts.scenarioId] : [])) {
+    const id = (deps.db.prepare('SELECT id FROM scenarios WHERE id = ? OR name = ? LIMIT 1').get(name, name) as { id: string } | undefined)?.id;
+    if (id) scenarioIds.push(id);
+  }
+  const scenarioId = scenarioIds[0] ?? null; // primary (snapshot provenance + pre-flight gate)
   // T7 — forge pre-flight: a scenario run needs the proxy + routing ALIVE.
   // The chain dies silently on restarts; without this gate the run plays the
   // full case against the real network and fails `not found: <text>` —
@@ -372,6 +412,12 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     .get(templateId, runId);
   if (!runningSibling) prunePreviousRunArtifacts({ db: deps.db, artifactsDir: deps.artifactsDir }, { templateId, variantId: opts.variant?.id ?? null }, runId);
 
+  // managed env (plan rev 2 S2): resolved ONCE before the run starts — the
+  // done closure's activeEnv seeds from it AND the finally-block audit line
+  // reads its source counts. Scope chain: global < app < plan < request body
+  // (< variant, merged later by mergeVariantEnv — narrowest wins).
+  const resolvedBase = resolveEnv(deps.db, { appBundleId: tpl.app_bundle_id, planId: opts.planId ?? null, requestEnv: opts.env ?? {} });
+
   // background execution — route returns immediately; done settles at finish
   const done = (async () => {
     const alloy = crucibleAlloy();
@@ -385,12 +431,15 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     // this run id (in-process proxy reads forgeState directly; the addon tails
     // the file). Best-effort: attribution fails soft if the dir is missing.
     if (attribute) { try { forgeStateService(deps).setActiveRun(runId); } catch { /* attribution best-effort */ } }
-    // network choice (phase 4): scenario presets active ONLY during the run
+    // network choice (phase 4): scenario presets active ONLY during the run.
+    // S2: a variant's scenario SET activates the UNION of member presets
+    // (dedupe by preset id — a preset shared by two scenarios fires once).
     let restorePresets: Array<Record<string, unknown>> | null = null; // non-null ⇒ scenario activated (service owns restore)
-    if (scenarioId) {
+    if (scenarioIds.length > 0) {
+      const ph = scenarioIds.map(() => '?').join(',');
       const presets = deps.db.prepare(
-        `SELECT p.* FROM presets p JOIN scenario_overrides so ON so.preset_id = p.id WHERE so.scenario_id = ? AND so.enabled = 1`,
-      ).all(scenarioId) as Array<Record<string, unknown>>;
+        `SELECT DISTINCT p.* FROM presets p JOIN scenario_overrides so ON so.preset_id = p.id WHERE so.scenario_id IN (${ph}) AND so.enabled = 1`,
+      ).all(...scenarioIds) as Array<Record<string, unknown>>;
       restorePresets = deps.db.prepare('SELECT * FROM presets ORDER BY created_at DESC').all() as Array<Record<string, unknown>>;
       try {
         forgeStateService(deps).activateScenario(presets);
@@ -527,7 +576,10 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
         // ── Tier 2.3: CoreLocation grant already happened route-level
         // (before the run row) — nothing to do here; the open below is the
         // single relaunch that picks the TCC row up. ──
-      const open = (await withWatchdog(runId, dispatchWithHeal('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, `open ${appToLaunch}`)) as { ok: boolean; error?: { message: string } };
+      const open = (await withWatchdog(runId, // -uitest-live-refresh: the app's test seam — appear-triggered fetches
+      // keep refiring under Crucible (world swaps need the re-fetch; guard 1
+      // verifies it). Inert on builds that don't read the arg.
+      dispatchWithHeal('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false, launchArgs: ['-uitest-live-refresh'] }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, `open ${appToLaunch}`)) as { ok: boolean; error?: { message: string } };
       if (!open.ok) throw new Error(`open failed: ${open.error?.message ?? 'engine error'}`);
 
       // ── readiness gate, phase 2b: UI settle ──
@@ -572,6 +624,36 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
 
       // A5: expand subflows flat — child steps carry flow + inherited optional
       let execSteps: PlaybackStep[];
+      // R2 S5: the case's v2 facets (worlds/entry/variants) for verb steps —
+      // variants_json holds both vocabularies (worlds persist via S4).
+      const r2case: { swaps?: Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>; worlds?: Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>; variants?: Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>; entry?: { screen: string; mode?: 'tab' | 'deepLink' | 'navigate' } } | null = (() => {
+        try {
+          const vj = deps.db.prepare('SELECT variants_json FROM templates WHERE id = ?').get(templateId) as { variants_json: string | null } | undefined;
+          if (!vj?.variants_json) return null;
+          const parsed: unknown = JSON.parse(vj.variants_json);
+          // variants_json is a PLAIN ARRAY (house format since phase B) —
+          // worlds and variants share it; the pool lookup treats the array
+          // as both vocabularies. Object form (worlds/variants keys) is
+          // accepted too for forward compatibility.
+          if (Array.isArray(parsed)) return { swaps: parsed as Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>, variants: parsed as Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }> };
+          if (parsed && typeof parsed === 'object') return parsed as { swaps?: Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>; worlds?: Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>; variants?: Array<{ id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> }>; entry?: { screen: string; mode?: 'tab' | 'deepLink' | 'navigate' } };
+          return null;
+        } catch { return null; }
+      })();
+      // R2 S5: lazy screen-state runner (verbs construct it on first use)
+      let screenRunner: InstanceType<typeof import('./screen-runner.ts').ScreenRunner> | null = null;
+      // R2 S6 + managed env (plan rev 2 S2): activeEnv = variant over
+      // resolvedBase (managed scopes global < app < plan under the request
+      // body; variants stay narrowest — pinned contract). resolvedBase is
+      // declared ABOVE the done closure so the finally-block audit line can
+      // read it; a world: step re-merges its variant over the SAME base —
+      // never over bare opts.env (review F1: that would drop every managed
+      // value mid-run).
+      let activeEnv = mergeVariantEnv(opts.variant ?? null, resolvedBase.env);
+      // R2 evidence attribution: which swap target the run is currently IN
+      // (starts as the entry lane's variant; each swap: step updates it) —
+      // the evidence sheet groups world screenshots by this, not by the lane
+      let activeSwap: string | null = opts.variant?.id ?? null;
       try {
         execSteps = expandFlows(steps as unknown as FlowStep[], (id) => {
           const row = deps.db.prepare('SELECT name, steps_json FROM templates WHERE id = ?').get(id) as { name: string; steps_json: string } | undefined;
@@ -647,9 +729,20 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       const scaleX = targetW && t.logical_w && t.logical_w > 0 ? targetW / t.logical_w : 1;
       const scaleY = targetH && t.logical_h && t.logical_h > 0 ? targetH / t.logical_h : 1;
 
+      // run-scoped dead-reckoning memory (plan A): selector → last resolved rect.
+      // `valid` flips false on ANY scroll (delta unknowable) or navigation
+      // action; expect steps keep entries (they don't move UI).
+      const lastRectBySelector = new Map<string, { x: number; y: number; w: number; h: number; valid: boolean }>();
       for (let si = 0; !skipAllSteps && si < execSteps.length; si++) {
         const s = execSteps[si]!;
         const t0 = Date.now();
+        // invalidation: scrolls and UI-moving actions retire remembered rects
+        if (si > 0) {
+          const prev = execSteps[si - 1]!;
+          if (prev.action === 'scroll' || prev.action === 'tap' || prev.action === 'type' || prev.action === 'arrive' || prev.action === 'refresh' || prev.action === 'swap' || prev.action === 'expectScreen' || prev.action === 'alert') {
+            for (const v of lastRectBySelector.values()) v.valid = false;
+          }
+        }
         // B2: operator abort — checked between steps; remaining steps skipped,
         // run aborted, device freed (B5 guard reads terminal status).
         if (isAborted(runId)) {
@@ -677,7 +770,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
         // credential is a config error, not a transient UI miss.
         // Phase C: variant env merges at the ONE resolution seam —
         // variant > invocation (narrowest scope wins; mergeVariantEnv tested in phase B T1)
-        const resolved = substituteStep(s, mergeVariantEnv(opts.variant ?? null, opts.env ?? {}));
+        const resolved = substituteStep(s, activeEnv);
         if (resolved.error) {
           runStatus = 'failed';
           insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', resolved.error, t0, 0, '[]', JSON.stringify(resolved));
@@ -701,7 +794,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // settle budget injectable for tests (fake hierarchies are static;
             // 8s of real polling would blow vitest's 5s timeout)
             const settleBudgetMs = Number(process.env.CRUCIBLE_EXPECT_SETTLE_MS ?? 8000);
-            const settlePollMs = Number(process.env.CRUCIBLE_EXPECT_POLL_MS ?? 2000);
+            const settlePollMs = Number(process.env.CRUCIBLE_EXPECT_POLL_MS ?? 250);
             const readCount = async (): Promise<{ n: number; nodesL: SnapNode[] } | null> => {
               const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
                 | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
@@ -735,7 +828,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 read = await readCount();
                 if (!read) break;
                 if (read.n === 1) break;
-                const sig = hierarchySig(read.nodesL);
+                const sig = structureSig(read.nodesL);
                 if (sig === prevSig) {
                   quietReads += 1;
                   if (quietReads >= 2) break; // settled and still no match — done waiting
@@ -792,11 +885,44 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           // coordinates are the fallback, not the plan.
           let tx = s.x;
           let ty = s.y;
-          let resolvedBy: 'selector' | 'selector-recentred' | 'coordinate-fallback' | 'coordinate-fallback-scaled' | 'coordinate' | 'coordinate-scaled' | 'selector-point-scaled' | 'selector-sweep' | 'selector-engine' = 'coordinate';
+          let resolvedBy: 'selector' | 'selector-recentred' | 'coordinate-fallback' | 'coordinate-fallback-scaled' | 'coordinate' | 'coordinate-scaled' | 'selector-point-scaled' | 'selector-sweep' | 'selector-engine' | 'projected-point' | 'projected-rect' = 'coordinate';
           let recentredAudit: { recentred: true; distance: number } | null = null;
           let sweepAudit: { swept: boolean; probes: number; hits: number; latencyMs: number; container?: { x: number; y: number; width: number; height: number }; found?: SnapNodeLike } | null = null;
           let lastSettleNodes: SnapNode[] | null = null; // settle poll's last read — sig-before reuse (Task 2)
+          // A (sub-second taps plan 20260926T062210Z rev 2): dead-reckoning.
+          // projected-point: recorded point + selector → dispatch immediately at
+          //   the (scaled) point; selector demoted to post-hoc audit. Fixes
+          //   first-exposure targets (17PM text-kit AX lateness).
+          // projected-rect: selector seen earlier THIS run with no scroll or
+          //   navigation since → dispatch at the remembered rect center.
+          //   Scroll invalidates (delta unknowable — momentum-dependent).
+          // No in-step retry in either path: a miss is caught by the NEXT
+          // verifying step (operator decision 2026-09-26).
+          let projected: { x: number; y: number; by: 'projected-point' | 'projected-rect' } | null = null;
           if ((s.action === 'tap' || s.action === 'type') && s.selector && (s.selector.identifier || s.selector.label)) {
+            const selKey = JSON.stringify(Object.keys(s.selector).sort().reduce<Record<string, unknown>>((acc, k) => { acc[k] = (s.selector as Record<string, unknown>)[k]; return acc; }, {}));
+            const prevStep = si > 0 ? execSteps[si - 1]! : null;
+            const afterScroll = prevStep?.action === 'scroll';
+            if (s.action === 'tap' && s.x !== undefined && s.y !== undefined && !afterScroll) {
+              // recorded-point projection is only safe when no scroll intervened:
+              // a scroll moves targets by an unknowable delta and the recorded
+              // point then points at EMPTY SPACE (live miss 2026-09-26: tap at
+              // (93,644) while the link sat at (243,764) — run_d5b21193).
+              projected = { x: (scaleX !== 1 ? Math.round(s.x * scaleX) : s.x), y: (scaleY !== 1 ? Math.round(s.y * scaleY) : s.y), by: 'projected-point' };
+            } else {
+              const mem = lastRectBySelector.get(selKey);
+              if (mem && mem.valid) {
+                projected = { x: Math.round(mem.x + mem.w / 2), y: Math.round(mem.y + mem.h / 2), by: 'projected-rect' };
+              }
+            }
+            let hit: { x: number; y: number; rect: { x: number; y: number; width: number; height: number } } | null = null;
+            if (projected) {
+              // dead-reckoning fast path: dispatch NOW at the projected point;
+              // the selector is a post-hoc audit trail (resolution attempted
+              // opportunistically after dispatch for the record — never gates).
+              tx = projected.x; ty = projected.y;
+              resolvedBy = projected.by;
+            } else {
             // launch-settle poll (same class as expect A7): a fresh relaunch
             // takes ~2-3s to populate the AX hierarchy — resolving against
             // one immediate snapshot misses the selector and the coordinate
@@ -804,7 +930,6 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // settle budget expires, THEN fall back.
             const settleBudgetMs = Number(process.env.CRUCIBLE_STEP_SETTLE_MS ?? 8000);
             const settlePollMs = Number(process.env.CRUCIBLE_STEP_SETTLE_POLL_MS ?? 60);
-            let hit: { x: number; y: number; rect: { x: number; y: number; width: number; height: number } } | null = null;
             const settleStart = Date.now();
             // ⛔ keep the poll ABORT-AWARE: an operator ■ stop must not wait
             // out an 8s budget inside one step (B2's promise: abort ≤ one
@@ -815,21 +940,55 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // wedges the runner's accessibility capture (live: Sign-Up screen,
             // run_f306cd7c step 2). Require TWO consecutive identical reads.
             let prevSig: string | null = null;
+            let prevCount: number | null = null;
             while (Date.now() - settleStart < settleBudgetMs && !isAborted(runId)) {
               const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
                 | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
               lastSettleNodes = snap.ok ? (snap.result.nodes ?? []) : null;
               hit = snap.ok ? resolveSelector(snap.result.nodes ?? [], s.selector) : null;
               if (hit) {
-                const sig = hierarchySig(lastSettleNodes ?? []);
-                if (sig === prevSig) break; // quiet AND resolvable — dispatch
+                // remember the resolved rect for later dead-reckoning (plan A)
+                const k = JSON.stringify(Object.keys(s.selector!).sort().reduce<Record<string, unknown>>((acc, kk) => { acc[kk] = (s.selector as Record<string, unknown>)[kk]; return acc; }, {}));
+                const prevRect = lastRectBySelector.get(k);
+                lastRectBySelector.set(k, { x: hit.rect.x, y: hit.rect.y, w: hit.rect.width, h: hit.rect.height, valid: true });
+                // target-scoped quiet: the TARGET's own rect repeated across two
+                // reads — enough to act. Global structure still churns on big
+                // sims long after the target is stable (measured 2026-09-26).
+                if (prevRect && Math.abs(prevRect.x - hit.rect.x) <= 2 && Math.abs(prevRect.y - hit.rect.y) <= 2) break;
+                // legacy global gates (kept for the first resolving read):
+                // quiet = full structure-sig repeat OR node-count stability
+                // (±2 for two consecutive reads). The sig alone over-waits on
+                // big sims where decorative structure (banners, page dots)
+                // reorders continuously while the target sits still and
+                // resolvable (measured 2026-09-26: 3.9-4.4s settle on a
+                // resolved target, runs c01c0f7a/49d0e794).
+                const nodes = lastSettleNodes ?? [];
+                const sig = structureSig(nodes);
+                const countStable = prevCount !== null && Math.abs(nodes.length - prevCount) <= 2;
+                if (sig === prevSig || countStable) break;
                 prevSig = sig;
+                prevCount = nodes.length;
+              } else if (lastSettleNodes && countMatches(lastSettleNodes, s.selector) > 0) {
+                // Present but NOT resolvable — the matched node is a container
+                // (resolveSelector nulls by design: its center may sit on a
+                // different control). The dispatch will use the recorded point
+                // anyway, so gate on presence + coarse stability: node count
+                // within ±2 for two consecutive reads. Full structure-sig
+                // equality over-waits on big sims where decorative structure
+                // settles slowly (measured 2026-09-26 run_c01c0f7a: 3.9s of
+                // settle on a resolved target, whole-sig never repeated).
+                if (prevCount !== null && Math.abs(lastSettleNodes.length - prevCount) <= 2) break;
+                prevCount = lastSettleNodes.length;
               } else {
                 prevSig = null; // target absent: keep polling, no stability memory
+                prevCount = null;
               }
               await new Promise((r) => setTimeout(r, settlePollMs));
             }
-            if (hit) {
+            }
+            if (projected && hit === null) {
+              // projection already set tx/ty/resolvedBy; skip the ladder
+            } else if (hit) {
               // Recorded point is the ground truth of intent. The selector's
               // job is to CONFIRM the target is present, never to recentre:
               // ancestors/containers cover their children, so "point inside
@@ -848,23 +1007,33 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               const sy = (scaleX !== 1 || scaleY !== 1) && s.y !== undefined ? Math.round(s.y * scaleY) : s.y;
               // scaled points carry KNOWN error — "near" must mean NEAR (Task 4)
               const slack = (scaleX !== 1 || scaleY !== 1) ? 24 : 44; // pt — covers two-line link rects vs visible text run
-              const near = sx !== undefined && sy !== undefined &&
-                sx >= hit.rect.x - slack && sx <= hit.rect.x + hit.rect.width + slack &&
-                sy >= hit.rect.y - slack && sy <= hit.rect.y + hit.rect.height + slack;
-              if (near) {
-                tx = sx as number; ty = sy as number;
-                resolvedBy = (sx === s.x && sy === s.y) ? 'selector' : 'selector-point-scaled';
+              // selector-only steps (no recorded point — identifier/label
+              // overloads): the resolved hit center IS the aim, full stop.
+              // No recorded point exists to confirm, recentre, or fall back
+              // to — skip the near/recentre ladder entirely (the old
+              // fall-through mislabeled these 'selector-recentred' with a
+              // distance measured against the ORIGIN).
+              if (s.x === undefined || s.y === undefined) {
+                tx = hit.x; ty = hit.y; resolvedBy = 'selector';
               } else {
-                const safe = resolveSelector(lastSettleNodes ?? [], s.selector, 'recentre');
-                if (safe) {
-                  tx = safe.x; ty = safe.y; resolvedBy = 'selector-recentred';
-                  recentredAudit = { recentred: true, distance: Math.round(Math.hypot((tx ?? 0) - (sx ?? 0), (ty ?? 0) - (sy ?? 0))) };
+                const near = sx !== undefined && sy !== undefined &&
+                  sx >= hit.rect.x - slack && sx <= hit.rect.x + hit.rect.width + slack &&
+                  sy >= hit.rect.y - slack && sy <= hit.rect.y + hit.rect.height + slack;
+                if (near) {
+                  tx = sx as number; ty = sy as number;
+                  resolvedBy = (sx === s.x && sy === s.y) ? 'selector' : 'selector-point-scaled';
                 } else {
-                  // wrapper unsafe to recentre onto → scaled coordinate fallback
-                  if ((scaleX !== 1 || scaleY !== 1) && s.x !== undefined && s.y !== undefined) {
-                    tx = Math.round(s.x * scaleX); ty = Math.round(s.y * scaleY);
-                  } else { tx = s.x; ty = s.y; }
-                  resolvedBy = 'coordinate-fallback';
+                  const safe = resolveSelector(lastSettleNodes ?? [], s.selector, 'recentre');
+                  if (safe) {
+                    tx = safe.x; ty = safe.y; resolvedBy = 'selector-recentred';
+                    recentredAudit = { recentred: true, distance: Math.round(Math.hypot((tx ?? 0) - (sx ?? 0), (ty ?? 0) - (sy ?? 0))) };
+                  } else {
+                    // wrapper unsafe to recentre onto → scaled coordinate fallback
+                    if (scaleX !== 1 || scaleY !== 1) {
+                      tx = Math.round(s.x * scaleX); ty = Math.round(s.y * scaleY);
+                    } else { tx = s.x; ty = s.y; }
+                    resolvedBy = 'coordinate-fallback';
+                  }
                 }
               }
             } else {
@@ -926,6 +1095,11 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 // on a DIFFERENT-SIZED device the raw recorded coordinates
                 // would land off-target (the scaling branch above is skipped
                 // when a selector exists). Scale the fallback coordinates too.
+                if (s.x === undefined || s.y === undefined) {
+                  // selector-only step whose selector never resolved — no
+                  // recorded point exists to fall back to. Fail honestly.
+                  throw new Error(`selector tap never resolved on: ${JSON.stringify(s.selector)} — no recorded point as fallback`);
+                }
                 if ((scaleX !== 1 || scaleY !== 1) && s.x !== undefined && s.y !== undefined) {
                   tx = Math.round(s.x * scaleX);
                   ty = Math.round(s.y * scaleY);
@@ -945,6 +1119,60 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               continue;
             }
             throw new Error(why);
+          }
+          // R2 verbs (S5): screen-state runner steps. Write-only branch like
+          // location — outcome rows carry the verdict; failures fail the run
+          // and skip the rest (same shape as location/alert handling).
+          if (s.action === 'arrive' || s.action === 'refresh' || s.action === 'swap' || s.action === 'expectScreen') {
+            // lazy runner: constructed once, registry loaded on first use
+            if (!screenRunner) {
+              const { ScreenRunner } = await import('./screen-runner.ts');
+              const svc = forgeStateService(deps);
+              screenRunner = new ScreenRunner({
+                db: deps.db,
+                appBundleId: appToLaunch,
+                runId,
+                udid,
+                dispatch: (tool, input) => alloy.dispatch(tool, input, deps.dispatchDeps) as never,
+                forgeActivate: (rows) => svc.activateScenario(rows),
+                // push-based GUARD 1: the typed bus emits forge.traffic.hit at
+                // traffic-insert time (manager.ts file ingest + proxy.ts live)
+                onTrafficHit: (cb) => deps.bus.on('forge.traffic.hit', cb),
+              });
+            }
+            let outcome: { ok: boolean; code?: string; note: string; waitMs?: number };
+            if (s.action === 'arrive') outcome = await screenRunner.arrive(s.screen!, r2case?.entry?.mode);
+            else if (s.action === 'refresh') outcome = await screenRunner.refresh(s.screen!);
+            else if (s.action === 'swap') {
+              // resolve the swap target id → its scenario ids (swaps ∪ variants)
+              const pool = [...(r2case?.swaps ?? r2case?.worlds ?? []), ...(r2case?.variants ?? [])];
+              const w = pool.find((x) => x.id === s.swap) ?? null;
+              if (w) activeEnv = mergeVariantEnv(w, resolvedBase.env); // ${env.X} follows the active swap target, managed scopes preserved (F1)
+              const names = w ? variantScenarioNames(w) : [];
+              const ids: string[] = [];
+              for (const n of names) {
+                const sid = (deps.db.prepare('SELECT id FROM scenarios WHERE id = ? OR name = ? LIMIT 1').get(n, n) as { id: string } | undefined)?.id;
+                if (sid) ids.push(sid);
+              }
+              outcome = await screenRunner.swap(s.swap!, ids);
+              activeSwap = s.swap!; // evidence attribution: the world this run is IN from here on
+            } else outcome = await screenRunner.expectScreen(s.expectScreen!.screen, s.expectScreen!.state, s.expectScreen!.negate === true);
+            // per-state evidence: a PASSING expect screen captures the frame
+            // that proved the state — swap cases get one screenshot per
+            // world, attachable to the step row like classic expects.
+            const passEv = outcome.ok && s.action === 'expectScreen' ? await recorder.captureStateEvidence() : null;
+            const passEvidence = passEv ? JSON.stringify([passEv]) : '[]';
+            if (outcome.ok) {
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, passEvidence, JSON.stringify({ action: s.action, note: outcome.note, ...(activeSwap ? { swapTarget: activeSwap } : {}), ...(outcome.waitMs !== undefined ? { waitMs: outcome.waitMs, workMs: Math.max(0, (Date.now() - t0) - outcome.waitMs) } : {}) }));
+            } else {
+              runStatus = 'failed';
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', `${outcome.code}: ${outcome.note}`, t0, Date.now() - t0, passEvidence, JSON.stringify({ action: s.action, code: outcome.code }));
+              for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
+                insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null);
+              }
+              break;
+            }
+            continue;
           }
           // location step (Tier 2.3): host-level device fact — no snapshot,
           // no settle/sig logic (the app UI does not change). Write-only
@@ -970,7 +1198,302 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           // ok:true = a dialog was up and handled → pass. ok:false
           // "alert not found" = nothing up → no-op skip (inherently
           // conditional). Any other ok:false = real engine error → fail.
-          if (s.action === 'alert') {
+          if (s.action === 'ensureLogin') {
+            // coordinate-free login preflight: no-op when a session indicator
+            // is already visible; else entry → type credentials (env-resolved)
+            // → submit → verify the session indicator appears. Login returns
+            // to the origin tab (popToRoot semantics), so verification runs
+            // against the entry screen's tree.
+            const cfgRaw = s.ensureLogin!;
+            // screen-form (plan rev 2 S4.2): selectors resolve from the
+            // screens registry login_json. Unknown screen / missing recipe /
+            // partial recipe → explicit step failure, never silent skip.
+            // login resolution (login-as-app-procedure plan): the APP's
+            // procedure wins (app_login row); a legacy screen-level block is
+            // the read-only fallback; inline selectors remain for old cases.
+            // The procedure carries a REAL entry object (tab/deepLink/
+            // navigate) — multi-step entries play per-step (review F1 — the
+            // join('>') hack is gone), verify references (screen, state).
+            type SelSource = { entry: string; phoneField: string; passwordField: string; submit: string; session: string };
+            let selSource: SelSource | null = null;
+            let sessionStateName: string | null = null; // poll this STATE instead of a raw identifier
+            let sessionStateScreen: string | null = null; // …on THIS screen
+            let procedureEntry: { tab?: { identifier?: string; label?: string }; deepLink?: string; navigate?: Array<Record<string, unknown>> } | null = null; // app procedure: play via the entry player
+            const screenRef = (cfgRaw as { screen?: string }).screen;
+            const appLoginRow = (tpl.app_bundle_id
+              ? deps.db.prepare('SELECT login_json FROM app_login WHERE bundle_id = ?').get(tpl.app_bundle_id) as { login_json: string } | undefined
+              : undefined);
+            if (appLoginRow) {
+              type ProcShape = { entry?: { tab?: { identifier?: string; label?: string }; deepLink?: string; navigate?: Array<Record<string, unknown>> }; phone?: string; password?: string; submit?: string; verify?: { screen?: string; state?: string } };
+              let proc: ProcShape | null = null;
+              try { proc = JSON.parse(appLoginRow.login_json) as ProcShape; } catch { proc = null; }
+              if (!proc || !proc.entry || !proc.phone || !proc.password || !proc.submit || !proc.verify?.screen || !proc.verify?.state) {
+                runStatus = 'failed';
+                insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'fail', `ensure login: the app's login flow is incomplete — edit it on the screens page`, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action }));
+                break;
+              }
+              procedureEntry = proc.entry;
+              selSource = { entry: '', phoneField: proc.phone, passwordField: proc.password, submit: proc.submit, session: proc.verify.state };
+              sessionStateName = proc.verify.state;
+              sessionStateScreen = proc.verify.screen;
+            }
+            if (screenRef) {
+              const row = deps.db.prepare('SELECT entry_json, states_json, login_json FROM app_screens WHERE app_bundle_id = ? AND screen_id = ?').get(tpl.app_bundle_id, screenRef) as { entry_json: string; states_json: string; login_json: string | null } | undefined;
+              const failRecipe = (why: string): void => {
+                runStatus = 'failed';
+                insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'fail', `ensure login: screen "${screenRef}" ${why}`, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action }));
+              };
+              if (!row) { failRecipe('is not in the screens registry for this app'); break; }
+              let recipe: Record<string, string> | null = null;
+              try { recipe = row.login_json ? (JSON.parse(row.login_json) as Record<string, string>) : null; } catch { recipe = null; }
+              if (!recipe) { failRecipe('has no login capability'); break; }
+              if ('phone' in recipe) {
+                // v2: controls from the block; entry + session from the screen's own facts
+                const gaps = (['phone', 'password', 'submit', 'session'] as const).filter((k) => typeof recipe[k] !== 'string' || !recipe[k]!.trim());
+                if (gaps.length > 0) { failRecipe(`login capability is missing ${gaps.join(', ')}`); break; }
+                type ScreenEntryShape = { tab?: { identifier?: string; label?: string }; deepLink?: string; navigate?: Array<Record<string, unknown>> };
+                let screenEntry: ScreenEntryShape | null = null;
+                let screenStates: Record<string, unknown> | null = null;
+                try { screenEntry = JSON.parse(row.entry_json) as ScreenEntryShape; } catch { screenEntry = null; }
+                try { screenStates = JSON.parse(row.states_json) as Record<string, unknown>; } catch { screenStates = null; }
+                if (!screenEntry || !screenStates) { failRecipe('has malformed entry/states — cannot derive the login flow'); break; }
+                if (!(recipe['session']! in screenStates)) { failRecipe(`login.session "${recipe['session']}" is not one of its states (has: ${Object.keys(screenStates).join(', ')})`); break; }
+                // legacy v2 fallback routes through the SAME entry player as
+                // the app procedure (per-step navigate playback — the join
+                // hack is dead everywhere, review F1)
+                const hasUsableEntry = !!screenEntry.tab || !!screenEntry.deepLink || (Array.isArray(screenEntry.navigate) && screenEntry.navigate.length > 0);
+                if (!hasUsableEntry) { failRecipe('declares no usable entry for the login flow'); break; }
+                procedureEntry = screenEntry;
+                selSource = { entry: '', phoneField: recipe['phone']!, passwordField: recipe['password']!, submit: recipe['submit']!, session: recipe['session']! };
+                sessionStateName = recipe['session']!;
+                sessionStateScreen = screenRef;
+              } else {
+                // legacy 5-field: literal values as stored
+                const gaps = (['entry', 'phoneField', 'passwordField', 'submit', 'session'] as const).filter((k) => typeof recipe[k] !== 'string' || !recipe[k]!.trim());
+                if (gaps.length > 0) { failRecipe(`login recipe is missing ${gaps.join(', ')}`); break; }
+                selSource = { entry: recipe['entry']!, phoneField: recipe['phoneField']!, passwordField: recipe['passwordField']!, submit: recipe['submit']!, session: recipe['session']! };
+              }
+            }
+            const cfg: Record<string, string | null> = {
+              entry: selSource ? selSource.entry : cfgRaw.entry || null,
+              phoneField: selSource ? selSource.phoneField : cfgRaw.phoneField || null,
+              passwordField: selSource ? selSource.passwordField : cfgRaw.passwordField || null,
+              submit: selSource ? selSource.submit : cfgRaw.submit || null,
+              session: selSource ? selSource.session : cfgRaw.session || null,
+              phone: cfgRaw.phone !== undefined ? expandEnvText(cfgRaw.phone, activeEnv) : null,
+              password: cfgRaw.password !== undefined ? expandEnvText(cfgRaw.password, activeEnv) : null,
+            };
+            const missing = Object.entries(cfg).filter(([, v]) => v === null || v === undefined).map(([k]) => k);
+            if (missing.length > 0) {
+              runStatus = 'failed';
+              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'fail', `missing env: ${missing.join(', ')}`, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action }));
+              break;
+            }
+            const cfgResolved = cfg as unknown as { entry: string; phoneField: string; passwordField: string; submit: string; session: string; phone: string; password: string };
+            const snapNow = async () => {
+              const sn = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
+                | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
+              return sn.ok ? (sn.result.nodes ?? []) : null;
+            };
+            const findOne = (nodes: SnapNode[], key: string): { x: number; y: number } | null => {
+              const byId = resolveSelector(nodes, { identifier: key });
+              if (byId) return byId;
+              const byLabel = resolveSelector(nodes, { label: key });
+              if (byLabel) return byLabel;
+              return resolveSelector(nodes, { labelContains: key });
+            };
+            const settleFind = async (key: string, budgetMs = 10_000): Promise<{ x: number; y: number } | null> => {
+              const t1 = Date.now();
+              while (Date.now() - t1 < budgetMs && !isAborted(runId)) {
+                const nodes = await snapNow();
+                const hit = nodes ? findOne(nodes, key) : null;
+                if (hit) return hit;
+                await new Promise((res2) => setTimeout(res2, 150));
+              }
+              return null;
+            };
+            // session test (D4): v2 = the screen's named STATE holds;
+            // legacy/inline = the raw identifier is present
+            const sessionHolds = async (currentNodes: SnapNode[] | null): Promise<boolean> => {
+              if (!currentNodes) return false;
+              if (!sessionStateName) return findOne(currentNodes, cfgResolved.session) !== null;
+              const stateScreen = sessionStateScreen ?? screenRef;
+              if (!stateScreen) return false;
+              const stateRow = deps.db.prepare('SELECT states_json FROM app_screens WHERE app_bundle_id = ? AND screen_id = ?').get(tpl.app_bundle_id, stateScreen) as { states_json: string } | undefined;
+              if (!stateRow) return false;
+              try {
+                const states = JSON.parse(stateRow.states_json) as Record<string, { all?: Array<Record<string, string>>; any?: Array<Record<string, string>> }>;
+                const def = states[sessionStateName];
+                if (!def) return false;
+                if (def.all && !def.all.every((sel) => findOne(currentNodes, sel.identifier ?? sel.label ?? '') !== null)) return false;
+                if (def.any && !def.any.some((sel) => findOne(currentNodes, sel.identifier ?? sel.label ?? '') !== null)) return false;
+                return true;
+              } catch { return false; }
+            };
+            let nodes = await snapNow();
+            const alreadyIn = await sessionHolds(nodes);
+            if (alreadyIn) {
+              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'pass', sessionStateName ? `already logged in (state "${sessionStateName}" holds)` : 'already logged in (session visible)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, checked: cfgResolved.session }));
+            } else {
+              // state restoration can land the app DIRECTLY on the login
+              // form (iOS scene restore after terminate). If the form is
+              // already up, the entry tap is unnecessary — skip it.
+              const formAlreadyUp = await settleFind(cfgResolved.phoneField, 1500);
+              if (!formAlreadyUp) {
+                if (procedureEntry) {
+                  // the entry PLAYER (review F1): navigate lists play
+                  // PER-STEP (resolve on:/x-y, tap, settle); tab is one
+                  // selector tap; deepLink opens are not tap-playable here.
+                  const playEntryStep = async (onRef: string | undefined, x?: number, y?: number): Promise<void> => {
+                    let tx: number | null = typeof x === 'number' ? x : null;
+                    let ty: number | null = typeof y === 'number' ? y : null;
+                    if (onRef) {
+                      let hit: { x: number; y: number } | null = null;
+                      for (let attempt = 0; attempt < 10 && !hit; attempt++) {
+                        const ns = await snapNow();
+                        hit = ns ? findOne(ns, onRef) : null;
+                        if (!hit) await new Promise((res2) => setTimeout(res2, 500));
+                      }
+                      if (!hit) throw new Error(`ensure login: entry step ${JSON.stringify(onRef)} never appeared`);
+                      tx = hit.x; ty = hit.y;
+                    }
+                    if (tx == null || ty == null) throw new Error('ensure login: entry step has neither on: nor x/y');
+                    const rStep = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: tx, y: ty }, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message?: string } }>, 'ensure login: entry step')) as { ok: boolean; error?: { message?: string } };
+                    if (!rStep.ok) throw new Error(rStep.error?.message ?? 'ensure login: entry step tap failed');
+                    await new Promise((res2) => setTimeout(res2, 400)); // settle between taps
+                  };
+                  const pe = procedureEntry;
+                  if (Array.isArray(pe.navigate) && pe.navigate.length > 0) {
+                    for (const st of pe.navigate) {
+                      const rec = st as Record<string, unknown>;
+                      if (typeof rec['on'] === 'string') await playEntryStep(rec['on']);
+                      else if (typeof rec['x'] === 'number' && typeof rec['y'] === 'number') await playEntryStep(undefined, rec['x'], rec['y']);
+                      else throw new Error('ensure login: entry navigate step has neither on: nor x/y');
+                    }
+                  } else if (pe.tab) {
+                    const tRef = pe.tab.identifier ?? pe.tab.label ?? '';
+                    if (!tRef) throw new Error('ensure login: entry tab has no identifier/label');
+                    await playEntryStep(tRef);
+                  } else {
+                    throw new Error('ensure login: the login flow declares no usable entry');
+                  }
+                } else {
+                  const entryPt = await settleFind(cfgResolved.entry);
+                  if (!entryPt) throw new Error(`ensure login: entry ${JSON.stringify(cfgResolved.entry)} never appeared`);
+                  const r1 = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: entryPt.x, y: entryPt.y }, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message?: string } }>, 'ensure login: open form')) as { ok: boolean; error?: { message?: string } };
+                  if (!r1.ok) throw new Error(r1.error?.message ?? 'ensure login: entry tap failed');
+                }
+              }
+              // resilient fill: custom text fields can fail the runner's
+              // typed-text CONFIRMATION even when the text landed (live
+              // 2026-09-26: phone visibly contained the digits, the error
+              // claimed otherwise). The verb's real gate is downstream —
+              // submit + session-indicator verification — so a fill that
+              // only fails confirmation is retried once (keyboard-state
+              // reset) and then tolerated.
+              const resilientFill = async (x: number, y: number, text: string, what: string): Promise<void> => {
+                for (let attempt = 0; attempt < 2; attempt++) {
+                  const r = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'fill', target: { x, y }, text, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message?: string } }>, `ensure login: ${what}`)) as { ok: boolean; error?: { message?: string } };
+                  if (r.ok) return;
+                  const msg = r.error?.message ?? '';
+                  // secure fields mask their display: the runner reads back
+                  // "⬤ ⬤ ⬤…" and compares against PLAINTEXT — always a
+                  // mismatch. Tolerate when the masked glyph COUNT equals the
+                  // typed length (10 dots for a 10-char password = the fill
+                  // landed); a count mismatch is a wrong fill and fails
+                  // honestly.
+                  const vm = /text entry verification failed: expected .+?, observed ["']([^"']*)["']/i.exec(msg);
+                  if (vm) {
+                    const glyphs = (vm[1] ?? '').replace(/[^⬤•*●]/g, '').length;
+                    if (glyphs === text.length) {
+                      await alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: 370, y: 790 }, settle: false }, deps.dispatchDeps).catch(() => undefined);
+                      await new Promise((res2) => setTimeout(res2, 400));
+                      continue; // mask-parity proves the fill; session check gates
+                    }
+                    throw new Error(`ensure login: ${what} — typed ${text.length} chars but field shows ${glyphs} mask glyphs`);
+                  }
+                  if (!/could not confirm the typed text/i.test(msg)) throw new Error(msg || `ensure login: ${what} failed`);
+                  await alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: 370, y: 790 }, settle: false }, deps.dispatchDeps).catch(() => undefined);
+                  await new Promise((res2) => setTimeout(res2, 400));
+                }
+              };
+              const phone = formAlreadyUp ?? await settleFind(cfgResolved.phoneField);
+              if (!phone) throw new Error(`ensure login: phone field ${JSON.stringify(cfgResolved.phoneField)} never appeared`);
+              await resilientFill(phone.x, phone.y, cfgResolved.phone, 'type phone');
+              const pw = await settleFind(cfgResolved.passwordField);
+              if (!pw) throw new Error(`ensure login: password field ${JSON.stringify(cfgResolved.passwordField)} never appeared`);
+              await resilientFill(pw.x, pw.y, cfgResolved.password, 'type password');
+              const submit = await settleFind(cfgResolved.submit);
+              if (!submit) throw new Error(`ensure login: submit ${JSON.stringify(cfgResolved.submit)} never appeared`);
+              const r4 = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: submit.x, y: submit.y }, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, 'ensure login: submit')) as { ok: boolean; error?: { message: string } };
+              if (!r4.ok) throw new Error(r4.error?.message ?? 'ensure login: submit failed');
+              // verify the session: sessionHolds (hoisted) — v2 polls the
+              // screen's named state; legacy/inline the raw identifier
+              let seen = false;
+              for (let k = 0; k < 60 && !seen && !isAborted(runId); k++) {
+                await new Promise((res2) => setTimeout(res2, 250));
+                nodes = await snapNow();
+                seen = await sessionHolds(nodes);
+              }
+              if (!seen) throw new Error(sessionStateName ? `ensure login: submitted but the screen state "${sessionStateName}" never held` : 'ensure login: submitted but the session indicator never appeared');
+              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'pass', 'logged in (entry → type → submit → verified)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, entry: cfgResolved.entry }));
+            }
+            continue;
+          }
+          if (s.action === 'ensureLogout') {
+            // coordinate-free session preflight: pass-through when logged
+            // out; when a session exists, tap the logout control (identifier
+            // preferred, label fallback), confirm the sheet, verify the
+            // session indicator is GONE. All resolution is live — no
+            // recorded points, cross-device safe by construction.
+            const cfg = s.ensureLogout!;
+            const snapNow = async () => {
+              const sn = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
+                | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
+              return sn.ok ? (sn.result.nodes ?? []) : null;
+            };
+            const findOne = (nodes: SnapNode[], key: string): { x: number; y: number } | null => {
+              // identifier exact, else label exact, else labelContains —
+              // exactly-one rule preserved (duplicate labels do NOT resolve)
+              const byId = resolveSelector(nodes, { identifier: key });
+              if (byId) return byId;
+              const byLabel = resolveSelector(nodes, { label: key });
+              if (byLabel) return byLabel;
+              const byContains = resolveSelector(nodes, { labelContains: key });
+              return byContains;
+            };
+            let nodes = await snapNow();
+            const sessionVisible = nodes ? findOne(nodes, cfg.button) !== null : false;
+            if (!sessionVisible) {
+              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure logout', 'pass', 'already logged out (no session)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, checked: cfg.button }));
+            } else {
+              const btn = nodes ? findOne(nodes, cfg.button) : null;
+              if (!btn) throw new Error(`ensure logout: session indicator ${JSON.stringify(cfg.button)} vanished between reads`);
+              const r1 = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'tap', x: btn.x, y: btn.y }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, 'ensure logout: open sheet')) as { ok: boolean; error?: { message: string } };
+              if (!r1.ok) throw new Error(r1.error?.message ?? 'ensure logout: sheet tap failed');
+              // wait for the confirm control (poll, bounded by the step watchdog)
+              let confirm: { x: number; y: number } | null = null;
+              for (let k = 0; k < 50 && !confirm && !isAborted(runId); k++) {
+                await new Promise((res2) => setTimeout(res2, 100));
+                nodes = await snapNow();
+                confirm = nodes ? findOne(nodes, cfg.confirm) : null;
+              }
+              if (!confirm) throw new Error(`ensure logout: confirm control ${JSON.stringify(cfg.confirm)} never appeared`);
+              const r2 = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'tap', x: confirm.x, y: confirm.y }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, 'ensure logout: confirm')) as { ok: boolean; error?: { message: string } };
+              if (!r2.ok) throw new Error(r2.error?.message ?? 'ensure logout: confirm tap failed');
+              // verify: session indicator gone (allow settle time)
+              let gone = false;
+              for (let k = 0; k < 30 && !gone && !isAborted(runId); k++) {
+                await new Promise((res2) => setTimeout(res2, 200));
+                nodes = await snapNow();
+                gone = nodes ? findOne(nodes, cfg.button) === null : false;
+              }
+              if (!gone) throw new Error('ensure logout: confirm tapped but the session indicator is still visible');
+              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure logout', 'pass', 'session logged out (button → confirm → verified gone)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, button: cfg.button, confirm: cfg.confirm }));
+            }
+            continue;
+          }
+                    if (s.action === 'alert') {
             const act = s.alertAction ?? 'dismiss';
             const alr = (await alloy.dispatch('alloy_alert', { udid, action: act }, deps.dispatchDeps)) as
               | { ok: true; result: { message?: string } }
@@ -988,6 +1511,9 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           }
           // Task 2 — sig-before: reuse the settle poll's last read (selector
           // steps pay ZERO extra snapshots); coordinate steps take one read.
+          // NOTE: screenChanged deliberately uses hierarchySig (label text
+          // included) — a tap that only changes text IS a change worth
+          // surfacing; only the WAIT gates use the churn-immune structureSig.
           let sigBefore: string | null = null;
           if (s.action === 'tap' || s.action === 'type') {
             if (lastSettleNodes) {
@@ -1031,6 +1557,11 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           const nextStep = si + 1 < execSteps.length ? execSteps[si + 1]! : null;
           const nextPollsSelector = !!(nextStep && (nextStep.action === 'tap' || nextStep.action === 'type' || nextStep.action === 'expect')
             && nextStep.selector && (nextStep.selector.identifier || nextStep.selector.label));
+          // D elision is narrower than nextPollsSelector: ONLY an expect next
+          // step purely verifies. tap/type next steps still need this step's
+          // sig-after (the dialog interceptor keys on screenChanged===false —
+          // eliding it broke mid-run dialog correlation; test Task 3b).
+          const nextVerifiesByExpect = !!(nextStep && nextStep.action === 'expect' && nextStep.selector && (nextStep.selector.identifier || nextStep.selector.label));
           if (!nextPollsSelector) {
             const budgetMs = Number(process.env.CRUCIBLE_UI_STABLE_MS ?? 1500);
             await awaitUiStable(async () => {
@@ -1044,8 +1575,11 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           // v1 DECISION: no-change = WARN-pass (toggles/checkboxes legitimately
           // don't change the AX hierarchy); the reason surfaces the lie in the
           // run detail. Upgrade to hard-fail when usage shows warn-noise is low.
+          // D (sub-second taps plan 20260926T062210Z): when the NEXT step
+          // resolves by selector, its settle-poll IS the stronger check —
+          // the sig-after snapshot here is duplicate work and is elided.
           let screenChanged: boolean | undefined;
-          if (sigBefore !== null && (s.action === 'tap' || s.action === 'type')) {
+          if (sigBefore !== null && !nextVerifiesByExpect && (s.action === 'tap' || s.action === 'type')) {
             try {
               const post = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
                 | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
@@ -1190,6 +1724,13 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
         // activeRunId implicitly via the null default — this one is explicit.)
         try { forgeStateService(deps).setActiveRun(null); } catch { /* clear best-effort */ }
       }
+      // managed-env audit (plan rev 2 S2.3): source COUNTS only, never values
+      try {
+        const s = resolvedBase.sources;
+        const parts = [`global(${s.global})`, `app(${s.app})`, `plan(${s.plan})`, `request(${s.request})`];
+        const cur0 = (deps.db.prepare('SELECT note FROM runs WHERE id = ?').get(runId) as { note: string | null } | undefined)?.note ?? '';
+        deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run((cur0 ? `${cur0}\n` : '') + `env sources: ${parts.join(' ')}`, runId);
+      } catch { /* audit line best-effort */ }
       // policy audit lines — appended to whatever note exists
       if (noteLines.length > 0) {
         try {

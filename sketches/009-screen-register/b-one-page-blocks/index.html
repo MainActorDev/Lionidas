@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>register screen · one page</title>
+<link rel="stylesheet" href="../../005-env-page/tokens.css">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  button { background: none; border: none; color: inherit; font: inherit; cursor: pointer; }
+  body { background: var(--color-void); font-family: var(--font-mono); color: var(--color-paper); font-size: var(--text-body); padding: var(--s-4) var(--s-5); }
+
+  .page-header { border-bottom: 1px solid var(--color-iron); padding-bottom: var(--s-3); margin-bottom: var(--s-4); }
+  .ph-row1 { display: flex; align-items: center; gap: var(--s-3); }
+  .ph-title { font-size: var(--text-heading-sm); font-weight: var(--weight-bold); }
+  .section-label { font-size: var(--text-caption); font-weight: var(--weight-bold); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-steel); margin: var(--s-4) 0 var(--s-2); }
+
+  .fld { display: flex; align-items: center; gap: var(--s-2); margin-bottom: var(--s-2); }
+  .fld .k { width: 110px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-steel); flex-shrink: 0; }
+  .fld input, .fld select { background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 6px var(--s-2); flex: 1; }
+  .hint { font-size: 11px; color: var(--color-steel); margin: var(--s-1) 0; }
+
+  /* sections as full-width blocks, house list rhythm */
+  .block { border: 1px solid var(--color-iron); margin-bottom: var(--s-3); }
+  .block-h { background: var(--color-carbon); padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--color-iron); display: flex; align-items: baseline; gap: var(--s-2); }
+  .block-h .t { font-size: var(--text-caption); font-weight: var(--weight-bold); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-fog); }
+  .block-h .req { font-size: 10px; color: var(--color-ember); }
+  .block-h .opt { font-size: 10px; color: var(--color-steel); }
+  .block-b { padding: var(--s-3); }
+
+  .steps { display: flex; flex-direction: column; gap: var(--s-1); margin: var(--s-2) 0; }
+  .step { display: flex; align-items: center; gap: var(--s-2); background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: var(--s-1) var(--s-2); font-size: var(--text-caption); }
+  .step .n { color: var(--color-ember); font-weight: var(--weight-bold); }
+  .step .sel { color: var(--color-chalk); background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 0 var(--s-2); }
+  .step .del { margin-left: auto; color: var(--color-pewter); font-size: 11px; }
+  .step .del:hover { color: var(--color-ember); }
+  .step-add { display: flex; gap: var(--s-2); }
+  .step-add input { background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 5px var(--s-2); }
+
+  .btn { display: inline-flex; align-items: center; gap: var(--s-2); padding: 6px var(--s-3); background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-body); min-height: 30px; cursor: pointer; }
+  .btn:hover { background: var(--color-graphite); border-color: var(--color-slate); }
+  .btn-primary { background: var(--color-ember); border-color: var(--color-ember); color: var(--color-paper); font-weight: var(--weight-bold); }
+  .save-bar { position: sticky; bottom: 0; background: var(--color-void); border-top: 1px solid var(--color-iron); padding: var(--s-2) 0; display: flex; align-items: center; gap: var(--s-2); margin-top: var(--s-3); }
+  .completeness { font-size: var(--text-caption); color: var(--color-steel); flex: 1; }
+  .completeness b { color: var(--color-fog); }
+  .toast { position: fixed; right: var(--s-4); bottom: var(--s-4); background: var(--color-graphite); border: 1px solid var(--color-slate); border-radius: var(--r-sm); color: var(--color-fog); font-size: var(--text-caption); padding: var(--s-2) var(--s-3); display: none; z-index: 20; }
+</style>
+</head>
+<body>
+  <div class="page-header"><div class="ph-row1"><span class="ph-title">register screen</span></div></div>
+
+  <div class="block"><div class="block-h"><span class="t">identity</span><span class="req">required</span></div><div class="block-b">
+    <div class="fld"><span class="k">id</span><input placeholder="shipment-details" oninput="D.id=this.value;tick()"></div>
+    <div class="hint">cases reference the screen by this id — arrive / refresh / expect screen</div>
+  </div></div>
+
+  <div class="block"><div class="block-h"><span class="t">entry</span><span class="req">required</span></div><div class="block-b">
+    <div class="fld"><span class="k">kind</span><select onchange="D.entryMode=this.value;render()">
+      <option value="tab">tab tap</option>
+      <option value="deepLink">deep link</option>
+      <option value="navigate">navigate — tap steps</option>
+    </select></div>
+    <div id="entry-body"></div>
+  </div></div>
+
+  <div class="block"><div class="block-h"><span class="t">refresh</span><span class="opt">optional</span></div><div class="block-b">
+    <div class="fld"><span class="k">gesture</span><select onchange="D.refresh=this.value;tick()">
+      <option value="">none</option>
+      <option value="pull">pull</option><option value="tab-retap">tab-retap</option>
+      <option value="back-forward">back-forward</option><option value="signal">signal</option>
+    </select></div>
+  </div></div>
+
+  <div class="block"><div class="block-h"><span class="t">states</span><span class="opt">optional</span></div><div class="block-b">
+    <div class="steps" id="states"></div>
+    <div class="step-add">
+      <input id="st-n" placeholder="state name — loaded" style="flex:0 0 130px">
+      <input id="st-a" placeholder="assertion — {identifier: tracking_status_label}" onkeydown="if(event.key==='Enter')addState()">
+      <button class="btn" onclick="addState()">+ state</button>
+    </div>
+    <div class="hint">cases assert these — expect screen: shipment.loaded</div>
+  </div></div>
+
+  <div class="block"><div class="block-h"><span class="t">login recipe</span><span class="opt">optional · one screen per app</span></div><div class="block-b">
+    <label style="font-size:var(--text-caption);color:var(--color-fog)"><input type="checkbox" onchange="D.login=this.checked;render()"> this screen carries the login recipe</label>
+    <div id="login-body"></div>
+  </div></div>
+
+  <div class="save-bar">
+    <span class="completeness" id="comp"></span>
+    <button class="btn">cancel</button>
+    <button class="btn btn-primary" onclick="save()">save screen</button>
+  </div>
+  <div class="toast" id="toast"></div>
+
+<script>
+const D = { id: '', entryMode: 'tab', tabSel: '', steps: [], refresh: '', states: [], login: false, loginF: { entry:'', phoneField:'', passwordField:'', submit:'', session:'' } };
+function render() {
+  document.getElementById('entry-body').innerHTML = D.entryMode === 'tab'
+    ? `<div class="fld"><span class="k">selector</span><input placeholder="identifier or label — home_tab_tracking" oninput="D.tabSel=this.value;tick()"></div><div class="hint">one tap on a tab bar item</div>`
+    : D.entryMode === 'deepLink'
+    ? `<div class="fld"><span class="k">url</span><input placeholder="lionparcel://tracking" oninput="D.tabSel=this.value;tick()"></div>`
+    : `<div class="steps">${D.steps.map((s,i) => `<div class="step"><span class="n">${i+1}</span> tap <span class="sel">${s}</span><button class="del" onclick="D.steps.splice(${i},1);render();tick()">remove</button></div>`).join('')}</div>
+       <div class="step-add"><input id="nv-step" placeholder="accessibility identifier — track_shipment_card" onkeydown="if(event.key==='Enter')addStep()"><button class="btn" onclick="addStep()">+ step</button></div>
+       <div class="hint">multi-hop: selectors in order — no coordinates</div>`;
+  document.getElementById('states').innerHTML = D.states.map((s,i) =>
+    `<div class="step"><span class="n">${i+1}</span> <span style="color:var(--color-paper);min-width:90px">${s.name}</span> holds when <span class="sel">${s.assert}</span><button class="del" onclick="D.states.splice(${i},1);render();tick()">remove</button></div>`).join('');
+  const fs = ['entry','phoneField','passwordField','submit','session'];
+  document.getElementById('login-body').innerHTML = D.login
+    ? fs.map(f => `<div class="fld"><span class="k">${f}</span><input value="${D.loginF[f]}" placeholder="identifier" oninput="D.loginF['${f}']=this.value;tick()"></div>`).join('')
+    : '';
+  tick();
+}
+function tick() {
+  const have = [!!D.id, D.entryMode === 'navigate' ? D.steps.length > 0 : !!D.tabSel, true, D.states.length > 0, D.login];
+  const names = ['identity', 'entry', 'refresh', 'states', 'login'];
+  const done = have.filter(Boolean).length;
+  const missing = names.filter((_, i) => !have[i] && i < 2);
+  document.getElementById('comp').innerHTML = missing.length
+    ? `missing: <b>${missing.join(', ')}</b>`
+    : `<b>${done}/5</b> sections · ready to save`;
+}
+function addStep() { const i = document.getElementById('nv-step'); if (!i.value.trim()) return; D.steps.push(i.value.trim()); i.value = ''; render(); }
+function addState() { const n = document.getElementById('st-n'), a = document.getElementById('st-a'); if (!n.value.trim() || !a.value.trim()) return; D.states.push({ name: n.value.trim(), assert: a.value.trim() }); n.value = ''; a.value = ''; render(); }
+function save() { toast(`saved ${D.id} — ${D.states.length} states${D.login ? ' + login recipe' : ''}`); }
+function toast(m) { const t = document.getElementById('toast'); t.textContent = m; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 2000); }
+render();
+</script>
+</body>
+</html>

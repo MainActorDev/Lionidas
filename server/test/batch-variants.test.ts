@@ -11,6 +11,8 @@ import type { AlloyExports } from '../src/alloy/client.ts';
 import type { SnapNode } from '../src/manual/selector.ts';
 import { migrateM1 } from '../src/db/schema.ts';
 import { planLanes } from '../src/manual/batch/plan.ts';
+import { hasAlloy } from './helpers/capabilities.ts';
+const describeIfAlloy = describe.skipIf(!(hasAlloy()));  // variant lanes play through the alloy runtime
 
 let db: Database.Database;
 let tmp: string;
@@ -66,7 +68,7 @@ function seedTemplate(id: string, steps: unknown[], variants: unknown[] | null):
 
 const STEPS = [{ idx: 0, action: 'expect', selector: { label: 'Anything' } }];
 
-describe('planLanes — variantId dedupe (unit)', () => {
+describeIfAlloy('planLanes — variantId dedupe (unit)', () => {
   it('templateId+variantId dedupes; same template different variants BOTH survive', () => {
     const lanes = planLanes({
       cases: [
@@ -82,7 +84,7 @@ describe('planLanes — variantId dedupe (unit)', () => {
   });
 });
 
-describe('runBatch — variant expansion (route)', () => {
+describeIfAlloy('runBatch — variant expansion (route)', () => {
   it('2-variant case + plain case → 3 stamped runs', { timeout: 60_000 }, async () => {
     seedTemplate('tpl_bv', STEPS, [{ id: 'on', env: { t: '1' } }, { id: 'off', env: { t: '0' } }]);
     seedTemplate('tpl_bp', STEPS, null);

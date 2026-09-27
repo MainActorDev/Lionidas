@@ -79,5 +79,17 @@ export function resolveSelector(nodes: SnapNode[], sel: StepSelector, mode: 'con
   const node = pool[0]!;
   if (mode === 'recentre' ? isRecentreUnsafe(node) : isContainerNode(node)) return null; // coordinate fallback is more precise
   const r = node.rect!;
+  // Link aim: a WRAPPED link's rect spans every line it occupies — the
+  // geometric center can sit on a DIFFERENT link's line (live 2026-09-26:
+  // 'Terms & Conditions' two-line rect, center landed on the Privacy link
+  // and the tnc case opened the wrong document). Aim at the link's text
+  // START (first line) instead — deterministic for any wrap.
+  if (node.type === 'Link') {
+    // Aim at the LAST line: inline links flow AFTER surrounding plain text,
+    // so the link's glyphs sit on the final line of its (possibly wrapped)
+    // rect — the first line is often plain text (live 2026-09-26: tapping
+    // the first line hit nothing; the glyphs were on line 2).
+    return { x: Math.round(r.x + Math.min(r.width * 0.5, 60)), y: Math.round(r.y + r.height - Math.min(r.height * 0.25, 14)), rect: r };
+  }
   return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), rect: r };
 }

@@ -12,6 +12,8 @@ import { migrateM1 } from '../src/db/schema.ts';
 import { createEventBus, type AppEvents } from '../src/ws/bus.ts';
 import { writeStateFile, startMitm } from '../src/forge/mitm/manager.ts';
 import type { Preset } from '../src/forge/matcher.ts';
+import { hasMitmdump } from './helpers/capabilities.ts';
+const describeIf = describe.skipIf(!(hasMitmdump()));
 
 const stateDir = mkdtempSync(join(tmpdir(), 'mitm-e2e-'));
 const db = new Database(':memory:');
@@ -39,7 +41,8 @@ const P = (over: Partial<Preset> & { id: string }): Preset => ({
   method: 'GET', pathPattern: '/api/x', match: 'exact', status: 200, ...over,
 });
 
-describe('forge mitm e2e (real mitmdump)', () => {
+// capability gate: needs mitmdump live (brew install mitmproxy)
+describeIf('forge mitm e2e (real mitmdump)', () => {
   it('preset hit / miss passthrough / seq / malformed / traffic rows', async () => {
     // preset on /api/x (intercept); miss on /real → hybrid passthrough to local upstream
     writeStateFile(stateDir, 'hybrid', [

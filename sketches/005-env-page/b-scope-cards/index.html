@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>env · scopes</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+/* alias shim (a/b/c legacy short names → shared tokens) */
+:root { --void:var(--color-void); --carbon:var(--color-carbon); --graphite:var(--color-graphite); --iron:var(--color-iron); --slate:var(--color-slate); --pewter:var(--color-pewter); --steel:var(--color-steel); --ash:var(--color-ash); --fog:var(--color-fog); --chalk:var(--color-chalk); --paper:var(--color-paper); --ember:var(--color-ember); --ember-dim:var(--color-ember-dim); --moss:var(--color-fog); --mono:var(--font-mono); }
+
+  * { box-sizing:border-box; margin:0; padding:0; }
+  
+  body { background:var(--void); font-family:var(--mono); color:var(--paper); padding:20px; font-size:12px; }
+  .page-title { font-size:16px; font-weight:700; }
+  .page-sub { font-size:10px; color:var(--steel); margin-top:3px; margin-bottom:18px; }
+  .group { border:1px solid var(--iron); margin-bottom:16px; }
+  .group-h { display:flex; justify-content:space-between; align-items:center; background:var(--carbon); padding:10px 14px; border-bottom:1px solid var(--iron); }
+  .group-h .t { font-size:11px; font-weight:700; letter-spacing:.08em; }
+  .group-h .sub { font-size:9px; color:var(--steel); margin-left:8px; }
+  .group-h button { background:none; border:1px solid var(--slate); color:var(--fog); font-family:var(--mono); font-size:9px; padding:3px 8px; cursor:pointer; }
+  .group-h button:hover { border-color:var(--ember); color:var(--ember); }
+  .var { display:flex; align-items:baseline; gap:14px; padding:9px 14px; border-bottom:1px solid var(--graphite); }
+  .var:last-child { border-bottom:none; }
+  .var:hover { background:var(--graphite); }
+  .key { font-weight:700; min-width:180px; }
+  .val { color:var(--chalk); word-break:break-all; flex:1; }
+  .masked { color:var(--steel); letter-spacing:.2em; }
+  .badge { font-size:8px; letter-spacing:.12em; padding:1px 5px; margin-left:6px; border:1px solid var(--moss); color:var(--moss); text-transform:uppercase; }
+  .note { color:var(--ash); font-size:10px; }
+  .meta { color:var(--steel); font-size:9px; white-space:nowrap; }
+  .var button { background:none; border:none; color:var(--pewter); font-family:var(--mono); font-size:9px; cursor:pointer; }
+  .var button:hover { color:var(--ember); }
+  .inline-add { display:none; gap:8px; padding:10px 14px; border-top:1px solid var(--iron); align-items:center; background:var(--carbon); }
+  .inline-add.open { display:flex; }
+  .inline-add input { background:var(--graphite); border:1px solid var(--iron); color:var(--paper); font-family:var(--mono); font-size:10px; padding:6px 8px; }
+  .inline-add input.k { width:170px; } .inline-add input.v { flex:1; }
+  .inline-add button { background:var(--ember); border:none; color:#000; font-family:var(--mono); font-size:10px; font-weight:700; padding:6px 12px; cursor:pointer; }
+  .dlg-wrap { position:fixed; inset:0; background:rgba(0,0,0,.72); display:none; align-items:center; justify-content:center; }
+  .dlg-wrap.open { display:flex; }
+  .dlg { background:var(--carbon); border:1px solid var(--slate); padding:18px; width:380px; }
+  .dlg h3 { font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--fog); margin-bottom:12px; }
+  .dlg label { font-size:9px; color:var(--steel); display:block; margin:8px 0 3px; letter-spacing:.1em; text-transform:uppercase; }
+  .dlg input { width:100%; background:var(--graphite); border:1px solid var(--iron); color:var(--paper); font-family:var(--mono); font-size:11px; padding:7px 8px; }
+  .dlg .row { display:flex; gap:8px; justify-content:flex-end; margin-top:14px; }
+  .dlg .cancel { background:none; border:1px solid var(--slate); color:var(--fog); }
+  .dlg .save { background:var(--ember); border:none; color:#000; font-weight:700; }
+  .dlg button { font-family:var(--mono); font-size:10px; padding:6px 12px; cursor:pointer; }
+  .toast { position:fixed; right:16px; bottom:16px; background:var(--carbon); border:1px solid var(--moss); color:var(--moss); font-size:10px; padding:8px 12px; display:none; }
+</style>
+</head>
+<body>
+  <div class="page-title">env</div>
+  <div class="page-sub">one card per scope · resolution: global &lt; app &lt; plan &lt; request &lt; variant</div>
+  <div id="groups"></div>
+
+  <div class="dlg-wrap" id="dlg"><div class="dlg">
+    <h3 id="d-title">edit</h3>
+    <label>value <span style="color:var(--steel)" id="d-keep">(blank keeps current secret)</span></label>
+    <input type="text" id="d-val">
+    <label>note</label>
+    <input type="text" id="d-note">
+    <div class="row"><button class="cancel" onclick="closeDlg()">cancel</button><button class="save" onclick="saveDlg()">save</button></div>
+  </div></div>
+  <div class="toast" id="toast"></div>
+
+<script>
+let DATA = {
+  global: { sub:'every app, every plan', vars: [
+    { key:'FORGE_TLS_PIN', value:'sha256/9m3k…', secret:false, note:'mitm pin for forge', by:'qa', at:'09-24 14:02' },
+    { key:'DRILL_PHONE', value:'1112131415', secret:false, note:'fallback drill phone', by:'qa', at:'09-26 19:12' },
+  ]},
+  apps: [
+    { bundle:'com.lioparcel.services.consumer.int-dev', vars: [
+      { key:'DRILL_PHONE', value:'1112131415', secret:false, note:'overrides global for this app', by:'qa', at:'09-26 19:12' },
+      { key:'DRILL_PASSWORD', value:'•••••', secret:true, note:'int-dev drill creds', by:'qa', at:'09-26 19:12' },
+    ]},
+    { bundle:'com.lioparcel.services.consumer.int', vars: [] },
+  ],
+  plans: [
+    { name:'pl_regression', vars: [
+      { key:'COUNTRY_CODE', value:'ID', secret:false, note:'lane scope test', by:'qa', at:'09-25 10:40' },
+    ]},
+  ],
+};
+function varRow(v, gi, vi, ctx) {
+  return `<div class="var">
+    <span class="key">${v.key}${v.secret ? '<span class="badge">set</span>' : ''}</span>
+    <span class="${v.secret ? 'masked' : 'val'}">${v.secret ? '•••••' : v.value}</span>
+    <span class="note">${v.note || ''}</span>
+    <span class="meta">${v.by} ${v.at}</span>
+    <button onclick="edit('${ctx}',${gi},${vi})">edit</button>
+    <button onclick="del('${ctx}',${gi},${vi})">del</button>
+  </div>`;
+}
+function render() {
+  let h = '';
+  h += `<div class="group"><div class="group-h"><span><span class="t">global</span><span class="sub">${DATA.global.sub}</span></span><button onclick="toggleAdd('g')">+ var</button></div>`
+    + DATA.global.vars.map((v,vi) => varRow(v,0,vi,'global')).join('')
+    + `<div class="inline-add" id="add-g"><input class="k" placeholder="KEY_NAME"><input class="v" placeholder="value"><label style="font-size:9px;color:var(--steel)"><input type="checkbox" class="sec"> secret</label><button onclick="addGlobal()">add</button></div></div>`;
+  for (const [ai, app] of DATA.apps.entries()) {
+    h += `<div class="group"><div class="group-h"><span><span class="t">app</span><span class="sub">${app.bundle}</span></span><button onclick="toggleAdd('a${ai}')">+ var</button></div>`
+      + (app.vars.map((v,vi) => varRow(v,ai,vi,'app')).join('') || '<div class="var" style="color:var(--steel)">no vars</div>')
+      + `<div class="inline-add" id="add-a${ai}"><input class="k" placeholder="KEY_NAME"><input class="v" placeholder="value"><label style="font-size:9px;color:var(--steel)"><input type="checkbox" class="sec"> secret</label><button onclick="addApp(${ai})">add</button></div></div>`;
+  }
+  for (const [pi, plan] of DATA.plans.entries()) {
+    h += `<div class="group"><div class="group-h"><span><span class="t">plan</span><span class="sub">${plan.name}</span></span><button onclick="toggleAdd('p${pi}')">+ var</button></div>`
+      + (plan.vars.map((v,vi) => varRow(v,pi,vi,'plan')).join('') || '<div class="var" style="color:var(--steel)">no vars</div>')
+      + `<div class="inline-add" id="add-p${pi}"><input class="k" placeholder="KEY_NAME"><input class="v" placeholder="value"><label style="font-size:9px;color:var(--steel)"><input type="checkbox" class="sec"> secret</label><button onclick="addPlan(${pi})">add</button></div></div>`;
+  }
+  document.getElementById('groups').innerHTML = h;
+}
+function toggleAdd(id) { const el = document.getElementById('add-' + id); el.classList.toggle('open'); }
+function readAdd(id) { const el = document.getElementById('add-' + id); return { k: el.querySelector('.k').value.trim(), v: el.querySelector('.v').value, sec: el.querySelector('.sec').checked, el }; }
+function addGlobal() { const {k,v,sec} = readAdd('g'); if (!k || v==='') return toast('key and value required'); DATA.global.vars.push({key:k, value:sec?'•••••':v, secret:sec, note:'', by:'qa', at:'now'}); render(); toast('added '+k); }
+function addApp(i) { const {k,v,sec} = readAdd('a'+i); if (!k || v==='') return toast('key and value required'); DATA.apps[i].vars.push({key:k, value:sec?'•••••':v, secret:sec, note:'', by:'qa', at:'now'}); render(); toast('added '+k); }
+function addPlan(i) { const {k,v,sec} = readAdd('p'+i); if (!k || v==='') return toast('key and value required'); DATA.plans[i].vars.push({key:k, value:sec?'•••••':v, secret:sec, note:'', by:'qa', at:'now'}); render(); toast('added '+k); }
+let __edit = null;
+function edit(ctx, gi, vi) {
+  const v = ctx==='global' ? DATA.global.vars[vi] : ctx==='app' ? DATA.apps[gi].vars[vi] : DATA.plans[gi].vars[vi];
+  __edit = { ctx, gi, vi };
+  document.getElementById('d-title').textContent = 'edit ' + v.key;
+  document.getElementById('d-keep').style.display = v.secret ? 'inline' : 'none';
+  document.getElementById('d-val').value = '';
+  document.getElementById('d-note').value = v.note;
+  document.getElementById('dlg').classList.add('open');
+}
+function del(ctx, gi, vi) {
+  if (ctx==='global') DATA.global.vars.splice(vi,1);
+  else if (ctx==='app') DATA.apps[gi].vars.splice(vi,1);
+  else DATA.plans[gi].vars.splice(vi,1);
+  render(); toast('deleted');
+}
+function closeDlg() { document.getElementById('dlg').classList.remove('open'); }
+function saveDlg() {
+  if (!__edit) return closeDlg();
+  const v = __edit.ctx==='global' ? DATA.global.vars[__edit.vi] : __edit.ctx==='app' ? DATA.apps[__edit.gi].vars[__edit.vi] : DATA.plans[__edit.gi].vars[__edit.vi];
+  const nv = document.getElementById('d-val').value;
+  if (nv !== '') v.value = nv;
+  v.note = document.getElementById('d-note').value;
+  closeDlg(); render(); toast('saved ' + v.key);
+}
+function toast(m) { const t = document.getElementById('toast'); t.textContent = m; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 1600); }
+render();
+</script>
+</body>
+</html>

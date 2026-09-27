@@ -10,6 +10,8 @@ import { __setAlloyForTest } from '../src/alloy/client.ts';
 import type { AlloyExports } from '../src/alloy/client.ts';
 import type { SnapNode } from '../src/manual/selector.ts';
 import { migrateM1 } from '../src/db/schema.ts';
+import { hasAlloy } from './helpers/capabilities.ts';
+const describeIfAlloy = describe.skipIf(!(hasAlloy()));  // play routes init the alloy runtime lazily
 
 let db: Database.Database;
 let tmp: string;
@@ -85,7 +87,7 @@ const THREE = [
   { id: 'rejected', env: { t: 'R' } },
 ];
 
-describe('POST /api/templates/:id/play — variant expansion', () => {
+describeIfAlloy('POST /api/templates/:id/play — variant expansion', () => {
   it('no variants → exactly today\'s response shape {runId, udid}', async () => {
     seedTemplate('tpl_s1', STEPS, null);
     const r = await app.app.inject({ method: 'POST', url: '/api/templates/tpl_s1/play', payload: {} });

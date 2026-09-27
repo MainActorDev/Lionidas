@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>register screen · staged</title>
+<link rel="stylesheet" href="../../005-env-page/tokens.css">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  button { background: none; border: none; color: inherit; font: inherit; cursor: pointer; }
+  body { background: var(--color-void); font-family: var(--font-mono); color: var(--color-paper); font-size: var(--text-body); padding: var(--s-4) var(--s-5); }
+
+  .page-title { font-size: var(--text-heading-sm); font-weight: var(--weight-bold); margin-bottom: var(--s-2); }
+  .page-sub { font-size: var(--text-caption); color: var(--color-steel); margin-bottom: var(--s-4); }
+
+  /* the staged dialog */
+  .dlg-wrap { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: flex; align-items: center; justify-content: center; z-index: 10; }
+  .dlg { background: var(--color-graphite); border: 1px solid var(--color-slate); border-radius: var(--r-sm); padding: var(--s-4); width: 560px; max-height: 86vh; overflow-y: auto; }
+  .dlg h3 { font-size: var(--text-caption); font-weight: var(--weight-bold); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-fog); margin-bottom: var(--s-3); }
+
+  /* stage rail: 1 identity · 2 entry · 3 refresh · 4 states · 5 login */
+  .stages { display: flex; gap: var(--s-1); margin-bottom: var(--s-4); border-bottom: 1px solid var(--color-iron); padding-bottom: var(--s-2); }
+  .stage { display: flex; align-items: center; gap: var(--s-2); font-size: var(--text-caption); color: var(--color-steel); padding: 2px var(--s-2); }
+  .stage .n { width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--color-slate); border-radius: var(--r-sm); font-size: 10px; }
+  .stage.on { color: var(--color-paper); }
+  .stage.on .n { background: var(--color-ember); border-color: var(--color-ember); color: var(--color-paper); }
+  .stage.done { color: var(--color-fog); }
+  .stage.done .n { border-color: var(--color-fog); color: var(--color-fog); }
+
+  .fld { display: flex; align-items: center; gap: var(--s-2); margin-bottom: var(--s-2); }
+  .fld .k { width: 110px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-steel); flex-shrink: 0; }
+  .fld input, .fld select { background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 6px var(--s-2); flex: 1; }
+  .hint { font-size: 11px; color: var(--color-steel); margin: var(--s-1) 0 var(--s-3); }
+
+  /* entry steps editor (stage 2) */
+  .steps { display: flex; flex-direction: column; gap: var(--s-1); margin: var(--s-2) 0; }
+  .step { display: flex; align-items: center; gap: var(--s-2); background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: var(--s-1) var(--s-2); font-size: var(--text-caption); }
+  .step .n { color: var(--color-ember); font-weight: var(--weight-bold); }
+  .step .sel { color: var(--color-chalk); background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 0 var(--s-2); }
+  .step .del { margin-left: auto; color: var(--color-pewter); font-size: 11px; }
+  .step .del:hover { color: var(--color-ember); }
+  .step-add { display: flex; gap: var(--s-2); margin-top: var(--s-2); }
+  .step-add input { flex: 1; background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 5px var(--s-2); }
+
+  .btn { display: inline-flex; align-items: center; gap: var(--s-2); padding: 6px var(--s-3); background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-body); cursor: pointer; min-height: 30px; }
+  .btn:hover { background: var(--color-graphite); border-color: var(--color-slate); }
+  .btn-primary { background: var(--color-ember); border-color: var(--color-ember); color: var(--color-paper); font-weight: var(--weight-bold); }
+  .btn-primary:hover { background: var(--color-ember-dim); border-color: var(--color-ember-dim); }
+  .acts { display: flex; gap: var(--s-2); justify-content: flex-end; margin-top: var(--s-4); }
+
+  .review { background: var(--color-carbon); border: 1px solid var(--color-iron); border-left: 2px solid var(--color-ember); padding: var(--s-2) var(--s-3); margin-top: var(--s-3); font-size: var(--text-caption); color: var(--color-fog); }
+  .review code { color: var(--color-chalk); background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 0 var(--s-1); }
+  .review .sec { margin-top: var(--s-2); }
+  .toast { position: fixed; right: var(--s-4); bottom: var(--s-4); background: var(--color-graphite); border: 1px solid var(--color-slate); border-radius: var(--r-sm); color: var(--color-fog); font-size: var(--text-caption); padding: var(--s-2) var(--s-3); display: none; z-index: 20; }
+</style>
+</head>
+<body>
+  <div class="page-title">screens</div>
+  <div class="page-sub">variant A — one staged dialog: identity → entry → refresh → states → login, one save</div>
+  <button class="btn" onclick="openDlg()">+ screen</button>
+
+  <div class="dlg-wrap" id="dlg" style="display:none"><div class="dlg">
+    <h3 id="h">register screen</h3>
+    <div class="stages" id="rail"></div>
+    <div id="body"></div>
+    <div class="acts">
+      <button class="btn" id="back" onclick="prev()">back</button>
+      <button class="btn btn-primary" id="next" onclick="next()">next</button>
+    </div>
+  </div></div>
+  <div class="toast" id="toast"></div>
+
+<script>
+const stages = ['identity', 'entry', 'refresh', 'states', 'login'];
+const data = { id: '', entryMode: 'tab', tabSel: '', steps: [], refresh: '', states: [], login: false, loginF: { entry:'', phoneField:'', passwordField:'', submit:'', session:'' } };
+let cur = 0;
+const rail = () => document.getElementById('rail').innerHTML = stages.map((s, i) =>
+  `<span class="stage ${i===cur?'on':i<cur?'done':''}"><span class="n">${i<cur?'✓':i+1}</span>${s}</span>`).join('');
+
+function render() {
+  rail();
+  const b = document.getElementById('body');
+  document.getElementById('back').style.visibility = cur === 0 ? 'hidden' : 'visible';
+  document.getElementById('next').textContent = cur === stages.length - 1 ? 'save screen' : 'next';
+  if (cur === 0) b.innerHTML = `
+    <div class="fld"><span class="k">id</span><input id="f-id" placeholder="shipment-details" value="${data.id}" oninput="data.id=this.value"></div>
+    <div class="hint">lowercase, dashes — cases reference the screen by this id (arrive / refresh / expect screen)</div>`;
+  if (cur === 1) b.innerHTML = `
+    <div class="fld"><span class="k">kind</span><select onchange="data.entryMode=this.value;render()">
+      <option value="tab" ${data.entryMode==='tab'?'selected':''}>tab tap</option>
+      <option value="deepLink" ${data.entryMode==='deepLink'?'selected':''}>deep link</option>
+      <option value="navigate" ${data.entryMode==='navigate'?'selected':''}>navigate — tap steps</option>
+    </select></div>
+    ${data.entryMode === 'tab' ? `
+      <div class="fld"><span class="k">selector</span><input placeholder="identifier or label — home_tab_tracking" value="${data.tabSel}" oninput="data.tabSel=this.value"></div>
+      <div class="hint">one tap on a tab bar item — identifier preferred</div>` : ''}
+    ${data.entryMode === 'deepLink' ? `
+      <div class="fld"><span class="k">url</span><input placeholder="lionparcel://tracking" value="${data.tabSel}" oninput="data.tabSel=this.value"></div>
+      <div class="hint">app route the runner opens directly</div>` : ''}
+    ${data.entryMode === 'navigate' ? `
+      <div class="steps">${data.steps.map((s, i) => `<div class="step"><span class="n">${i+1}</span> tap <span class="sel">${s}</span><button class="del" onclick="data.steps.splice(${i},1);render()">remove</button></div>`).join('')}</div>
+      <div class="step-add"><input id="f-step" placeholder="accessibility identifier — track_shipment_card" onkeydown="if(event.key==='Enter'){addStep()}"><button class="btn" onclick="addStep()">+ step</button></div>
+      <div class="hint">multi-hop: each step taps a selector, in order — no coordinates</div>` : ''}`;
+  if (cur === 2) b.innerHTML = `
+    <div class="fld"><span class="k">gesture</span><select onchange="data.refresh=this.value;render()">
+      <option value="">none</option>
+      ${['pull','tab-retap','back-forward','signal'].map(g => `<option ${data.refresh===g?'selected':''}>${g}</option>`).join('')}
+    </select></div>
+    <div class="hint">how the runner refreshes this screen when a case says <code style="color:var(--color-chalk)">refresh</code></div>`;
+  if (cur === 3) b.innerHTML = `
+    <div class="steps">${data.states.map((s, i) => `<div class="step"><span class="n">${i+1}</span> <span style="color:var(--color-paper);min-width:90px">${s.name}</span> holds when <span class="sel">${s.assert}</span><button class="del" onclick="data.states.splice(${i},1);render()">remove</button></div>`).join('')}</div>
+    <div class="step-add">
+      <input id="f-st-n" placeholder="state name — loaded" style="flex:0 0 110px">
+      <input id="f-st-a" placeholder="assertion — {identifier: tracking_status_label}" onkeydown="if(event.key==='Enter'){addState()}">
+      <button class="btn" onclick="addState()">+ state</button>
+    </div>
+    <div class="hint">cases assert these — <code style="color:var(--color-chalk)">expect screen: shipment.loaded</code></div>`;
+  if (cur === 4) {
+    const fs = ['entry','phoneField','passwordField','submit','session'];
+    b.innerHTML = `
+    <div class="fld"><span class="k">owns login?</span><label style="font-size:var(--text-caption);color:var(--color-fog)"><input type="checkbox" ${data.login?'checked':''} onchange="data.login=this.checked;render()"> this screen carries the login recipe</label></div>
+    ${data.login ? fs.map(f => `<div class="fld"><span class="k">${f}</span><input value="${data.loginF[f]}" placeholder="identifier — ${f === 'entry' ? 'home_login_bar_login_button' : 'auth_login_' + f}" oninput="data.loginF['${f}']=this.value"></div>`).join('') : ''}
+    <div class="review">
+      <div class="sec"><b style="color:var(--color-paper)">review — what the runner learns</b></div>
+      <div class="sec">id <code>${data.id || '?'}</code> · entry <code>${data.entryMode}${data.entryMode==='navigate' ? ' ×' + data.steps.length : ''}</code>${data.refresh ? ' · refresh <code>'+data.refresh+'</code>' : ''} · ${data.states.length} state(s)</div>
+      ${data.login ? `<div class="sec">login recipe: 5 identifiers — <code>ensure login (screen: ${data.id || '?'})</code></div>` : ''}
+    </div>`;
+  }
+}
+function addStep() { const i = document.getElementById('f-step'); if (!i.value.trim()) return; data.steps.push(i.value.trim()); i.value = ''; render(); }
+function addState() { const n = document.getElementById('f-st-n'), a = document.getElementById('f-st-a'); if (!n.value.trim() || !a.value.trim()) return; data.states.push({ name: n.value.trim(), assert: a.value.trim() }); n.value = ''; a.value = ''; render(); }
+function openDlg() { document.getElementById('dlg').style.display = 'flex'; cur = 0; render(); }
+function prev() { if (cur > 0) { cur--; render(); } }
+function next() {
+  if (cur < stages.length - 1) { cur++; render(); return; }
+  document.getElementById('dlg').style.display = 'none';
+  toast(`saved screen ${data.id} — ${data.states.length} states${data.login ? ' + login recipe' : ''}`);
+}
+function toast(m) { const t = document.getElementById('toast'); t.textContent = m; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 2000); }
+render();
+</script>
+</body>
+</html>

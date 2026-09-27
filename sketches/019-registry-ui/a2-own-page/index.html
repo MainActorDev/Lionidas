@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>A2 — dedicated /screens page</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+.wrap { padding: var(--s-5); max-width: var(--page-max, 1200px); }
+.sub { font-size: var(--text-caption); color: var(--color-steel); margin-bottom: var(--s-4); }
+.nav { display:flex; gap:var(--s-4); padding: var(--s-2) 0 var(--s-4); border-bottom: 1px solid var(--color-iron); margin-bottom: var(--s-4); font-size: var(--text-label); color:var(--color-steel); }
+.nav .on { color:var(--color-paper); font-weight:var(--weight-bold); }
+.bar { display:flex; gap:var(--s-3); align-items:baseline; margin-bottom:var(--s-4); }
+.bundle { font-size:var(--text-label); color:var(--color-ash); }
+.bar .acts { margin-left:auto; display:flex; gap:var(--s-1); }
+.pbtn { border:1px solid var(--color-iron); color:var(--color-fog); font-size:var(--text-caption); padding:2px var(--s-2); transition: all var(--t); }
+.pbtn:hover { border-color:var(--color-slate); color:var(--color-paper); }
+.card { border:1px solid var(--color-iron); background: var(--color-carbon); margin-bottom:var(--s-4); }
+.card-head { display:flex; gap:var(--s-3); align-items:baseline; padding: var(--s-3) var(--s-4); border-bottom:1px solid var(--color-iron); }
+.sid { font-weight:var(--weight-bold); font-size:var(--text-label); }
+.smeta { color:var(--color-steel); font-size:var(--text-caption); }
+.card-body { padding: var(--s-3) var(--s-4); display:grid; grid-template-columns: 230px 1fr; gap: var(--s-4); }
+.fact { display:grid; grid-template-columns: 64px 1fr; gap:2px var(--s-2); font-size:var(--text-caption); padding:2px 0; }
+.fact .k { color:var(--color-steel); } .fact .v { color:var(--color-fog); } .fact .v b { color:var(--color-chalk); font-weight:var(--weight-regular); }
+.states-h { font-size:var(--text-caption); color:var(--color-steel); text-transform:uppercase; letter-spacing:.08em; font-weight:var(--weight-bold); margin-bottom:var(--s-1); }
+.state-row { display:flex; gap:var(--s-3); align-items:baseline; padding:var(--s-1) 0; font-size:var(--text-label); border-bottom:1px solid var(--color-iron); }
+.state-row:last-child { border-bottom:none; }
+.state-nm { color:var(--color-paper); min-width:124px; }
+.state-def { color:var(--color-steel); flex:1; } .state-def b { color:var(--color-fog); font-weight:var(--weight-regular); }
+.state-acts { display:flex; gap:var(--s-2); }
+.sbtn { color:var(--color-pewter); font-size:var(--text-caption); transition: color var(--t); }
+.sbtn:hover { color:var(--color-chalk); }
+.note { margin-top:var(--s-5); font-size:var(--text-caption); color:var(--color-steel); border-top:1px solid var(--color-iron); padding-top:var(--s-3); max-width:74ch; }
+.note b { color:var(--color-fog); }
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="nav"><span>overview</span><span>runs</span><span class="on">screens</span><span>cases</span><span>forge</span><span>devices</span></div>
+<div class="sub">A2 — dedicated page in the primary nav · Axiom tokens</div>
+
+<div class="bar">
+  <span class="bundle">com.lioparcel.services.consumer.int-dev</span>
+  <span class="acts"><button class="pbtn">+ screen</button><button class="pbtn">import yaml</button><button class="pbtn">probe device</button></span>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <span class="sid">home</span>
+    <span class="smeta">entry: tab Home · refresh: back-forward · 4 states</span>
+    <span style="margin-left:auto"><button class="pbtn">edit</button></span>
+  </div>
+  <div class="card-body">
+    <div>
+      <div class="fact"><span class="k">entry</span><span class="v">tab <b>Home</b> @ 71, 870</span></div>
+      <div class="fact"><span class="k">refresh</span><span class="v"><b>back-forward</b></span></div>
+      <div class="fact"><span class="k">away</span><span class="v"><b>see-all</b> button</span></div>
+      <div class="fact"><span class="k">back</span><span class="v"><b>Left</b> @ 28, 71</span></div>
+      <div class="fact"><span class="k">used by</span><span class="v">intl drill (R2)</span></div>
+    </div>
+    <div>
+      <div class="states-h">states</div>
+      <div class="state-row"><span class="state-nm">world-sg</span><span class="state-def">label contains <b>Batam</b></span><span class="state-acts"><button class="sbtn">verify live</button><button class="sbtn">edit</button></span></div>
+      <div class="state-row"><span class="state-nm">world-my</span><span class="state-def">label contains <b>Johor</b></span><span class="state-acts"><button class="sbtn">verify live</button><button class="sbtn">edit</button></span></div>
+      <div class="state-row"><span class="state-nm">world-empty</span><span class="state-def">label contains <b>Indonesia</b></span><span class="state-acts"><button class="sbtn">verify live</button><button class="sbtn">edit</button></span></div>
+      <div class="state-row"><span class="state-nm">loaded</span><span class="state-def">element <b>home_check_rates_see_all_button</b> exists</span><span class="state-acts"><button class="sbtn">verify live</button><button class="sbtn">edit</button></span></div>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  <b>A2 — dedicated /screens page.</b> First-class space: full-width cards,
+  stable two-column facets, per-state row actions (verify-live lands here in
+  stage 3). Nav-level discoverability. Weak: a page away from case
+  authoring — the editor completions carry in-context awareness alone.
+</div>
+</div>
+</body>
+</html>

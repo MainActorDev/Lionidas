@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>env · ledger</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+/* alias shim (a/b/c legacy short names → shared tokens) */
+:root { --void:var(--color-void); --carbon:var(--color-carbon); --graphite:var(--color-graphite); --iron:var(--color-iron); --slate:var(--color-slate); --pewter:var(--color-pewter); --steel:var(--color-steel); --ash:var(--color-ash); --fog:var(--color-fog); --chalk:var(--color-chalk); --paper:var(--color-paper); --ember:var(--color-ember); --ember-dim:var(--color-ember-dim); --moss:var(--color-fog); --mono:var(--font-mono); }
+
+  * { box-sizing:border-box; margin:0; padding:0; }
+  
+  body { background:var(--void); font-family:var(--mono); color:var(--paper); padding:20px; font-size:12px; }
+  .page-title { font-size:16px; font-weight:700; }
+  .page-sub { font-size:10px; color:var(--steel); margin-top:3px; margin-bottom:18px; }
+  table { width:100%; border-collapse:collapse; }
+  th { font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--steel); text-align:left; padding:6px 10px; border-bottom:1px solid var(--slate); }
+  td { padding:8px 10px; border-bottom:1px solid var(--iron); vertical-align:top; }
+  tr:hover td { background:var(--graphite); }
+  .scope-chip { display:inline-block; font-size:9px; letter-spacing:.08em; padding:2px 6px; border:1px solid var(--slate); color:var(--fog); }
+  .scope-chip.g { border-color:var(--pewter); }
+  .scope-chip.app { border-color:var(--ember-dim); color:var(--ember); }
+  .scope-chip.plan { border-color:var(--moss); color:var(--moss); }
+  .key { font-weight:700; }
+  .val { color:var(--chalk); word-break:break-all; max-width:340px; }
+  .masked { color:var(--steel); letter-spacing:.2em; }
+  .badge { font-size:8px; letter-spacing:.12em; padding:1px 5px; margin-left:6px; border:1px solid var(--moss); color:var(--moss); text-transform:uppercase; }
+  .note { color:var(--ash); font-size:10px; }
+  .meta { color:var(--steel); font-size:9px; white-space:nowrap; }
+  .rowbtns button { background:none; border:1px solid var(--slate); color:var(--fog); font-family:var(--mono); font-size:9px; padding:3px 8px; cursor:pointer; margin-left:4px; }
+  .rowbtns button:hover { border-color:var(--ember); color:var(--ember); }
+  .filters { display:flex; gap:6px; margin-bottom:10px; }
+  .filters input, .filters select { background:var(--carbon); border:1px solid var(--iron); color:var(--paper); font-family:var(--mono); font-size:10px; padding:5px 8px; }
+  .addbar { display:flex; gap:6px; margin-top:14px; align-items:center; }
+  .addbar input, .addbar select { background:var(--carbon); border:1px solid var(--iron); color:var(--paper); font-family:var(--mono); font-size:10px; padding:6px 8px; }
+  .addbar input.key { width:160px; } .addbar input.val { flex:1; }
+  .addbar button { background:var(--ember); border:none; color:#000; font-family:var(--mono); font-size:10px; font-weight:700; padding:7px 14px; cursor:pointer; }
+  .dialog { position:fixed; inset:0; background:rgba(0,0,0,.72); display:none; align-items:center; justify-content:center; }
+  .dialog.open { display:flex; }
+  .dlg { background:var(--carbon); border:1px solid var(--slate); padding:18px; width:380px; }
+  .dlg h3 { font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--fog); margin-bottom:12px; }
+  .dlg label { font-size:9px; color:var(--steel); display:block; margin:8px 0 3px; letter-spacing:.1em; text-transform:uppercase; }
+  .dlg input[type=text] { width:100%; background:var(--graphite); border:1px solid var(--iron); color:var(--paper); font-family:var(--mono); font-size:11px; padding:7px 8px; }
+  .dlg .row { display:flex; gap:8px; justify-content:flex-end; margin-top:14px; }
+  .dlg button { font-family:var(--mono); font-size:10px; padding:6px 12px; cursor:pointer; }
+  .dlg .cancel { background:none; border:1px solid var(--slate); color:var(--fog); }
+  .dlg .save { background:var(--ember); border:none; color:#000; font-weight:700; }
+  .hint { color:var(--steel); font-size:9px; margin-top:6px; }
+  .toast { position:fixed; right:16px; bottom:16px; background:var(--carbon); border:1px solid var(--moss); color:var(--moss); font-size:10px; padding:8px 12px; display:none; }
+</style>
+</head>
+<body>
+  <div class="page-title">env</div>
+  <div class="page-sub">scoped values resolved at play time · global &lt; app &lt; plan &lt; request &lt; variant</div>
+
+  <div class="filters">
+    <input id="q" placeholder="filter key…" style="width:180px">
+    <select id="scope">
+      <option value="">all scopes</option>
+      <option value="global">global</option>
+      <option value="app">app</option>
+      <option value="plan">plan</option>
+    </select>
+    <select id="sec">
+      <option value="">secrets + plain</option>
+      <option value="sec">secrets only</option>
+      <option value="plain">plain only</option>
+    </select>
+  </div>
+
+  <table>
+    <thead><tr><th>scope</th><th>key</th><th>value</th><th>note</th><th>updated</th><th></th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <div class="addbar">
+    <select id="n-scope"><option value="global">global</option><option value="app" selected>app</option><option value="plan">plan</option></select>
+    <select id="n-app" style="display:none"></select>
+    <select id="n-plan" style="display:none"></select>
+    <input class="key" id="n-key" placeholder="KEY_NAME">
+    <input class="val" id="n-val" placeholder="value">
+    <label style="font-size:9px;color:var(--steel)"><input type="checkbox" id="n-sec"> secret</label>
+    <button onclick="add()">add</button>
+  </div>
+
+  <div class="dialog" id="dlg"><div class="dlg">
+    <h3 id="d-title">edit</h3>
+    <label>value <span style="color:var(--steel)" id="d-keep">(blank keeps current secret)</span></label>
+    <input type="text" id="d-val">
+    <label>note</label>
+    <input type="text" id="d-note">
+    <div class="row"><button class="cancel" onclick="closeDlg()">cancel</button><button class="save" onclick="saveDlg()">save</button></div>
+    <div class="hint">scope/key/note editable · a set secret never displays again</div>
+  </div></div>
+  <div class="toast" id="toast"></div>
+
+<script>
+const APPS = ['com.lioparcel.services.consumer.int-dev', 'com.lioparcel.services.consumer.int'];
+const PLANS = ['pl_regression', 'pl_smoke'];
+let VARS = [
+  { scope:'global', app:null, plan:null, key:'FORGE_TLS_PIN', value:'sha256/9m3k…', secret:false, note:'mitm pin for forge', by:'qa', at:'09-24 14:02' },
+  { scope:'global', app:null, plan:null, key:'DRILL_PHONE', value:'1112131415', secret:false, note:'fallback drill phone', by:'qa', at:'09-26 19:12' },
+  { scope:'app', app:0, plan:null, key:'DRILL_PHONE', value:'1112131415', secret:false, note:'', by:'qa', at:'09-26 19:12' },
+  { scope:'app', app:0, plan:null, key:'DRILL_PASSWORD', value:'•••••', secret:true, note:'int-dev drill creds', by:'qa', at:'09-26 19:12' },
+  { scope:'plan', app:null, plan:0, key:'COUNTRY_CODE', value:'ID', secret:false, note:'lane scope test', by:'qa', at:'09-25 10:40' },
+];
+const scopeLabel = v => v.scope==='global' ? 'global' : v.scope==='app' ? APPS[v.app] : PLANS[v.plan];
+function render() {
+  const q = document.getElementById('q').value.toLowerCase();
+  const sc = document.getElementById('scope').value;
+  const sec = document.getElementById('sec').value;
+  const rows = VARS.filter(v =>
+    (!q || v.key.toLowerCase().includes(q)) &&
+    (!sc || v.scope===sc) &&
+    (!sec || (sec==='sec' ? v.secret : !v.secret)));
+  document.getElementById('rows').innerHTML = rows.map((v,i) => `
+    <tr>
+      <td><span class="scope-chip ${v.scope}">${v.scope}</span><div class="note" style="margin-top:4px;max-width:180px;overflow:hidden;text-overflow:ellipsis">${scopeLabel(v)}</div></td>
+      <td class="key">${v.key}${v.secret ? '<span class="badge">set</span>' : ''}</td>
+      <td class="${v.secret ? 'masked' : 'val'}">${v.secret ? '•••••' : v.value}</td>
+      <td class="note">${v.note || '—'}</td>
+      <td class="meta">${v.by}<br>${v.at}</td>
+      <td class="rowbtns"><button onclick="edit(${i})">edit</button><button onclick="del(${i})">del</button></td>
+    </tr>`).join('') || '<tr><td colspan="6" style="color:var(--steel);padding:20px">no vars match</td></tr>';
+}
+function edit(i) {
+  const v = VARS.filter(matching())[i]; if (!v) return;
+  document.getElementById('d-title').textContent = `edit ${v.key}`;
+  document.getElementById('d-keep').style.display = v.secret ? 'inline' : 'none';
+  document.getElementById('d-val').value = '';
+  document.getElementById('d-note').value = v.note;
+  document.getElementById('dlg').classList.add('open');
+  window.__editIdx = VARS.indexOf(v);
+}
+function matching() { /* filter closure for edit buttons — mirrors render()'s filter */ 
+  const q = document.getElementById('q').value.toLowerCase();
+  const sc = document.getElementById('scope').value;
+  const sec = document.getElementById('sec').value;
+  return v => (!q || v.key.toLowerCase().includes(q)) && (!sc || v.scope===sc) && (!sec || (sec==='sec' ? v.secret : !v.secret));
+}
+function del(i) { const v = VARS.filter(matching())[i]; if (!v) return; VARS.splice(VARS.indexOf(v),1); toast('deleted ' + v.key); render(); }
+function closeDlg() { document.getElementById('dlg').classList.remove('open'); }
+function saveDlg() {
+  const v = VARS[window.__editIdx]; if (!v) return closeDlg();
+  const nv = document.getElementById('d-val').value;
+  if (nv !== '') v.value = nv;
+  v.note = document.getElementById('d-note').value;
+  closeDlg(); toast('saved ' + v.key); render();
+}
+function add() {
+  const scope = document.getElementById('n-scope').value;
+  const key = document.getElementById('n-key').value.trim();
+  const val = document.getElementById('n-val').value;
+  if (!key || val === '') { toast('key and value required'); return; }
+  VARS.push({ scope, app: scope==='app' ? +document.getElementById('n-app').value : null,
+    plan: scope==='plan' ? +document.getElementById('n-plan').value : null,
+    key, value: document.getElementById('n-sec').checked ? '•••••' : val,
+    secret: document.getElementById('n-sec').checked, note:'', by:'qa', at:'now' });
+  document.getElementById('n-key').value = ''; document.getElementById('n-val').value = ''; document.getElementById('n-sec').checked = false;
+  toast('added ' + key); render();
+}
+function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 1600); }
+document.getElementById('n-scope').onchange = e => {
+  document.getElementById('n-app').style.display = e.target.value==='app' ? '' : 'none';
+  document.getElementById('n-plan').style.display = e.target.value==='plan' ? '' : 'none';
+};
+document.getElementById('n-app').innerHTML = APPS.map((a,i) => `<option value="${i}">${a.split('.').slice(-2).join('.')}</option>`).join('');
+document.getElementById('n-plan').innerHTML = PLANS.map((p,i) => `<option value="${i}">${p}</option>`).join('');
+['q','scope','sec'].forEach(id => document.getElementById(id).oninput = render);
+render();
+</script>
+</body>
+</html>

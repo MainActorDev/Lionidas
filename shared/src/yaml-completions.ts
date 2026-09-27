@@ -19,6 +19,11 @@ export interface EditorVocabulary {
    *  grammar-only exactly like a missing vocabulary does. */
   scenarios?: string[];
   variantIds?: string[];
+  /** registry-UI stage 1 — screen/state refs for R2 verb completions.
+   *  Optional: absent vocab (older servers) degrades to grammar-only.
+   *  bundle on every entry: screen ids are unique PER BUNDLE — the editor
+   *  scopes completions to the case's own app (review F2). */
+  screens?: Array<{ screen: string; bundle: string; states: string[] }>;
 }
 
 export interface VocabCompletion {
@@ -59,6 +64,10 @@ export function buildCompletions(slot: YamlSlot, vocab: EditorVocabulary, _typed
         { label: 'expect', detail: 'assert an element is on screen', apply: 'expect: \'\'', type: 'keyword' },
         { label: 'alert', detail: 'accept or dismiss a system alert (no-op when none is up)', apply: 'alert: dismiss', type: 'keyword' },
         { label: 'location', detail: 'set the simulated GPS position (lat/lon)', apply: 'location: { latitude: -6.1754, longitude: 106.8272 }', type: 'keyword' },
+        { label: 'arrive', detail: 'navigate to a registered screen and settle', apply: 'arrive: ', type: 'keyword' },
+        { label: 'refresh', detail: 're-trigger a screen\'s fetch via its declared gesture (traffic-verified)', apply: 'refresh: ', type: 'keyword' },
+        { label: 'swap', detail: 'switch the live world (scenario set) mid-run', apply: 'swap: ', type: 'keyword' },
+        { label: 'expect screen', detail: 'assert a registered screen state holds', apply: 'expect screen: .', type: 'keyword' },
       ];
     case 'variant-key':
       return [
@@ -74,6 +83,20 @@ export function buildCompletions(slot: YamlSlot, vocab: EditorVocabulary, _typed
       return (['up', 'down', 'left', 'right'] as const).map((d) => ({ label: d, apply: d, type: 'keyword' as const }));
     case 'alert-value':
       return (['accept', 'dismiss'] as const).map((v) => ({ label: v, detail: v === 'accept' ? 'tap the accept/default button' : 'tap the cancel/dismiss button', apply: v, type: 'keyword' as const }));
+    case 'arrive-screen':
+      return (vocab.screens ?? []).map((s) => ({ label: s.screen, detail: `screen · ${s.bundle}`, apply: s.screen, type: 'text' as const }));
+    case 'swap-target':
+      return (vocab.variantIds ?? []).map((id) => ({ label: id, detail: 'swap target (swaps ∪ variants)', apply: id, type: 'text' as const }));
+    case 'screen-state': {
+      // "<screen>.<state>" pairs; typed prefix narrows both halves
+      const pairs: VocabCompletion[] = [];
+      for (const s of vocab.screens ?? []) {
+        for (const st of s.states) {
+          pairs.push({ label: `${s.screen}.${st}`, detail: `state · ${s.bundle}`, apply: `${s.screen}.${st}`, type: 'text' });
+        }
+      }
+      return pairs;
+    }
     case 'body-key': {
       const keys = BODY_KEYS[action ?? 'tap'] ?? BODY_KEYS['tap']!;
       const hints: Record<string, string> = {

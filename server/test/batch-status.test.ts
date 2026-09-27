@@ -5,6 +5,8 @@ import { registerManualRoutes } from '../src/routes/manual.ts';
 import { registerSuiteRoutes } from '../src/routes/suites.ts';
 import { registerTemplateRoutes } from '../src/routes/templates.ts';
 import type { FastifyInstance } from 'fastify';
+import { hasAlloy } from './helpers/capabilities.ts';
+const describeIfAlloy = describe.skipIf(!(hasAlloy()));  // batch endpoints play through playback/alloy
 
 /** Phase E T3 — deprecated cases are excluded from BATCH surfaces with a named
  *  skip; single /play still allows any status (manual intent wins); the exact
@@ -31,7 +33,7 @@ beforeEach(async () => {
 });
 afterEach(async () => { await app.close(); db.close(); });
 
-describe('play-all excludes deprecated (phase E T3)', () => {
+describeIfAlloy('play-all excludes deprecated (phase E T3)', () => {
   it('batch selects active + draft, drops deprecated — response names it', async () => {
     mkCase('tpl_a');                       // active
     mkCase('tpl_d2', 'draft');             // draft still runs
@@ -51,7 +53,7 @@ describe('play-all excludes deprecated (phase E T3)', () => {
   });
 });
 
-describe('suite play skips deprecated members (phase E T3)', () => {
+describeIfAlloy('suite play skips deprecated members (phase E T3)', () => {
   const mkSuite = async (name: string, members: string[]): Promise<string> => {
     const r = await app.inject({ method: 'POST', url: '/api/suites', payload: { name, members: members.map((templateId) => ({ templateId })) } });
     expect(r.statusCode).toBe(201);
@@ -81,7 +83,7 @@ describe('suite play skips deprecated members (phase E T3)', () => {
   });
 });
 
-describe('single play on deprecated still allowed (phase E T3)', () => {
+describeIfAlloy('single play on deprecated still allowed (phase E T3)', () => {
   it('POST /api/templates/:id/play → not a status 4xx about deprecation', async () => {
     mkCase('tpl_manual', 'deprecated');
     const r = await app.inject({ method: 'POST', url: '/api/templates/tpl_manual/play', payload: {} });

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>B2 — probe: screenshot with element pick</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+.wrap { padding: var(--s-5); }
+.sub { font-size: var(--text-caption); color: var(--color-steel); margin-bottom: var(--s-4); }
+.dlg { border:1px solid var(--color-slate); background: var(--color-graphite); max-width: 760px; }
+.dlg-head { display:flex; gap:var(--s-3); align-items:baseline; padding: var(--s-3) var(--s-4); border-bottom:1px solid var(--color-iron); }
+.dlg-title { font-weight:var(--weight-bold); font-size:var(--text-label); }
+.dlg-meta { color:var(--color-steel); font-size:var(--text-caption); }
+.dlg-close { margin-left:auto; color:var(--color-pewter); font-size:var(--text-label); }
+.body { display:grid; grid-template-columns: 210px 1fr; gap: var(--s-4); padding: var(--s-3) var(--s-4); }
+.shot-wrap { position:relative; width:210px; border:1px solid var(--color-iron); background:var(--color-carbon); aspect-ratio: 428/926; overflow:hidden; }
+.shot-fg { position:absolute; inset:0; display:flex; flex-direction:column; padding: 34px 8px 60px; font-size: 4.5px; color:var(--color-fog); }
+.mock-banner { background:var(--color-ember-dim); padding:4px 3px; margin-bottom:5px; }
+.mock-row { display:flex; gap:3px; }
+.mock-chip { border:1px solid var(--color-slate); padding:2px; white-space:nowrap; }
+.el { position:absolute; border:1px dashed transparent; cursor:pointer; }
+.el:hover { border-color:var(--color-fog); background:rgba(180,180,180,.08); }
+.el.sel { border:1.5px solid var(--color-ember); background:rgba(218,92,44,.16); }
+.el-label { position:absolute; top:-7px; left:0; font-size:3.5px; background:var(--color-ember); color:var(--color-paper); padding:0 2px; white-space:nowrap; display:none; font-weight:var(--weight-bold); }
+.el.sel .el-label { display:block; }
+.info-h { font-size:var(--text-caption); color:var(--color-steel); text-transform:uppercase; letter-spacing:.08em; font-weight:var(--weight-bold); margin-bottom:var(--s-1); }
+.sel-el { padding:var(--s-2) var(--s-3); border:1px solid var(--color-iron); background:var(--color-void); margin-bottom:var(--s-3); }
+.sel-el .lab { font-size:var(--text-label); color:var(--color-paper); font-weight:var(--weight-bold); }
+.sel-el .id { font-size:var(--text-caption); color:var(--color-steel); }
+.sel-el .nt { font-size:var(--text-caption); color:var(--color-pewter); }
+.prop-selector { font-size:var(--text-label); color:var(--color-chalk); background:var(--color-void); border:1px solid var(--color-iron); padding:var(--s-1) var(--s-3); display:inline-block; margin: var(--s-1) 0 var(--s-2); }
+.prop-why { color:var(--color-pewter); font-size:var(--text-caption); }
+.prop-acts { display:flex; gap:var(--s-2); margin-top:var(--s-2); align-items:center; }
+.prop-acts input { background:var(--color-void); border:1px solid var(--color-iron); color:var(--color-paper); padding:5px var(--s-3); font-size:var(--text-label); width: 170px; }
+.prop-acts input:focus { outline:none; border-color:var(--color-slate); }
+.btn { border:1px solid var(--color-iron); color:var(--color-fog); font-size:var(--text-label); padding:5px var(--s-3); transition: all var(--t); }
+.btn:hover { border-color:var(--color-slate); color:var(--color-paper); }
+.btn-primary { border-color:var(--color-ember); color:var(--color-ember); }
+.btn-primary:hover { background:var(--color-ember); color:var(--color-paper); }
+.hint { color:var(--color-pewter); font-size:var(--text-caption); margin-top:var(--s-2); }
+.note { margin-top:var(--s-5); font-size:var(--text-caption); color:var(--color-steel); border-top:1px solid var(--color-iron); padding-top:var(--s-3); max-width:74ch; }
+.note b { color:var(--color-fog); }
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="sub">B2 — screenshot with element rectangles · Axiom tokens</div>
+
+<div class="dlg">
+  <div class="dlg-head">
+    <span class="dlg-title">home · click an element</span>
+    <span class="dlg-meta">iPhone 14 Plus · session ms_88845f94</span>
+    <button class="dlg-close">×</button>
+  </div>
+  <div class="body">
+    <div class="shot-wrap">
+      <div class="shot-fg">
+        <div class="mock-banner">Now available in MALAYSIA</div>
+        <div style="background:var(--color-iron);padding:4px;margin-bottom:6px;">Your Balance · Withdrawal</div>
+        <div class="mock-row">
+          <span class="mock-chip">Indonesia</span><span class="mock-chip">Singapore</span><span class="mock-chip">Thailand</span>
+        </div>
+      </div>
+      <div class="el sel" style="left:76%; top:23%; width:20%; height:2.6%;"><span class="el-label">See all</span></div>
+      <div class="el" style="left:4%; top:25%; width:64%; height:6%;"></div>
+      <div class="el" style="left:4%; top:34%; width:26%; height:5%;"></div>
+      <div class="el" style="left:33%; top:34%; width:20%; height:5%;"></div>
+      <div class="el" style="left:4%; top:60%; width:24%; height:6%;"></div>
+    </div>
+    <div>
+      <div class="info-h">selected</div>
+      <div class="sel-el">
+        <div class="lab">See all</div>
+        <div class="id">home_check_rates_see_all_button</div>
+        <div class="nt">Button · (375, 309) 37×15</div>
+      </div>
+      <div class="info-h">proposed selector</div>
+      <span class="prop-selector">{ identifier: home_check_rates_see_all_button }</span>
+      <div class="prop-why">stable identifier found · hover any rectangle to preview</div>
+      <div class="prop-acts">
+        <input value="see-all-visible" placeholder="state name…">
+        <span style="flex:1"></span>
+        <button class="btn">verify live</button>
+        <button class="btn btn-primary">add state</button>
+      </div>
+      <div class="hint">rects come from the live AX tree — same coordinates the runner taps</div>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  <b>B2 — screenshot pick.</b> Live screenshot with every element rect
+  overlaid (hover preview, click select) — spatial context the list lacks;
+  you point at what you see. Same proposal panel as B1. Weak: dense screens
+  stack rects (hover cycling needed); label-only elements less discoverable.
+</div>
+</div>
+</body>
+</html>

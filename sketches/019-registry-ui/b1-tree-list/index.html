@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>B1 — probe: searchable tree list</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+.wrap { padding: var(--s-5); }
+.sub { font-size: var(--text-caption); color: var(--color-steel); margin-bottom: var(--s-4); }
+.dlg { border:1px solid var(--color-slate); background: var(--color-graphite); max-width: 680px; }
+.dlg-head { display:flex; gap:var(--s-3); align-items:baseline; padding: var(--s-3) var(--s-4); border-bottom:1px solid var(--color-iron); }
+.dlg-title { font-weight:var(--weight-bold); font-size:var(--text-label); }
+.dlg-meta { color:var(--color-steel); font-size:var(--text-caption); }
+.dlg-close { margin-left:auto; color:var(--color-pewter); font-size:var(--text-label); transition: color var(--t); }
+.dlg-close:hover { color:var(--color-paper); }
+.search { margin: var(--s-3) var(--s-4) var(--s-2); display:flex; gap:var(--s-2); }
+.search input { flex:1; background:var(--color-void); border:1px solid var(--color-iron); color:var(--color-paper); padding:6px var(--s-3); font-size:var(--text-label); }
+.search input:focus { outline:none; border-color:var(--color-slate); }
+.count { color:var(--color-pewter); font-size:var(--text-caption); align-self:center; white-space:nowrap; }
+.list { max-height: 300px; overflow-y:auto; margin: 0 var(--s-2) var(--s-2); }
+.node { display:grid; grid-template-columns: 22px 1fr auto; gap:var(--s-2); padding:6px var(--s-3); align-items:baseline; transition: background var(--t); }
+.node:hover { background:var(--color-carbon); }
+.node.sel { background:var(--color-carbon); border-left: 2px solid var(--color-ember); padding-left: calc(var(--s-3) - 2px); }
+.dot { width:6px; height:6px; border:1px solid var(--color-pewter); align-self:center; }
+.node.sel .dot { background:var(--color-ember); border-color:var(--color-ember); }
+.nl { min-width:0; }
+.nl .lab { color:var(--color-paper); font-size:var(--text-label); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.nl .id { color:var(--color-steel); font-size:var(--text-caption); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.nt { color:var(--color-pewter); font-size:var(--text-caption); }
+.proposal { border-top:1px solid var(--color-iron); padding: var(--s-3) var(--s-4); background:var(--color-carbon); }
+.prop-h { font-size:var(--text-caption); color:var(--color-steel); text-transform:uppercase; letter-spacing:.08em; font-weight:var(--weight-bold); margin-bottom:var(--s-1); }
+.prop-selector { font-size:var(--text-label); color:var(--color-chalk); background:var(--color-void); border:1px solid var(--color-iron); padding:var(--s-1) var(--s-3); display:inline-block; }
+.prop-why { color:var(--color-pewter); font-size:var(--text-caption); margin-top:var(--s-1); }
+.prop-acts { display:flex; gap:var(--s-2); margin-top:var(--s-3); align-items:center; }
+.prop-acts input { background:var(--color-void); border:1px solid var(--color-iron); color:var(--color-paper); padding:5px var(--s-3); font-size:var(--text-label); width: 190px; }
+.prop-acts input:focus { outline:none; border-color:var(--color-slate); }
+.btn { border:1px solid var(--color-iron); color:var(--color-fog); font-size:var(--text-label); padding:5px var(--s-3); transition: all var(--t); }
+.btn:hover { border-color:var(--color-slate); color:var(--color-paper); }
+.btn-primary { border-color:var(--color-ember); color:var(--color-ember); }
+.btn-primary:hover { background:var(--color-ember); color:var(--color-paper); }
+.note { margin-top:var(--s-5); font-size:var(--text-caption); color:var(--color-steel); border-top:1px solid var(--color-iron); padding-top:var(--s-3); max-width:74ch; }
+.note b { color:var(--color-fog); }
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="sub">B1 — searchable accessibility-tree list · Axiom tokens</div>
+
+<div class="dlg">
+  <div class="dlg-head">
+    <span class="dlg-title">home · pick an element</span>
+    <span class="dlg-meta">iPhone 14 Plus · session ms_88845f94</span>
+    <button class="dlg-close">×</button>
+  </div>
+  <div class="search">
+    <input value="see_all" placeholder="filter by label or identifier…">
+    <span class="count">1 of 36 nodes</span>
+  </div>
+  <div class="list">
+    <div class="node sel">
+      <span class="dot"></span>
+      <span class="nl"><span class="lab">See all</span><span class="id">home_check_rates_see_all_button</span></span>
+      <span class="nt">Button</span>
+    </div>
+    <div class="node">
+      <span class="dot"></span>
+      <span class="nl"><span class="lab">Your Balance</span><span class="id">home_balance_label_text</span></span>
+      <span class="nt">StaticText</span>
+    </div>
+    <div class="node">
+      <span class="dot"></span>
+      <span class="nl"><span class="lab">Enter tracking number</span><span class="id"></span></span>
+      <span class="nt">StaticText</span>
+    </div>
+  </div>
+  <div class="proposal">
+    <div class="prop-h">proposed selector — identifier preferred</div>
+    <span class="prop-selector">{ identifier: home_check_rates_see_all_button }</span>
+    <div class="prop-why">stable identifier found · label "See all" kept as fallback documentation</div>
+    <div class="prop-acts">
+      <input value="see-all-visible" placeholder="state name…">
+      <span style="flex:1"></span>
+      <button class="btn">verify live</button>
+      <button class="btn btn-primary">add state</button>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  <b>B1 — tree list.</b> The same accessibility data the runner asserts
+  against, as a searchable flat list (label + identifier + type). Select →
+  proposal appears (identifier preferred, label fallback). Weak: no spatial
+  context — you find elements by name, not place.
+</div>
+</div>
+</body>
+</html>

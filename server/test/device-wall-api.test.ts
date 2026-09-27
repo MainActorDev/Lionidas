@@ -9,6 +9,8 @@ import { registerDeviceRoutes, __psSweep } from '../src/routes/devices.ts';
 import { registerUserResolution } from '../src/auth/roles.ts';
 import { __setAlloyForTest } from '../src/alloy/client.ts';
 import { initAlloyRuntime, resetAlloyRuntimeForTests } from '../src/alloy/runtime.ts';
+import { hasAlloy } from './helpers/capabilities.ts';
+const describeIfAlloy = describe.skipIf(!(hasAlloy()));  // wall routes touch the alloy runtime
 
 
 /** Wall QoL T2 — pins, lastUsed, memoryRss, restart on the devices API. */
@@ -55,7 +57,7 @@ afterEach(() => {
 const UDID_A = '11111111-2222-3333-4444-555555555555';
 const UDID_B = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 
-describe('T2 — pins', () => {
+describeIfAlloy('T2 — pins', () => {
   it('PUT/DELETE pin toggles per user; GET reflects only own pins', async () => {
     seed(UDID_A, 'Shutdown');
     db.prepare("INSERT INTO users(id, email, name, role, active, approved, created_at) VALUES ('usr_1','a@x','a','viewer',1,1,0)").run();
@@ -91,7 +93,7 @@ describe('T2 — pins', () => {
   });
 });
 
-describe('T2 — lastUsed (runs ∪ manual_sessions, null = never)', () => {
+describeIfAlloy('T2 — lastUsed (runs ∪ manual_sessions, null = never)', () => {
   it('unions both sources; never-used devices carry null', async () => {
     seed(UDID_A, 'Shutdown');
     seed(UDID_B, 'Shutdown');
@@ -109,7 +111,7 @@ describe('T2 — lastUsed (runs ∪ manual_sessions, null = never)', () => {
   });
 });
 
-describe('T2 — memoryRss (booted only, one sweep)', () => {
+describeIfAlloy('T2 — memoryRss (booted only, one sweep)', () => {
   it('sums every process referencing the udid; non-booted rows null', async () => {
     seed(UDID_A, 'Booted');
     seed(UDID_B, 'Shutdown');
@@ -132,7 +134,7 @@ describe('T2 — memoryRss (booted only, one sweep)', () => {
   });
 });
 
-describe('T2 — restart action', () => {
+describeIfAlloy('T2 — restart action', () => {
   it('runs shutdown then boot as one request; guards apply once', async () => {
     seed(UDID_A, 'Booted');
     const r = await app.inject({ method: 'POST', url: `/api/devices/${UDID_A}/power`, payload: { action: 'restart' } });

@@ -295,6 +295,39 @@ export function registerManualRoutes(
     }
   });
 
+  /** Registry-UI stage 3 — probe: live AX tree for the screens page.
+   *  Creates (or reuses) a manual session on the given booted udid and
+   *  returns the element tree. Standalone route so the screens page doesn't
+   *  need the full manual-session lifecycle; the session id returns for
+   *  follow-up probes (tree refresh). Degrades 400/410 like the family. */
+  app.post('/api/probe/:udid/tree', async (req, reply) => {
+    const { udid } = req.params as { udid: string };
+    const b = req.body as { sessionId?: string; bundle?: string } | null;
+    const operator = req.user?.name;
+    if (!operator) return reply.code(400).send({ error: 'sign in required' });
+    const dev = db.prepare('SELECT udid FROM devices WHERE udid = ? AND state = ?').get(udid, 'Booted');
+    if (!dev) return reply.code(409).send({ error: `device ${udid.slice(0, 8)} is not booted — boot it on the devices page first`, code: 'DEVICE_NOT_BOOTED' });
+    try {
+      let sessionId = b?.sessionId;
+      if (sessionId) {
+        const alive = db.prepare('SELECT id FROM manual_sessions WHERE id = ? AND finished_at IS NULL').get(sessionId);
+        if (!alive) sessionId = undefined; // expired — start fresh (review F5 degrade)
+      }
+      if (!sessionId) {
+        // probing is registry-scoped: the caller names the app; the session
+        // binds to it (no Settings fallback — a Settings tree is useless for
+        // defining app screen states). startManualSession foregrounds it.
+        const s = await startManualSession({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, udid, req.user?.name ?? 'probe', b?.bundle ?? 'com.apple.Preferences');
+        sessionId = s.sessionId;
+      }
+      const tree = await manualTree({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, sessionId);
+      return { sessionId, nodes: tree.nodes, logicalW: tree.logicalW, logicalH: tree.logicalH, capturedAt: tree.capturedAt };
+    } catch (err) {
+      if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
+      throw err;
+    }
+  });
+
   app.post('/api/manual/:id/tree', async (req, reply) => {
     const { id } = req.params as { id: string };
     try {
@@ -400,7 +433,14 @@ export function registerManualRoutes(
       // Phase C: variants expand HERE (single-play entry point). A variants
       // case runs ONCE PER VARIANT, sequentially (declaration order — proxy
       // state is device-global). `variant: 'id'` runs exactly one.
-      const row = db.prepare('SELECT variants_json FROM templates WHERE id = ?').get(id) as { variants_json: string | null } | undefined;
+      const row = db.prepare('SELECT variants_json, steps_json FROM templates WHERE id = ?').get(id) as { variants_json: string | null; steps_json: string | null } | undefined;
+      // R2: a case with world: steps swaps scenarios mid-run itself — lane
+      // fan-out would re-run every world N times (proven: the drill case
+      // played all 3 lanes × 2 internal swaps). Worlds-cases run ONCE on
+      // play-all, entering via their first declared world.
+      const stepsHaveSwap = (() => {
+        try { return row?.steps_json ? (JSON.parse(row.steps_json) as Array<{ action?: string }>).some((s) => s.action === 'swap' || s.action === 'world') : false; } catch { return false; }
+      })();
       let variants: Array<{ id: string; networkScenario?: string; env?: Record<string, string> }> = [];
       if (row?.variants_json) {
         try { variants = JSON.parse(row.variants_json) as typeof variants; } catch { variants = []; /* malformed — honest degrade */ }
@@ -417,7 +457,7 @@ export function registerManualRoutes(
         const { runId, udid } = await runTemplatePlayback(pbDeps, id, { ...baseOpts, variant: one });
         return { runId, udid, variants: [{ id: one.id, runId }] };
       }
-      if (variants.length > 0) {
+      if (variants.length > 0 && !stepsHaveSwap) {
         // Sequential CONTRACT preserved: each lane runs to completion before
         // the next starts — proxy state is device-global and the B5 device-
         // busy guard would 409 a back-to-back start anyway. But the RESPONSE
@@ -465,8 +505,10 @@ export function registerManualRoutes(
         // arrive as lanes start; laneCount is the full plan
         return { runId: first.runId, runIds, udid: firstUdid, laneCount: variants.length, batchId, variants: perVariant };
       }
-      const { runId, udid } = await runTemplatePlayback(pbDeps, id, baseOpts);
-      return { runId, udid };
+      // worlds-case play-all: single run, entry world = first declared
+      const entryVariant = stepsHaveSwap ? variants[0] : undefined;
+      const { runId, udid } = await runTemplatePlayback(pbDeps, id, entryVariant ? { ...baseOpts, variant: entryVariant } : baseOpts);
+      return { runId, udid, ...(stepsHaveSwap ? { swaps: true } : {}) };
     } catch (err) {
       if (err instanceof PlaybackError && err.code === 'DEVICE_BUSY') return reply.code(409).send({ error: err.message, code: err.code });
       if (err instanceof PlaybackError && err.code === 'SCENARIO_INACTIVE') return reply.code(409).send({ error: err.message, code: err.code, hint: 'start the forge proxy and sim routing (forge page), then replay' });
@@ -568,7 +610,7 @@ export function registerManualRoutes(
   // Shared by play-all AND plans (one engine). ──
   // authenticated identity wins for attribution; body triggeredBy only for
   // bots/agents whose user IS the machine. Mirrors the manual-session rule.
-  async function runBatch(b: { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string>; cases?: Array<{ templateId: string; variantIds?: string[] | null }>; suiteId?: string }, reqUser?: { name: string } | null):
+  async function runBatch(b: { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string>; cases?: Array<{ templateId: string; variantIds?: string[] | null }>; suiteId?: string; planId?: string }, reqUser?: { name: string } | null):
     Promise<{ ok: true; runIds: string[]; count: number; batchId?: string; lanes?: Array<{ device: { udid: string; name: string | null }; runIds: string[]; skipped: string[]; haltedAt?: string; haltedReason?: string }> } | { ok: false; code: 400 | 409; error: string; runIds: string[]; appBundleId?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null }> {
     const { selectTemplates } = await import('./templates.ts');
     const { planLanes } = await import('../manual/batch/plan.ts');
@@ -642,7 +684,8 @@ export function registerManualRoutes(
       ...(by !== undefined ? { triggeredBy: by } : {}),
       ...(b.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}),
       ...(b.env !== undefined ? { env: b.env } : {}),
-      ...(b.suiteId !== undefined ? { suiteId: b.suiteId } : {}), // T4: stamp runs with their spawning suite
+      ...(b.suiteId !== undefined ? { suiteId: b.suiteId } : {}),
+      ...(b.planId !== undefined ? { planId: b.planId } : {}),
       ...(multiLane ? { forgeAttribution: false } : {}), // proxy can't tell sims apart
     };
 
@@ -791,6 +834,7 @@ export function registerManualRoutes(
       ...(p.udid !== null ? { udid: p.udid } : {}),
       ...(p.scenarioId !== null ? { scenarioId: p.scenarioId } : {}),
       env: p.env,
+      planId: id, // F4: plan-scope env_vars resolve for every case in this play
     }, req.user); // session user wins for run attribution
     if (!r.ok) return reply.code(r.code).send({ error: r.error, code: r.code === 409 ? 'DEVICE_BUSY' : undefined, runIds: r.runIds });
     return { runIds: r.runIds, count: r.count };

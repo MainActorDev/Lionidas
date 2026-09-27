@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>A1 — screens panel on the cases page</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+.wrap { padding: var(--s-5); }
+.sub { font-size: var(--text-caption); color: var(--color-steel); margin-bottom: var(--s-5); }
+.layout { display: grid; grid-template-columns: 1fr 380px; gap: var(--s-4); align-items: start; }
+.cases { border: 1px solid var(--color-iron); background: var(--color-carbon); }
+.cases-head { display:flex; gap:var(--s-3); align-items:center; padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--color-iron); font-size: var(--text-caption); color: var(--color-steel); text-transform: uppercase; letter-spacing: .08em; font-weight: var(--weight-bold); }
+.crow { display:flex; gap:var(--s-4); padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--color-iron); align-items: baseline; font-size: var(--text-label); }
+.crow:last-child { border-bottom: none; }
+.cname { color:var(--color-paper); min-width: 240px; }
+.cst { font-size:var(--text-caption); color:var(--color-fog); }
+.pass { color:var(--color-fog); }
+.panel { border: 1px solid var(--color-iron); background: var(--color-carbon); }
+.panel-head { display:flex; gap:var(--s-2); align-items:baseline; padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--color-iron); }
+.panel-title { font-size: var(--text-caption); color: var(--color-steel); text-transform: uppercase; letter-spacing: .08em; font-weight: var(--weight-bold); }
+.panel-app { font-size: var(--text-caption); color: var(--color-ash); }
+.panel-actions { margin-left:auto; display:flex; gap:var(--s-1); }
+.pbtn { border:1px solid var(--color-iron); color:var(--color-fog); font-size:var(--text-caption); padding:2px var(--s-2); transition: all var(--t); }
+.pbtn:hover { border-color:var(--color-slate); color:var(--color-paper); }
+.screen { border-bottom: 1px solid var(--color-iron); }
+.screen:last-child { border-bottom: none; }
+.screen-head { display:flex; gap:var(--s-2); align-items:baseline; padding: var(--s-3) var(--s-4) var(--s-1); }
+.screen-id { color:var(--color-paper); font-weight:var(--weight-bold); font-size:var(--text-label); }
+.screen-meta { color:var(--color-steel); font-size:var(--text-caption); }
+.screen-body { padding: 0 var(--s-4) var(--s-3); }
+.fact { display:grid; grid-template-columns: 74px 1fr; gap: 2px var(--s-3); font-size:var(--text-caption); padding: 2px 0; }
+.fact .k { color:var(--color-steel); }
+.fact .v { color:var(--color-fog); }
+.fact .v b { color:var(--color-chalk); font-weight:var(--weight-regular); }
+.states { margin-top:var(--s-2); border-top:1px solid var(--color-iron); padding-top:var(--s-2); }
+.state-row { display:flex; gap:var(--s-2); align-items:baseline; padding:3px 0; font-size:var(--text-caption); }
+.state-nm { color:var(--color-paper); min-width: 112px; }
+.state-def { color:var(--color-steel); }
+.state-def b { color:var(--color-fog); font-weight:var(--weight-regular); }
+.editable-hint { color:var(--color-pewter); font-size:var(--text-caption); margin-top: var(--s-1); }
+.note { margin-top:var(--s-5); font-size:var(--text-caption); color:var(--color-steel); border-top:1px solid var(--color-iron); padding-top:var(--s-3); }
+.note b { color:var(--color-fog); }
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="sub">A1 — screens panel as a right-hand column on the cases page · Axiom tokens</div>
+
+<div class="layout">
+  <div class="cases">
+    <div class="cases-head">cases · 3 <span style="margin-left:auto; text-transform:none; letter-spacing:0">+ case (yaml)</span></div>
+    <div class="crow"><span class="cname">intl drill — destination worlds (R2)</span><span class="cst">8 steps · passed</span></div>
+    <div class="crow"><span class="cname">privacy policy</span><span class="cst">3 steps · passed</span></div>
+    <div class="crow"><span class="cname">login smoke</span><span class="cst">5 steps · —</span></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <span class="panel-title">screens</span>
+      <span class="panel-app">consumer.int-dev</span>
+      <span class="panel-actions"><button class="pbtn">+ screen</button><button class="pbtn">yaml</button></span>
+    </div>
+
+    <div class="screen">
+      <div class="screen-head">
+        <span class="screen-id">home</span>
+        <span class="screen-meta">tab Home · back-forward</span>
+      </div>
+      <div class="screen-body">
+        <div class="fact"><span class="k">entry</span><span class="v">tab <b>Home</b> @ 71, 870</span></div>
+        <div class="fact"><span class="k">refresh</span><span class="v"><b>back-forward</b> · away see-all · back Left</span></div>
+        <div class="states">
+          <div class="state-row"><span class="state-nm">world-sg</span><span class="state-def">label contains <b>Batam</b></span></div>
+          <div class="state-row"><span class="state-nm">world-my</span><span class="state-def">label contains <b>Johor</b></span></div>
+          <div class="state-row"><span class="state-nm">world-empty</span><span class="state-def">label contains <b>Indonesia</b></span></div>
+          <div class="state-row"><span class="state-nm">loaded</span><span class="state-def">element <b>home_check_rates_see_all_button</b> exists</span></div>
+          <div class="editable-hint">click a state to edit · probe device to add</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  <b>A1 — side panel on cases page.</b> Screens one glance from the cases
+  referencing them. Per-app panel; "+ screen"/"yaml" are the editor entries;
+  states inline-edit on click. Weak: competes for width, only exists here.
+</div>
+</div>
+</body>
+</html>

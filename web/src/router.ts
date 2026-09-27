@@ -9,6 +9,8 @@ import DrivePage from './pages/DrivePage.vue';
 import FlakesPage from './pages/FlakesPage.vue';
 import ForgePage from './pages/ForgePage.vue';
 import TestCasesPage from './pages/TestCasesPage.vue';
+import ScreensPage from './pages/ScreensPage.vue';
+import EnvPage from './pages/EnvPage.vue';
 import MonitoringPage from './pages/MonitoringPage.vue';
 import LoginPage from './pages/LoginPage.vue';
 import UsersPage from './pages/UsersPage.vue';
@@ -29,6 +31,8 @@ export const router = createRouter({
     { path: '/flakes', name: 'flakes', component: FlakesPage, meta: { title: 'flaky tests' } },
     { path: '/forge', name: 'forge', component: ForgePage, meta: { title: 'network' } },
     { path: '/templates', name: 'templates', component: TestCasesPage, meta: { title: 'test cases' } },
+    { path: '/screens', name: 'screens', component: ScreensPage, meta: { title: 'screens' } },
+    { path: '/env', name: 'env', component: EnvPage, meta: { title: 'env' } },
     { path: '/monitoring', name: 'monitoring', component: MonitoringPage, meta: { title: 'monitoring' } },
     { path: '/users', name: 'users', component: UsersPage, meta: { title: 'users' } },
     { path: '/login', name: 'login', component: LoginPage, meta: { title: 'sign in', public: true } },

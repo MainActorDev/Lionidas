@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import { migrateM1 } from '../src/db/schema.ts';
 import { runGc, diskState } from '../src/gc/retention.ts';
 import type { AppEvents } from '../src/ws/bus.ts';
+import { hasAlloy } from './helpers/capabilities.ts';
+const describeIfAlloy = describe.skipIf(!(hasAlloy()));
 
 let db: Database.Database;
 let artDir: string;
@@ -82,7 +84,8 @@ describe('disk quota (§12/§11)', () => {
 
 // auth gate (§16.3) tests retired with the PIN gate — roles.ts owns auth now (test/auth.test.ts)
 
-describe('boot reconciliation (M1 §5)', () => {
+// capability gate: needs the alloy runtime (scripts/setup.sh)
+describeIfAlloy('boot reconciliation (M1 §5)', () => {
   it('stale waiting queue rows aborted; stuck runs aborted', async () => {
     db.prepare(`INSERT INTO queue(id,spec_json,priority,state,requested_by,enqueued_at) VALUES ('q1','{}',0,'waiting','t',1)`).run();
     db.prepare(`INSERT INTO runs(id,ticket_key,kind,status,triggered_by,device_udid,started_at) VALUES ('r9','T','automated','running','t','SIM-1',1)`).run();

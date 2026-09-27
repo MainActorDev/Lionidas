@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { crucibleAlloy } from '../alloy/client.ts';
 import { initAlloyRuntime } from '../alloy/runtime.ts';
 import { parseCaseYaml, caseToYaml } from '@crucible/shared/case-yaml';
-import { VARIANT_ID_RE as VARIANT_ID_RE_LOCAL } from '@crucible/shared/yaml-variants';
+import { VARIANT_ID_RE as VARIANT_ID_RE_LOCAL, variantScenarioNames } from '@crucible/shared/yaml-variants';
 import { tapsForRun } from '../evidence/taps-store.ts';
 
 interface TemplateRow {
@@ -355,6 +355,24 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     ).all(...(scoped ? [id, variant === '' ? null : variant] : [id])) as Array<{ v: string | null; id: string; status: string; started_at: number }>;
     if (laneRows.length === 0) return reply.code(404).send({ error: 'template has no finished run' });
 
+    /** B1 lane axis (2026-09-24): a swap run is its OWN lane — labeled by its
+     *  world sequence (sg → my → empty), not by its entry variant. Detected by
+     *  swap steps in the run (evaluated swapTarget values, first-occurrence
+     *  order = the sequence). Single-world runs keep variant_id as the lane. */
+    const swapSequence = (runId: string): string[] => {
+      const rows = db.prepare(
+        `SELECT evaluated_json FROM run_steps WHERE run_id = ? AND status = 'pass' ORDER BY idx`,
+      ).all(runId) as Array<{ evaluated_json: string | null }>;
+      const seq: string[] = [];
+      for (const r of rows) {
+        try {
+          const ev = JSON.parse(r.evaluated_json ?? '{}') as { action?: string; swapTarget?: string };
+          if (ev.action === 'swap' && ev.swapTarget && !seq.includes(ev.swapTarget)) seq.push(ev.swapTarget);
+        } catch { /* pre-R2 rows */ }
+      }
+      return seq;
+    };
+
     /** env delta for a lane, from the template's variant definitions —
      *  variants_json holds [{id, networkScenario, env}]; the variantless
      *  lane and unknown ids get null (rendered as —) */
@@ -368,13 +386,17 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
 
     const itemsFor = (runId: string): Array<{ stepIdx: number; stepName: string; status: string; kind: string; evId: string }> => {
       const steps = db.prepare(
-        `SELECT idx, name, status, evidence_ids_json FROM run_steps WHERE run_id = ? AND evidence_ids_json != '[]' ORDER BY idx`,
-      ).all(runId) as Array<{ idx: number; name: string; status: string; evidence_ids_json: string }>;
-      const items: Array<{ stepIdx: number; stepName: string; status: string; kind: string; evId: string }> = [];
+        `SELECT idx, name, status, evidence_ids_json, evaluated_json FROM run_steps WHERE run_id = ? AND evidence_ids_json != '[]' ORDER BY idx`,
+      ).all(runId) as Array<{ idx: number; name: string; status: string; evidence_ids_json: string; evaluated_json: string | null }>;
+      const items: Array<{ stepIdx: number; stepName: string; status: string; kind: string; evId: string; swapTarget?: string }> = [];
       for (const st of steps) {
+        // R2: the step's evaluated payload names the swap target the run was
+        // IN when this evidence was captured — world screenshots group by it
+        let swapTarget: string | undefined;
+        try { swapTarget = (JSON.parse(st.evaluated_json ?? '{}') as { swapTarget?: string }).swapTarget; } catch { /* absent pre-R2 */ }
         for (const evId of JSON.parse(st.evidence_ids_json) as string[]) {
           const ev = db.prepare('SELECT type FROM evidence WHERE id = ?').get(evId) as { type: string } | undefined;
-          if (ev) items.push({ stepIdx: st.idx, stepName: st.name, status: st.status, kind: ev.type, evId });
+          if (ev) items.push({ stepIdx: st.idx, stepName: st.name, status: st.status, kind: ev.type, evId, ...(swapTarget ? { swapTarget } : {}) });
         }
       }
       const vid = db.prepare(`SELECT id FROM evidence WHERE bundle_id = ? AND type = 'video' LIMIT 1`).get(runId) as { id: string } | undefined;
@@ -395,7 +417,11 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
 
     const lanes = laneRows.map((l) => {
       const env = variantEnv(id, l.v);
-      return { variantId: l.v, runId: l.id, runStatus: l.status, startedAt: l.started_at, env, items: itemsFor(l.id) };
+      const seq = swapSequence(l.id);
+      // entry world + swaps = the full sequence; >1 distinct target = swap run
+      const worldSeq = [...(l.v ? [l.v] : []), ...seq].filter((w, i, a) => a.indexOf(w) === i);
+      const isSwap = worldSeq.length > 1;
+      return { variantId: l.v, runId: l.id, runStatus: l.status, startedAt: l.started_at, env, items: itemsFor(l.id), ...(isSwap ? { swapRun: true, worldSeq } : {}) };
     });
     return { templateId: id, lanes };
   });
@@ -490,6 +516,15 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       // same rule as malformed steps: skip the row's variants, keep the rest)
       scenarios: (db.prepare('SELECT name FROM scenarios ORDER BY name').all() as Array<{ name: string }>).map((r) => r.name),
       variantIds: [...variantIds],
+      // registry-UI stage 1: screen/state vocabulary for R2 verb completions.
+      // Screen ids are unique per bundle ONLY — every entry carries its
+      // bundle so the editor can scope to the case's own app (review F2).
+      screens: (db.prepare('SELECT app_bundle_id, screen_id, states_json FROM app_screens ORDER BY app_bundle_id, screen_id').all() as Array<{ app_bundle_id: string; screen_id: string; states_json: string }>)
+        .map((r) => {
+          let states: string[] = [];
+          try { states = Object.keys(JSON.parse(r.states_json) as Record<string, unknown>); } catch { /* malformed — empty */ }
+          return { screen: r.screen_id, bundle: r.app_bundle_id, states };
+        }),
     };
   });
 
@@ -522,14 +557,26 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       : s));
     const alerts = row.alerts_policy ? JSON.parse(row.alerts_policy) as unknown : undefined;
     const variants = row.variants_json ? JSON.parse(row.variants_json) as unknown[] : undefined;
+    // R2: entry facet round-trips from entry_json (guarded column)
+    const entryFacet = (() => {
+      try {
+        const e = (db.prepare('SELECT entry_json FROM templates WHERE id = ?').get(row.id) as { entry_json: string | null } | undefined)?.entry_json;
+        return e ? JSON.parse(e) as { screen: string; mode?: 'tab' | 'deepLink' | 'navigate' } : null;
+      } catch { return null; }
+    })();
+    // vocabulary: a case whose steps use swap: verbs is authored in the
+    // swaps: dialect — emit it back that way (storage is one array; the
+    // exporter keys off which property it receives)
+    const asSwaps = steps.some((s) => s['action'] === 'swap');
     const yaml = caseToYaml({
       name: row.name,
       tags: (JSON.parse(row.tags_json ?? '[]') as string[]),
       steps: withNames(steps),
       ...(alerts ? { alerts } : {}),
-      ...(variants && variants.length > 0 ? { variants } : {}),
+      ...(variants && variants.length > 0 ? (asSwaps ? { swaps: variants } : { variants }) : {}),
       ...(setup && setup.length > 0 ? { setup: withNames(setup) } : {}),
       ...(row.app_bundle_id ? { app: row.app_bundle_id } : {}),
+      ...(entryFacet ? { entry: entryFacet } : {}),
     });
     return { yaml, logicalW: row.logical_w, logicalH: row.logical_h };
   });
@@ -564,16 +611,81 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     // phase B: variant scenario names must resolve (scenarios.name UNIQUE —
     // total resolution, same argument as runFlow-by-name). Parse can't see
     // the DB, so the SAVE path owns this check.
+    // S2: plural `scenarios` resolve too, and the UNION of a variant's
+    // presets must not contain a duplicate (method, path_pattern) — two
+    // scenarios shipping the same endpoint would race at match time.
+    // Shadowing between glob/regex patterns is undecidable in general and
+    // deliberately NOT checked here (review F2: decidable conflicts only).
     if (r.case.variants) {
       for (const v of r.case.variants) {
-        if (v.networkScenario === undefined) continue;
-        const known = db.prepare('SELECT 1 FROM scenarios WHERE name = ?').get(v.networkScenario);
-        if (!known) return reply.code(422).send({ errors: [{ line: 1, message: `variant "${v.id}": unknown scenario "${v.networkScenario}"` }] });
+        const names = variantScenarioNames(v);
+        if (names.length === 0) continue;
+        for (const n of names) {
+          const known = db.prepare('SELECT 1 FROM scenarios WHERE name = ? OR id = ?').get(n, n);
+          if (!known) return reply.code(422).send({ errors: [{ line: 1, message: `variant "${v.id}": unknown scenario "${n}"` }] });
+        }
+        // union presets of the set → duplicate (method, path_pattern) check
+        const ph = names.map(() => '?').join(',');
+        const rows = db.prepare(
+          `SELECT p.method, p.path_pattern, so.scenario_id FROM presets p
+           JOIN scenario_overrides so ON so.preset_id = p.id
+           JOIN scenarios s ON s.id = so.scenario_id
+           WHERE (s.name IN (${ph}) OR s.id IN (${ph})) AND so.enabled = 1`,
+        ).all(...names, ...names) as Array<{ method: string; path_pattern: string; scenario_id: string }>;
+        const byEndpoint = new Map<string, string[]>(); // "METHOD path" → scenario ids
+        for (const row of rows) {
+          const key = `${row.method} ${row.path_pattern}`;
+          byEndpoint.set(key, [...(byEndpoint.get(key) ?? []), row.scenario_id]);
+        }
+        for (const [key, ids] of byEndpoint) {
+          const distinct = [...new Set(ids)];
+          if (distinct.length > 1) {
+            const namesBoth = distinct.map((sid) => (db.prepare('SELECT name FROM scenarios WHERE id = ?').get(sid) as { name: string }).name);
+            return reply.code(409).send({ errors: [{ line: 1, message: `variant "${v.id}": scenarios ${namesBoth.map((x) => `"${x}"`).join(' + ')} both fake \`${key}\` — a set may fake an endpoint once` }] });
+          }
+        }
+      }
+    }
+    // R2 S4: swap steps must reference ids this case declares (swaps ∪
+    // variants), and screen refs (arrive/refresh/expect screen/entry) must
+    // exist in the app's registry — resolution needs the DB, so it lives
+    // here (parse is pure). Snapshots carry the selector sets so registry
+    // changes never rewrite history (S5 runner reads the snapshot).
+    const declaredSwaps = new Set([...(r.case.swaps ?? r.case.worlds ?? []).map((w) => w.id), ...(r.case.variants ?? []).map((v) => v.id)]);
+    for (const s of allSteps) {
+      if (s.action === 'swap' && !declaredSwaps.has(s.swap!)) {
+        return reply.code(422).send({ errors: [{ line: 1, message: `swap step references "${s.swap}" — not declared in this case's swaps/variants` }] });
+      }
+    }
+    const screenRefs = new Set<string>();
+    for (const s of allSteps) {
+      if (s.action === 'arrive' || s.action === 'refresh') screenRefs.add(s.screen!);
+      if (s.action === 'expectScreen') screenRefs.add(s.expectScreen!.screen);
+    }
+    if (r.case.entry) screenRefs.add(r.case.entry.screen);
+    const appBundleForScreens = r.case.app ?? row.app_bundle_id ?? null;
+    if (screenRefs.size > 0) {
+      if (!appBundleForScreens) {
+        return reply.code(422).send({ errors: [{ line: 1, message: 'screen steps need an app (app: <bundle>) to resolve the registry' }] });
+      }
+      const known = new Set((db.prepare('SELECT screen_id FROM app_screens WHERE app_bundle_id = ?').all(appBundleForScreens) as Array<{ screen_id: string }>).map((x) => x.screen_id));
+      for (const ref of screenRefs) {
+        if (!known.has(ref)) {
+          return reply.code(422).send({ errors: [{ line: 1, message: `unknown screen "${ref}" — declare it in the app registry (/api/apps/${appBundleForScreens}/screens)` }] });
+        }
+      }
+      for (const s of allSteps) {
+        if (s.action !== 'expectScreen') continue;
+        const rowScr = db.prepare('SELECT states_json FROM app_screens WHERE app_bundle_id = ? AND screen_id = ?').get(appBundleForScreens, s.expectScreen!.screen) as { states_json: string } | undefined;
+        const states = rowScr ? (JSON.parse(rowScr.states_json) as Record<string, unknown>) : {};
+        if (!(s.expectScreen!.state in states)) {
+          return reply.code(422).send({ errors: [{ line: 1, message: `screen "${s.expectScreen!.screen}" has no state "${s.expectScreen!.state}" — declared: ${Object.keys(states).join(', ') || 'none'}` }] });
+        }
       }
     }
     db.prepare(
-      `UPDATE templates SET name = ?, steps_json = ?, setup_json = ?, alerts_policy = ?, variants_json = ?, tags_json = ?, app_bundle_id = COALESCE(?, app_bundle_id), updated_at = ?, updated_by = ? WHERE id = ?`,
-    ).run(r.case.name, JSON.stringify(r.case.steps), r.case.setup ? JSON.stringify(r.case.setup) : null, r.case.alerts ? JSON.stringify(r.case.alerts) : null, r.case.variants ? JSON.stringify(r.case.variants) : null, tagsToJson(r.case.tags), r.case.app ?? null, Date.now(), req.user?.name ?? null, id);
+      `UPDATE templates SET name = ?, steps_json = ?, setup_json = ?, alerts_policy = ?, variants_json = ?, tags_json = ?, app_bundle_id = COALESCE(?, app_bundle_id), entry_json = ?, updated_at = ?, updated_by = ? WHERE id = ?`,
+    ).run(r.case.name, JSON.stringify(r.case.steps), r.case.setup ? JSON.stringify(r.case.setup) : null, r.case.alerts ? JSON.stringify(r.case.alerts) : null, r.case.variants ? JSON.stringify(r.case.variants) : (r.case.swaps ? JSON.stringify(r.case.swaps) : (r.case.worlds ? JSON.stringify(r.case.worlds) : null)), tagsToJson(r.case.tags), r.case.app ?? null, r.case.entry ? JSON.stringify(r.case.entry) : null, Date.now(), req.user?.name ?? null, id);
     return rowToTemplate(db, db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow);
   });
 

@@ -14,9 +14,34 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFileCb);
 
 const RUN_STILL_INTERVAL_MS = Number(process.env['CRUCIBLE_RUN_STILL_MS'] ?? 1_000);
+/** Still-capture backoff while a run's STEPS execute on the device: each
+ *  simctl screenshot serializes against the XCUITest runner's AX snapshots
+ *  on the same sim (measured 2026-09-26: settle steps took 5.2s with a
+ *  1Hz still feed painting watchers vs 0.4s resolution with none). The
+ *  panel stays live via the child stream + these slower stills. */
+const RUN_STILL_STEPS_INTERVAL_MS = Number(process.env['CRUCIBLE_RUN_STILL_STEPS_MS'] ?? 5_000);
 
 const runActiveDevices = new Set<string>();
 const stillFeeds = new Set<string>();
+/** runId → udid (run.started) and the devices whose runs are in the steps
+ *  phase — drives the still-feed quiet window above. */
+const runUdidById = new Map<string, string>();
+const stepsActiveDevices = new Set<string>();
+
+function wireStepsQuietWindow(bus: TypedEventBus<AppEvents>): void {
+  bus.on('run.started', (p) => { if (p.udid) runUdidById.set(p.runId, p.udid); });
+  bus.on('run.phase', (p) => {
+    const udid = runUdidById.get(p.runId);
+    if (!udid) return;
+    if (p.phase === 'steps') stepsActiveDevices.add(udid);
+    else stepsActiveDevices.delete(udid);
+  });
+  bus.on('run.finished', (p) => {
+    const udid = runUdidById.get(p.runId);
+    if (udid) stepsActiveDevices.delete(udid);
+    runUdidById.delete(p.runId);
+  });
+}
 
 let deckPaintPromise: Promise<(u: string, b: Buffer) => number> | null = null;
 function deckPaint(): Promise<(u: string, b: Buffer) => number> {
@@ -51,12 +76,15 @@ function runStillFeed(udid: string): void {
     try {
       while (runActiveDevices.has(udid)) {
         const deckLegCount = await deckLegsFor(udid).catch(() => 0);
+        // quiet window: steps executing on this device — slow the stills so
+        // the settle loops' AX snapshots don't queue behind screenshots
+        const intervalMs = stepsActiveDevices.has(udid) ? RUN_STILL_STEPS_INTERVAL_MS : RUN_STILL_INTERVAL_MS;
         if (deckLegCount === 0) {
           if (++idleTicks >= Math.max(1, Math.round(60_000 / RUN_STILL_INTERVAL_MS))) {
             console.log(`[run-still] feed exit (no watchers for 60s): ${udid}`);
             return;
           }
-          await new Promise((r) => setTimeout(r, RUN_STILL_INTERVAL_MS));
+          await new Promise((r) => setTimeout(r, intervalMs));
           continue;
         }
         idleTicks = 0;
@@ -89,6 +117,7 @@ function runStillFeed(udid: string): void {
 
 export async function registerSimdeckHolds(app: FastifyInstance, bus: TypedEventBus<AppEvents>): Promise<void> {
   void app;
+  wireStepsQuietWindow(bus);
   bus.on('run.started', (p) => {
     if (!p.udid) return;
     runActiveDevices.add(p.udid);

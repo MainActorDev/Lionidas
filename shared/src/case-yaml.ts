@@ -19,7 +19,7 @@ import { parseVariants, type YamlVariant } from './yaml-variants.js';
 export interface YamlSelector { identifier?: string; label?: string; labelContains?: string; ignoreCase?: boolean; type?: string }
 export interface YamlStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin';
   x?: number; y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
   text?: string;
@@ -38,6 +38,17 @@ export interface YamlStep {
   alertAction?: 'accept' | 'dismiss';
   /** location action target — simulated GPS point (simctl location set) */
   location?: { latitude: number; longitude: number };
+  /** R2 verbs — arrive: <screen-id>, refresh: <screen-id>, swap: <target-id> */
+  screen?: string;
+  /** ensure logout: if a session indicator is visible, walk the app's logout
+   *  flow (list button → confirm sheet) by IDENTIFIER first, label second —
+   *  coordinate-free, cross-device safe. No-op pass when already logged out. */
+  ensureLogout?: { button: string; stay: string; confirm: string };
+  ensureLogin?: { entry: string; phoneField: string; passwordField: string; submit: string; session: string; phone: string; password: string; screen?: string };
+  /** swap: <id from this case's swaps/variants> */
+  swap?: string;
+  /** expect screen: "<screen>.<state>" — parsed into parts; negate for != */
+  expectScreen?: { screen: string; state: string; negate?: boolean };
 }
 export interface YamlCase {
   name: string;
@@ -50,6 +61,14 @@ export interface YamlCase {
   /** State coverage (phase B): one flow, N deterministic worlds. The runner
    *  expands these in phase C; parsing/storage/autocomplete ship first. */
   variants?: YamlVariant[];
+  /** R2 v2: named swap targets — same shape as variants; the runner treats
+   *  swaps: and variants: as one pool (variants wins on key collision as
+   *  the established term). 'worlds:' parses as the deprecated alias. */
+  swaps?: YamlVariant[];
+  /** @deprecated use swaps — kept for parsing old case versions */
+  worlds?: YamlVariant[];
+  /** R2 v2: default entry for arrive: steps (screen id in the app registry) */
+  entry?: { screen: string; mode?: 'tab' | 'deepLink' | 'navigate' };
   steps: YamlStep[];
 }
 
@@ -58,7 +77,8 @@ export interface YamlError { line: number; message: string }
 const DROPPED_KEYS = new Set(['ts', 'thumb']); // capture artifacts — not semantics
 const STEP_KEYS = new Set(['action', 'x', 'y', 'direction', 'text', 'optional', 'selector', 'templateId', 'flow', 'count', 'atLeast']);
 const DIRECTIONS = new Set(['up', 'down', 'left', 'right']);
-const ACTIONS = new Set(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert', 'location']);
+const ACTIONS = new Set(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert', 'location', 'arrive', 'refresh', 'swap', 'world', 'expect screen', 'ensure logout', 'ensure login']);
+const SCREEN_ID_RE = /^[a-z][a-z0-9-]*$/;
 /** runFlow references: name → id resolution is the CALLER's job (needs the DB);
  * the validator accepts both shapes and reports unresolved names. */
 export interface RunFlowRefs { names: string[] }
@@ -124,6 +144,32 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
   if (c['variants'] !== undefined && c['variants'] !== null) {
     variantsOut = parseVariants(c['variants'], errors);
   }
+  // worlds (R2 v2) — authoring alias for variants; both may parse, collision
+  // on ids between them is an error (one vocabulary per case)
+  let worldsOut: YamlVariant[] | null = null;
+  if (c['swaps'] !== undefined && c['swaps'] !== null) {
+    worldsOut = parseVariants(c['swaps'], errors);
+  } else if (c['worlds'] !== undefined && c['worlds'] !== null) {
+    worldsOut = parseVariants(c['worlds'], errors); // deprecated alias
+  }
+  if (variantsOut && worldsOut) {
+    const ids = new Set(worldsOut.map((w) => w.id));
+    for (const v of variantsOut) {
+      if (ids.has(v.id)) errors.push({ line: 1, message: `swap target "${v.id}" also appears in variants — one vocabulary per case` });
+    }
+  }
+  // entry (R2 v2): default screen for arrive: steps
+  let entry: YamlCase['entry'];
+  if (c['entry'] !== undefined && c['entry'] !== null) {
+    const e = c['entry'] as Record<string, unknown>;
+    if (typeof e !== 'object' || typeof e['screen'] !== 'string' || !SCREEN_ID_RE.test(e['screen'])) {
+      errors.push({ line: 1, message: 'entry must be { screen: <screen-id>, mode?: tab | deepLink | navigate }' });
+    } else if (e['mode'] !== undefined && !['tab', 'deepLink', 'navigate'].includes(e['mode'] as string)) {
+      errors.push({ line: 1, message: `entry.mode must be tab | deepLink | navigate (got ${JSON.stringify(e['mode'])})` });
+    } else {
+      entry = { screen: e['screen'], ...(e['mode'] !== undefined ? { mode: e['mode'] as 'tab' | 'deepLink' | 'navigate' } : {}) };
+    }
+  }
 
   // setup (declared preconditions) — parsed by the same step machinery
   let setupOut: YamlStep[] | undefined;
@@ -147,7 +193,10 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
     runFlowNames.push(...r.names);
   }
   if (errors.length > 0) return { ok: false, case: null, errors, runFlowNames };
-  return { ok: true, case: { name, tags, ...(app ? { app } : {}), ...(setupOut ? { setup: setupOut } : {}), ...(alerts ? { alerts } : {}), ...(variantsOut ? { variants: variantsOut } : {}), steps: stepsOut }, errors: [], runFlowNames };
+  const outCase: YamlCase = { name, tags, ...(app ? { app } : {}), ...(setupOut ? { setup: setupOut } : {}), ...(alerts ? { alerts } : {}), ...(variantsOut ? { variants: variantsOut } : {}), steps: stepsOut };
+  if (worldsOut) outCase.swaps = worldsOut;
+  if (entry) outCase.entry = entry;
+  return { ok: true, case: outCase, errors: [], runFlowNames };
 }
 
 /** One step list (steps: or setup:) → validated steps + runFlow name refs.
@@ -179,10 +228,54 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
       }
       const action = keys[0]!;
       if (!ACTIONS.has(action)) {
-        errors.push({ line: 1, message: `${prefix(i)}: unknown action "${action}" (expected tap|scroll|type|runFlow|expect)` });
+        errors.push({ line: 1, message: `${prefix(i)}: unknown action "${action}" (expected tap|scroll|type|runFlow|expect|arrive|refresh|swap|expect screen)` });
         continue;
       }
       const body = s[action];
+
+      // ── R2 verbs (S4): scalar screen/world targets + expect screen form ──
+      if (action === 'arrive' || action === 'refresh') {
+        if (typeof body !== 'string' || !SCREEN_ID_RE.test(body)) {
+          errors.push({ line: 1, message: `${prefix(i)}: ${action} takes a screen id (registry key, [a-z][a-z0-9-]*)` });
+          continue;
+        }
+        stepsOut.push({ idx: stepsOut.length, action, screen: body });
+        continue;
+      }
+      if (action === 'swap' || action === 'world') {
+        // 'world' is the deprecated alias (renamed 2026-09-24): both parse,
+        // storage + emission are always 'swap'
+        if (typeof body !== 'string' || !body.trim()) {
+          errors.push({ line: 1, message: `${prefix(i)}: swap takes a target id from this case's swaps/variants` });
+          continue;
+        }
+        stepsOut.push({ idx: stepsOut.length, action: 'swap', swap: body.trim() });
+        continue;
+      }
+      if (action === 'expect screen') {
+        // forms: "<screen>.<state>"  |  "<screen>.state != <state>"
+        if (typeof body !== 'string' || !body.trim()) {
+          errors.push({ line: 1, message: `${prefix(i)}: expect screen takes "<screen>.<state>" or "<screen>.state != <state>"` });
+          continue;
+        }
+        const t = body.trim();
+        const neg = /^(.+?)\.state\s*!=\s*(.+)$/.exec(t);
+        const pos = /^([a-z][a-z0-9-]*)\.([a-z][a-z0-9_-]*)$/.exec(t);
+        if (neg) {
+          const [, scr, st] = neg;
+          if (!SCREEN_ID_RE.test(scr!.trim())) {
+            errors.push({ line: 1, message: `${prefix(i)}: expect screen: bad screen id "${scr!.trim()}"` });
+            continue;
+          }
+          stepsOut.push({ idx: stepsOut.length, action: 'expectScreen', expectScreen: { screen: scr!.trim(), state: st!.trim(), negate: true } });
+        } else if (pos) {
+          stepsOut.push({ idx: stepsOut.length, action: 'expectScreen', expectScreen: { screen: pos[1]!, state: pos[2]! } });
+        } else {
+          errors.push({ line: 1, message: `${prefix(i)}: expect screen: expected "<screen>.<state>" or "<screen>.state != <state>" (got ${JSON.stringify(t)})` });
+          continue;
+        }
+        continue;
+      }
       const opt = (b: Record<string, unknown>): boolean => b['optional'] === true;
       const sel = (b: Record<string, unknown>): YamlSelector | undefined => {
         const on = b['on'];
@@ -296,6 +389,80 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
         continue;
       }
       const b = body as Record<string, unknown>;
+      // ── ensure login: coordinate-free login preflight ──
+      if (action === 'ensure login') {
+        // screen-form (plan rev 2 S4): selectors come from the screens
+        // registry (login_json); only the env refs ride the step. screen is
+        // MUTUALLY EXCLUSIVE with inline selectors — validator error, never
+        // last-wins.
+        const screenRef = b['screen'] as unknown;
+        if (typeof screenRef === 'string' && screenRef.trim()) {
+          const inlinePresent = ['entry', 'on', 'phoneField', 'passwordField', 'submit', 'session'].some((k) => typeof b[k] === 'string' && (b[k] as string).trim());
+          if (inlinePresent) {
+            errors.push({ line: 1, message: `${prefix(i)}: screen: and inline selectors are mutually exclusive — pick one` });
+            continue;
+          }
+          const phoneS = b['phone'] ?? b['phoneEnv'];
+          const passwordS = b['password'] ?? b['passwordEnv'];
+          if (typeof phoneS !== 'string' || !phoneS.trim() || typeof passwordS !== 'string' || !passwordS.trim()) {
+            errors.push({ line: 1, message: `${prefix(i)}: ensure login (screen form) needs screen: <id> plus phone/password env refs` });
+            continue;
+          }
+          stepsOut.push({ idx: stepsOut.length, action: 'ensureLogin', ensureLogin: { entry: '', phoneField: '', passwordField: '', submit: '', session: '', phone: phoneS.trim(), password: passwordS.trim(), screen: screenRef.trim() } });
+          continue;
+        }
+        // screenless form (login-as-app-procedure plan F2): the app's login
+        // procedure supplies every selector — the step carries env refs ONLY.
+        // Runs AFTER the legacy inline branch (which requires the full 5
+        // selectors): a step with phone+password and no selectors is
+        // screenless; a step with any selector falls through to inline
+        // validation below and gets the legacy error if incomplete.
+        {
+          const phoneS = b['phone'] ?? b['phoneEnv'];
+          const passwordS = b['password'] ?? b['passwordEnv'];
+          const SEL_KEYS = ['entry', 'phoneField', 'passwordField', 'submit', 'session'] as const;
+          const selectorsPresent = SEL_KEYS.filter((k) => typeof b[k] === 'string' && (b[k] as string).trim());
+          if (typeof phoneS === 'string' && phoneS.trim() && typeof passwordS === 'string' && passwordS.trim()) {
+            if (selectorsPresent.length > 0 && selectorsPresent.length < SEL_KEYS.length) {
+              // partial selectors + env refs: neither the screenless form nor
+              // a complete inline form — name the conflict honestly
+              errors.push({ line: 1, message: `${prefix(i)}: ensure login carries partial selectors (${selectorsPresent.join(', ')}) with phone/password — use the app-procedure form (env refs only) or the full inline form (all 5 selectors)` });
+              continue;
+            }
+            if (selectorsPresent.length === 0) {
+              stepsOut.push({ idx: stepsOut.length, action: 'ensureLogin', ensureLogin: { entry: '', phoneField: '', passwordField: '', submit: '', session: '', phone: phoneS.trim(), password: passwordS.trim() } });
+              continue;
+            }
+            // full inline (5 selectors) falls through to the legacy branch below
+          }
+        }
+        const entry = (b['entry'] ?? b['on']) as unknown;
+        const phoneField = b['phoneField'] as unknown;
+        const passwordField = b['passwordField'] as unknown;
+        const submit = b['submit'] as unknown;
+        const session = b['session'] as unknown;
+        const phone = (b['phone'] ?? b['phoneEnv']) as unknown;
+        const password = (b['password'] ?? b['passwordEnv']) as unknown;
+        const strs = [entry, phoneField, passwordField, submit, session, phone, password];
+        if (strs.some((v) => typeof v !== 'string' || !String(v).trim())) {
+          errors.push({ line: 1, message: `${prefix(i)}: ensure login needs entry/phoneField/passwordField/submit/session selectors and phone/password env refs` });
+          continue;
+        }
+        stepsOut.push({ idx: stepsOut.length, action: 'ensureLogin', ensureLogin: { entry: String(entry).trim(), phoneField: String(phoneField).trim(), passwordField: String(passwordField).trim(), submit: String(submit).trim(), session: String(session).trim(), phone: String(phone).trim(), password: String(password).trim() } });
+        continue;
+      }
+      // ── ensure logout: coordinate-free session preflight ──
+      if (action === 'ensure logout') {
+        const bo = (b['button'] ?? b['on']) as unknown;
+        const stay = b['stay'] as unknown;
+        const confirm = b['confirm'] as unknown;
+        if (typeof bo !== 'string' || !bo.trim() || typeof confirm !== 'string' || !confirm.trim()) {
+          errors.push({ line: 1, message: `${prefix(i)}: ensure logout needs button: <label-or-id> and confirm: <label-or-id> (stay: optional sheet-title check)` });
+          continue;
+        }
+        stepsOut.push({ idx: stepsOut.length, action: 'ensureLogout', ensureLogout: { button: bo.trim(), stay: typeof stay === 'string' ? stay.trim() : '', confirm: confirm.trim() } });
+        continue;
+      }
       for (const bk of Object.keys(b)) {
         const known = ['point', 'on', 'text', 'optional', 'id', 'name', 'contains', 'ignoreCase', 'when', 'at'];
         if (action === 'expect') known.push('count', 'atLeast'); // cardinality is expect-only (A9)
@@ -309,11 +476,12 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
       if (action === 'tap' || action === 'type') {
         const step: YamlStep = { idx: stepsOut.length, action };
         const point = b['point'];
+        const slEarly = sel(b);
         if (Array.isArray(point) && point.length === 2 && typeof point[0] === 'number' && typeof point[1] === 'number') {
           step.x = point[0]; step.y = point[1];
-        } else if (action === 'tap' || !sel(b)) {
-          // tap always needs coordinates; type may be selector-only (on:)
-          errors.push({ line: 1, message: `${prefix(i)}: ${action} needs point: [x, y]` });
+        } else if (!slEarly) {
+          // no selector and no point — nothing to aim with
+          errors.push({ line: 1, message: `${prefix(i)}: ${action} needs point: [x, y] or on: <label or id> (identifier-only taps resolve live)` });
           continue;
         }
         if (action === 'type') {
@@ -383,7 +551,7 @@ function attachWhen(step: YamlStep, b: Record<string, unknown>, section: 'setup'
 }
 
 /** steps_json rows → YAML text. Stable field order, guidance comments. */
-export function caseToYaml(t: { name: string; tags: string[]; app?: string | null; setup?: unknown[]; alerts?: unknown; variants?: unknown[]; steps: unknown[] }): string {
+export function caseToYaml(t: { name: string; tags: string[]; app?: string | null; setup?: unknown[]; alerts?: unknown; variants?: unknown[]; swaps?: unknown[]; entry?: { screen: string; mode?: 'tab' | 'deepLink' | 'navigate' } | null; steps: unknown[] }): string {
   const lines: string[] = [];
   lines.push(`# ${t.name} — edit as yaml; save validates against the step schema`);
   lines.push(`name: ${yamlScalar(t.name)}`);
@@ -400,17 +568,27 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       }
     }
   }
-  if (Array.isArray(t.variants) && t.variants.length > 0) {
-    lines.push('variants:');
-    for (const rawV of t.variants as Array<Record<string, unknown>>) {
-      const v = rawV as unknown as { id: string; networkScenario?: string; env?: Record<string, string> };
+  // R2: swaps are the vocabulary when present (variants is the legacy
+  //  term; the pool lookup treats both). scenarios[] is the S2 set form —
+  //  emitted alongside singular networkScenario sugar.
+  const vlist = (Array.isArray(t.swaps) && t.swaps.length > 0 ? t.swaps : t.variants) as Array<Record<string, unknown>> | undefined;
+  if (vlist && vlist.length > 0) {
+    const vocab = Array.isArray(t.swaps) && t.swaps.length > 0 ? 'swaps' : 'variants';
+    lines.push(`${vocab}:`);
+    for (const rawV of vlist) {
+      const v = rawV as unknown as { id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> };
       lines.push(`  - id: ${yamlScalar(v.id)}`);
       if (v.networkScenario !== undefined) lines.push(`    networkScenario: ${yamlScalar(v.networkScenario)}`);
+      if (Array.isArray(v.scenarios) && v.scenarios.length > 0) lines.push(`    scenarios: [${v.scenarios.map((x) => yamlScalar(x)).join(', ')}]`);
       if (v.env && Object.keys(v.env).length > 0) {
         lines.push('    env:');
         for (const [k, val] of Object.entries(v.env)) lines.push(`      ${k}: ${yamlScalar(val)}`);
       }
     }
+  }
+  if (t.entry && typeof t.entry === 'object' && t.entry.screen) {
+    const mode = t.entry.mode ? `, mode: ${yamlScalar(t.entry.mode)}` : '';
+    lines.push(`entry: { screen: ${yamlScalar(t.entry.screen)}${mode} }`);
   }
   if (Array.isArray(t.setup) && t.setup.length > 0) {
     lines.push('setup:');
@@ -447,7 +625,20 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
     const optSuffix = (o: unknown): string => (o === true ? ', optional: true' : '');
     const whenSuffix = (w: unknown): string => (typeof w === 'string' && w ? `, when: ${yamlScalar(w)}` : '');
     if (action === 'tap') {
-      lines.push(`  - tap: { point: [${s['x']}, ${s['y']}]${on(s['selector']) ? `, ${on(s['selector'])!}` : ''}${icSuffix(s['selector'])}${optSuffix(s['optional'])}${whenSuffix(s['when'])} }`);
+      // point only when recorded — selector-only steps (identifier/label
+      // overloads) carry no coordinates and must not emit
+      // `point: [undefined, undefined]`
+      const parts: string[] = [];
+      if (s['x'] !== undefined && s['y'] !== undefined) parts.push(`point: [${s['x']}, ${s['y']}]`);
+      const onSel = on(s['selector']);
+      if (onSel) parts.push(onSel);
+      const ic = icSuffix(s['selector']);
+      if (ic) parts.push(ic.replace(/^, /, ''));
+      const opt = optSuffix(s['optional']);
+      if (opt) parts.push(opt.replace(/^, /, ''));
+      const wh = whenSuffix(s['when']);
+      if (wh) parts.push(wh.replace(/^, /, ''));
+      lines.push(`  - tap: { ${parts.join(', ')} }`);
     } else if (action === 'scroll') {
       lines.push(`  - scroll: ${s['direction']}`);
     } else if (action === 'alert') {
@@ -476,10 +667,57 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
         if (s['optional'] === true || at || card) lines.push(`  - expect: { on: ${yamlScalar(label)}${s['optional'] === true ? ', optional: true' : ''}${at}${card} }`);
         else lines.push(`  - expect: ${yamlScalar(label)}`);
       }
+    } else if (action === 'arrive') {
+      lines.push(`  - arrive: ${yamlScalar(String(s['screen'] ?? ''))}`);
+    } else if (action === 'refresh') {
+      lines.push(`  - refresh: ${yamlScalar(String(s['screen'] ?? ''))}`);
+    } else if (action === 'swap') {
+      lines.push(`  - swap: ${yamlScalar(String(s['swap'] ?? s['world'] ?? ''))}`);
+    } else if (action === 'world') {
+      // legacy stored form (pre-rename 2026-09-24) — emit the new vocabulary;
+      // a stored world step must NEVER fall through to the placeholder path
+      lines.push(`  - swap: ${yamlScalar(String(s['world'] ?? ''))}`);
+    } else if (action === 'ensureLogout') {
+      const el = s['ensureLogout'] as { button?: string; stay?: string; confirm?: string } | undefined;
+      lines.push(`  - ensure logout:`);
+      lines.push(`      button: ${yamlScalar(el?.button ?? '?')}`);
+      lines.push(`      confirm: ${yamlScalar(el?.confirm ?? '?')}`);
+      if (el?.stay) lines.push(`      stay: ${yamlScalar(el.stay)}`);
+    } else if (action === 'ensureLogin') {
+      const el = s['ensureLogin'] as { entry?: string; phoneField?: string; passwordField?: string; submit?: string; session?: string; phone?: string; password?: string; screen?: string } | undefined;
+      if (el?.screen) {
+        lines.push(`  - ensure login:`);
+        lines.push(`      screen: ${yamlScalar(el.screen)}`);
+        lines.push(`      phone: ${yamlScalar(el?.phone ?? '?')}`);
+        lines.push(`      password: ${yamlScalar(el?.password ?? '?')}`);
+      } else if (el?.phone && !el.entry) {
+        lines.push(`  - ensure login:`);
+        lines.push(`      phone: ${yamlScalar(el.phone)}`);
+        lines.push(`      password: ${yamlScalar(el?.password ?? '?')}`);
+      } else {
+      lines.push(`  - ensure login:`);
+      lines.push(`      entry: ${yamlScalar(el?.entry ?? '?')}`);
+      lines.push(`      phoneField: ${yamlScalar(el?.phoneField ?? '?')}`);
+      lines.push(`      passwordField: ${yamlScalar(el?.passwordField ?? '?')}`);
+      lines.push(`      submit: ${yamlScalar(el?.submit ?? '?')}`);
+      lines.push(`      session: ${yamlScalar(el?.session ?? '?')}`);
+      lines.push(`      phone: ${yamlScalar(el?.phone ?? '?')}`);
+      lines.push(`      password: ${yamlScalar(el?.password ?? '?')}`);
+      }
+    } else if (action === 'expectScreen') {
+      const es = s['expectScreen'] as { screen?: string; state?: string; negate?: boolean } | undefined;
+      const scr = es?.screen ?? '?';
+      const st = es?.state ?? '?';
+      lines.push(es?.negate === true
+        ? `  - expect screen: ${yamlScalar(`${scr}.state != ${st}`)}`
+        : `  - expect screen: ${yamlScalar(`${scr}.${st}`)}`);
     } else {
-      // unknown action in storage (future kinds) — serialize losslessly-ish as a comment guard
-      lines.push(`  # unrendered step kind: ${action}`);
-      lines.push(`  - scroll: down  # ⚠ placeholder — original step kind "${action}" has no yaml form yet`);
+      // unknown action in storage — REFUSE to render. The old placeholder
+      // (a real scroll step) silently destroyed the unrenderable step on
+      // save: the editor emitted it, the user saved, storage replaced the
+      // original with scroll (live 2026-09-26: this ate an ensure-logout
+      // setup step). A throw surfaces the gap at emit time instead.
+      throw new Error(`caseToYaml: no yaml form for action "${action}" — extend the emitter before exposing this step kind in the editor`);
     }
   }
   return lines.join('\n') + '\n';

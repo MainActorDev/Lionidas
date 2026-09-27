@@ -142,14 +142,16 @@ describe('Task 4 — recentre audit + tightened slack', () => {
         return { ok: true, result: {} };
       },
     } as unknown as AlloyExports);
-    // recorded at (10,10) on 428-wide → scaled far from the 640-y button → recentre
+    // point+selector → projected-point (the recentre ladder is retired by
+    // the sub-second taps plan: the recorded point IS the aim; a stale aim
+    // is caught by the next verifying step). Pin the new audit shape.
     seed('tpl_v6', [{ idx: 0, action: 'tap', x: 10, y: 10, selector: { label: 'Privacy Policy' } }], 428, 926);
     const runId = await play('tpl_v6');
     const rows = steps(runId);
     expect(rows[0]!.status).toBe('pass');
     const ev = JSON.parse(rows[0]!.evaluated_json!) as { resolvedBy?: string; recentred?: boolean; distance?: number };
-    expect(ev.resolvedBy).toBe('selector-recentred');
-    expect(ev.recentred).toBe(true);
-    expect(typeof ev.distance).toBe('number');
+    expect(ev.resolvedBy).toBe('projected-point');
+    expect(ev.recentred).toBeUndefined(); // audit retired with the ladder
+    expect(ev.distance).toBeUndefined();
   });
 });

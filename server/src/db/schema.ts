@@ -216,6 +216,20 @@ export function migrateM1(db: Database.Database): void {
       pinned_at INTEGER NOT NULL,
       PRIMARY KEY(user_id, udid)
     );
+    -- R2 S3 — app screen registry: the app's map (how to arrive, how to
+    -- refresh, named states). Cases REFERENCE screens; the registry owns the
+    -- truth. JSON columns keep the shape flexible while the model settles;
+    -- validation lives in domain/app-screens.ts (API validates on write).
+    CREATE TABLE IF NOT EXISTS app_screens(
+      app_bundle_id TEXT NOT NULL,
+      screen_id TEXT NOT NULL,
+      entry_json TEXT NOT NULL,
+      refresh_json TEXT,
+      states_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY(app_bundle_id, screen_id)
+    );
   `);
   db.prepare("INSERT OR IGNORE INTO schema_meta(key, value) VALUES ('schema_version', '1')").run();
   // M3 additions (guarded ALTERs — idempotent on existing DBs)
@@ -254,6 +268,13 @@ export function migrateM1(db: Database.Database): void {
     // step logging (post-substitution audit truth)
     'ALTER TABLE templates ADD COLUMN tags_json TEXT',
     'ALTER TABLE run_steps ADD COLUMN evaluated_json TEXT',
+    // R2 screen-state runner: case-level entry facet (which registry screen
+    // the case enters, and via which mode) — persisted so the yaml
+    // round-trip and playback agree without recovering it from steps
+    'ALTER TABLE templates ADD COLUMN entry_json TEXT',
+    // registry-UI stage 2 (review F3): optimistic-concurrency revision on the
+    // screen registry — PUT with a stale revision 409s instead of last-write-wins
+    'ALTER TABLE app_screens ADD COLUMN revision INTEGER NOT NULL DEFAULT 1',
     // Batch 4 — suite management: runs carry their template (case) for
     // history/trend joins, the app build they tested, and the blocked
     // dimension (infra failure ≠ app failure; boolean, NOT a status value —
@@ -477,6 +498,43 @@ export function migrateM1(db: Database.Database): void {
       GROUP BY t.app_bundle_id ORDER BY COUNT(*) DESC LIMIT 1
     )`).run();
   }
+  // managed env vars (plan rev 2, Stage 1): scoped key/value store resolved
+  // by playback's env chain (global < app < plan < request body < variant).
+  // Uniqueness via COALESCE expression index — SQLite UNIQUE treats NULLs as
+  // distinct so a table-level constraint can't express "one key per scope".
+  // Scope-column correctness (app ⇒ bundle set, plan ⇒ plan set, global ⇒
+  // both NULL) is route-layer validation.
   db.exec(`
+    CREATE TABLE IF NOT EXISTS env_vars(
+      id TEXT PRIMARY KEY,
+      scope TEXT NOT NULL CHECK(scope IN ('global','app','plan')),
+      app_bundle_id TEXT,
+      plan_id TEXT REFERENCES plans(id) ON DELETE CASCADE,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      secret INTEGER NOT NULL DEFAULT 0,
+      note TEXT,
+      updated_by TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_env_vars_key
+    ON env_vars(scope, COALESCE(app_bundle_id,''), COALESCE(plan_id,''), key);
   `);
+  // login as an app-level procedure (login-as-app-procedure plan): one
+  // definition per app — entry (full entry object), phone/password/submit
+  // controls, verify (screen, state) REFERENCE. Screens never store login.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_login(
+      bundle_id TEXT PRIMARY KEY,
+      login_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1
+    );
+  `);
+  // app_screens gains the login recipe (Stage 1.2): nullable JSON column,
+  // shape {entry, phoneField, passwordField, submit, session}.
+  const screenCols = db.prepare("SELECT name FROM pragma_table_info('app_screens')").all() as Array<{ name: string }>;
+  if (!screenCols.some((x) => x.name === 'login_json')) {
+    db.prepare('ALTER TABLE app_screens ADD COLUMN login_json TEXT').run();
+  }
 }
