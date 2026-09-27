@@ -194,6 +194,8 @@ onMounted(load);
     </div>
 
     <div v-if="mode === 'manage'" id="scopes">
+      <div class="env-list a2-list">
+      <div class="env-thead"><span>key</span><span>value</span><span>note</span><span>updated</span><span></span></div>
       <!-- global -->
       <div class="scope-block" :class="{ open: openSections.has('g') }">
         <div class="a2-group-head scope-head" @click="toggleSec('g')">
@@ -205,7 +207,6 @@ onMounted(load);
           <button v-if="canWrite" class="btn btn-sm" @click.stop="toggleAdd('g')">+ var</button>
         </div>
         <div class="scope-body">
-          <div class="env-thead"><span>key</span><span>value</span><span>note</span><span>updated</span><span></span></div>
           <div v-for="v in globalVars" :key="v.id" class="env-card">
             <div class="env-row">
               <span class="env-key" v-html="`${v.key}${badges(v, false)}`"></span>
@@ -238,7 +239,6 @@ onMounted(load);
           <button v-if="canWrite" class="btn btn-sm" @click.stop="toggleAdd(`a:${g.bundle}`)">+ var</button>
         </div>
         <div class="scope-body">
-          <div class="env-thead"><span>key</span><span>value</span><span>note</span><span>updated</span><span></span></div>
           <div v-for="v in g.vars" :key="v.id" class="env-card">
             <div class="env-row">
               <span class="env-key" v-html="`${v.key}${badges(v, isOverride(v))}`"></span>
@@ -272,7 +272,6 @@ onMounted(load);
           <button v-if="canWrite" class="btn btn-sm" @click.stop="toggleAdd(`p:${g.plan.id}`)">+ var</button>
         </div>
         <div class="scope-body">
-          <div class="env-thead"><span>key</span><span>value</span><span>note</span><span>updated</span><span></span></div>
           <div v-for="v in g.vars" :key="v.id" class="env-card">
             <div class="env-row">
               <span class="env-key" v-html="`${v.key}${badges(v, false)}`"></span>
@@ -295,6 +294,7 @@ onMounted(load);
         </div>
       </div>
       <div v-if="q && appGroups.length === 0 && planGroups.length === 0 && globalVars.length === 0" class="env-row empty">no vars match</div>
+      </div>
     </div>
 
     <!-- edit modal -->
@@ -332,7 +332,7 @@ onMounted(load);
 .gap-chip .k { color: var(--color-paper); font-weight: var(--weight-bold); }
 .gap-chip .u { color: var(--color-steel); font-size: 10px; }
 
-.scope-block { margin-bottom: var(--s-4); border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); overflow-x: hidden; }
+.scope-block { } /* section inside the single env-list box — chrome lives on .env-list */
 /* head anatomy comes from the shared .a2-group-head (components.css);
    these are env-only extras: the scope tag chip and the grow spacer */
 .scope-head { }

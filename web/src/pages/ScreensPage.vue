@@ -429,7 +429,17 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
   <div v-else-if="error" class="hint err">{{ error }}</div>
   <div v-else-if="bundles.length === 0" class="hint">no screens registered yet — register one below</div>
 
-  <div v-for="b in bundles" :key="b.bundle" class="registry a2-list">
+  <div v-if="bundles.length > 0" class="scr-list a2-list">
+    <div class="scr-thead">
+      <span class="col-id">screen</span>
+      <span class="col-entry">entry</span>
+      <span class="col-refresh">refresh</span>
+      <span class="col-states">states</span>
+      <span class="col-used">used by</span>
+      <span class="col-acts"></span>
+    </div>
+
+    <div v-for="b in bundles" :key="b.bundle" class="registry">
     <div class="a2-group-head" @click="toggleBundle(b.bundle)" :title="b.bundle">
       <span class="caret">{{ collapsedBundles.has(b.bundle) ? '▸' : '▾' }}</span>
       <span class="owner">{{ b.bundle }}</span>
@@ -439,15 +449,6 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
           <button class="mini-act" title="register a new screen" @click="openDocCreate(b.bundle)">+ screen</button>
         <button class="mini-act" title="import/export the registry as yaml" @click="openYaml(b.bundle)">yaml</button>
       </span>
-    </div>
-
-    <div v-show="!collapsedBundles.has(b.bundle)" class="scr-thead">
-      <span class="col-id">screen</span>
-      <span class="col-entry">entry</span>
-      <span class="col-refresh">refresh</span>
-      <span class="col-states">states</span>
-      <span class="col-used">used by</span>
-      <span class="col-acts"></span>
     </div>
 
     <div v-if="b.screens.length === 0" v-show="!collapsedBundles.has(b.bundle)" class="hint inset">no screens yet — <button class="inline-link" @click="openCreate(b.bundle)">register the first one</button></div>
@@ -496,6 +497,7 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
         <div v-if="saveMsg || saveErr" class="save-line" :class="{ err: !!saveErr }">{{ saveErr || saveMsg }}</div>
       </div>
     </article>
+  </div>
   </div>
 
   <!-- new-app prompt: first screen of a brand-new bundle -->
@@ -595,7 +597,7 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
 <style scoped>
 .hint { color: var(--color-steel); font-size: var(--text-label); padding: var(--s-4) 0; }
 .hint.err { color: var(--color-ember); }
-.registry { margin-bottom: var(--s-4); }
+.registry { } /* section inside the single scr-list box — heads carry the separation */
 
 /* ── house list idiom (su-thead/a2-thead pattern): sticky uppercase thead,
    hairline rows, graphite hover, actions right ── */
