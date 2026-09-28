@@ -940,7 +940,7 @@ const suiteSummary = computed(() => {
           </span>
         </div>
         <div v-for="f in listings[g.label]?.folders ?? []" :key="f.id" class="a2-folder-row" @click="openFolder(g.label, f.id)" :title="`open ${f.name} — ${f.caseCount} case(s) in subtree`">
-          <span class="f-glyph">▸</span>
+          <span class="f-spacer"><svg class="f-glyph" viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 4.5A1.5 1.5 0 014 3h3.6a1.5 1.5 0 011.1.5l1.1 1.2H16A1.5 1.5 0 0117.5 6.2v9.3A1.5 1.5 0 0116 17H4a1.5 1.5 0 01-1.5-1.5V4.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></span>
           <span class="f-name">{{ f.name }}</span>
           <span class="f-n">{{ f.caseCount }}</span>
           <span class="f-acts" @click.stop>
@@ -1280,7 +1280,8 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 .a2-crumbs .crumb-acts { margin-left: auto; display: flex; gap: 6px; }
 .a2-folder-row { display: flex; align-items: center; gap: var(--s-2); padding: 8px 12px; border-bottom: 1px solid var(--color-iron); cursor: pointer; font-family: var(--font-mono); font-size: 12px; color: var(--color-paper); }
 .a2-folder-row:hover { background: var(--color-graphite); }
-.a2-folder-row .f-glyph { color: var(--color-ember); width: 14px; }
+.a2-folder-row .f-glyph { color: var(--color-ember); width: 16px; height: 16px; flex: none; }
+.f-spacer { width: 26px; flex: none; display: flex; align-items: center; } /* = the case rows' col-sel track: the folder icon sits where the checkbox sits, names align */
 .a2-folder-row .f-n { color: var(--color-steel); margin-left: 6px; }
 .a2-folder-row .f-acts { margin-left: auto; display: flex; gap: 4px; }
 /* folder mode: a dedicated 26px selection track precedes the 8 columns */
