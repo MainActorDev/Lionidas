@@ -2,7 +2,8 @@
 /** Test cases — the A2 design, natively: a viewport-locked column of
  *  header / case table (own scroll) / yaml panel. The minimal header is not
  *  a "locked variant" — it IS the page chrome (mockup: a2-split-panel-scroll).
- *  The advanced run controls (network scenario, env, plans) live in a
+ *  Run controls: filter toolbar (tabs + search) above the table; env is
+ *  managed on the env page (scoped vars resolve server-side at play time).
  *  disclosure row that collapses away while editing yaml.
  *  Everything from the old page is ported: verdicts/trends, play/playAll,
  *  plans, rename/edit/delete, step expander (param/optional, + subflow,
@@ -31,7 +32,6 @@ interface Template {
   selectorCoverage?: { locked: number; total: number };
   createdBy: string; createdAt: number; updatedAt: number; updatedBy?: string | null;
 }
-interface Plan { id: string; name: string; tags: string[]; udid: string | null; appBundleId: string | null; scenarioId: string | null; env: Record<string, string> }
 
 const templates = ref<Template[]>([]);
 async function loadBootedDevices(): Promise<void> {
@@ -39,7 +39,6 @@ async function loadBootedDevices(): Promise<void> {
     const r = await fetch('/api/devices');
     const b = (await r.json()) as { devices?: Array<{ udid: string; name: string; state: string; resolution: string | null }> };
     bootedDevices.value = (b.devices ?? []).filter((d) => d.state === 'Booted');
-    if (runDevice.value && !bootedDevices.value.some((d) => d.udid === runDevice.value)) runDevice.value = '';
   } catch { /* picker stays empty; auto resolution applies */ }
 }
 const loading = ref(true);
@@ -102,46 +101,23 @@ const artifactModal = ref(false);
 const artifactList = ref<Array<{ path: string; bundleId: string; version: string | null; mtimeMs: number; source: string }>>([]);
 const artifactLoading = ref(false);
 const playingAll = ref(false);
-// network choice (phase 4): scenarios group presets; the selector applies to
 // every run started while set — presets active for the run's duration only
 const scenarios = ref<Array<{ id: string; name: string }>>([]);
-const runScenario = ref<string>('');
 // explicit device choice for plays (empty = auto: recorded-if-booted, else
 // the single booted sim; 2+ booted without a choice → DEVICE_AMBIGUOUS 409)
 const bootedDevices = ref<Array<{ udid: string; name: string; resolution: string | null }>>([]);
-const runDevice = ref('');
 
 /** env map for plays: KEY=value lines. Prompted once, reused for every play
  *  until cleared — the Maestro envFile equivalent. */
-const envText = ref('');
-const envOpen = ref(false); // collapsed until asked — env is an advanced control
-function parseEnv(): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const line of envText.value.split('\n')) {
-    const i = line.indexOf('=');
-    if (i > 0) {
-      const k = line.slice(0, i).trim();
-      const v = line.slice(i + 1);
-      if (k) out[k] = v;
-    }
-  }
-  return out;
-}
-const envKeyCount = computed(() => Object.keys(parseEnv()).length);
 
 async function play(t: Template, mode: RunMode = 'watch'): Promise<void> {
   if (playing.value) return;
   playing.value = t.id;
   playMsg.value = '';
   try {
-    const env = parseEnv();
     const r = await fetch(`/api/templates/${t.id}/play`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        ...(runDevice.value ? { udid: runDevice.value } : {}),
-        ...(runScenario.value ? { scenarioId: runScenario.value } : {}),
-        ...(Object.keys(env).length ? { env } : {}),
-      }),
+      body: JSON.stringify({}),
     });
     // no "running · run_x" status line — the row's progress pill and the
     // dock (watch mode) are the live surfaces; playMsg stays for ERRORS
@@ -151,9 +127,9 @@ async function play(t: Template, mode: RunMode = 'watch'): Promise<void> {
     // after lane 1 STARTS, not after the whole play finishes.
     const b = (await r.json()) as { runId?: string; runIds?: string[]; laneCount?: number; udid?: string; error?: string; code?: string; appBundleId?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null };
     if (b.code === 'DEVICE_AMBIGUOUS') {
-      playMsg.value = 'several devices booted — pick one (device selector in advanced controls)';
-      advancedOpen.value = true;
       await loadBootedDevices();
+      const names = bootedDevices.value.map((d) => d.name ?? d.udid.slice(0, 8)).join(', ');
+      playMsg.value = `several devices booted (${names}) — boot exactly one, or pass ?udid via the API`;
     } else if (b.runId) {
       if (mode === 'watch') {
         runPanel.value = { runId: b.runId, templateId: t.id, caseName: t.name, udid: b.udid ?? t.udid, laneCount: (b.laneCount ?? (b.runIds?.length || 0)) || 1 };
@@ -299,14 +275,9 @@ async function playAll(): Promise<void> {
   playingAll.value = true;
   playMsg.value = `playing ${visible.length} templates…`;
   try {
-    const env = parseEnv();
     const r = await fetch('/api/templates/play-all', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        tags,
-        ...(runScenario.value ? { scenarioId: runScenario.value } : {}),
-        ...(Object.keys(env).length ? { env } : {}),
-      }),
+      body: JSON.stringify({ tags }),
     });
     const b = (await r.json()) as { runIds?: string[]; count?: number; error?: string };
     playMsg.value = b.runIds ? `queued ${b.count} runs · ${b.runIds.join(' ')}` : (b.error ?? 'failed');
@@ -393,6 +364,29 @@ const shown = (): Template[] => {
     t.name.toLowerCase().includes(f) || (t.ticketKey ?? '').toLowerCase().includes(f) || (t.tags ?? []).some((tg) => tg.toLowerCase().includes(f)));
 };
 
+// ── app-grouped list (plan 20260928T003500Z): sections per bundle from the
+// POST-FILTER rows; a group whose every row filtered out renders nothing.
+const NO_APP = '<<no-app>>'; // sentinel sort-key; a real reverse-DNS bundle can never equal it
+interface RowGroup { key: string; label: string; rows: Template[] }
+const groups = computed<RowGroup[]>(() => {
+  const by = new Map<string, RowGroup>();
+  for (const t of shown()) {
+    const key = t.appBundleId || NO_APP;
+    let g = by.get(key);
+    if (!g) { g = { key, label: key === NO_APP ? 'no app' : t.appBundleId!, rows: [] }; by.set(key, g); }
+    g.rows.push(t);
+  }
+  const list = [...by.values()];
+  list.sort((a, b) => (a.key === NO_APP ? 1 : b.key === NO_APP ? -1 : a.label.localeCompare(b.label)));
+  return list;
+});
+const collapsed = ref(new Set<string>());
+function toggleGroup(key: string): void {
+  const next = new Set(collapsed.value);
+  if (next.has(key)) next.delete(key); else next.add(key);
+  collapsed.value = next;
+}
+
 // ── phase E: status lifecycle — chips (server-filtered), pill, kebab actions ──
 type Lifecycle = 'draft' | 'active' | 'deprecated';
 const statusFilter = ref<'' | Lifecycle>('');
@@ -400,9 +394,9 @@ watch(statusFilter, () => void load());
 /** counts for the chips come from the SERVER's unfiltered view — chip math on
  *  the client would lie the moment a status filter narrows `templates`. */
 const statusCounts = ref<Record<Lifecycle | 'all', number>>({ all: 0, active: 0, draft: 0, deprecated: 0 });
-let statusCountsDirty = true;
+const statusCountsDirty = ref(true); // ref, not let — the async recount flip must re-render the tabs
 function recountStatuses(): void {
-  if (!statusCountsDirty) return;
+  if (!statusCountsDirty.value) return;
   // recount only when the full list is loaded (no status filter active)
   void (async () => {
     try {
@@ -415,7 +409,7 @@ function recountStatuses(): void {
         draft: all.filter((t) => t.status === 'draft').length,
         deprecated: all.filter((t) => t.status === 'deprecated').length,
       };
-      statusCountsDirty = false;
+      statusCountsDirty.value = false;
     } catch { /* counts stay stale — chips show nothing rather than lie */ }
   })();
 }
@@ -442,7 +436,7 @@ async function setStatus(t: Template, to: Lifecycle): Promise<void> {
     if (r.ok) {
       // optimistic row update + chip counts go stale (server owns the truth)
       t.status = to;
-      statusCountsDirty = true;
+      statusCountsDirty.value = true;
       recountStatuses();
     }
   } finally { setStatusBusy.value = null; }
@@ -465,8 +459,114 @@ function panel(): InstanceType<typeof CaseEditorPanel> | null {
   return Array.isArray(el) ? (el[0] ?? null) : (el ?? null);
 }
 const pendingSwitch = ref<string | null>(null); // case awaiting the decision
+// single row-tooltip: .ibtn hover drives a FIXED element centered under the
+// icon — never clipped by the table's overflow container
+function ibtnEnter(el: HTMLElement): void {
+  const label = el.querySelector('.ib-label')?.textContent ?? el.title;
+  const tip = document.getElementById('rowtip');
+  if (!tip || !label) return;
+  tip.textContent = label;
+  const r = el.getBoundingClientRect();
+  tip.style.left = `${r.left + r.width / 2}px`;
+  tip.style.top = `${r.bottom + 5}px`;
+  tip.classList.add('show');
+}
+function ibtnLeave(): void {
+  document.getElementById('rowtip')?.classList.remove('show');
+}
+
+// ── duplicate / export / import (plan 20260927T164000Z) ──────────────────
+const note = ref('');
+let noteTimer: ReturnType<typeof setTimeout> | null = null;
+function flash(msg: string): void {
+  note.value = msg;
+  if (noteTimer) clearTimeout(noteTimer);
+  noteTimer = setTimeout(() => { note.value = ''; }, 4000);
+}
+const duplicating = ref<string | null>(null);
+async function duplicateCase(t: Template): Promise<void> {
+  if (duplicating.value !== null) return;
+  duplicating.value = t.id;
+  try {
+    const r = await fetch(`/api/templates/${t.id}/duplicate`, { method: 'POST' });
+    const b = await r.json() as { id?: string; name?: string; error?: string };
+    if (!r.ok || !b.id) { flash(`duplicate failed: ${b.error ?? r.status}`); return; }
+    await load(); // refresh list so the copy shows
+    const copy = templates.value.find((c) => c.id === b.id);
+    if (copy) openYaml(copy); // operator decision: jump into the copy
+    flash(`duplicated → ${b.name}`);
+  } catch (e) { flash(`duplicate failed: ${e instanceof Error ? e.message : String(e)}`); }
+  finally { duplicating.value = null; }
+}
+
+function exportOne(t: Template): void {
+  const a = document.createElement('a');
+  const slug = t.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'case';
+  a.href = `/api/templates/${t.id}/yaml`;
+  a.download = `${slug}.yaml`;
+  a.click(); // browser fetches + saves; auth cookie rides along
+}
+
+function exportZip(): void {
+  const a = document.createElement('a');
+  a.href = '/api/templates/export';
+  a.click();
+}
+
+const importing = ref(false);
+const importPreview = ref<Array<{ label: string; name: string; steps: number }> | null>(null);
+const importBusy = ref(false);
+let importPayload: { yaml?: string; filename?: string; zipBase64?: string } | null = null;
+
+async function pickImport(ev: Event): Promise<void> {
+  const f = (ev.target as HTMLInputElement).files?.[0];
+  (ev.target as HTMLInputElement).value = '';
+  if (!f) return;
+  importPayload = null; importPreview.value = null;
+  try {
+    if (f.name.endsWith('.zip')) {
+      const buf = new Uint8Array(await f.arrayBuffer());
+      let bin = '';
+      for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+      importPayload = { filename: f.name, zipBase64: btoa(bin) };
+      importPreview.value = [{ label: f.name, name: `${f.name} (contents checked on import)`, steps: -1 }];
+    } else {
+      const yaml = await f.text();
+      importPayload = { yaml };
+      // pre-flight preview via the validate endpoint per document
+      const docs = yaml.split(/^---\s*$/m).map((d) => d.trim()).filter(Boolean);
+      const pv: Array<{ label: string; name: string; steps: number }> = [];
+      for (let i = 0; i < docs.length; i++) {
+        const r = await fetch('/api/templates/yaml/validate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ yaml: docs[i] }) });
+        const b = await r.json() as { ok?: boolean; errors?: Array<{ message: string }>; case?: { name?: string; steps?: unknown[] } | null };
+        if (!b.ok) { flash(`document ${i + 1}: ${b.errors?.[0]?.message ?? 'invalid'}`); importPayload = null; importPreview.value = null; return; }
+        pv.push({ label: `document ${i + 1}`, name: b.case?.name ?? '(unnamed)', steps: b.case?.steps?.length ?? 0 });
+      }
+      importPreview.value = pv;
+    }
+    importing.value = true;
+  } catch (e) { flash(`read failed: ${e instanceof Error ? e.message : String(e)}`); }
+}
+
+async function confirmImport(): Promise<void> {
+  if (!importPayload) return;
+  importBusy.value = true;
+  try {
+    const r = await fetch('/api/templates/import', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(importPayload) });
+    const b = await r.json() as { imported?: Array<{ name: string }>; renamed?: Array<{ to: string }>; error?: string };
+    if (!r.ok) { flash(`import rejected: ${b.error ?? r.status}`); return; }
+    await load();
+    flash(`imported ${b.imported?.length ?? 0} case(s)${b.renamed?.length ? ` · ${b.renamed.length} renamed` : ''}`);
+    importing.value = false; importPayload = null; importPreview.value = null;
+  } catch (e) { flash(`import failed: ${e instanceof Error ? e.message : String(e)}`); }
+  finally { importBusy.value = false; }
+}
+
 function openYaml(t: Template): void {
   if (yamlOpenId.value === t.id) { yamlOpenId.value = null; return; } // toggle
+  // a collapsed section must open before the editor mounts inside it (review F2)
+  const gk = t.appBundleId || NO_APP;
+  if (collapsed.value.has(gk)) toggleGroup(gk);
   if (yamlOpenId.value !== null && panel()?.isDirty()) {
     pendingSwitch.value = t.id;
     return;
@@ -502,7 +602,15 @@ function onCmdF(ev: KeyboardEvent): void {
 onMounted(() => window.addEventListener('keydown', onCmdF));
 onBeforeUnmount(() => { window.removeEventListener('keydown', onCmdF); });
 
-onMounted(() => { void load().then(() => void adoptRunningRun()); void loadPlans(); void loadBootedDevices(); initActiveRuns(); recountStatuses(); });
+onMounted(() => {
+  void load().then(() => void adoptRunningRun()); void loadBootedDevices(); initActiveRuns(); recountStatuses();
+  // delegated tooltip wiring for every .ibtn (current + future rows)
+  const enter = (e: Event) => { const b = (e.target as HTMLElement).closest?.('.ibtn'); if (b) ibtnEnter(b as HTMLElement); };
+  const leave = (e: Event) => { if ((e.target as HTMLElement).closest?.('.ibtn')) ibtnLeave(); };
+  document.addEventListener('mouseover', enter);
+  document.addEventListener('mouseout', leave);
+  onBeforeUnmount(() => { document.removeEventListener('mouseover', enter); document.removeEventListener('mouseout', leave); });
+});
 // deep-link from a run's version chip: /templates?case=<id>&rev=<n> —
 // opens that case's editor with the history disclosure on that revision.
 const route = useRoute();
@@ -600,57 +708,6 @@ const suiteSummary = computed(() => {
   };
 });
 
-// ── B4: plans ──
-const plans = ref<Plan[]>([]);
-const planMsg = ref('');
-const runningPlan = ref<string | null>(null);
-async function loadPlans(): Promise<void> {
-  try {
-    const r = await fetch('/api/plans');
-    plans.value = ((await r.json()) as { plans: Plan[] }).plans ?? [];
-  } catch { /* plans optional */ }
-}
-async function savePlanFromCurrent(): Promise<void> {
-  const name = window.prompt('plan name (saves current filter, device, network choice and env):')?.trim();
-  if (!name) return;
-  try {
-    const activeTags = filter.value.trim().split(',').map((s) => s.trim()).filter(Boolean);
-    const r = await fetch('/api/plans', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name, tags: activeTags, scenarioId: runScenario.value || undefined, env: parseEnv() }),
-    });
-    if (!r.ok) { planMsg.value = ((await r.json()) as { error?: string }).error ?? 'failed'; return; }
-    planMsg.value = '';
-    await loadPlans();
-  } catch { planMsg.value = 'failed'; }
-}
-async function runPlan(p: Plan): Promise<void> {
-  if (runningPlan.value) return;
-  runningPlan.value = p.id;
-  planMsg.value = '';
-  try {
-    const r = await fetch(`/api/plans/${p.id}/run`, { method: 'POST' });
-    const b = (await r.json()) as { runIds?: string[]; count?: number; error?: string };
-    planMsg.value = b.error ? b.error : (b.count ? `plan ran ${b.count} case(s)` : 'no cases matched');
-    await load(); // refresh verdicts
-  } catch { planMsg.value = 'plan run failed'; }
-  finally { runningPlan.value = null; }
-}
-async function deletePlan(p: Plan): Promise<void> {
-  if (!window.confirm(`delete plan "${p.name}"?`)) return;
-  try { await fetch(`/api/plans/${p.id}`, { method: 'DELETE' }); } catch { /* ignore */ }
-  await loadPlans();
-}
-function planDesc(p: Plan): string {
-  const bits = [p.tags.length ? `#${p.tags.join(' #')}` : 'all cases'];
-  if (p.scenarioId) bits.push(`net:${p.scenarioId}`);
-  if (Object.keys(p.env).length) bits.push(`env:${Object.keys(p.env).length} vars`);
-  return bits.join(' · ');
-}
-
-// the advanced-controls disclosure is collapsed while the yaml panel is open
-const advancedOpen = ref(false);
-watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 </script>
 <template>
   <section class="a2-page" :class="{ editing: yamlOpenId !== null }">
@@ -665,58 +722,51 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
         <span v-if="suiteSummary.never" class="sym" title="never run">◌{{ suiteSummary.never }}</span>
       </span>
       <template #actions>
-        <span class="a2-chips" v-if="!editing">
-          <button v-for="s in ([['', 'all'], ['active', 'active'], ['draft', 'draft'], ['deprecated', 'deprecated']] as Array<['' | Lifecycle, string]>)"
-            :key="s[1]" class="chip status-chip" :class="{ on: statusFilter === s[0], dep: s[0] === 'deprecated' }"
-            :title="s[0] === '' ? 'every case regardless of lifecycle' : `lifecycle: ${s[1]} (deprecated never runs in batches)`"
-            @click="statusFilter = s[0]">{{ s[1] }} <span class="n">{{ statusCountsDirty ? '·' : statusCounts[s[0] === '' ? 'all' : s[0]] }}</span></button>
-        </span>
-        <input ref="filterEl" v-model="filter" class="a2-search" placeholder="search cases…  ⌘F" />
         <button class="btn" :disabled="playingAll" @click="createCaseYaml" title="hand-author a new case as yaml — opens the editor with a minimal starter">+ case (yaml)</button>
-        <button v-if="!editing" class="btn" :disabled="playingAll || shown().length === 0" @click="playAll()" title="sequentially run every case matching the filter">
-          {{ playingAll ? 'running…' : '▶ run filtered' }}
-        </button>
+        <button class="btn" @click="exportZip" title="download every case as a zip of .yaml files + manifest">export zip</button>
+        <button class="btn" @click="($refs.importFile as HTMLInputElement).click()" title="import cases from a .yaml (single or multi-doc) or a previously exported .zip">import</button>
+        <input ref="importFile" type="file" accept=".yaml,.yml,.zip" style="display:none" @change="pickImport" />
+        <span v-if="note" class="import-note">{{ note }}</span>
+        <div id="rowtip" aria-hidden="true"></div>
+  <div v-if="importing" class="import-modal">
+          <div class="import-card">
+            <div class="import-h">import cases</div>
+            <div v-if="importPreview">
+              <div v-for="p in importPreview" :key="p.label" class="import-row">
+                <span class="import-label">{{ p.label }}</span>
+                <span class="import-name">{{ p.name }}</span>
+                <span class="import-steps">{{ p.steps >= 0 ? `${p.steps} steps` : '' }}</span>
+              </div>
+            </div>
+            <div class="import-actions">
+              <button class="btn" :disabled="importBusy" @click="importing = false; importPayload = null; importPreview = null">cancel</button>
+              <button class="btn btn-primary" :disabled="importBusy" @click="confirmImport">{{ importBusy ? 'importing…' : 'import' }}</button>
+            </div>
+          </div>
+        </div>
         <button v-if="playingAll" class="btn btn-danger" @click="stopAll"
           title="abort the running case and every queued one">■ stop all</button>
       </template>
     </PageHeader>
 
-    <!-- ── advanced controls disclosure (hidden while editing yaml) ── -->
-    <div v-if="!editing" class="a2-advanced">
-      <button class="btn btn-ghost a2-adv-toggle" :class="{ active: advancedOpen || envOpen || !!envText || runScenario !== '' }" @click="advancedOpen = !advancedOpen">
-        advanced {{ advancedOpen ? '▾' : '▸' }}
-      </button>
-      <template v-if="advancedOpen">
-        <select v-model="runDevice" class="a2-select" title="which booted simulator runs the case — empty = auto (recorded device if booted, else the only booted sim)">
-          <option value="">device: auto</option>
-          <option v-for="d in bootedDevices" :key="d.udid" :value="d.udid">{{ d.name }}{{ d.resolution ? ` · ${d.resolution}` : '' }}</option>
-        </select>
-        <select v-model="runScenario" class="a2-select" title="network scenario active during runs — its presets fake endpoints for the run's duration, then restore">
-          <option value="">network: live</option>
-          <option v-for="s in scenarios" :key="s.id" :value="s.id">{{ s.name }}</option>
-        </select>
-        <button class="btn btn-ghost" :class="{ active: envOpen || !!envText }" @click="envOpen = !envOpen" title="run-time env values (KEY=value lines) sent with every play — never stored in cases">
-          env{{ envKeyCount ? ` · ${envKeyCount}` : '' }} {{ envOpen ? '▾' : '▸' }}
-        </button>
-        <button class="btn btn-ghost" @click="savePlanFromCurrent" title="save the current filter + network choice + env as a named plan — one click replays this exact suite later">+ plan</button>
-        <span v-if="planMsg" class="a2-note">{{ planMsg }}</span>
-      </template>
-      <span v-if="plans.length > 0" class="a2-plans">
-        <button v-for="p in plans" :key="p.id" class="chip chip-click-wrap" :title="planDesc(p)">
-          <span class="chip-click" :disabled="runningPlan !== null" @click="runPlan(p)">{{ runningPlan === p.id ? 'running…' : `▶ ${p.name}` }}</span>
-          <span class="chip-x" title="delete this plan" @click="deletePlan(p)">✕</span>
-        </button>
-      </span>
-    </div>
-    <div v-if="!editing && envOpen" class="a2-env">
-      <textarea v-model="envText" rows="3" spellcheck="false" placeholder="secrets at play time — one KEY=value per line (e.g. PASSWORD=hunter2). never stored in cases." />
-    </div>
 
+
+    <!-- ── filter toolbar (was the advanced row): tabs + search own the line ── -->
+    <div v-if="!editing" class="a2-toolbar">
+      <div class="a2-tabs" role="tablist">
+        <button v-for="s in ([['', 'all'], ['active', 'active'], ['draft', 'draft'], ['deprecated', 'deprecated']] as Array<['' | Lifecycle, string]>)"
+          :key="s[1]" class="a2-tab" :class="{ on: statusFilter === s[0], dep: s[0] === 'deprecated' }" role="tab"
+          :aria-selected="statusFilter === s[0]"
+          :title="s[0] === '' ? 'every case regardless of lifecycle' : `lifecycle: ${s[1]} (deprecated never runs in batches)`"
+          @click="statusFilter = s[0]">{{ s[1] }} <span class="n">{{ statusCountsDirty ? '·' : statusCounts[s[0] === '' ? 'all' : s[0]] }}</span></button>
+      </div>
+      <input ref="filterEl" v-model="filter" class="a2-search" placeholder="search cases…  ⌘F" />
+    </div>
     <!-- ── case table: own scroll region, sticky header ── -->
-    <div class="a2-table">
+    <div class="a2-table a2-list">
       <div class="a2-thead">
         <span class="col-case">case</span>
-        <span class="col-app">app</span>
+        <span class="col-ver" title="app version — stamped live by the runner">ver</span>
         <span class="col-steps">steps</span>
         <span class="col-updated">updated</span>
         <span class="col-trend" title="last 3 runs (dots) + direction vs prior 3 (↑ → ↓)">trend</span>
@@ -725,7 +775,13 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
         <span class="col-actions"></span>
       </div>
 
-      <article v-for="t in shown()" :key="t.id" class="a2-row-card" :class="{ editing: yamlOpenId === t.id, deprecated: t.status === 'deprecated' }">
+      <template v-for="g in groups" :key="g.key">
+      <div class="a2-group-head" @click.stop="toggleGroup(g.key)" :title="g.key === NO_APP ? 'cases without an app' : g.label">
+        <span class="caret">{{ collapsed.has(g.key) ? '▸' : '▾' }}</span>
+        <span class="owner">{{ g.label }}</span>
+        <span class="n">{{ g.rows.length }}</span>
+      </div>
+      <article v-for="t in g.rows" v-show="!collapsed.has(g.key)" :key="t.id" class="a2-row-card" :class="{ editing: yamlOpenId === t.id, deprecated: t.status === 'deprecated' }">
         <div class="a2-row" @click="openYaml(t)" title="click to edit this case">
           <span class="col-case">
             <span class="a2-name">{{ t.name }}</span>
@@ -734,15 +790,9 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
             <span v-if="t.ticketKey" class="a2-ticket">{{ t.ticketKey }}</span>
             <span v-for="tg in t.tags ?? []" :key="tg" class="chip" title="click to filter by this tag" @click.stop="filter = tg">{{ tg }}</span>
           </span>
-          <span class="col-app">
-            <template v-if="t.appBundleId">
-              <img v-if="t.udid" class="a2-app-icon" alt=""
-                :src="`/api/devices/${t.udid}/apps/${encodeURIComponent(t.appBundleId)}/icon`"
-                @error="(e: Event) => (e.target as HTMLImageElement).style.display = 'none'" />
-              <span class="a2-app-name">{{ t.appBundleId ?? '—' }}</span>
-              <span v-if="t.appVersion" class="a2-app-ver">v{{ t.appVersion }}</span>
-            </template>
-            <span v-else class="a2-app-none">no app</span>
+          <span class="col-ver" :title="`${t.appBundleId ?? 'no app'} · ${t.appVersion ?? 'unversioned'}`">
+            <span v-if="t.appVersion" class="a2-ver-val">v{{ t.appVersion }}</span>
+            <span v-else class="a2-app-none">—</span>
           </span>
           <span class="col-steps" :title="stepsTitle(t)">
             {{ t.steps.length }}<span v-if="coverageOf(t) && coverageOf(t)!.locked < coverageOf(t)!.total"
@@ -780,24 +830,49 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
           </span>
           <span class="col-actions" @click.stop>
             <template v-if="tracker.isRunning(t.id)">
-              <button class="btn btn-sm btn-danger" :disabled="aborting === t.id" @click.stop="abortCase(t)"
+              <button class="ibtn danger" :disabled="aborting === t.id" @click.stop="abortCase(t)"
                 :title="`abort ${tracker.activeRun(t.id)?.runId ?? ''} — lands after the current step finishes`">
-                {{ aborting === t.id ? 'aborting…' : '■ abort' }}</button>
+                <svg viewBox="0 0 20 20"><rect x="5" y="5" width="10" height="10" rx="1.5" fill="currentColor"/></svg>
+                <span class="ib-label">{{ aborting === t.id ? 'aborting…' : 'abort' }}</span>
+              </button>
             </template>
             <template v-else>
               <span class="run-menu">
-                <button class="btn btn-sm" :disabled="playing !== null" @click.stop="play(t)"
+                <button class="ibtn accent" :disabled="playing !== null" @click.stop="play(t)"
                   title="run and open the live stream panel">
-                  {{ playing === t.id ? 'starting…' : 'run' }}</button>
-                <button class="btn btn-sm run-menu-toggle" :class="{ open: runMenuOpen === t.id }" @click.stop="toggleRunMenu(t.id, $event)"
-                  aria-haspopup="menu" :aria-expanded="runMenuOpen === t.id" title="run without the stream panel">▾</button>
+                  <svg viewBox="0 0 20 20"><path d="M6 3.5l11 6.5-11 6.5v-13z" fill="currentColor"/></svg>
+                  <span class="ib-label">{{ playing === t.id ? 'starting…' : 'run' }}</span>
+                </button>
+                <button class="ibtn run-menu-toggle" :class="{ open: runMenuOpen === t.id }" @click.stop="toggleRunMenu(t.id, $event)"
+                  aria-haspopup="menu" :aria-expanded="runMenuOpen === t.id" title="run without the stream panel">
+                  <svg viewBox="0 0 20 20"><path d="M5 8l5 5 5-5H5z" fill="currentColor"/></svg>
+                  <span class="ib-label">run options</span>
+                </button>
               </span>
             </template>
-            <button class="btn btn-sm btn-ghost" @click.stop="openYaml(t)" title="edit this case — metadata + yaml">edit</button>
-            <button class="btn btn-sm btn-ghost" @click.stop="remove(t.id)">delete</button>
-            <button class="btn btn-sm btn-ghost kebab" :class="{ open: statusMenuOpen === t.id }" :disabled="setStatusBusy === t.id"
+            <button class="ibtn" @click.stop="openYaml(t)" title="edit this case — metadata + yaml">
+              <svg viewBox="0 0 20 20"><path d="M13.5 2.5l4 4L8 16H4v-4l9.5-9.5zm-2.8 3.7l1.6-1.6-1.2-1.2-1.6 1.6 1.2 1.2zM12.9 8.4l1.6-1.6-1.2-1.2-1.6 1.6 1.2 1.2zM5 13v2h2l1-1-2-2-1 1z" fill="currentColor"/></svg>
+              <span class="ib-label">edit</span>
+            </button>
+            <button class="ibtn" :disabled="duplicating !== null" @click.stop="duplicateCase(t)"
+              :title="`copy this case into a new draft — ${t.name} (copy)`">
+              <svg viewBox="0 0 20 20"><rect x="7" y="7" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M13 4.5V3H3v10h1.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+              <span class="ib-label">{{ duplicating === t.id ? 'copying…' : 'duplicate' }}</span>
+            </button>
+            <button class="ibtn" @click.stop="exportOne(t)" title="download this case as a .yaml file">
+              <svg viewBox="0 0 20 20"><path d="M10 2v9m0 0l-3.5-3.5M10 11l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 13v3.5h14V13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+              <span class="ib-label">export</span>
+            </button>
+            <button class="ibtn" @click.stop="remove(t.id)" title="delete this case">
+              <svg viewBox="0 0 20 20"><path d="M4 6h12M8 6V4h4v2m-7 0l1 11h8l1-11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="ib-label">delete</span>
+            </button>
+            <button class="ibtn kebab" :class="{ open: statusMenuOpen === t.id }" :disabled="setStatusBusy === t.id"
               aria-haspopup="menu" :aria-expanded="statusMenuOpen === t.id" title="case status — draft / active / deprecated"
-              @click.stop="toggleStatusMenu(t.id, $event)">{{ setStatusBusy === t.id ? '…' : '⋯' }}</button>
+              @click.stop="toggleStatusMenu(t.id, $event)">
+              <svg viewBox="0 0 20 20"><circle cx="10" cy="4.5" r="1.8" fill="currentColor"/><circle cx="10" cy="10" r="1.8" fill="currentColor"/><circle cx="10" cy="15.5" r="1.8" fill="currentColor"/></svg>
+              <span class="ib-label">status</span>
+            </button>
           </span>
         </div>
 
@@ -820,6 +895,7 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
         </div>
 
 </article>
+      </template>
     </div>
 
     <div v-if="playMsg" class="a2-note">{{ playMsg }}</div>
@@ -936,6 +1012,10 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 /* the run dock is a pure overlay: no layout shift when it opens — it sits
    above the table (fixed, z-80), the table never reflows */
 /* header */
+/* ── filter toolbar (revamped; was the advanced disclosure row) ──
+   a2-tabs/a2-tab are global (components.css) — shared with the env page */
+.a2-toolbar { display: flex; align-items: center; gap: var(--s-3); flex: none; padding: 0; }
+.a2-toolbar .a2-search { flex: 0 1 260px; margin-left: auto; }
 .a2-search {
   background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm);
   color: var(--color-fog); font: inherit; font-size: 12px; padding: 4px 10px; width: 220px;
@@ -943,17 +1023,8 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 .a2-search:focus { outline: none; border-color: var(--color-ember); }
 
 /* ── phase E: status lifecycle (sketch 013-A chips + kebab, 1:1) ── */
-.a2-chips { display: inline-flex; gap: 6px; align-items: center; }
-.status-chip {
-  font-size: 11px; color: var(--color-ash); border: 1px solid var(--color-slate);
-  border-radius: var(--r-sm); padding: 2px 9px; cursor: pointer; background: none;
-  font-family: inherit;
-}
-.status-chip .n { color: var(--color-pewter); margin-left: 4px; }
-.status-chip.on { color: var(--color-ember); border-color: var(--color-ember); }
 .status-chip.on .n { color: var(--color-ember-dim); }
 .status-chip:hover { color: var(--color-fog); }
-.status-chip.on:hover { color: var(--color-ember); }
 .lifecycle-pill {
   font-size: 11px; border: 1px solid var(--color-slate); color: var(--color-ash);
   border-radius: var(--r-sm); padding: 1px 7px; white-space: nowrap; margin-left: 6px;
@@ -963,7 +1034,33 @@ watch(yamlOpenId, (id) => { if (id !== null) advancedOpen.value = false; });
 article.a2-row-card.deprecated .a2-name { color: var(--color-ash); }
 article.a2-row-card.deprecated .a2-row { opacity: 0.55; }
 article.a2-row-card.deprecated .a2-row:hover { opacity: 0.8; }
-button.kebab { letter-spacing: 1px; padding: 2px 7px; }
+button.kebab { letter-spacing: 0; padding: 0; }
+/* icon buttons — house icon language (20×20 viewBox, fill:currentColor,
+   16px glyph in a 28×28 hit box, hover label). Hit-target floor rule. */
+.ibtn {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0;
+  background: none; border: none; border-radius: 5px;
+  color: var(--color-pewter, #8a8f98); cursor: pointer;
+}
+.ibtn svg { width: 16px; height: 16px; pointer-events: none; }
+.ibtn:hover { color: var(--color-paper, #f5f2ea); background: var(--color-graphite, #24262b); }
+.ibtn:disabled { opacity: 0.45; cursor: default; }
+.ibtn.accent:hover { color: var(--color-ember, #ff9f40); }
+.ibtn.danger:hover { color: var(--color-paper, #f5f2ea); background: var(--color-ember, #ff9f40); }
+/* single page-level tooltip (escapes the table's clip; centered under the
+   hovered icon) — .ib-label spans are inert markers carrying the text */
+#rowtip {
+  position: fixed; z-index: 120; transform: translateX(-50%);
+  padding: 3px 8px; border-radius: 4px; white-space: nowrap;
+  background: var(--color-graphite, #24262b); border: 1px solid var(--color-iron, #3a3d44);
+  font-family: var(--font-mono, monospace); font-size: 10px; letter-spacing: 0.03em;
+  color: var(--color-paper, #f5f2ea); pointer-events: none; opacity: 0;
+  transition: opacity 90ms ease;
+}
+#rowtip.show { opacity: 1; }
+.ib-label { display: none; }
 button.kebab.open { color: var(--color-ember); border-color: var(--color-ember); }
 .status-menu-pop .menu-label {
   padding: 4px 10px 2px; color: var(--color-pewter); font-size: 10px;
@@ -972,34 +1069,14 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 .status-menu-pop button.warn b { color: var(--color-ember); }
 
 /* advanced disclosure */
-.a2-advanced { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; flex: none; }
-.a2-adv-toggle.active { border-color: var(--color-ember); color: var(--color-ember); }
-.a2-select {
-  background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm);
-  color: var(--color-fog); font: inherit; font-size: 12px; padding: 4px 8px;
-}
 .a2-note { color: var(--color-steel); font-size: 11px; }
-.a2-plans { display: flex; gap: 4px; flex-wrap: wrap; }
-.a2-env { flex: none; }
-.a2-env textarea {
-  width: 100%; background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm);
-  color: var(--color-paper); font-family: var(--font-mono); font-size: 11px; padding: var(--s-2);
-}
 
 /* table region — content-sized: no stretch, no forced height. Scrolls only
    when the list outgrows the available space (flex shrink engages then). */
-.a2-table {
-  flex: 0 1 auto;
-  /* fit the width — never h-scroll: overflow-y:auto computes overflow-x to
-     auto too (CSS spec), so lock x to hidden explicitly. The grid's
-     minmax(0, fr) columns compress; long names ellipsize. */
-  overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
-  border: 1px solid var(--color-iron); border-radius: var(--r-sm);
-  background: var(--color-carbon);
-}
+.a2-table { flex: 0 1 auto; overflow-y: auto; overscroll-behavior: contain; }
 .a2-thead {
   position: sticky; top: 0; z-index: 2; background: var(--color-graphite);
-  display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 64px) minmax(0, 235px) minmax(0, 200px);
+  display: grid; grid-template-columns: minmax(0, 2.0fr) minmax(0, 70px) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 64px) minmax(0, 235px) minmax(0, 200px);
   gap: var(--s-2); padding: 8px 12px;
   font-size: 10px; color: var(--color-steel); text-transform: uppercase; letter-spacing: 0.08em;
 }
@@ -1007,7 +1084,7 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 .a2-row-card.editing { border-color: var(--color-ember); }
 .a2-row-card.editing .a2-row { background: color-mix(in srgb, var(--color-ember) 6%, transparent); }
 .a2-row {
-  position: relative; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 64px) minmax(0, 235px) minmax(0, 200px);
+  position: relative; display: grid; grid-template-columns: minmax(0, 2.0fr) minmax(0, 70px) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 64px) minmax(0, 235px) minmax(0, 200px);
   gap: var(--s-2); align-items: center; padding: 8px 12px; min-height: 44px; cursor: pointer;
 }
 .a2-row:hover { background: var(--color-graphite); }
@@ -1020,6 +1097,9 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 .steps-cov.warn { color: var(--color-ember, #e5484d); }
 .a2-name { color: var(--color-paper); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .col-app { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.col-ver { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
+.a2-ver-val { color: var(--color-steel); }
+/* .a2-group-head lives in global components.css (shared across list pages) */
 /* verdict pill ellipsizes inside its track at extreme narrow widths (the
    pill is the unbreakable floor: mono text can't wrap) */
 .col-evidence { display: flex; align-items: center; overflow: visible; }
@@ -1040,6 +1120,15 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 .a2-trend-none { color: var(--color-steel); }
 /* actions: always-visible final column — no overlay, never covers the verdict */
 .col-actions { display: flex; gap: 4px; justify-content: flex-end; }
+.import-note { font-size: var(--text-caption, 11px); color: var(--color-ash, inherit); align-self: center; }
+.import-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 60; }
+.import-card { background: var(--color-void, #111); border: 1px solid var(--color-iron, #333); border-radius: 8px; padding: var(--s-4, 16px); min-width: 380px; max-width: 560px; max-height: 70vh; overflow: auto; }
+.import-h { font-family: var(--font-mono, monospace); font-weight: var(--weight-bold, 700); font-size: var(--text-body, 13px); margin-bottom: var(--s-3, 12px); }
+.import-row { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--color-iron, #2a2a2a); font-size: 12px; }
+.import-label { color: var(--color-steel, #888); min-width: 90px; }
+.import-name { flex: 1; }
+.import-steps { color: var(--color-steel, #888); }
+.import-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: var(--s-3, 12px); }
 
 /* ── run menu (sticky watch/background) — content-sized, no fixed widths ── */
 .run-menu { position: relative; display: inline-flex; }
