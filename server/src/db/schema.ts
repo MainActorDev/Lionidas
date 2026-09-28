@@ -531,6 +531,25 @@ export function migrateM1(db: Database.Database): void {
       revision INTEGER NOT NULL DEFAULT 1
     );
   `);
+  // ── folders (plan 20260928T023000Z): app-scoped multilevel test-case
+  // organization. Sibling names unique per (app, parent); path derives at
+  // read time via the parent chain — renames never rewrite descendants.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS folders(
+      id TEXT PRIMARY KEY,
+      app_bundle_id TEXT NOT NULL,
+      parent_id TEXT REFERENCES folders(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_sibling ON folders(app_bundle_id, IFNULL(parent_id, ''), name);
+  `);
+  const tplCols = db.prepare("SELECT name FROM pragma_table_info('templates')").all() as Array<{ name: string }>;
+  if (!tplCols.some((x) => x.name === 'folder_id')) {
+    db.prepare('ALTER TABLE templates ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL').run();
+  }
   // app_screens gains the login recipe (Stage 1.2): nullable JSON column,
   // shape {entry, phoneField, passwordField, submit, session}.
   const screenCols = db.prepare("SELECT name FROM pragma_table_info('app_screens')").all() as Array<{ name: string }>;

@@ -54,6 +54,9 @@ export interface YamlCase {
   name: string;
   tags: string[];
   app?: string;
+  /** folder path (a/b/c) — informational on export; the import resolves or
+   *  creates the chain; the editor save path ignores it (F3) */
+  folder?: string;
   /** Declared preconditions — guarded steps that no-op when already satisfied */
   setup?: YamlStep[];
   /** Run-level system-dialog policy (absent = every dialog fails named) */
@@ -130,6 +133,9 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
 
   // app
   const app = typeof c['app'] === 'string' ? (c['app'] as string).trim() : undefined;
+  // folder path (a/b/c) — informational; accepted here so exports re-parse,
+  // CONSUMED only by the import route (editor saves ignore it — F3)
+  const folder = typeof c['folder'] === 'string' ? (c['folder'] as string).trim() : undefined;
 
   // alerts policy (scalar or map) — see alert-policy.ts for semantics
   let alerts: AlertPolicy | undefined;
@@ -193,7 +199,7 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
     runFlowNames.push(...r.names);
   }
   if (errors.length > 0) return { ok: false, case: null, errors, runFlowNames };
-  const outCase: YamlCase = { name, tags, ...(app ? { app } : {}), ...(setupOut ? { setup: setupOut } : {}), ...(alerts ? { alerts } : {}), ...(variantsOut ? { variants: variantsOut } : {}), steps: stepsOut };
+  const outCase: YamlCase = { name, tags, ...(app ? { app } : {}), ...(folder ? { folder } : {}), ...(setupOut ? { setup: setupOut } : {}), ...(alerts ? { alerts } : {}), ...(variantsOut ? { variants: variantsOut } : {}), steps: stepsOut };
   if (worldsOut) outCase.swaps = worldsOut;
   if (entry) outCase.entry = entry;
   return { ok: true, case: outCase, errors: [], runFlowNames };
@@ -551,12 +557,15 @@ function attachWhen(step: YamlStep, b: Record<string, unknown>, section: 'setup'
 }
 
 /** steps_json rows → YAML text. Stable field order, guidance comments. */
-export function caseToYaml(t: { name: string; tags: string[]; app?: string | null; setup?: unknown[]; alerts?: unknown; variants?: unknown[]; swaps?: unknown[]; entry?: { screen: string; mode?: 'tab' | 'deepLink' | 'navigate' } | null; steps: unknown[] }): string {
+export function caseToYaml(t: { name: string; tags: string[]; app?: string | null; folder?: string | null; setup?: unknown[]; alerts?: unknown; variants?: unknown[]; swaps?: unknown[]; entry?: { screen: string; mode?: 'tab' | 'deepLink' | 'navigate' } | null; steps: unknown[] }): string {
   const lines: string[] = [];
   lines.push(`# ${t.name} — edit as yaml; save validates against the step schema`);
   lines.push(`name: ${yamlScalar(t.name)}`);
   if (t.tags.length > 0) lines.push(`tags: [${t.tags.map((x) => yamlScalar(x)).join(', ')}]`);
   if (t.app) lines.push(`app: ${yamlScalar(t.app)}`);
+  // informational (plan 20260928T023000Z F3): the folder path rides exports;
+  // the editor save path ACCEPTS-AND-IGNORES it — moves happen via rows
+  if (t.folder) lines.push(`folder: ${yamlScalar(t.folder)}`);
   {
     const a = t.alerts as { entries?: Array<[string, string]> } | undefined;
     if (a && Array.isArray(a.entries) && a.entries.length > 0) {

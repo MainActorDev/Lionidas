@@ -33,6 +33,7 @@ interface TemplateRow {
   app_version: string | null;
   tags_json: string | null;
   status: string | null;
+  folder_id: string | null;
   created_by: string;
   updated_by?: string | null;
   created_at: number;
@@ -149,6 +150,15 @@ function caseSlug(name: string): string {
 
 /** Render a template row to its canonical case yaml (shared by GET /:id/yaml
  *  and the batch export — one emitter, no drift; plan 20260927T164000Z). */
+function folderPathStr(db: Database.Database, folderId: string | null): string | null {
+  if (!folderId) return null;
+  const parts: string[] = [];
+  let cur = db.prepare('SELECT id, name, parent_id FROM folders WHERE id = ?').get(folderId) as { id: string; name: string; parent_id: string | null } | undefined;
+  const seen = new Set<string>();
+  while (cur && !seen.has(cur.id)) { seen.add(cur.id); parts.unshift(cur.name); cur = cur.parent_id ? db.prepare('SELECT id, name, parent_id FROM folders WHERE id = ?').get(cur.parent_id) as typeof cur | undefined : undefined; }
+  return parts.length > 0 ? parts.join('/') : null;
+}
+
 function renderTemplateYaml(db: Database.Database, row: TemplateRow): string {
     const steps = JSON.parse(row.steps_json) as Array<Record<string, unknown>>;
     // resolve templateId → name for runFlow display
@@ -178,6 +188,7 @@ function renderTemplateYaml(db: Database.Database, row: TemplateRow): string {
     const asSwaps = steps.some((s) => s['action'] === 'swap');
   return caseToYaml({
     name: row.name,
+    folder: folderPathStr(db, row.folder_id),
     tags: (JSON.parse(row.tags_json ?? '[]') as string[]),
     steps: withNames(steps),
     ...(alerts ? { alerts } : {}),
@@ -440,6 +451,21 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     const now = Date.now();
     const imported: Array<{ id: string; name: string }> = [];
     const renamed: Array<{ from: string; to: string }> = [];
+    // folder chain resolve-or-create (plan 20260928T023000Z): a/b/c under the
+    // case's app; segments created inside the SAME transaction (all-or-nothing)
+    const resolveFolder = (appBundle: string | null, path: string): string | null => {
+      if (!appBundle || !path.trim()) return null;
+      let parent: string | null = null;
+      for (const seg of path.split('/').map((s) => s.trim()).filter(Boolean)) {
+        const existing = db.prepare('SELECT id FROM folders WHERE app_bundle_id = ? AND parent_id IS ? AND name = ?').get(appBundle, parent, seg) as { id: string } | undefined;
+        if (existing) { parent = existing.id; continue; }
+        const fid = `fld_${randomUUID().slice(0, 8)}`;
+        db.prepare('INSERT INTO folders(id, app_bundle_id, parent_id, name, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run(fid, appBundle, parent, seg, req.user?.name ?? 'unknown', now, now);
+        parent = fid;
+      }
+      return parent;
+    };
     const tx = db.transaction(() => {
       for (const { case: c } of parsed) {
         const orig = (c as { name: string }).name;
@@ -452,8 +478,8 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
         }
         const id = `tpl_${randomUUID().slice(0, 8)}`;
         db.prepare(
-          `INSERT INTO templates(id, name, steps_json, setup_json, alerts_policy, variants_json, tags_json, app_bundle_id, entry_json, udid, status, created_by, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', 'draft', ?, ?, ?)`,
+          `INSERT INTO templates(id, name, steps_json, setup_json, alerts_policy, variants_json, tags_json, app_bundle_id, entry_json, udid, status, folder_id, created_by, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', 'draft', ?, ?, ?, ?)`,
         ).run(id, name, JSON.stringify((c as { steps: unknown[] }).steps),
           (c as { setup?: unknown[] }).setup ? JSON.stringify((c as { setup?: unknown[] }).setup) : null,
           (c as { alerts?: unknown }).alerts ? JSON.stringify((c as { alerts?: unknown }).alerts) : null,
@@ -461,6 +487,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
           tagsToJson((c as { tags: string[] }).tags ?? []),
           (c as { app?: string | null }).app ?? null,
           (c as { entry?: unknown }).entry ? JSON.stringify((c as { entry?: unknown }).entry) : null,
+          resolveFolder((c as { app?: string | null }).app ?? null, (c as { folder?: string }).folder ?? ''),
           req.user?.name ?? 'unknown', now, now);
         imported.push({ id, name });
       }
@@ -471,7 +498,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
 
   app.patch('/api/templates/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const b = (req.body ?? {}) as { name?: string; description?: string | null; ticketKey?: string | null; defaultPresetId?: string | null; steps?: unknown[]; setup?: unknown[] | null; alerts?: unknown | null; tags?: string[]; appBundleId?: string | null; status?: string };
+    const b = (req.body ?? {}) as { name?: string; description?: string | null; ticketKey?: string | null; defaultPresetId?: string | null; steps?: unknown[]; setup?: unknown[] | null; alerts?: unknown | null; tags?: string[]; appBundleId?: string | null; status?: string; folderId?: string | null };
     const row = db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
     if (b.name !== undefined && !b.name.trim()) return reply.code(400).send({ error: 'name cannot be empty' });
@@ -480,9 +507,17 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     if (b.status !== undefined && !['draft', 'active', 'deprecated'].includes(b.status)) {
       return reply.code(400).send({ error: 'status must be draft|active|deprecated' });
     }
+    // folders (plan 20260928T023000Z): moves validated at the seam — target
+    // folder must belong to the case's app (folders are app-scoped)
+    if (b.folderId !== undefined && b.folderId !== null) {
+      const folder = db.prepare('SELECT app_bundle_id FROM folders WHERE id = ?').get(b.folderId) as { app_bundle_id: string } | undefined;
+      if (!folder) return reply.code(409).send({ error: `folder "${b.folderId}" not found` });
+      const caseApp = b.appBundleId !== undefined ? b.appBundleId : row.app_bundle_id;
+      if (folder.app_bundle_id !== caseApp) return reply.code(409).send({ error: `folder belongs to ${folder.app_bundle_id} — folders are app-scoped` });
+    }
     db.prepare(
       `UPDATE templates SET
-         name = ?, description = ?, ticket_key = ?, default_preset_id = ?, steps_json = ?, setup_json = ?, alerts_policy = ?, tags_json = ?, app_bundle_id = ?, status = ?, updated_at = ?, updated_by = ?
+         name = ?, description = ?, ticket_key = ?, default_preset_id = ?, steps_json = ?, setup_json = ?, alerts_policy = ?, tags_json = ?, app_bundle_id = ?, status = ?, folder_id = ?, updated_at = ?, updated_by = ?
        WHERE id = ?`,
     ).run(
       b.name !== undefined ? b.name.trim() : row.name,
@@ -495,6 +530,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       b.tags !== undefined ? tagsToJson(b.tags) : row.tags_json,
       b.appBundleId !== undefined ? b.appBundleId : row.app_bundle_id,
       b.status !== undefined ? b.status : (row.status ?? 'active'),
+      b.folderId !== undefined ? b.folderId : row.folder_id,
       Date.now(),
       req.user?.name ?? null,
       id,
