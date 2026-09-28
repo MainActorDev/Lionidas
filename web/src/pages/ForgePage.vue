@@ -231,6 +231,7 @@ async function movePresets(): Promise<void> {
   await Promise.all([loadPresets(), loadPreFolders()]);
 }
 async function openDetail(t: TrafficRow): Promise<void> {
+  if (selected.value?.id === t.id) { selected.value = null; return; } // same-row toggle
   selected.value = null;
   const res = await fetch(`/api/forge/traffic/${t.id}`);
   if (res.ok) selected.value = (await res.json()) as TrafficDetail;
@@ -606,15 +607,34 @@ onUnmounted(() => {
       <div class="a2-thead trf-thead">
         <span>time</span><span>method</span><span>host</span><span>path</span><span>status</span><span>latency</span><span>preset</span>
       </div>
-      <div v-for="t in traffic" :key="t.id" class="trf-row" :class="{ 'row-selected': selected?.id === t.id }" @click="openDetail(t)">
-        <span class="mono mut nowrap">{{ new Date(t.ts).toLocaleTimeString() }}</span>
-        <span class="mono">{{ t.method }}</span>
-        <span class="mono mut">{{ t.host }}</span>
-        <span class="mono path">{{ t.path }}</span>
-        <span class="mono">{{ t.status }}</span>
-        <span class="mut nowrap">{{ t.latency_ms }}ms</span>
-        <span class="mono pre-hit">{{ t.matched_preset_id ?? '' }}</span>
-      </div>
+      <template v-for="t in traffic" :key="t.id">
+        <div class="trf-row" :class="{ 'row-selected': selected?.id === t.id }" @click="openDetail(t)">
+          <span class="mono mut nowrap">{{ new Date(t.ts).toLocaleTimeString() }}</span>
+          <span class="mono">{{ t.method }}</span>
+          <span class="mono mut">{{ t.host }}</span>
+          <span class="mono path">{{ t.path }}</span>
+          <span class="mono">{{ t.status }}</span>
+          <span class="mut nowrap">{{ t.latency_ms }}ms</span>
+          <span class="mono pre-hit">{{ t.matched_preset_id ?? '' }}</span>
+        </div>
+        <!-- detail INLINE under its row (the case-yaml pattern; operator ask) -->
+        <div v-if="selected?.id === t.id && selected" class="trf-detail">
+          <div class="det-head">
+            <span class="mono det-title">{{ selected.method }} {{ selected.host }}{{ selected.path }}</span>
+            <span class="mono">{{ selected.status }} · {{ selected.latency_ms }}ms · {{ selected.mode }}</span>
+            <button v-if="!selected.matched_preset_id && selected.res_sha" class="btn btn-sm btn-primary" :disabled="savingPreset" style="margin-left: auto;" title="future hits to this exact endpoint return this captured response" @click="saveAsPreset">{{ savingPreset ? 'saving…' : 'save as preset' }}</button>
+            <button v-else-if="selected.matched_preset_id" class="btn btn-sm" style="margin-left: auto;" title="edit what this preset serves" @click="editingPreset = selected.matched_preset_id">edit preset</button>
+            <button class="btn btn-sm btn-ghost" @click="selected = null">✕</button>
+          </div>
+          <div class="det-tabs">
+            <button class="btn btn-sm" :class="{ 'btn-primary': detailSide === 'res' }" @click="detailSide = 'res'">response</button>
+            <button class="btn btn-sm" :class="{ 'btn-primary': detailSide === 'req' }" @click="detailSide = 'req'">request</button>
+            <span v-if="detailBody" class="mono mut">{{ detailBody.contentType }} · {{ detailBody.bytes }}B</span>
+          </div>
+          <pre v-if="detailBody" class="detail-body">{{ detailBody.pretty ?? detailBody.text }}</pre>
+          <div v-else class="mut det-none">no {{ detailSide === 'res' ? 'response' : 'request' }} body captured</div>
+        </div>
+      </template>
       <div v-if="traffic.length === 0 && trafficTotal === 0" class="empty">
         <div>no requests{{ search ? ' matching the filter' : ' yet' }}</div>
         <div v-if="!search" class="empty-steps">
@@ -630,24 +650,6 @@ onUnmounted(() => {
         <span>page {{ trafficPage }} / {{ trafficPages() }}</span>
         <button class="btn btn-sm" :disabled="trafficPage >= trafficPages()" @click="gotoTrafficPage(trafficPage + 1)">›</button>
       </div>
-    </div>
-
-    <!-- traffic detail -->
-    <div v-if="selected" class="detail-card a2-list">
-      <div class="det-head">
-        <span class="mono det-title">{{ selected.method }} {{ selected.host }}{{ selected.path }}</span>
-        <span class="mono">{{ selected.status }} · {{ selected.latency_ms }}ms · {{ selected.mode }}</span>
-        <button v-if="!selected.matched_preset_id && selected.res_sha" class="btn btn-sm btn-primary" :disabled="savingPreset" style="margin-left: auto;" title="future hits to this exact endpoint return this captured response" @click="saveAsPreset">{{ savingPreset ? 'saving…' : 'save as preset' }}</button>
-        <button v-else-if="selected.matched_preset_id" class="btn btn-sm" style="margin-left: auto;" title="edit what this preset serves" @click="editingPreset = selected.matched_preset_id">edit preset</button>
-        <button class="btn btn-sm btn-ghost" @click="selected = null">✕</button>
-      </div>
-      <div class="det-tabs">
-        <button class="btn btn-sm" :class="{ 'btn-primary': detailSide === 'res' }" @click="detailSide = 'res'">response</button>
-        <button class="btn btn-sm" :class="{ 'btn-primary': detailSide === 'req' }" @click="detailSide = 'req'">request</button>
-        <span v-if="detailBody" class="mono mut">{{ detailBody.contentType }} · {{ detailBody.bytes }}B</span>
-      </div>
-      <pre v-if="detailBody" class="detail-body">{{ detailBody.pretty ?? detailBody.text }}</pre>
-      <div v-else class="mut det-none">no {{ detailSide === 'res' ? 'response' : 'request' }} body captured</div>
     </div>
 
     <!-- move pickers: vertical select in a small modal (not stacked buttons) -->
@@ -767,6 +769,8 @@ export default { name: 'ForgePage' };
 .trf-row > span { padding: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .pre-hit { color: var(--color-ember); font-size: 10px; }
 .row-selected { background: color-mix(in srgb, var(--color-ember) 8%, transparent); }
+/* detail — INLINE under its traffic row (the inset idiom) */
+.trf-detail { background: var(--color-void); border-bottom: 1px solid var(--color-iron); }
 /* detail */
 .detail-card { margin-top: var(--s-4); }
 .det-head { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--color-iron); }
