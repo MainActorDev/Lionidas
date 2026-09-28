@@ -13,7 +13,7 @@ export type EditorVocabulary = import('@crucible/shared/yaml-completions').Edito
 
 export interface YamlEditorHandle {
   ready: Ref<boolean>;
-  mount(el: HTMLElement, initial: string, onSave: () => void, vocab?: EditorVocabulary): Promise<void>;
+  mount(el: HTMLElement, initial: string, onSave: () => void, vocab?: EditorVocabulary, opts?: { noCaseCompletions?: boolean }): Promise<void>;
   getValue(): string;
   setValue(v: string): void;
   setErrors(lines: number[]): void;
@@ -32,7 +32,7 @@ export function useYamlEditor(): YamlEditorHandle {
   let viewModRef: typeof import('@codemirror/view') | null = null;
   let editCompartment: import('@codemirror/state').Compartment | null = null;
 
-  async function mount(el: HTMLElement, initial: string, onSave: () => void, vocab?: EditorVocabulary): Promise<void> {
+  async function mount(el: HTMLElement, initial: string, onSave: () => void, vocab?: EditorVocabulary, opts?: { noCaseCompletions?: boolean }): Promise<void> {
     // no vocabulary (endpoint down / old caller) → grammar-only completions
     const theVocab: EditorVocabulary = vocab ?? { selectors: [], caseNames: [], apps: [], tags: [] };
     saveCb = onSave;
@@ -118,6 +118,7 @@ export function useYamlEditor(): YamlEditorHandle {
     // before it is an open quote, values apply RAW (already inside quotes —
     // applying the quoted form would double-quote).
     const completionSource = (ctx: CompletionContext): CompletionResult | null => {
+      if (opts?.noCaseCompletions) return null; // non-case documents (scenario/preset) — the slot grammar is testcase-shaped
       const doc = ctx.state.doc.toString();
       const slot = slotsMod.slotAt(doc, ctx.pos);
       if (slot === 'none') return null;

@@ -163,7 +163,7 @@ const dirty = computed(() => docDirty || fName.value !== props.name || (fLaunchA
 
 onMounted(async () => {
   if (!host.value) return;
-  await ed.mount(host.value, formToDoc(), () => void save());
+  await ed.mount(host.value, formToDoc(), () => void save(), undefined, { noCaseCompletions: true });
   host.value.addEventListener('input', onDocChanged);
 });
 onBeforeUnmount(() => { host.value?.removeEventListener('input', onDocChanged); if (blurTimer) clearTimeout(blurTimer); });
