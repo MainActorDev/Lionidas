@@ -542,7 +542,7 @@ onUnmounted(() => {
         <ScenarioDocPanel
           v-if="docOpenId === s.id"
           :scenario-id="s.id" :name="s.name" :launch-arg="s.launch_arg" :members="docMembers"
-          :all-presets="presets" :used-by="s.usedBy" :run-count="s.runCount" :changed-since-play="s.changedSincePlay"
+          :all-presets="presets" :run-count="s.runCount" :changed-since-play="s.changedSincePlay"
           @close="docOpenId = null" @saved="void loadScenarios()" @edit-preset="openPresetEditor"
         />
       </template>

@@ -16,7 +16,6 @@ export interface ScenarioDocPanelProps {
   launchArg: string | null;
   members: Array<{ preset_id: string; enabled: number; method: string; path_pattern: string; status: number }>;
   allPresets: Array<{ id: string; method: string; path_pattern: string; status: number }>;
-  usedBy: Array<{ label: string }>;
   runCount: number;
   changedSincePlay: boolean;
 }
@@ -28,7 +27,6 @@ const host = ref<HTMLElement | null>(null);
 const err = ref('');
 const saveMsg = ref('');
 const saving = ref(false);
-const usedByOpen = ref(false); // fix5 (round 2): collapsed by default — depth behind disclosure
 
 // ── form model ──
 const fName = ref(props.name);
@@ -138,16 +136,6 @@ const pickerGroups = computed(() => {
   return [...groups.entries()].map(([key, rows]) => ({ key, method: rows[0]!.method, path: rows[0]!.path_pattern, rows }));
 });
 
-const usedBySummary = computed(() => {
-  const labels = props.usedBy.map((u) => u.label);
-  const variants = labels.filter((l) => l.startsWith('variant'));
-  const versions = labels.length - variants.length;
-  const bits: string[] = [];
-  if (variants.length > 0) bits.push(variants.join(' · '));
-  if (versions > 0) bits.push(`${versions} case version${versions === 1 ? '' : 's'}`);
-  return bits.join(' · ');
-});
-
 const dirty = computed(() => docDirty || fName.value !== props.name || (fLaunchArg.value.trim() || null) !== (props.launchArg ?? null) || JSON.stringify(fMembers.value.map((m) => [m.preset_id, m.enabled])) !== JSON.stringify(props.members.map((m) => [m.preset_id, m.enabled])));
 
 onMounted(async () => {
@@ -190,14 +178,6 @@ onBeforeUnmount(() => { host.value?.removeEventListener('input', onDocChanged); 
             </optgroup>
           </select>
         </div>
-        <template v-if="usedBy.length > 0">
-          <div class="sec-h usedby-h" :title="usedBy.map((u) => u.label).join('\n')" @click="usedByOpen = !usedByOpen">
-            used by {{ usedBy.length }} <span class="mut">— {{ usedBySummary }}</span> <span class="caret">{{ usedByOpen ? '▾' : '▸' }}</span>
-          </div>
-          <div v-if="usedByOpen" class="used-list">
-            <div v-for="(u, i) in usedBy" :key="i" class="used mono">{{ u.label }}</div>
-          </div>
-        </template>
       </div>
       <div class="scd-doc">
         <div class="doc-h">the document — what variants and the agent read</div>
@@ -243,12 +223,6 @@ export default { name: 'ScenarioDocPanel' };
 .mrow .path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--color-fog); }
 .mrow .st { color: var(--color-fog); font-size: 10px; }
 .mrow.add { padding: var(--s-2) 8px; background: none; border-bottom: none; }
-.usedby-h { cursor: pointer; display: flex; gap: 5px; align-items: baseline; flex-wrap: wrap; line-height: 1.6; }
-.usedby-h .mut { min-width: 0; overflow-wrap: anywhere; }
-.usedby-h:hover { color: var(--color-fog); }
-.usedby-h .caret { color: var(--color-steel); }
-.used-list { max-height: 140px; overflow-y: auto; border-left: 1px solid var(--color-iron); padding-left: var(--s-2); margin-bottom: var(--s-2); }
-.used { font-size: 10px; color: var(--color-ash); padding: 1px 0; }
 .chipx { border: 1px solid var(--color-iron); border-radius: var(--r-sm); font-family: var(--font-mono); font-size: 9px; color: var(--color-steel); padding: 0 4px; }
 .chipx.on { color: var(--color-fog); border-color: var(--color-slate); }
 .ed-err { color: var(--color-ember); font-size: var(--text-caption); margin-top: var(--s-2); }
