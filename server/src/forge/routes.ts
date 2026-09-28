@@ -75,9 +75,11 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
     } else if (q.folderId === '') {
       rows = all.filter((r) => r.folder_id == null);
     } else {
-      const { folderSubtreeIds } = await import('../routes/folder-routes-factory.ts');
-      const ids = folderSubtreeIds(db, 'preset_folders', q.folderId);
-      rows = all.filter((r) => typeof r.folder_id === 'string' && ids.includes(r.folder_id));
+      // cPanel navigation (bug fix): a folder lists its DIRECT presets only —
+      // descendants are reached by navigating in. (The old subtree filter made
+      // a parent keep showing presets after they were moved into a child.)
+      // Folder-row counts stay subtree-based (how much is inside overall).
+      rows = all.filter((r) => r.folder_id === q.folderId);
     }
     return { presets: rows };
   });
@@ -225,9 +227,8 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
     } else if (q.folderId === '') {
       list = all.filter((r) => r.folder_id == null);
     } else {
-      const { scenarioSubtreeIds } = await import('../routes/scenario-folders.ts');
-      const ids = scenarioSubtreeIds(db, q.folderId);
-      list = all.filter((r) => typeof r.folder_id === 'string' && ids.includes(r.folder_id));
+      // cPanel navigation (bug fix, same as presets): direct children only.
+      list = all.filter((r) => r.folder_id === q.folderId);
     }
     // per-scenario rollups (plan Stage 1): runCount (runs store the scenarioChoice
     // string — names for variant plays, ids for direct picks: count BOTH forms),

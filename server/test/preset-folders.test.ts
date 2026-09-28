@@ -59,6 +59,31 @@ describe('preset folders CRUD + filter', () => {
     expect(root2.presets).toEqual([]);
   });
 
+  it('REGRESSION (nested folders): a parent lists its DIRECT presets only — moving presets into a child removes them from the parent view; folder counts stay subtree-based', async () => {
+    const app1 = (await app.inject({ method: 'POST', url: '/api/preset-folders', payload: { name: 'app-one' } })).json() as { id: string };
+    const home = (await app.inject({ method: 'POST', url: '/api/preset-folders', payload: { parentId: app1.id, name: 'home' } })).json() as { id: string };
+    mkPreset('p_a', '/v1/a', 'GET', app1.id);
+    mkPreset('p_b', '/v1/b', 'GET', app1.id);
+    // before: parent shows both
+    let inApp = (await (await app.inject({ method: 'GET', url: `/api/forge/presets?folderId=${app1.id}` })).json()) as { presets: Array<{ id: string }> };
+    expect(inApp.presets.map((p) => p.id).sort()).toEqual(['p_a', 'p_b']);
+    // move both into home
+    await app.inject({ method: 'PATCH', url: '/api/forge/presets/p_a', payload: { folderId: home.id } });
+    await app.inject({ method: 'PATCH', url: '/api/forge/presets/p_b', payload: { folderId: home.id } });
+    // after: parent shows NONE (direct children only) — the reported bug
+    inApp = (await (await app.inject({ method: 'GET', url: `/api/forge/presets?folderId=${app1.id}` })).json()) as { presets: Array<{ id: string }> };
+    expect(inApp.presets).toEqual([]);
+    // …while home shows both, root shows none, and app-one's COUNT is still 2 (subtree)
+    const inHome = (await (await app.inject({ method: 'GET', url: `/api/forge/presets?folderId=${home.id}` })).json()) as { presets: Array<{ id: string }> };
+    expect(inHome.presets.map((p) => p.id).sort()).toEqual(['p_a', 'p_b']);
+    const atRoot = (await (await app.inject({ method: 'GET', url: '/api/forge/presets?folderId=' })).json()) as { presets: Array<{ id: string }> };
+    expect(atRoot.presets).toEqual([]);
+    const kids = (await (await app.inject({ method: 'GET', url: `/api/preset-folders?parentId=${app1.id}` })).json()) as { folders: Array<{ name: string; presetCount: number }> };
+    expect(kids.folders[0]!.presetCount).toBe(2); // home's own subtree count (both presets live in home)
+    const rootList = (await (await app.inject({ method: 'GET', url: '/api/preset-folders' })).json()) as { folders: Array<{ name: string; presetCount: number }> };
+    expect(rootList.folders.find((f) => f.name === 'app-one')!.presetCount).toBe(2); // subtree count stays
+  });
+
   it('children listing: folders with subtree preset counts + direct preset ids + path', async () => {
     const f1 = (await app.inject({ method: 'POST', url: '/api/preset-folders', payload: { name: 'w' } })).json() as { id: string };
     const f2 = (await app.inject({ method: 'POST', url: '/api/preset-folders', payload: { parentId: f1.id, name: 'c' } })).json() as { id: string };
