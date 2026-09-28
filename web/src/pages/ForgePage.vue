@@ -370,11 +370,13 @@ const unwatch = watch(() => live.traffic.length, () => { void loadTraffic(); });
 // the test-cases yaml panel. Scoped: no modal open (preset editor), no input
 // or select focused (typing Esc into a field must do its normal job).
 function onKeydown(e: KeyboardEvent): void {
-  if (e.key !== 'Escape' || !docOpenId.value) return;
+  if (e.key !== 'Escape') return;
   if (editingPreset.value) return;
   const el = document.activeElement;
   if (el && (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA' || (el as HTMLElement).isContentEditable)) return;
-  docOpenId.value = null;
+  // Esc collapses the open surfaces, newest first: traffic detail, then the scenario document
+  if (selected.value) { selected.value = null; return; }
+  if (docOpenId.value) { docOpenId.value = null; return; }
 }
 
 // the single fixed tooltip element for .ibtn (delegated — never clipped)
