@@ -941,7 +941,7 @@ const suiteSummary = computed(() => {
           <span class="f-sep" aria-hidden="true"></span>
           <span class="f-acts" @click.stop>
             <button class="btn btn-sm btn-ghost" @click="renameFolder(g.label, f.id, f.name)">rename</button>
-            <button v-if="f.caseCount === 0" class="btn btn-sm btn-ghost" @click="deleteFolder(g.label, f.id, f.name)" title="delete this empty folder">delete</button>
+            <button class="btn btn-sm btn-ghost f-del" :class="{ ghosted: f.caseCount > 0 }" :disabled="f.caseCount > 0" :title="f.caseCount > 0 ? 'move or delete its contents first — the guard refuses non-empty folders' : 'delete this empty folder'" @click="deleteFolder(g.label, f.id, f.name)">delete</button>
           </span>
         </div>
       </template>
@@ -1289,6 +1289,7 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 .f-meta { font-size: 10px; color: var(--color-steel); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; }
 .f-fill { flex: 1; }
 .f-sep { flex: none; width: 1px; height: 14px; background: var(--color-iron); margin: 0 14px; }
+.f-del.ghosted { visibility: hidden; } /* keeps the acts zone a constant width — meta never shifts when delete is unavailable */
 .btn.on { border-color: var(--color-ember); color: var(--color-ember); }
 .a2-sel { cursor: pointer; }
 .a2-select-like { width: 100%; padding: 6px 8px; margin: 8px 0; background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-family: var(--font-mono); font-size: 12px; }
