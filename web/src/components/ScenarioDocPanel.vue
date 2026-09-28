@@ -8,7 +8,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useYamlEditor } from '../composables/useYamlEditor.ts';
 import { parseScenarioYaml, scenarioToYaml } from '@crucible/shared/scenario-yaml';
-import PresetEditorModal from './PresetEditorModal.vue';
+
 
 export interface ScenarioDocPanelProps {
   scenarioId: string;
@@ -21,14 +21,13 @@ export interface ScenarioDocPanelProps {
   changedSincePlay: boolean;
 }
 const props = defineProps<ScenarioDocPanelProps>();
-const emit = defineEmits<{ (e: 'close'): void; (e: 'saved'): void }>();
+const emit = defineEmits<{ (e: 'close'): void; (e: 'saved'): void; (e: 'editPreset', id: string): void }>();
 
 const ed = useYamlEditor();
 const host = ref<HTMLElement | null>(null);
 const err = ref('');
 const saveMsg = ref('');
 const saving = ref(false);
-const editingPreset = ref<string | null>(null);
 const usedByOpen = ref(false); // fix5 (round 2): collapsed by default — depth behind disclosure
 
 // ── form model ──
@@ -180,7 +179,7 @@ onBeforeUnmount(() => { host.value?.removeEventListener('input', onDocChanged); 
           <b class="mono">{{ m.method }}</b>
           <span class="mono path" :title="m.path_pattern">{{ m.path_pattern }}</span>
           <span class="st mono">{{ m.status }}</span>
-          <button class="btn btn-sm" title="edit what this preset serves" @click="editingPreset = m.preset_id">edit</button>
+          <button class="btn btn-sm" title="edit what this preset serves — opens at its row in the presets section" @click="emit('editPreset', m.preset_id)">edit</button>
           <button class="btn btn-sm" title="remove from this scenario" @click="fMembers.splice(i, 1)">✕</button>
         </div>
         <div class="mrow add">
@@ -213,7 +212,6 @@ onBeforeUnmount(() => { host.value?.removeEventListener('input', onDocChanged); 
         </div>
       </div>
     </div>
-    <PresetEditorModal v-if="editingPreset" :preset-id="editingPreset" @close="editingPreset = null" @saved="saveMsg = 'preset saved — serving updated'" />
   </div>
 </template>
 

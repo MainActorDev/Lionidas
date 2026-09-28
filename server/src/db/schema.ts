@@ -579,6 +579,11 @@ export function migrateM1(db: Database.Database): void {
   if (!preCols.some((x) => x.name === 'folder_id')) {
     db.prepare('ALTER TABLE presets ADD COLUMN folder_id TEXT REFERENCES preset_folders(id) ON DELETE SET NULL').run();
   }
+  // preset display names (round 3): ids like p_65a8ffa0 are too abstract —
+  // the operator names presets for clarity; ids stay the stable pin
+  if (!preCols.some((x) => x.name === 'name')) {
+    db.prepare('ALTER TABLE presets ADD COLUMN name TEXT').run();
+  }
   // app_screens gains the login recipe (Stage 1.2): nullable JSON column,
   // shape {entry, phoneField, passwordField, submit, session}.
   const screenCols = db.prepare("SELECT name FROM pragma_table_info('app_screens')").all() as Array<{ name: string }>;

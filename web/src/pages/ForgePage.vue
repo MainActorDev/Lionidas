@@ -7,7 +7,7 @@
  *  Old page deleted (full-redesign house rule). */
 import PageHeader from '../components/PageHeader.vue';
 import ScenarioDocPanel from '../components/ScenarioDocPanel.vue';
-import PresetEditorModal from '../components/PresetEditorModal.vue';
+import PresetDocPanel from '../components/PresetDocPanel.vue';
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useLiveEvents } from '../stores/live.ts';
 
@@ -18,7 +18,7 @@ interface TrafficRow {
 }
 interface BodyInfo { sha: string; contentType: string | null; bytes: number; text: string; pretty: string | null }
 interface TrafficDetail extends TrafficRow { reqBody: BodyInfo | null; resBody: BodyInfo | null }
-interface PresetRow { id: string; method: string; path_pattern: string; match: string; status: number; body_path: string | null; created_by: string | null }
+interface PresetRow { id: string; name: string | null; method: string; path_pattern: string; match: string; status: number; body_path: string | null; created_by: string | null }
 interface ScenarioRow {
   id: string; name: string; folder_id: string | null; launch_arg: string | null; immutable_since: number | null;
   memberCount: number; runCount: number; usedBy: Array<{ label: string }>; changedSincePlay: boolean;
@@ -38,7 +38,7 @@ const search = ref('');
 const selected = ref<TrafficDetail | null>(null);
 const detailSide = ref<'res' | 'req'>('res');
 const savingPreset = ref(false);
-const editingPreset = ref<string | null>(null);
+const editingPreset = ref<string | null>(null); // inline panel under the preset's row (round 3)
 
 // document expansion (one at a time, same-row toggle)
 const docOpenId = ref<string | null>(null);
@@ -309,6 +309,22 @@ async function createScenario(): Promise<void> {
     await openDoc(b.id);
   } else msg.value = b.error ?? 'create failed';
 }
+/** member 'edit' from a scenario document → open the inline preset editor at
+ *  its row in the presets section (navigate to its folder first when needed). */
+async function openPresetEditor(pid: string): Promise<void> {
+  // find the preset's folder by walking the flat trees (cheap; falls back to root)
+  try {
+    const res = await fetch('/api/forge/presets');
+    const all = (await res.json() as { presets: Array<{ id: string; folder_id: string | null }> }).presets;
+    const target = all.find((p) => p.id === pid);
+    const fid = target?.folder_id ?? null;
+    if (fid !== preCurFolder.value) { await openPreFolder(fid); await new Promise((r) => setTimeout(r, 200)); }
+  } catch { /* stay in place */ }
+  editingPreset.value = pid;
+  await new Promise((r) => setTimeout(r, 150));
+  document.querySelector('.pdp')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
 async function openDoc(id: string): Promise<void> {
   if (docOpenId.value === id) { docOpenId.value = null; return; }
   const scn = scenarios.value.find((s) => s.id === id);
@@ -374,7 +390,8 @@ function onKeydown(e: KeyboardEvent): void {
   if (editingPreset.value) return;
   const el = document.activeElement;
   if (el && (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA' || (el as HTMLElement).isContentEditable)) return;
-  // Esc collapses the open surfaces, newest first: traffic detail, then the scenario document
+  // Esc collapses the open surfaces, newest first: preset editor, traffic detail, scenario document
+  if (editingPreset.value) { editingPreset.value = null; return; }
   if (selected.value) { selected.value = null; return; }
   if (docOpenId.value) { docOpenId.value = null; return; }
 }
@@ -526,7 +543,7 @@ onUnmounted(() => {
           v-if="docOpenId === s.id"
           :scenario-id="s.id" :name="s.name" :launch-arg="s.launch_arg" :members="docMembers"
           :all-presets="presets" :used-by="s.usedBy" :run-count="s.runCount" :changed-since-play="s.changedSincePlay"
-          @close="docOpenId = null" @saved="void loadScenarios()"
+          @close="docOpenId = null" @saved="void loadScenarios()" @edit-preset="openPresetEditor"
         />
       </template>
       <div v-if="scenarios.length === 0 && folders.length === 0" class="empty">
@@ -585,20 +602,23 @@ onUnmounted(() => {
           <span class="ep-k">{{ g.method }} {{ g.path }}</span>
           <span class="f-n">{{ g.rows.length }}</span>
         </div>
-        <div v-for="p in g.rows" v-show="!epCollapsed.has(g.key)" :key="p.id" class="pre-row" :title="p.id">
-          <span class="col-sel">
-            <input v-if="preSelectMode" type="checkbox" :checked="preSelection.has(p.id)" @click.stop @change="togglePreSel(p.id)" title="select for bulk move" />
-            <svg v-else class="doc-glyph" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5h7l3 3v12H5v-15z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M11.5 2.7V6h3.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
-          </span>
-          <span class="mono pre-name" :title="p.id">{{ p.id }}</span>
-          <span class="mono">{{ p.status }}</span>
-          <span class="mono mut">{{ p.body_path ? '✓' : '—' }}</span>
-          <span class="row-acts">
-            <button v-if="presetConfirmDelete === p.id" class="btn btn-sm btn-danger" title="deletes the preset — refused while a scenario includes it" @click="deletePreset(p.id)">confirm</button>
-            <button v-else class="ibtn" data-tip="delete — refused while a scenario includes it" @click="presetConfirmDelete = p.id"><svg viewBox="0 0 20 20"><path d="M4 6h12M8 6V4h4v2m-7 0l1 11h8l1-11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-            <button class="ibtn" data-tip="edit what this preset serves" @click="editingPreset = p.id"><svg viewBox="0 0 20 20"><path d="M13.5 2.5l4 4L8 16H4v-4l9.5-9.5zm-2.8 3.7l1.6-1.6-1.2-1.2-1.6 1.6 1.2 1.2zM12.9 8.4l1.6-1.6-1.2-1.2-1.6 1.6 1.2 1.2zM5 13v2h2l1-1-2-2-1 1z" fill="currentColor"/></svg></button>
-          </span>
-        </div>
+        <template v-for="p in g.rows" :key="p.id">
+          <div v-show="!epCollapsed.has(g.key)" class="pre-row" :class="{ 'row-selected': editingPreset === p.id }" :title="p.id" @click="editingPreset = editingPreset === p.id ? null : p.id">
+            <span class="col-sel">
+              <input v-if="preSelectMode" type="checkbox" :checked="preSelection.has(p.id)" @click.stop @change="togglePreSel(p.id)" title="select for bulk move" />
+              <svg v-else class="doc-glyph" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5h7l3 3v12H5v-15z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M11.5 2.7V6h3.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+            </span>
+            <span class="pre-name-w"><span class="pre-name">{{ p.name ?? p.id }}</span><span v-if="p.name" class="scn-id">{{ p.id }}</span></span>
+            <span class="mono">{{ p.status }}</span>
+            <span class="mono mut">{{ p.body_path ? '✓' : '—' }}</span>
+            <span class="row-acts">
+              <button v-if="presetConfirmDelete === p.id" class="btn btn-sm btn-danger" title="deletes the preset — refused while a scenario includes it" @click.stop="deletePreset(p.id)">confirm</button>
+              <button v-else class="ibtn" data-tip="delete — refused while a scenario includes it" @click.stop="presetConfirmDelete = p.id"><svg viewBox="0 0 20 20"><path d="M4 6h12M8 6V4h4v2m-7 0l1 11h8l1-11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+              <button class="ibtn" data-tip="edit what this preset serves" @click.stop="editingPreset = editingPreset === p.id ? null : p.id"><svg viewBox="0 0 20 20"><path d="M13.5 2.5l4 4L8 16H4v-4l9.5-9.5zm-2.8 3.7l1.6-1.6-1.2-1.2-1.6 1.6 1.2 1.2zM12.9 8.4l1.6-1.6-1.2-1.2-1.6 1.6 1.2 1.2zM5 13v2h2l1-1-2-2-1 1z" fill="currentColor"/></svg></button>
+            </span>
+          </div>
+          <PresetDocPanel v-if="editingPreset === p.id" v-show="!epCollapsed.has(g.key)" :preset-id="p.id" @close="editingPreset = null" @saved="msg = 'preset saved — serving updated'; void loadPresets()" />
+        </template>
       </template>
       <div v-if="presets.length === 0 && preFolders.length === 0" class="empty">no presets here — capture traffic below and save as preset</div>
     </div>
@@ -682,7 +702,6 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <PresetEditorModal v-if="editingPreset" :preset-id="editingPreset" @close="editingPreset = null" @saved="msg = 'preset saved — serving updated'; void loadPresets()" />
   </div>
 </template>
 
@@ -724,7 +743,9 @@ export default { name: 'ForgePage' };
 .ep-group .caret { width: 12px; color: var(--color-steel); flex: none; }
 .ep-group .ep-k { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ep-group .f-n { color: var(--color-steel); margin-left: auto; }
-.pre-name { color: var(--color-fog); font-size: 11px; }
+.pre-name-w { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.pre-name { color: var(--color-fog); font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
+.pre-row { cursor: pointer; }
 /* pager */
 .pager { display: flex; align-items: center; gap: var(--s-2); padding: 7px 12px; border-top: 1px solid var(--color-iron); font-size: 11px; color: var(--color-fog); }
 .mono { font-family: var(--font-mono); }

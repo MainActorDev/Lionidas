@@ -120,6 +120,7 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
     const vals: unknown[] = [];
     const col = (name: string, value: unknown): void => { sets.push(`${name} = ?`); vals.push(value); };
     if (b['method'] !== undefined) col('method', b['method'] as string);
+    if (b['name'] !== undefined) col('name', b['name'] === null ? null : String(b['name']).trim() || null);
     if (b['folderId'] !== undefined && b['folderId'] !== null) {
       const folder = db.prepare('SELECT id FROM preset_folders WHERE id = ?').get(b['folderId']) as { id: string } | undefined;
       if (!folder) return reply.code(409).send({ error: `folder "${String(b['folderId'])}" not found` });

@@ -95,3 +95,19 @@ describe('preset folders CRUD + filter', () => {
     expect(inner.path.map((p) => p.name)).toEqual(['w']);
   });
 });
+
+describe('preset names (round 3)', () => {
+  it('presets carry an optional display name; PATCH persists it; list + detail return it; fallback = id', async () => {
+    mkPreset('p_n1', '/v1/named');
+    const r = await app.inject({ method: 'PATCH', url: '/api/forge/presets/p_n1', payload: { name: 'tariff SG happy path' } });
+    expect(r.statusCode).toBe(200);
+    const list = (await (await app.inject({ method: 'GET', url: '/api/forge/presets?folderId=' })).json()) as { presets: Array<{ id: string; name: string | null }> };
+    const row = list.presets.find((p) => p.id === 'p_n1')!;
+    expect(row.name).toBe('tariff SG happy path');
+    // unnamed presets fall back to id at the UI layer; server keeps NULL
+    const r2 = await app.inject({ method: 'PATCH', url: '/api/forge/presets/p_n1', payload: { name: null } });
+    expect(r2.statusCode).toBe(200);
+    const list2 = (await (await app.inject({ method: 'GET', url: '/api/forge/presets?folderId=' })).json()) as { presets: Array<{ id: string; name: string | null }> };
+    expect(list2.presets.find((p) => p.id === 'p_n1')!.name).toBeNull();
+  });
+});
