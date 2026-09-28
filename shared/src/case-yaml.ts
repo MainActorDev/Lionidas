@@ -43,7 +43,7 @@ export interface YamlStep {
   /** ensure logout: if a session indicator is visible, walk the app's logout
    *  flow (list button → confirm sheet) by IDENTIFIER first, label second —
    *  coordinate-free, cross-device safe. No-op pass when already logged out. */
-  ensureLogout?: { button: string; stay: string; confirm: string };
+  ensureLogout?: { button: string; stay: string; confirm: string; via?: string };
   ensureLogin?: { entry: string; phoneField: string; passwordField: string; submit: string; session: string; phone: string; password: string; screen?: string };
   /** swap: <id from this case's swaps/variants> */
   swap?: string;
@@ -462,11 +462,21 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
         const bo = (b['button'] ?? b['on']) as unknown;
         const stay = b['stay'] as unknown;
         const confirm = b['confirm'] as unknown;
+        const via = b['via'] as unknown;
         if (typeof bo !== 'string' || !bo.trim() || typeof confirm !== 'string' || !confirm.trim()) {
           errors.push({ line: 1, message: `${prefix(i)}: ensure logout needs button: <label-or-id> and confirm: <label-or-id> (stay: optional sheet-title check)` });
           continue;
         }
-        stepsOut.push({ idx: stepsOut.length, action: 'ensureLogout', ensureLogout: { button: bo.trim(), stay: typeof stay === 'string' ? stay.trim() : '', confirm: confirm.trim() } });
+        stepsOut.push({
+          idx: stepsOut.length,
+          action: 'ensureLogout',
+          ensureLogout: {
+            button: bo.trim(),
+            stay: typeof stay === 'string' ? stay.trim() : '',
+            confirm: confirm.trim(),
+            ...(typeof via === 'string' && via.trim() ? { via: via.trim() } : {}),
+          },
+        });
         continue;
       }
       for (const bk of Object.keys(b)) {
@@ -687,11 +697,12 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       // a stored world step must NEVER fall through to the placeholder path
       lines.push(`  - swap: ${yamlScalar(String(s['world'] ?? ''))}`);
     } else if (action === 'ensureLogout') {
-      const el = s['ensureLogout'] as { button?: string; stay?: string; confirm?: string } | undefined;
+      const el = s['ensureLogout'] as { button?: string; stay?: string; confirm?: string; via?: string } | undefined;
       lines.push(`  - ensure logout:`);
       lines.push(`      button: ${yamlScalar(el?.button ?? '?')}`);
       lines.push(`      confirm: ${yamlScalar(el?.confirm ?? '?')}`);
       if (el?.stay) lines.push(`      stay: ${yamlScalar(el.stay)}`);
+      if (el?.via) lines.push(`      via: ${yamlScalar(el.via)}`);
     } else if (action === 'ensureLogin') {
       const el = s['ensureLogin'] as { entry?: string; phoneField?: string; passwordField?: string; submit?: string; session?: string; phone?: string; password?: string; screen?: string } | undefined;
       if (el?.screen) {

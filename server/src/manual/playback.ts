@@ -106,7 +106,7 @@ export interface PlaybackStep {
   /** location action target — simulated GPS point (simctl location set) */
   location?: { latitude: number; longitude: number };
   /** ensure logout: coordinate-free session preflight (identifier-first) */
-  ensureLogout?: { button: string; stay: string; confirm: string };
+  ensureLogout?: { button: string; stay: string; confirm: string; via?: string };
   /** ensure login: coordinate-free login preflight; phone/password are
    *  ${env.X} refs resolved at playback — never literal secrets */
   ensureLogin?: { entry: string; phoneField: string; passwordField: string; submit: string; session: string; phone: string; password: string; screen?: string };
@@ -1433,16 +1433,21 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                     throw new Error(`ensure login: ${what} — typed ${text.length} chars but field shows ${glyphs} mask glyphs`);
                   }
                   if (!/could not confirm the typed text/i.test(msg)) throw new Error(msg || `ensure login: ${what} failed`);
-                  await alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: 370, y: 790 }, settle: false }, deps.dispatchDeps).catch(() => undefined);
-                  await new Promise((res2) => setTimeout(res2, 400));
+                  // retry must NEVER append into a partially-filled field
+                  // (live catch on iPhone 14 Plus: second fill appended →
+                  // '11121314159' / 'quality123my'). Clear first: fill '',
+                  // then the loop's next attempt types into an empty field.
+                  if (attempt > 0) throw new Error(`ensure login: ${what} — fill unconfirmed after clear+retry`);
+                  await alloy.dispatch('alloy_act', { udid, action: 'fill', target: { x, y }, text: '', settle: false }, deps.dispatchDeps).catch(() => undefined);
+                  await new Promise((res2) => setTimeout(res2, 350));
                 }
               };
               const dismissKeyboard = async (): Promise<void> => {
-                // default-on (operator rule): the software keyboard covers the
-                // form after a fill — tap the keyboard accessory bar's Done
-                // (right end, above the keys) so it retracts before the next
-                // control resolves. Best-effort: a miss costs nothing.
-                await alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: 370, y: 790 }, settle: false }, deps.dispatchDeps).catch(() => undefined);
+                // engine-backed dismissal (operator rule, default-on): the
+                // keyboard hides via the runner's own keyboardDismiss — no
+                // coordinates, works on every logical size. The old hardcoded
+                // Done-bar tap misfired on other devices (14 Plus live catch).
+                await alloy.dispatch('alloy_act', { udid, action: 'keyboardDismiss' }, deps.dispatchDeps).catch(() => undefined);
                 await new Promise((res2) => setTimeout(res2, 350));
               };
               const phone = formAlreadyUp ?? await settleFind(cfgResolved.phoneField);
@@ -1502,14 +1507,33 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               const byContains = resolveSelector(nodes, { labelContains: key });
               return byContains;
             };
+            // via (mirror of login's verify.via): the session control may live
+            // on another screen (logout button = account tab) — tap through
+            // before the preflight, both for the check and the real logout
             let nodes = await snapNow();
+            const viaSel = (s.ensureLogout as { via?: string }).via;
+            if (viaSel) {
+              const viaPt = nodes ? findOne(nodes, viaSel) : null;
+              if (viaPt) {
+                await alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: viaPt.x, y: viaPt.y }, settle: false }, deps.dispatchDeps).catch(() => undefined);
+                // poll for the session control — the destination screen's AX
+                // tree is not ready at any fixed sleep (live catch: 600ms after
+                // the tab tap the account page hadn't exposed the button yet)
+                for (let k = 0; k < 15 && !isAborted(runId); k++) {
+                  await new Promise((res2) => setTimeout(res2, 200));
+                  nodes = await snapNow();
+                  if (nodes && findOne(nodes, cfg.button)) break;
+                }
+                if (!nodes) nodes = await snapNow();
+              }
+            }
             const sessionVisible = nodes ? findOne(nodes, cfg.button) !== null : false;
             if (!sessionVisible) {
               insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure logout', 'pass', 'already logged out (no session)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, checked: cfg.button }));
             } else {
               const btn = nodes ? findOne(nodes, cfg.button) : null;
               if (!btn) throw new Error(`ensure logout: session indicator ${JSON.stringify(cfg.button)} vanished between reads`);
-              const r1 = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'tap', x: btn.x, y: btn.y }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, 'ensure logout: open sheet')) as { ok: boolean; error?: { message: string } };
+              const r1 = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: btn.x, y: btn.y }, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, 'ensure logout: open sheet')) as { ok: boolean; error?: { message: string } };
               if (!r1.ok) throw new Error(r1.error?.message ?? 'ensure logout: sheet tap failed');
               // wait for the confirm control (poll, bounded by the step watchdog)
               let confirm: { x: number; y: number } | null = null;
@@ -1519,7 +1543,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 confirm = nodes ? findOne(nodes, cfg.confirm) : null;
               }
               if (!confirm) throw new Error(`ensure logout: confirm control ${JSON.stringify(cfg.confirm)} never appeared`);
-              const r2 = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'tap', x: confirm.x, y: confirm.y }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, 'ensure logout: confirm')) as { ok: boolean; error?: { message: string } };
+              const r2 = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: confirm.x, y: confirm.y }, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, 'ensure logout: confirm')) as { ok: boolean; error?: { message: string } };
               if (!r2.ok) throw new Error(r2.error?.message ?? 'ensure logout: confirm tap failed');
               // verify: session indicator gone (allow settle time)
               let gone = false;
