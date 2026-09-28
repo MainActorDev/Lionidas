@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>021-A · network — scenario workbench</title>
+<link rel="stylesheet" href="../tokens.css" />
+<style>
+  body { background: var(--color-void); color: var(--color-paper); font-family: var(--font-sans); font-size: var(--text-body); padding: 0 var(--s-6) var(--s-7); }
+  .ph { display: flex; align-items: baseline; gap: var(--s-4); padding: var(--s-5) 0 var(--s-3); border-bottom: 1px solid var(--color-iron); margin-bottom: var(--s-4); }
+  .ph h1 { font-size: var(--text-heading-sm); font-weight: var(--weight-bold); letter-spacing: -0.01em; }
+  .ph .desc { font-family: var(--font-mono); font-size: var(--text-caption); color: var(--color-steel); }
+  .ph .actions { margin-left: auto; display: flex; gap: var(--s-2); align-items: center; }
+
+  /* persistent control strip — proxy/routing/mode always visible */
+  .ctl { display: flex; align-items: center; gap: var(--s-2); border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); padding: 6px 10px; margin-bottom: var(--s-4); font-family: var(--font-mono); font-size: 11px; color: var(--color-fog); }
+  .ctl .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-ok); flex: none; }
+  .ctl .dot.off { background: var(--color-steel); }
+  .ctl .sep { color: var(--color-pewter); margin: 0 var(--s-1); }
+
+  .btn { appearance: none; border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); color: var(--color-fog); font: 500 11px/1 var(--font-mono); letter-spacing: 0.03em; padding: 6px 10px; cursor: pointer; }
+  .btn:hover { color: var(--color-paper); border-color: var(--color-slate); }
+  .btn.pri { border-color: var(--color-ember); color: var(--color-ember); }
+  .btn.sm { padding: 4px 8px; font-size: 10px; }
+
+  /* workbench split */
+  .bench { display: grid; grid-template-columns: 380px 1fr; gap: var(--s-4); align-items: start; }
+  .col-l { min-width: 0; }
+  .col-r { min-width: 0; }
+
+  .a2-list { border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); }
+  .scn-row { display: flex; align-items: center; gap: var(--s-2); padding: 9px 12px; border-bottom: 1px solid var(--color-iron); cursor: pointer; }
+  .scn-row:last-child { border-bottom: none; }
+  .scn-row:hover { background: var(--color-graphite); }
+  .scn-row.sel { background: var(--color-graphite); box-shadow: inset 2px 0 0 var(--color-ember); }
+  .scn-row .nm { font-weight: 600; font-size: var(--text-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .scn-row .meta { margin-left: auto; display: flex; gap: 6px; align-items: center; font-family: var(--font-mono); font-size: 10px; color: var(--color-steel); }
+  .chip { border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 2px 6px; font-family: var(--font-mono); font-size: 10px; color: var(--color-ash); }
+  .chip.used { color: var(--color-ember); border-color: color-mix(in srgb, var(--color-ember) 40%, transparent); }
+  .list-head { display: flex; align-items: center; gap: var(--s-2); padding: 8px 12px; border-bottom: 1px solid var(--color-iron); }
+  .list-head .t { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-pewter); }
+  .list-head .n { color: var(--color-steel); font-family: var(--font-mono); font-size: 10px; }
+  .list-head .btn { margin-left: auto; }
+
+  /* right: workbench */
+  .wb { border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); }
+  .wb-head { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--color-iron); }
+  .wb-head .nm { font-size: 15px; font-weight: 700; }
+  .wb-head .id { font-family: var(--font-mono); font-size: 10px; color: var(--color-steel); }
+  .wb-head .acts { margin-left: auto; display: flex; gap: 6px; }
+  .wb-body { padding: var(--s-3) var(--s-4); }
+
+  table { width: 100%; border-collapse: collapse; }
+  thead th { position: sticky; top: 0; background: var(--color-graphite); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-steel); text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--color-iron); }
+  tbody td { padding: 8px 10px; border-bottom: 1px solid var(--color-iron); font-size: var(--text-caption); }
+  tbody tr:hover { background: var(--color-graphite); }
+  td.mono, .mono { font-family: var(--font-mono); }
+  .path { font-family: var(--font-mono); font-size: 11px; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .st { font-family: var(--font-mono); font-size: 10px; }
+  .st.ok { color: var(--color-fog); } .st.err { color: var(--color-paper); text-decoration: underline; }
+
+  .changed { display: flex; align-items: center; gap: 6px; border-left: 2px solid var(--color-ember); background: var(--color-void); padding: 7px 10px; font-family: var(--font-mono); font-size: 11px; color: var(--color-fog); margin-bottom: var(--s-3); }
+  .changed b { color: var(--color-ember); }
+
+  .traffic { margin-top: var(--s-5); }
+  .sec-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-pewter); margin: var(--s-4) 0 var(--s-2); display: flex; align-items: center; gap: var(--s-2); }
+  .sec-label .n { color: var(--color-steel); }
+  .sec-label input { margin-left: auto; }
+
+  input[type="text"], input[type="search"], select { background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-fog); font: 400 12px var(--font-mono); padding: 6px 8px; }
+  input:focus, select:focus { outline: 1px solid var(--color-ember); outline-offset: 0; }
+  .search { width: 220px; }
+
+  .empty { padding: var(--s-4); color: var(--color-steel); font-size: var(--text-caption); font-family: var(--font-mono); }
+  .mut { color: var(--color-steel); }
+</style>
+</head>
+<body>
+  <div class="ph">
+    <h1>network · scenarios</h1>
+    <span class="desc">3 scenarios · 3 presets · 104 runs stamped</span>
+    <div class="actions">
+      <button class="btn">+ scenario</button>
+      <button class="btn">presets</button>
+    </div>
+  </div>
+
+  <div class="ctl">
+    <span class="dot" title="proxy running"></span>
+    <span>proxy 127.0.0.1:8899</span>
+    <span class="sep">·</span>
+    <span>sims routed (auto-proxy)</span>
+    <span class="sep">·</span>
+    <span>mode</span>
+    <span class="btn sm pri" style="margin-left:2px;">hybrid</span>
+    <span class="btn sm">record</span>
+    <span class="btn sm">intercept</span>
+    <span style="margin-left:auto;" class="mut">mode is global — every request through the proxy</span>
+  </div>
+
+  <div class="bench">
+    <!-- left: scenario list -->
+    <div class="col-l">
+      <div class="a2-list">
+        <div class="list-head"><span class="t">scenarios</span><span class="n">3</span><button class="btn sm">+ new</button></div>
+        <div class="scn-row sel">
+          <span class="nm">countries-sg</span>
+          <span class="meta"><span class="chip used">used</span><span>1 preset</span><span>62 runs</span></span>
+        </div>
+        <div class="scn-row">
+          <span class="nm">countries-my</span>
+          <span class="meta"><span class="chip used">used</span><span>1 preset</span><span>21 runs</span></span>
+        </div>
+        <div class="scn-row">
+          <span class="nm">countries-empty</span>
+          <span class="meta"><span class="chip used">used</span><span>1 preset</span><span>21 runs</span></span>
+        </div>
+      </div>
+
+      <div class="a2-list" style="margin-top: var(--s-4);">
+        <div class="list-head"><span class="t">presets</span><span class="n">3</span></div>
+        <table>
+          <thead><tr><th>method</th><th>path</th><th>st</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">GET</td><td class="path" title="/v1/algo-shipment/route/tariff/destination-recommendation">/v1/algo-shipment/route/tariff/destination-recommend…</td><td class="st ok">200</td></tr>
+            <tr><td class="mono">GET</td><td class="path">/v1/algo-shipment/route/tariff/destination-recommend…</td><td class="st ok">200</td></tr>
+            <tr><td class="mono">GET</td><td class="path">/v1/algo-shipment/route/tariff/destination-recommend…</td><td class="st ok">200</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- right: workbench -->
+    <div class="col-r">
+      <div class="wb">
+        <div class="wb-head">
+          <span class="nm">countries-sg</span>
+          <span class="id">s_c1265727</span>
+          <span class="chip used" title="referenced by id — rename is safe">id-referenced · rename safe</span>
+          <div class="acts">
+            <button class="btn sm" title="copy this scenario's members to a new one">duplicate</button>
+            <button class="btn sm" title="variants and cases pinning this scenario by id or name">used by ▾</button>
+            <button class="btn sm">delete</button>
+          </div>
+        </div>
+        <div class="wb-body">
+          <div class="changed">
+            <b>changed since last play</b>
+            <span>— membership edits apply from the next run; stamped runs replay their own sha</span>
+          </div>
+          <table>
+            <thead><tr><th style="width:30px;"></th><th>method</th><th>path</th><th>status</th><th>body</th><th></th></tr></thead>
+            <tbody>
+              <tr>
+                <td><input type="checkbox" checked title="served when this scenario runs" /></td>
+                <td class="mono">GET</td>
+                <td class="path">/v1/algo-shipment/route/tariff/destination-recommendation</td>
+                <td class="st ok">200</td>
+                <td class="mono mut">lp-countries-sg.body</td>
+                <td><button class="btn sm">edit</button></td>
+              </tr>
+              <tr>
+                <td></td>
+                <td colspan="5"><button class="btn sm">+ add preset</button> <span class="mut" style="margin-left:8px;">picker: search all presets, multi-add</span></td>
+              </tr>
+            </tbody>
+          </table>
+          <div style="margin-top: var(--s-3); display:flex; gap: var(--s-2); align-items:center;">
+            <span class="mut mono" style="font-size:10px;">launch_arg</span>
+            <input type="text" value="" placeholder="e.g. LP_COUNTRY=SG (optional)" style="flex:1;" />
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- traffic: subordinate, same page -->
+  <div class="traffic">
+    <div class="sec-label">traffic <span class="n">· live · 12,779 captured</span> <input type="search" class="search" placeholder="search host or path…" /></div>
+    <div class="a2-list">
+      <table>
+        <thead><tr><th>time</th><th>method</th><th>host</th><th>path</th><th>status</th><th>latency</th><th>preset</th></tr></thead>
+        <tbody>
+          <tr><td class="mono mut">11:42:07</td><td class="mono">GET</td><td class="mono mut">api.lioparcel.services</td><td class="path">/v1/algo-shipment/route/tariff/destination-recommendation</td><td class="st ok">200</td><td class="mut">412ms</td><td class="mono" style="color: var(--color-ember);">p_1b58882e</td></tr>
+          <tr><td class="mono mut">11:42:01</td><td class="mono">GET</td><td class="mono mut">api.lioparcel.services</td><td class="path">/v1/auth/session</td><td class="st ok">200</td><td class="mut">88ms</td><td class="mut"></td></tr>
+          <tr><td class="mono mut">11:41:55</td><td class="mono">POST</td><td class="mono mut">api.lioparcel.services</td><td class="path">/v1/algo-shipment/route/tariff/quote</td><td class="st err">500</td><td class="mut">1240ms</td><td class="mut"></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    // interactivity: list selection swaps the workbench header (state change demo)
+    const rows = document.querySelectorAll('.scn-row');
+    rows.forEach((r) => r.addEventListener('click', () => {
+      rows.forEach((x) => x.classList.remove('sel'));
+      r.classList.add('sel');
+      document.querySelector('.wb-head .nm').textContent = r.querySelector('.nm').textContent;
+    }));
+  </script>
+</body>
+</html>

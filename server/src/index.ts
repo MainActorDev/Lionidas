@@ -25,6 +25,7 @@ import { stopMitmIfRunning } from './forge/mitm/manager.ts';
 import { healStaleProxies } from './forge/sim-routing.ts';
 import { registerTemplateRoutes } from './routes/templates.ts';
 import { registerFolderRoutes } from './routes/folders.ts';
+import { registerScenarioFolderRoutes } from './routes/scenario-folders.ts';
 import { registerSuiteRoutes } from './routes/suites.ts';
 import { registerFlakeRoutes } from './routes/flakes.ts';
 import { registerOverviewRoutes } from './routes/overview.ts';
@@ -104,6 +105,7 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   } as never);
   registerTemplateRoutes(app, db.raw);
   registerFolderRoutes(app, db.raw);
+  registerScenarioFolderRoutes(app, db.raw);
   registerSuiteRoutes(app, db.raw);
   registerFlakeRoutes(app, db.raw, bus);
   registerOverviewRoutes(app, db.raw); // clock injectable; default Date.now

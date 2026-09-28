@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>021-C2 · network — foldered scenario documents</title>
+<link rel="stylesheet" href="../tokens.css" />
+<style>
+  body { background: var(--color-void); color: var(--color-paper); font-family: var(--font-sans); font-size: var(--text-body); padding: 0 var(--s-6) var(--s-7); }
+  .ph { display: flex; align-items: baseline; gap: var(--s-4); padding: var(--s-5) 0 var(--s-3); border-bottom: 1px solid var(--color-iron); margin-bottom: var(--s-3); }
+  .ph h1 { font-size: var(--text-heading-sm); font-weight: var(--weight-bold); letter-spacing: -0.01em; }
+  .ph .desc { font-family: var(--font-mono); font-size: var(--text-caption); color: var(--color-steel); }
+  .ph .actions { margin-left: auto; display: flex; gap: var(--s-2); }
+
+  .ctl { display: flex; align-items: center; gap: var(--s-2); border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); padding: 6px 10px; margin-bottom: var(--s-4); font-family: var(--font-mono); font-size: 11px; color: var(--color-fog); }
+  .ctl .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-ok); flex: none; }
+  .ctl .sep { color: var(--color-pewter); margin: 0 var(--s-1); }
+
+  .btn { appearance: none; border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); color: var(--color-fog); font: 500 11px/1 var(--font-mono); letter-spacing: 0.03em; padding: 6px 10px; cursor: pointer; }
+  .btn:hover { color: var(--color-paper); border-color: var(--color-slate); }
+  .btn.pri, .btn-primary { border-color: var(--color-ember); color: var(--color-ember); }
+  .btn.sm { padding: 4px 8px; font-size: 10px; }
+  .btn.on { border-color: var(--color-ember); color: var(--color-ember); }
+
+  /* ── the testcases anatomy: one list box, sticky thead, breadcrumbs, folder rows ── */
+  .a2-list { border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); overflow: hidden; }
+  .a2-thead { display: grid; grid-template-columns: 26px minmax(0, 2.2fr) minmax(0, 90px) minmax(0, 70px) minmax(0, 90px) minmax(0, 200px); align-items: center; background: var(--color-graphite); border-bottom: 1px solid var(--color-iron); position: sticky; top: 0; z-index: 2; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-steel); }
+  .a2-thead > span { padding: 7px 8px; }
+  .a2-crumbs { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--color-iron); font-family: var(--font-mono); font-size: 11px; }
+  .a2-crumbs .crumb { background: none; border: none; color: var(--color-pewter); cursor: pointer; padding: 2px 4px; font: inherit; }
+  .a2-crumbs .crumb:hover { color: var(--color-paper); text-decoration: underline; }
+  .a2-crumbs .crumb.cur { color: var(--color-ember); cursor: default; }
+  .a2-crumbs .crumb-sep { color: var(--color-steel); }
+  .a2-crumbs .crumb-acts { margin-left: auto; display: flex; gap: 6px; }
+
+  .a2-folder-row { display: flex; align-items: center; gap: var(--s-2); padding: 8px 12px; border-bottom: 1px solid var(--color-iron); cursor: pointer; font-family: var(--font-mono); font-size: 12px; color: var(--color-paper); }
+  .a2-folder-row:hover { background: var(--color-graphite); }
+  .f-glyph { color: var(--color-ember); width: 16px; height: 16px; flex: none; }
+  .f-spacer { width: 26px; flex: none; display: flex; align-items: center; }
+  .a2-folder-row .f-n { color: var(--color-steel); margin-left: 6px; }
+  .a2-folder-row .f-fill { flex: 1; }
+  .a2-folder-row .f-meta { font-size: 10px; color: var(--color-steel); white-space: nowrap; }
+  .a2-folder-row .f-sep { flex: none; width: 1px; height: 14px; background: var(--color-iron); margin: 0 14px; }
+  .a2-folder-row .f-acts { margin-left: auto; display: flex; gap: 4px; }
+
+  .a2-row { display: grid; grid-template-columns: 26px minmax(0, 2.2fr) minmax(0, 90px) minmax(0, 70px) minmax(0, 90px) minmax(0, 200px); align-items: center; padding: 0; border-bottom: 1px solid var(--color-iron); cursor: pointer; font-size: var(--text-caption); }
+  .a2-row:hover { background: var(--color-graphite); }
+  .a2-row > span { padding: 9px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .doc-glyph { width: 14px; height: 14px; color: var(--color-pewter); margin-left: 6px; }
+  .col-sel { display: flex; align-items: center; }
+  .scn-name { font-weight: 600; color: var(--color-paper); }
+  .scn-id { font-family: var(--font-mono); font-size: 10px; color: var(--color-steel); margin-left: 6px; }
+  .chip { border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 1px 6px; font-family: var(--font-mono); font-size: 10px; color: var(--color-ash); }
+  .chip.used { color: var(--color-ember); border-color: color-mix(in srgb, var(--color-ember) 40%, transparent); }
+  .mono { font-family: var(--font-mono); }
+  .mut { color: var(--color-steel); }
+
+  /* ── the document expands INLINE under its row (case yaml pattern) ── */
+  .doc-panel { border-bottom: 1px solid var(--color-iron); background: var(--color-void); }
+  .doc-head { display: flex; align-items: center; gap: var(--s-2); padding: 8px 12px; border-bottom: 1px solid var(--color-iron); }
+  .doc-head .t { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-pewter); }
+  .doc-head .acts { margin-left: auto; display: flex; gap: 6px; }
+  .doc-panel pre { margin: 0; padding: var(--s-3) var(--s-4); font-family: var(--font-mono); font-size: 12px; line-height: 1.75; color: var(--color-fog); overflow-x: auto; white-space: pre; }
+  .k { color: var(--color-chalk); } .v { color: var(--color-paper); } .cm { color: var(--color-steel); } .ac { color: var(--color-ember); }
+  .doc-foot { display: flex; align-items: center; gap: var(--s-2); border-top: 1px solid var(--color-iron); padding: 6px var(--s-4); font-family: var(--font-mono); font-size: 10px; color: var(--color-steel); }
+
+  /* traffic subordinate */
+  .traffic { margin-top: var(--s-5); }
+  .sec-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-pewter); margin: var(--s-4) 0 var(--s-2); display: flex; gap: var(--s-2); align-items: center; }
+  .a2-tabs { display: inline-flex; align-items: stretch; border: 1px solid var(--color-iron); border-radius: var(--r-sm); overflow: hidden; background: var(--color-void); }
+  .a2-tab { appearance: none; border: none; border-right: 1px solid var(--color-iron); background: transparent; padding: 6px 14px; cursor: pointer; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-pewter); }
+  .a2-tab:last-child { border-right: none; }
+  .a2-tab.on { color: var(--color-ember); background: var(--color-graphite); }
+  .traffic table { width: 100%; border-collapse: collapse; }
+  .traffic thead th { background: var(--color-graphite); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-steel); text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--color-iron); }
+  .traffic td { padding: 8px 10px; border-bottom: 1px solid var(--color-iron); font-size: var(--text-caption); }
+  .traffic tbody tr:hover { background: var(--color-graphite); }
+  .path { font-family: var(--font-mono); font-size: 11px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  input[type="search"] { background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-fog); font: 400 12px var(--font-mono); padding: 6px 8px; width: 220px; margin-left: auto; }
+</style>
+</head>
+<body>
+  <div class="ph">
+    <h1>network · scenarios</h1>
+    <span class="desc">3 scenarios · 3 presets · ids stay stable, names are labels</span>
+    <div class="actions">
+      <button class="btn">+ scenario</button>
+    </div>
+  </div>
+
+  <div class="ctl">
+    <span class="dot"></span>
+    <span>proxy 127.0.0.1:8899</span>
+    <span class="sep">·</span>
+    <span>sims routed</span>
+    <span class="sep">·</span>
+    <span>mode</span>
+    <button class="btn sm pri" style="margin-left:2px;">hybrid</button>
+    <button class="btn sm">record</button>
+    <button class="btn sm">intercept</button>
+  </div>
+
+  <div class="a2-list">
+    <div class="a2-thead">
+      <span></span>
+      <span>scenario</span>
+      <span title="named preset groups serving this scenario">presets</span>
+      <span title="runs stamped with this scenario">runs</span>
+      <span>updated</span>
+      <span></span>
+    </div>
+
+    <!-- breadcrumb (cPanel navigation) -->
+    <div class="a2-crumbs">
+      <button class="crumb cur">scenarios</button>
+      <span class="crumb-sep">/</span>
+      <button class="crumb cur">tariff worlds</button>
+      <span class="crumb-acts"><button class="btn sm">+ folder</button></span>
+    </div>
+
+    <!-- folder rows above scenarios in the current folder -->
+    <div class="a2-folder-row" title="open countries — 3 scenario(s) in subtree">
+      <span class="f-spacer"><svg class="f-glyph" viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 4.5A1.5 1.5 0 014 3h3.6a1.5 1.5 0 011.1.5l1.1 1.2H16A1.5 1.5 0 0117.5 6.2v9.3A1.5 1.5 0 0116 17H4a1.5 1.5 0 01-1.5-1.5V4.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></span>
+      <span class="f-name">countries</span>
+      <span class="f-n">3</span>
+      <span class="f-fill"></span>
+      <span class="f-meta">lp-library · 09-18</span>
+      <span class="f-sep"></span>
+      <span class="f-acts">
+        <button class="btn sm">rename</button>
+      </span>
+    </div>
+
+    <!-- scenario rows: document glyph, click = inline document expansion -->
+    <div class="a2-row" data-scn="countries-sg">
+      <span class="col-sel"><svg class="doc-glyph" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5h7l3 3v12H5v-15z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M11.5 2.7V6h3.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></span>
+      <span><span class="scn-name">countries-sg</span><span class="scn-id">s_c1265727</span></span>
+      <span class="mono">1</span>
+      <span class="mono">62</span>
+      <span class="mut">09-24</span>
+      <span style="display:flex;gap:4px;justify-content:flex-end;"><span class="chip used">used</span></span>
+    </div>
+
+    <!-- the document expands under its row -->
+    <div class="doc-panel" id="doc-countries-sg">
+      <div class="doc-head">
+        <span class="t">scenario document</span>
+        <span class="mono mut" style="font-size:10px;">countries-sg · s_c1265727</span>
+        <div class="acts">
+          <button class="btn sm" title="form ⇄ document, like screens">form</button>
+          <button class="btn sm pri">save</button>
+          <button class="btn sm">✕</button>
+        </div>
+      </div>
+<pre><span class="k">scenario:</span> <span class="v">countries-sg</span>
+<span class="k">id:</span> <span class="v">s_c1265727</span>          <span class="cm"># stable pin — rename freely</span>
+<span class="k">presets:</span>
+  <span class="ac">-</span> <span class="k">preset:</span> <span class="v">p_1b58882e</span>
+    <span class="k">method:</span> <span class="v">GET</span>
+    <span class="k">path:</span> <span class="v">/v1/algo-shipment/route/tariff/destination-recommendation</span>
+    <span class="k">status:</span> <span class="v">200</span>
+    <span class="k">body:</span> <span class="v">lp-countries-sg.body</span>
+    <span class="k">enabled:</span> <span class="v">true</span>
+<span class="k">launch_arg:</span> <span class="v">LP_COUNTRY=SG</span>
+<span class="cm"># used by: variant `sg` of “intl drill — destination worlds (R2)”</span></pre>
+      <div class="doc-foot">sha 4f2a…c91 · stamped by 62 runs · edits apply from next play</div>
+    </div>
+
+    <div class="a2-row" data-scn="countries-my">
+      <span class="col-sel"><svg class="doc-glyph" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5h7l3 3v12H5v-15z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M11.5 2.7V6h3.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></span>
+      <span><span class="scn-name">countries-my</span><span class="scn-id">s_c42eaf1e</span></span>
+      <span class="mono">1</span>
+      <span class="mono">21</span>
+      <span class="mut">09-24</span>
+      <span style="display:flex;gap:4px;justify-content:flex-end;"><span class="chip used">used</span></span>
+    </div>
+    <div class="a2-row" data-scn="countries-empty">
+      <span class="col-sel"><svg class="doc-glyph" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5h7l3 3v12H5v-15z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M11.5 2.7V6h3.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></span>
+      <span><span class="scn-name">countries-empty</span><span class="scn-id">s_6062b5db</span></span>
+      <span class="mono">1</span>
+      <span class="mono">21</span>
+      <span class="mut">09-24</span>
+      <span style="display:flex;gap:4px;justify-content:flex-end;"><span class="chip used">used</span></span>
+    </div>
+  </div>
+
+  <!-- traffic: subordinate, same page -->
+  <div class="traffic">
+    <div class="sec-label">traffic <span class="a2-tabs"><button class="a2-tab on">live</button><button class="a2-tab">all 12,779</button></span> <input type="search" placeholder="search host or path…" /></div>
+    <div class="a2-list">
+      <table>
+        <thead><tr><th>time</th><th>method</th><th>host</th><th>path</th><th>status</th><th>latency</th><th>preset</th></tr></thead>
+        <tbody>
+          <tr><td class="mono mut">11:42:07</td><td class="mono">GET</td><td class="mono mut">api.lioparcel.services</td><td class="path">/v1/algo-shipment/route/tariff/destination-recommendation</td><td class="mono">200</td><td class="mut">412ms</td><td class="mono" style="color:var(--color-ember);">p_1b58882e</td></tr>
+          <tr><td class="mono mut">11:42:01</td><td class="mono">GET</td><td class="mono mut">api.lioparcel.services</td><td class="path">/v1/auth/session</td><td class="mono">200</td><td class="mut">88ms</td><td class="mut"></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    // row click toggles the inline document under THAT row (case yaml pattern)
+    document.querySelectorAll('.a2-row').forEach((r) => r.addEventListener('click', () => {
+      const doc = document.getElementById('doc-' + r.dataset.scn);
+      doc.style.display = doc.style.display === 'none' ? '' : 'none';
+    }));
+  </script>
+</body>
+</html>

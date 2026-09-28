@@ -545,10 +545,24 @@ export function migrateM1(db: Database.Database): void {
       updated_at INTEGER NOT NULL
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_sibling ON folders(app_bundle_id, IFNULL(parent_id, ''), name);
+    CREATE TABLE IF NOT EXISTS scenario_folders(
+      id TEXT PRIMARY KEY,
+      parent_id TEXT REFERENCES scenario_folders(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_scenario_folders_sibling ON scenario_folders(IFNULL(parent_id, ''), name);
   `);
   const tplCols = db.prepare("SELECT name FROM pragma_table_info('templates')").all() as Array<{ name: string }>;
   if (!tplCols.some((x) => x.name === 'folder_id')) {
     db.prepare('ALTER TABLE templates ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL').run();
+  }
+  // scenario folders (plan 20260928T092527Z): global tree, scenarios.folder_id NULL = root
+  const scnCols = db.prepare("SELECT name FROM pragma_table_info('scenarios')").all() as Array<{ name: string }>;
+  if (!scnCols.some((x) => x.name === 'folder_id')) {
+    db.prepare('ALTER TABLE scenarios ADD COLUMN folder_id TEXT REFERENCES scenario_folders(id) ON DELETE SET NULL').run();
   }
   // app_screens gains the login recipe (Stage 1.2): nullable JSON column,
   // shape {entry, phoneField, passwordField, submit, session}.
