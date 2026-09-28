@@ -153,3 +153,57 @@ export function scenarioToYaml(doc: ScenarioDoc, hints?: Record<string, { method
   lines.push(`launch_arg: ${doc.launchArg ? yamlScalar(doc.launchArg) : "''"}`);
   return lines.join('\n') + '\n';
 }
+
+
+// ── scenario-grammar completions (typed-editors rule: each document type
+//  completes ITS OWN grammar — never the case grammar) ──
+export interface ScenarioCompletion {
+  label: string;
+  detail?: string;
+  apply: string;
+  type?: 'keyword' | 'text';
+}
+export interface ScenarioEditorVocabulary {
+  /** preset ids available in the library (for `preset:` values) */
+  presetIds: string[];
+  /** preset display names by id, for the detail column */
+  presetNames?: Record<string, string>;
+}
+
+/** completions for the cursor's context in a scenario document. line =
+ *  the current line's text up to the cursor, indented (leading spaces). */
+export function scenarioCompletions(line: string, vocab: ScenarioEditorVocabulary): ScenarioCompletion[] {
+  const t = line.trimStart();
+  const indented = t !== line; // inside a preset entry
+  if (!indented) {
+    // top-level keys — offer only keys not already present on a sibling line? keep simple: all keys
+    return [
+      { label: 'scenario', detail: 'display name (editable label)', apply: 'scenario: ', type: 'keyword' },
+      { label: 'id', detail: 'stable pin — read-only at save', apply: 'id: ', type: 'keyword' },
+      { label: 'presets', detail: 'member presets of this scenario', apply: 'presets:\n  - preset: ', type: 'keyword' },
+      { label: 'launch_arg', detail: 'optional app launch argument', apply: 'launch_arg: ', type: 'keyword' },
+    ];
+  }
+  // inside a presets entry
+  if (t.startsWith('- ') || /^preset:/.test(t) || /^enabled:/.test(t) || t === '') {
+    if (/^preset:?\s*$/.test(t) || t.startsWith('- preset:') || /^preset:/.test(t)) {
+      return vocab.presetIds.map((pid) => ({
+        label: vocab.presetNames?.[pid] ?? pid,
+        detail: pid,
+        apply: `'${pid}'`,
+        type: 'text' as const,
+      }));
+    }
+    if (/^enabled:?\s*$/.test(t)) {
+      return [
+        { label: 'true', detail: 'served when this scenario runs', apply: 'true', type: 'keyword' },
+        { label: 'false', detail: 'member, but not served', apply: 'false', type: 'keyword' },
+      ];
+    }
+    return [
+      { label: 'preset', detail: 'preset id (stable pin)', apply: 'preset: ', type: 'keyword' },
+      { label: 'enabled', detail: 'served when this scenario runs', apply: 'enabled: true', type: 'keyword' },
+    ];
+  }
+  return [];
+}

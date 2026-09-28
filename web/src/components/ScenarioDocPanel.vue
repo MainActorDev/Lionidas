@@ -15,8 +15,6 @@ export interface ScenarioDocPanelProps {
   name: string;
   launchArg: string | null;
   members: Array<{ preset_id: string; enabled: number; method: string; path_pattern: string; status: number }>;
-  allPresets: Array<{ id: string; method: string; path_pattern: string; status: number }>;
-  usedBy: Array<{ label: string }>;
   runCount: number;
   changedSincePlay: boolean;
 }
@@ -28,16 +26,29 @@ const host = ref<HTMLElement | null>(null);
 const err = ref('');
 const saveMsg = ref('');
 const saving = ref(false);
-const usedByOpen = ref(false); // fix5 (round 2): collapsed by default — depth behind disclosure
 
 // ── form model ──
+// ALL presets, unscoped (the page's list is folder-scoped since round 2 —
+// binding the picker to it emptied the picker inside folders; bug fix)
+const allPresetsFull = ref<Array<{ id: string; name: string | null; method: string; path_pattern: string; status: number }>>([]);
+void (async () => {
+  try {
+    const res = await fetch('/api/forge/presets');
+    allPresetsFull.value = (await res.json() as { presets: typeof allPresetsFull.value }).presets;
+  } catch { /* picker degrades to members-only */ }
+})();
+
 const fName = ref(props.name);
+// custom preset picker (operator ask): searchable, scrollable, house-styled —
+// replaces the native <select> which can't search and renders OS-styled
+const pickerOpen = ref(false);
+const pickerSearch = ref('');
 const fLaunchArg = ref(props.launchArg ?? '');
 const fMembers = ref(props.members.map((m) => ({ ...m })));
 
 const hints = computed(() => {
   const h: Record<string, { method?: string; path?: string; status?: number }> = {};
-  for (const m of [...fMembers.value, ...props.allPresets]) {
+  for (const m of [...fMembers.value, ...allPresetsFull.value]) {
     const id = 'preset_id' in m ? m.preset_id : m.id;
     h[id] = { method: m.method, path: m.path_pattern, status: m.status };
   }
@@ -66,7 +77,7 @@ async function docToForm(): Promise<void> {
   fName.value = r.doc.scenario;
   fLaunchArg.value = r.doc.launchArg ?? '';
   fMembers.value = r.doc.presets.map((p) => {
-    const hint = props.allPresets.find((x) => x.id === p.preset);
+    const hint = allPresetsFull.value.find((x) => x.id === p.preset);
     return { preset_id: p.preset, enabled: p.enabled ? 1 : 0, method: hint?.method ?? '?', path_pattern: hint?.path_pattern ?? '?', status: hint?.status ?? 0 };
   });
   err.value = '';
@@ -88,7 +99,7 @@ function onDocChanged(): void {
 
 function addPreset(pid: string): void {
   if (!pid || fMembers.value.some((m) => m.preset_id === pid)) return;
-  const p = props.allPresets.find((x) => x.id === pid);
+  const p = allPresetsFull.value.find((x) => x.id === pid);
   if (p) fMembers.value.unshift({ preset_id: p.id, enabled: 1, method: p.method, path_pattern: p.path_pattern, status: p.status });
 }
 
@@ -128,31 +139,35 @@ async function save(): Promise<void> {
 }
 
 const pickerGroups = computed(() => {
-  const avail = props.allPresets.filter((p) => !fMembers.value.some((m) => m.preset_id === p.id));
+  const avail = allPresetsFull.value.filter((p) => !fMembers.value.some((m) => m.preset_id === p.id));
+  const q = pickerSearch.value.trim().toLowerCase();
+  const matched = q
+    ? avail.filter((p) => (p.name ?? p.id).toLowerCase().includes(q) || `${p.method} ${p.path_pattern}`.toLowerCase().includes(q))
+    : avail;
   const groups = new Map<string, typeof avail>();
-  for (const p of avail) {
+  for (const p of matched) {
     const k = `${p.method} ${p.path_pattern}`;
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k)!.push(p);
   }
   return [...groups.entries()].map(([key, rows]) => ({ key, method: rows[0]!.method, path: rows[0]!.path_pattern, rows }));
 });
-
-const usedBySummary = computed(() => {
-  const labels = props.usedBy.map((u) => u.label);
-  const variants = labels.filter((l) => l.startsWith('variant'));
-  const versions = labels.length - variants.length;
-  const bits: string[] = [];
-  if (variants.length > 0) bits.push(variants.join(' · '));
-  if (versions > 0) bits.push(`${versions} case version${versions === 1 ? '' : 's'}`);
-  return bits.join(' · ');
-});
+const pickerTotal = computed(() => pickerGroups.value.reduce((n, g) => n + g.rows.length, 0));
+function pickPreset(pid: string): void {
+  addPreset(pid);
+  pickerSearch.value = '';
+  pickerOpen.value = false;
+}
 
 const dirty = computed(() => docDirty || fName.value !== props.name || (fLaunchArg.value.trim() || null) !== (props.launchArg ?? null) || JSON.stringify(fMembers.value.map((m) => [m.preset_id, m.enabled])) !== JSON.stringify(props.members.map((m) => [m.preset_id, m.enabled])));
 
 onMounted(async () => {
   if (!host.value) return;
-  await ed.mount(host.value, formToDoc(), () => void save());
+  const scenarioVocab = computed<import('@crucible/shared/scenario-yaml').ScenarioEditorVocabulary>(() => ({
+        presetIds: allPresetsFull.value.map((p) => p.id),
+        presetNames: Object.fromEntries(allPresetsFull.value.map((p) => [p.id, p.name ?? p.id])),
+      }));
+    await ed.mount(host.value, formToDoc(), () => void save(), undefined, { noCaseCompletions: true, scenarioVocab: scenarioVocab.value });
   host.value.addEventListener('input', onDocChanged);
 });
 onBeforeUnmount(() => { host.value?.removeEventListener('input', onDocChanged); if (blurTimer) clearTimeout(blurTimer); });
@@ -182,22 +197,20 @@ onBeforeUnmount(() => { host.value?.removeEventListener('input', onDocChanged); 
           <button class="btn btn-sm" title="edit what this preset serves — opens at its row in the presets section" @click="emit('editPreset', m.preset_id)">edit</button>
           <button class="btn btn-sm" title="remove from this scenario" @click="fMembers.splice(i, 1)">✕</button>
         </div>
-        <div class="mrow add">
-          <select class="a2-select-like" @change="($event.target as HTMLSelectElement).value && (addPreset(($event.target as HTMLSelectElement).value), (($event.target as HTMLSelectElement).value = ''))">
-            <option value="">+ add preset…</option>
-            <optgroup v-for="g in pickerGroups" :key="g.key" :label="`${g.method} ${g.path}`">
-              <option v-for="p in g.rows" :key="p.id" :value="p.id">{{ p.id }} ({{ p.status }})</option>
-            </optgroup>
-          </select>
+        <div class="picker">
+          <button class="btn btn-sm picker-toggle" :title="pickerTotal + ' preset(s) available'" @click="pickerOpen = !pickerOpen">{{ pickerOpen ? '▾' : '▸' }} + add preset <span class="mut">{{ pickerTotal }}</span></button>
+          <div v-if="pickerOpen" class="picker-pop">
+            <input v-model="pickerSearch" class="picker-search" placeholder="search name, method, path…" @keydown.esc="pickerOpen = false" />
+            <div class="picker-list">
+              <div v-for="g in pickerGroups" :key="g.key" class="picker-group mono">{{ g.method }} {{ g.path }}</div>
+              <button v-for="p in pickerGroups.flatMap((g) => g.rows)" :key="p.id" class="picker-opt" :title="p.id" @click="pickPreset(p.id)">
+                <span class="picker-name">{{ p.name ?? p.id }}</span>
+                <span class="picker-st mono">{{ p.status }}</span>
+              </button>
+              <div v-if="pickerTotal === 0" class="picker-empty mono">no matching presets</div>
+            </div>
+          </div>
         </div>
-        <template v-if="usedBy.length > 0">
-          <div class="sec-h usedby-h" :title="usedBy.map((u) => u.label).join('\n')" @click="usedByOpen = !usedByOpen">
-            used by {{ usedBy.length }} <span class="mut">— {{ usedBySummary }}</span> <span class="caret">{{ usedByOpen ? '▾' : '▸' }}</span>
-          </div>
-          <div v-if="usedByOpen" class="used-list">
-            <div v-for="(u, i) in usedBy" :key="i" class="used mono">{{ u.label }}</div>
-          </div>
-        </template>
       </div>
       <div class="scd-doc">
         <div class="doc-h">the document — what variants and the agent read</div>
@@ -226,7 +239,7 @@ export default { name: 'ScenarioDocPanel' };
 .scd-meta { font-size: 10px; color: var(--color-steel); }
 .scd-fill { flex: 1; }
 .chip.changed { border: 1px solid color-mix(in srgb, var(--color-ember) 40%, transparent); color: var(--color-ember); font-family: var(--font-mono); font-size: 10px; padding: 2px 6px; border-radius: var(--r-sm); }
-.scd-body { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); min-height: 0; }
+.scd-body { display: grid; grid-template-columns: minmax(340px, 5fr) minmax(0, 7fr); min-height: 0; }
 .scd-form { padding: var(--s-3) var(--s-4); overflow-y: auto; max-height: 420px; min-height: 0; }
 .scd-doc { display: flex; flex-direction: column; padding: var(--s-3) var(--s-4); min-height: 0; border-left: 1px solid var(--color-iron); }
 .doc-h { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-steel); margin-bottom: var(--s-2); }
@@ -237,17 +250,27 @@ export default { name: 'ScenarioDocPanel' };
 .fld input { flex: 1; background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 5px var(--s-2); }
 .fld input:disabled { color: var(--color-steel); }
 .sec-h { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-steel); margin: var(--s-3) 0 var(--s-2); }
-.mrow { display: flex; align-items: center; gap: var(--s-2); padding: 4px 0; font-size: var(--text-caption); }
-.mrow .path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.mrow { display: flex; align-items: center; gap: var(--s-2); padding: 5px 8px; font-size: var(--text-caption); border-bottom: 1px solid var(--color-iron); background: var(--color-carbon); }
+.mrow:last-of-type { border-bottom: none; }
+.mrow input[type='checkbox'] { width: auto; flex: none; } /* the global input width rule stretched it to 465px */
+.mrow .path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--color-fog); }
 .mrow .st { color: var(--color-fog); font-size: 10px; }
-.mrow.add { padding-top: var(--s-2); }
-.usedby-h { cursor: pointer; display: flex; gap: 5px; align-items: baseline; }
-.usedby-h:hover { color: var(--color-fog); }
-.usedby-h .caret { color: var(--color-steel); }
-.used-list { max-height: 140px; overflow-y: auto; border-left: 1px solid var(--color-iron); padding-left: var(--s-2); margin-bottom: var(--s-2); }
-.used { font-size: 10px; color: var(--color-ash); padding: 1px 0; }
+.mrow.add { padding: var(--s-2) 8px; background: none; border-bottom: none; }
 .chipx { border: 1px solid var(--color-iron); border-radius: var(--r-sm); font-family: var(--font-mono); font-size: 9px; color: var(--color-steel); padding: 0 4px; }
 .chipx.on { color: var(--color-fog); border-color: var(--color-slate); }
+/* custom preset picker: house-styled, searchable, capped+scrollable */
+.picker { position: relative; margin-top: var(--s-2); }
+.picker-toggle .mut { color: var(--color-steel); margin-left: 4px; }
+.picker-pop { position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; right: 0; background: var(--color-graphite); border: 1px solid var(--color-slate); border-radius: var(--r-sm); box-shadow: 0 12px 32px rgba(0,0,0,0.5); display: flex; flex-direction: column; }
+.picker-search { width: calc(100% - 12px); margin: 6px; background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: 11px; padding: 5px 7px; box-sizing: border-box; }
+.picker-search:focus { outline: 1px solid var(--color-ember); outline-offset: 0; }
+.picker-list { max-height: 220px; overflow-y: auto; padding-bottom: 4px; }
+.picker-group { padding: 6px 10px 2px; font-size: 10px; color: var(--color-steel); text-transform: none; letter-spacing: 0; }
+.picker-opt { display: flex; align-items: center; gap: var(--s-2); width: 100%; text-align: left; padding: 6px 10px; background: none; border: none; color: var(--color-fog); font-family: var(--font-mono); font-size: 11px; cursor: pointer; }
+.picker-opt:hover { background: var(--color-void); color: var(--color-paper); }
+.picker-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-st { color: var(--color-steel); font-size: 10px; }
+.picker-empty { padding: 10px; font-size: 11px; color: var(--color-steel); }
 .ed-err { color: var(--color-ember); font-size: var(--text-caption); margin-top: var(--s-2); }
 .scd-foot { display: flex; gap: var(--s-2); align-items: center; margin-top: var(--s-2); font-size: 10px; color: var(--color-steel); }
 .scd-foot .fill { flex: 1; }

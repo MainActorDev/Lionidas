@@ -175,7 +175,7 @@ onMounted(async () => {
   await load();
   await nextTick();
   if (host.value) {
-    await ed.mount(host.value, prettyJson(bodyLoadedText.value), () => void save());
+    await ed.mount(host.value, prettyJson(bodyLoadedText.value), () => void save(), undefined, { noCaseCompletions: true });
     host.value.addEventListener('input', onBodyChanged);
   }
 });
