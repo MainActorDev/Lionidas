@@ -156,6 +156,24 @@ describe('caseToYaml — ensure verbs block form', () => {
     expect(out2).not.toContain('stay:');
     expect(JSON.stringify(parseCaseYaml(out2).case!.steps)).toBe(JSON.stringify(noStay.case!.steps));
   });
+
+  it('ensure logout via round-trips (cross-screen preflight tap)', () => {
+    const parsed = parseCaseYaml([
+      'name: lo2',
+      'steps:',
+      '  - ensure logout:',
+      '      button: account_logout_button',
+      '      confirm: account_logout_confirm_button',
+      '      via: ic_tabbar_account_inactive',
+    ].join('\n') + '\n');
+    expect(parsed.ok).toBe(true);
+    expect(parsed.case!.steps[0]).toMatchObject({ action: 'ensureLogout', ensureLogout: { via: 'ic_tabbar_account_inactive' } });
+    const out = caseToYaml({ name: 'lo2', tags: [], variants: [], steps: parsed.case!.steps as unknown[] });
+    expect(out).toContain('      via: ic_tabbar_account_inactive');
+    const back = parseCaseYaml(out);
+    expect(back.ok).toBe(true);
+    expect(JSON.stringify(back.case!.steps)).toBe(JSON.stringify(parsed.case!.steps));
+  });
 });
 
 /** screen-form ensure login (plan rev 2 S4): selectors resolve from the

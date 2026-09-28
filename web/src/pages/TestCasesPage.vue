@@ -26,7 +26,7 @@ interface Template {
   id: string; name: string; status?: string; description: string | null; ticketKey: string | null;
   udid: string; logicalW: number | null; logicalH: number | null;
   steps: Step[]; defaultPresetId: string | null;
-  appBundleId: string | null; appName: string | null; appVersion: string | null;
+  appBundleId: string | null; appName: string | null; appVersion: string | null; folderId: string | null;
   tags: string[]; verdict: Verdict | null;
   evidence?: { screenshot: boolean; video: boolean };
   selectorCoverage?: { locked: number; total: number };
@@ -381,6 +381,131 @@ const groups = computed<RowGroup[]>(() => {
   return list;
 });
 const collapsed = ref(new Set<string>());
+
+// ── folders (plan 20260928T023000Z rev 3): THE page model, not a mode —
+// every app section always shows folders first, then cases; navigation is
+// cPanel breadcrumbs; selection works at every level ──
+interface FolderRow { id: string; name: string; caseCount: number; createdBy?: string; createdAt?: number }
+interface FolderListing { folders: FolderRow[]; caseIds: string[]; path: Array<{ id: string; name: string }> }
+const folderNav = ref<Record<string, string | null>>({}); // bundle → current folder (null/undefined = app root)
+const listings = ref<Record<string, FolderListing>>({}); // bundle → listing at its current depth
+const selection = ref(new Set<string>());
+const selectMode = ref(false); // toggle: checkboxes render only in select mode (operator rule)
+const moveOpen = ref(false);
+const moveTarget = ref('');
+const folderBusy = ref('');
+
+async function loadListing(bundle: string): Promise<void> {
+  const folderId = folderNav.value[bundle] ?? null;
+  const q = new URLSearchParams({ app: bundle });
+  if (folderId) q.set('parentId', folderId);
+  try {
+    const r = await fetch(`/api/folders?${q}`);
+    listings.value = { ...listings.value, [bundle]: (await r.json()) as FolderListing };
+  } catch { /* keep stale */ }
+}
+async function loadAllListings(): Promise<void> {
+  const bundles = [...new Set(templates.value.map((t) => t.appBundleId).filter((x): x is string => Boolean(x)))];
+  await Promise.all(bundles.map((b) => loadListing(b)));
+}
+function crumbPath(bundle: string): Array<{ id: string | null; name: string }> {
+  // sweep #2: the root crumb carries the FULL app identifier (operator)
+  return [{ id: null as string | null, name: bundle }, ...(listings.value[bundle]?.path ?? [])];
+}
+async function openFolder(bundle: string, folderId: string | null): Promise<void> {
+  folderNav.value = { ...folderNav.value, [bundle]: folderId };
+  selection.value = new Set(); // sweep #7: stale selections must not outlive their rows
+  await loadListing(bundle);
+}
+async function createFolderHere(bundle: string): Promise<void> {
+  const name = window.prompt('folder name:')?.trim();
+  if (!name) { if (name !== undefined) flash('folder name cannot be empty'); return; } // sweep #8
+  folderBusy.value = 'new';
+  try {
+    const r = await fetch('/api/folders', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ appBundleId: bundle, parentId: folderNav.value[bundle] ?? null, name }) });
+    const b = await r.json() as { error?: string };
+    if (!r.ok) { flash(`folder failed: ${b.error ?? r.status}`); return; }
+    await loadListing(bundle);
+  } finally { folderBusy.value = ''; }
+}
+async function renameFolder(bundle: string, id: string, cur: string): Promise<void> {
+  const name = window.prompt('rename folder:', cur)?.trim();
+  if (!name || name === cur) return;
+  const r = await fetch(`/api/folders/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) });
+  const b = await r.json() as { error?: string };
+  if (!r.ok) { flash(`rename failed: ${b.error ?? r.status}`); return; }
+  await loadListing(bundle);
+}
+async function deleteFolder(bundle: string, id: string, name: string): Promise<void> {
+  if (!window.confirm(`delete folder "${name}"? (empty subfolders go with it)`)) return;
+  const r = await fetch(`/api/folders/${id}`, { method: 'DELETE' });
+  const b = await r.json() as { error?: string };
+  if (!r.ok) { flash(b.error ?? 'delete failed'); return; }
+  // if we were inside it, fall back to the app root
+  folderNav.value = { ...folderNav.value, [bundle]: null }; // sweep #3: the deleted tree may CONTAIN the current nav depth — reset to root, not just on exact match
+  await loadListing(bundle);
+}
+
+function toggleSelectMode(): void {
+  selectMode.value = !selectMode.value;
+  if (!selectMode.value) selection.value = new Set();
+}
+function toggleSel(id: string): void {
+  const next = new Set(selection.value);
+  if (next.has(id)) next.delete(id); else next.add(id);
+  selection.value = next;
+}
+function selectAllVisible(): void {
+  const rows = visibleRows();
+  selection.value = new Set(rows.length === selection.value.size ? [] : rows.map((t) => t.id));
+}
+function visibleRows(): Template[] {
+  const out: Template[] = [];
+  for (const g of groups.value) {
+    if (collapsed.value.has(g.key)) continue;
+    out.push(...(g.key === NO_APP ? g.rows : listedCases(g.label)));
+  }
+  return out;
+}
+function listedCases(bundle: string): Template[] {
+  const l = listings.value[bundle];
+  if (!l) return [];
+  // sweep #6: an ACTIVE search is a FIND operation — it sees the whole app
+  // (filed + unfiled); folder scoping applies to browsing only
+  if (filter.value.trim()) return shown().filter((t) => t.appBundleId === bundle);
+  const ids = new Set(l.caseIds);
+  return shown().filter((t) => t.appBundleId === bundle && ids.has(t.id));
+}
+function moveChoices(): FolderRow[] {
+  const out: FolderRow[] = [];
+  const seen = new Set<string>();
+  for (const t of templates.value) {
+    if (!selection.value.has(t.id) || !t.appBundleId) continue;
+    for (const f of listings.value[t.appBundleId]?.folders ?? []) {
+      if (!seen.has(f.id)) { seen.add(f.id); out.push(f); }
+    }
+  }
+  return out;
+}
+async function doMove(): Promise<void> {
+  if (selection.value.size === 0) return;
+  const r = await fetch('/api/folders/move', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ templateIds: [...selection.value], folderId: moveTarget.value || null }) });
+  const b = await r.json() as { moved?: number; error?: string };
+  if (!r.ok) { flash(`move failed: ${b.error ?? r.status}`); return; }
+  flash(`moved ${b.moved} case(s)`);
+  moveOpen.value = false; selection.value = new Set();
+  await load();
+  await loadAllListings();
+}
+async function runSelected(): Promise<void> {
+  if (selection.value.size === 0) return;
+  folderBusy.value = 'runsel';
+  try {
+    const r = await fetch('/api/templates/play-all', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cases: [...selection.value].map((id) => ({ templateId: id })) }) });
+    const b = await r.json() as { runIds?: string[]; count?: number; error?: string };
+    flash(b.error ? `run failed: ${b.error}` : `${b.count ?? 0} run(s) queued`);
+  } finally { folderBusy.value = ''; }
+}
 function toggleGroup(key: string): void {
   const next = new Set(collapsed.value);
   if (next.has(key)) next.delete(key); else next.add(key);
@@ -492,6 +617,7 @@ async function duplicateCase(t: Template): Promise<void> {
     const b = await r.json() as { id?: string; name?: string; error?: string };
     if (!r.ok || !b.id) { flash(`duplicate failed: ${b.error ?? r.status}`); return; }
     await load(); // refresh list so the copy shows
+    await loadAllListings(); // the copy inherits the source's folder — refresh listings so it appears in-folder (sweep #1)
     const copy = templates.value.find((c) => c.id === b.id);
     if (copy) openYaml(copy); // operator decision: jump into the copy
     flash(`duplicated → ${b.name}`);
@@ -556,6 +682,7 @@ async function confirmImport(): Promise<void> {
     const b = await r.json() as { imported?: Array<{ name: string }>; renamed?: Array<{ to: string }>; error?: string };
     if (!r.ok) { flash(`import rejected: ${b.error ?? r.status}`); return; }
     await load();
+    await loadAllListings(); // imported cases may carry folder: chains — refresh listings so they are VISIBLE (root or in-folder), never silently filed away
     flash(`imported ${b.imported?.length ?? 0} case(s)${b.renamed?.length ? ` · ${b.renamed.length} renamed` : ''}`);
     importing.value = false; importPayload = null; importPreview.value = null;
   } catch (e) { flash(`import failed: ${e instanceof Error ? e.message : String(e)}`); }
@@ -603,7 +730,7 @@ onMounted(() => window.addEventListener('keydown', onCmdF));
 onBeforeUnmount(() => { window.removeEventListener('keydown', onCmdF); });
 
 onMounted(() => {
-  void load().then(() => void adoptRunningRun()); void loadBootedDevices(); initActiveRuns(); recountStatuses();
+  void load().then(async () => { await adoptRunningRun(); await loadAllListings(); }); void loadBootedDevices(); initActiveRuns(); recountStatuses();
   // delegated tooltip wiring for every .ibtn (current + future rows)
   const enter = (e: Event) => { const b = (e.target as HTMLElement).closest?.('.ibtn'); if (b) ibtnEnter(b as HTMLElement); };
   const leave = (e: Event) => { if ((e.target as HTMLElement).closest?.('.ibtn')) ibtnLeave(); };
@@ -728,6 +855,19 @@ const suiteSummary = computed(() => {
         <input ref="importFile" type="file" accept=".yaml,.yml,.zip" style="display:none" @change="pickImport" />
         <span v-if="note" class="import-note">{{ note }}</span>
         <div id="rowtip" aria-hidden="true"></div>
+  <div v-if="moveOpen" class="import-modal">
+      <div class="import-card">
+        <div class="import-h">move {{ selection.size }} case(s)</div>
+        <select v-model="moveTarget" class="a2-select-like">
+          <option value="">— app root (no folder) —</option>
+          <option v-for="f in moveChoices()" :key="f.id" :value="f.id">{{ f.name }} ({{ f.caseCount }})</option>
+        </select>
+        <div class="import-actions">
+          <button class="btn" @click="moveOpen = false">cancel</button>
+          <button class="btn btn-primary" @click="doMove">move</button>
+        </div>
+      </div>
+    </div>
   <div v-if="importing" class="import-modal">
           <div class="import-card">
             <div class="import-h">import cases</div>
@@ -761,10 +901,17 @@ const suiteSummary = computed(() => {
           @click="statusFilter = s[0]">{{ s[1] }} <span class="n">{{ statusCountsDirty ? '·' : statusCounts[s[0] === '' ? 'all' : s[0]] }}</span></button>
       </div>
       <input ref="filterEl" v-model="filter" class="a2-search" placeholder="search cases…  ⌘F" />
+      <button class="btn" :class="{ on: selectMode }" :title="selectMode ? 'leave selection mode' : 'select cases for bulk move/run'" @click="toggleSelectMode">{{ selectMode ? '✕ select' : 'select' }}</button>
+      <template v-if="selectMode && selection.size > 0">
+        <button class="btn" @click="selectAllVisible">{{ selection.size === visibleRows().length ? 'clear all' : 'select all' }}</button>
+        <button class="btn" @click="moveOpen = true">move {{ selection.size }} to…</button>
+        <button class="btn" :disabled="folderBusy === 'runsel'" @click="runSelected">{{ folderBusy === 'runsel' ? 'running…' : `run ${selection.size}` }}</button>
+      </template>
     </div>
     <!-- ── case table: own scroll region, sticky header ── -->
-    <div class="a2-table a2-list">
+    <div class="a2-table a2-list foldered">
       <div class="a2-thead">
+        <span class="col-sel"></span>
         <span class="col-case">case</span>
         <span class="col-ver" title="app version — stamped live by the runner">ver</span>
         <span class="col-steps">steps</span>
@@ -775,15 +922,40 @@ const suiteSummary = computed(() => {
         <span class="col-actions"></span>
       </div>
 
-      <template v-for="g in groups" :key="g.key">
+<template v-for="g in groups" :key="g.key">
       <div class="a2-group-head" @click.stop="toggleGroup(g.key)" :title="g.key === NO_APP ? 'cases without an app' : g.label">
         <span class="caret">{{ collapsed.has(g.key) ? '▸' : '▾' }}</span>
         <span class="owner">{{ g.label }}</span>
         <span class="n">{{ g.rows.length }}</span>
       </div>
-      <article v-for="t in g.rows" v-show="!collapsed.has(g.key)" :key="t.id" class="a2-row-card" :class="{ editing: yamlOpenId === t.id, deprecated: t.status === 'deprecated' }">
+      <template v-if="!collapsed.has(g.key) && g.key !== NO_APP">
+        <div class="a2-crumbs">
+          <template v-for="(c, ci) in crumbPath(g.label)" :key="ci">
+            <span v-if="ci > 0" class="crumb-sep">/</span>
+            <button class="crumb" :class="{ cur: ci === crumbPath(g.label).length - 1 }" @click="openFolder(g.label, ci === 0 ? null : c.id)">{{ c.name }}</button>
+          </template>
+          <span class="crumb-acts">
+            <button class="btn btn-sm" :disabled="folderBusy === 'new'" @click="createFolderHere(g.label)">+ folder</button>
+          </span>
+        </div>
+        <div v-for="f in listings[g.label]?.folders ?? []" :key="f.id" class="a2-folder-row" @click="openFolder(g.label, f.id)" :title="`open ${f.name} — ${f.caseCount} case(s) in subtree`">
+          <span class="f-spacer"><svg class="f-glyph" viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 4.5A1.5 1.5 0 014 3h3.6a1.5 1.5 0 011.1.5l1.1 1.2H16A1.5 1.5 0 0117.5 6.2v9.3A1.5 1.5 0 0116 17H4a1.5 1.5 0 01-1.5-1.5V4.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></span>
+          <span class="f-name">{{ f.name }}</span>
+          <span class="f-n">{{ f.caseCount }}</span>
+          <span class="f-fill"></span>
+          <span class="f-meta" :title="`created by ${f.createdBy ?? 'unknown'} · ${f.createdAt ? new Date(f.createdAt).toLocaleString() : '—'}`">{{ f.createdBy ?? 'unknown' }} · {{ f.createdAt ? new Date(f.createdAt).toLocaleDateString() : '—' }}</span>
+          <span class="f-sep" aria-hidden="true"></span>
+          <span class="f-acts" @click.stop>
+            <button class="btn btn-sm btn-ghost" @click="renameFolder(g.label, f.id, f.name)">rename</button>
+            <button class="btn btn-sm btn-ghost f-del" :class="{ ghosted: f.caseCount > 0 }" :disabled="f.caseCount > 0" :title="f.caseCount > 0 ? 'move or delete its contents first — the guard refuses non-empty folders' : 'delete this empty folder'" @click="deleteFolder(g.label, f.id, f.name)">delete</button>
+          </span>
+        </div>
+      </template>
+      <article v-for="t in (g.key === NO_APP ? g.rows : listedCases(g.label))" v-show="!collapsed.has(g.key)" :key="t.id" class="a2-row-card" :class="{ editing: yamlOpenId === t.id, deprecated: t.status === 'deprecated' }">
         <div class="a2-row" @click="openYaml(t)" title="click to edit this case">
-          <span class="col-case">
+            <span v-if="selectMode" class="col-sel"><input type="checkbox" class="a2-sel" :checked="selection.has(t.id)" @click.stop @change="toggleSel(t.id)" title="select for bulk move/run" /></span>
+          <span v-else class="col-sel"><svg class="doc-glyph" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5h7l3 3v12H5v-15z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M11.5 2.7V6h3.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></span>
+<span class="col-case">
             <span class="a2-name">{{ t.name }}</span>
             <span v-if="t.status === 'draft'" class="lifecycle-pill lifecycle-draft" title="draft — unfinished; still runs in batches">draft</span>
             <span v-else-if="t.status === 'deprecated'" class="lifecycle-pill lifecycle-deprecated" title="deprecated — skipped by run filtered + suites; manual run still allowed">deprecated</span>
@@ -1099,6 +1271,34 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 .col-app { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .col-ver { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
 .a2-ver-val { color: var(--color-steel); }
+/* folders: breadcrumb + folder rows (cPanel navigation) */
+.a2-crumbs { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--color-iron); font-family: var(--font-mono); font-size: 11px; }
+.a2-crumbs .crumb { background: none; border: none; color: var(--color-pewter); cursor: pointer; padding: 2px 4px; font: inherit; }
+.a2-crumbs .crumb:hover { color: var(--color-paper); text-decoration: underline; }
+.a2-crumbs .crumb.cur { color: var(--color-ember); cursor: default; }
+.a2-crumbs .crumb-sep { color: var(--color-steel); }
+.a2-crumbs .crumb-acts { margin-left: auto; display: flex; gap: 6px; }
+.a2-folder-row { display: flex; align-items: center; gap: var(--s-2); padding: 8px 12px; border-bottom: 1px solid var(--color-iron); cursor: pointer; font-family: var(--font-mono); font-size: 12px; color: var(--color-paper); }
+.a2-folder-row:hover { background: var(--color-graphite); }
+.a2-folder-row .f-glyph { color: var(--color-ember); width: 16px; height: 16px; flex: none; }
+.f-spacer { width: 26px; flex: none; display: flex; align-items: center; } /* = the case rows' col-sel track: the folder icon sits where the checkbox sits, names align */
+.a2-folder-row .f-n { color: var(--color-steel); margin-left: 6px; }
+.a2-folder-row .f-acts { margin-left: auto; display: flex; gap: 4px; }
+/* folder mode: a dedicated 26px selection track precedes the 8 columns */
+.a2-table.foldered .a2-thead, .a2-table.foldered .a2-row { grid-template-columns: 26px minmax(0, 2.0fr) minmax(0, 70px) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 64px) minmax(0, 235px) minmax(0, 200px); }
+.a2-table.foldered .a2-thead > span:first-child { } /* thead's case label lands in track 2 — correct: track 1 is the sel column */
+.col-sel { display: flex; align-items: center; }
+.f-hint { font-size: 10px; color: var(--color-steel); }
+.doc-glyph { width: 14px; height: 14px; color: var(--color-pewter); }
+.f-body { display: flex; flex-direction: column; min-width: 0; }
+.f-line { display: flex; align-items: baseline; gap: 6px; }
+.f-meta { font-size: 10px; color: var(--color-steel); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; }
+.f-fill { flex: 1; }
+.f-sep { flex: none; width: 1px; height: 14px; background: var(--color-iron); margin: 0 14px; }
+.f-del.ghosted { visibility: hidden; } /* keeps the acts zone a constant width — meta never shifts when delete is unavailable */
+.btn.on { border-color: var(--color-ember); color: var(--color-ember); }
+.a2-sel { cursor: pointer; }
+.a2-select-like { width: 100%; padding: 6px 8px; margin: 8px 0; background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-family: var(--font-mono); font-size: 12px; }
 /* .a2-group-head lives in global components.css (shared across list pages) */
 /* verdict pill ellipsizes inside its track at extreme narrow widths (the
    pill is the unbreakable floor: mono text can't wrap) */

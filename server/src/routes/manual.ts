@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { createReadStream, statSync, rm } from 'node:fs';
+import { requireRole } from '../auth/roles.ts';
 import { tmpdir } from 'node:os';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -733,6 +734,23 @@ export function registerManualRoutes(
     const { abortBatch } = await import('../manual/batch/pool.ts');
     if (!abortBatch(id)) return reply.code(404).send({ error: 'unknown or settled batch' });
     return { ok: true };
+  });
+
+  // folder-level run (plan 20260928T023000Z F1): resolve the subtree, drop
+  // deprecated, hand runBatch its existing `cases` contract — zero changes
+  // to the batch machinery itself.
+  app.post('/api/folders/:id/run', { preHandler: requireRole('operator') }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const folder = db.prepare('SELECT * FROM folders WHERE id = ?').get(id) as { id: string; app_bundle_id: string; name: string } | undefined;
+    if (!folder) return reply.code(404).send({ error: 'folder not found' });
+    const sub = (() => { const out: string[] = []; const q = [id]; while (q.length) { const c = q.shift()!; if (out.includes(c)) continue; out.push(c); q.push(...(db.prepare('SELECT id FROM folders WHERE parent_id = ?').all(c) as Array<{ id: string }>).map((k) => k.id)); } return out; })();
+    const ph = sub.map(() => '?').join(',');
+    const rows = db.prepare(`SELECT id, status, app_bundle_id FROM templates WHERE folder_id IN (${ph})`).all(...sub) as Array<{ id: string; status: string | null; app_bundle_id: string | null }>;
+    const runnable = rows.filter((t) => (t.status ?? 'active') !== 'deprecated');
+    if (runnable.length === 0) return reply.code(400).send({ error: `folder "${folder.name}" holds no runnable cases (deprecated excluded)` });
+    const r = await runBatch({ app: folder.app_bundle_id, cases: runnable.map((t) => ({ templateId: t.id })), triggeredBy: `folder:${folder.name}` }, req.user);
+    if (!r.ok) return reply.code(r.code).send({ error: r.error, code: r.code === 409 ? 'DEVICE_BUSY' : undefined, runIds: r.runIds });
+    return { runIds: r.runIds, count: r.count, batchId: r.batchId };
   });
 
   app.post('/api/templates/play-all', async (req, reply) => {
