@@ -8,9 +8,14 @@
  *  Rules follow the house format grammar: explicit body keys, no sigils,
  *  line-carrying errors, never a partial list. */
 import type { YamlError } from './case-yaml.js';
+import { isNetworkProfile } from './network-profiles.js';
 
 export interface YamlVariant {
   id: string;
+  /** link conditioner preset (plan 20260928T153608Z): the SIMULATOR's network
+   *  is degraded for this variant's run (Baguette VirtualNetwork) — distinct
+   *  from networkScenario, which fakes server RESPONSES via forge presets. */
+  network?: string;
   networkScenario?: string;
   /** scenario SETS (S2): multiple scenarios compose; effective presets = union.
    *  Singular networkScenario stays as authoring sugar for [x]. */
@@ -58,9 +63,16 @@ export function parseVariants(raw: unknown, errors: YamlError[]): YamlVariant[] 
       errors.push({ line: 1, message: `variant ${i + 1}: id must match [a-z][a-z0-9_-]* (got ${JSON.stringify(id ?? null)})` });
       continue;
     }
+    // network: link conditioner preset — validated against the shared vocabulary
+    if (v['network'] !== undefined) {
+      if (typeof v['network'] !== 'string' || !isNetworkProfile(v['network'])) {
+        errors.push({ line: 1, message: `variant ${i + 1}: unknown network profile ${JSON.stringify(v['network'])} — allowed: wifi, dsl, lte, 3g, edge, very-bad-network, 100-loss` });
+        continue;
+      }
+    }
     // unknown keys (checked BEFORE consuming known ones so typos surface)
     for (const k of Object.keys(v)) {
-      if (k !== 'id' && k !== 'networkScenario' && k !== 'scenarios' && k !== 'env') {
+      if (k !== 'id' && k !== 'network' && k !== 'networkScenario' && k !== 'scenarios' && k !== 'env') {
         const hint = k === 'scenario' || k === 'network_scenario'
           ? ' — did you mean networkScenario?'
           : k === 'variables'
@@ -115,8 +127,10 @@ export function parseVariants(raw: unknown, errors: YamlError[]): YamlVariant[] 
       continue;
     }
     seen.set(id, i + 1);
+    const network = typeof v['network'] === 'string' ? v['network'] : undefined;
     out.push({
       id,
+      ...(network !== undefined ? { network } : {}),
       ...(typeof scenario === 'string' ? { networkScenario: scenario } : {}),
       ...(scenarios !== undefined ? { scenarios } : {}),
       ...(env !== undefined ? { env } : {}),

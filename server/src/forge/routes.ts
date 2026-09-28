@@ -536,6 +536,37 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
     }
   });
 
+  // ── network conditioner (plan 20260928T153608Z rev 2): Baguette CLI shim ──
+  app.get('/api/forge/network-condition', async (req) => {
+    const q = req.query as { udid?: string };
+    if (!q.udid) return { error: 'udid required' };
+    const { baguetteNetwork, resolveBaguettePath } = await import('./baguette-network.ts');
+    const bin = resolveBaguettePath();
+    if (!bin) return { available: false };
+    const r = await baguetteNetwork(q.udid, { kind: 'status' });
+    if (!r.ok) return { available: true, ok: false, detail: r.detail };
+    return { available: true, ok: true, conditioned: r.conditioned ?? 'unknown', raw: r.raw ?? '' };
+  });
+  app.post('/api/forge/network-condition', async (req, reply) => {
+    const b = req.body as { udid?: string; profile?: string | null };
+    if (!b.udid) return reply.code(400).send({ error: 'udid required' });
+    const { baguetteNetwork, resolveBaguettePath } = await import('./baguette-network.ts');
+    if (b.profile === null || b.profile === undefined) {
+      const bin = resolveBaguettePath();
+      if (!bin) return reply.code(409).send({ error: 'baguette binary not found — set BAGUETTE_PATH or baguettePath in ~/.alloy/crucible.json' });
+      const r = await baguetteNetwork(b.udid, { kind: 'clear' });
+      if (!r.ok) return reply.code(502).send({ error: r.detail ?? 'clear failed' });
+      return { ok: true, cleared: true };
+    }
+    const { isNetworkProfile } = await import('@crucible/shared/network-profiles');
+    if (!isNetworkProfile(b.profile)) return reply.code(400).send({ error: `unknown network profile: ${b.profile}` });
+    const bin = resolveBaguettePath();
+    if (!bin) return reply.code(409).send({ error: 'baguette binary not found — set BAGUETTE_PATH or baguettePath in ~/.alloy/crucible.json' });
+    const r = await baguetteNetwork(b.udid, { kind: 'set', profile: b.profile });
+    if (!r.ok) return reply.code(502).send({ error: r.detail ?? 'set failed' });
+    return { ok: true, profile: b.profile };
+  });
+
   app.get('/api/forge/traffic', async (req) => {
     const q = req.query as { runId?: string; limit?: string; q?: string; page?: string };
     const limit = Math.min(Number.parseInt(q.limit ?? '100', 10) || 100, 500);

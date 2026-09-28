@@ -84,6 +84,15 @@ async function loadFolderTrees(): Promise<void> {
     preFolderTree.value = p.folders;
   } catch { /* ditto */ }
 }
+// network conditioner (plan 20260928T153608Z): manual control strip segment
+const condDevices = ref<Array<{ udid: string; name: string | null }>>([]);
+const condUdid = ref('');
+const condProfile = ref('');
+const condStatus = ref('');
+const condAvailable = ref(true);
+const condBusy = ref(false);
+const NETWORK_PRESETS = ['wifi', 'dsl', 'lte', '3g', 'edge', 'very-bad-network', '100-loss'];
+
 // traffic pagination (round 2)
 const trafficPage = ref(1);
 const trafficTotal = ref(0);
@@ -100,6 +109,37 @@ const mode = ref('hybrid');
 interface MitmStatus { running: boolean; port?: number }
 const mitm = ref<MitmStatus>({ running: false });
 const mitmBusy = ref(false);
+async function loadCondDevices(): Promise<void> {
+  try {
+    const res = await fetch('/api/devices');
+    const b = (await res.json()) as { devices?: Array<{ udid: string; name: string | null; state?: string }> };
+    condDevices.value = (b.devices ?? []).filter((d) => !d.state || d.state === 'Booted');
+    if (!condUdid.value && condDevices.value.length > 0) condUdid.value = condDevices.value[0]!.udid;
+  } catch { /* strip degrades to manual udid entry via condAvailable */ }
+}
+async function loadCondStatus(): Promise<void> {
+  if (!condUdid.value) return;
+  try {
+    const res = await fetch(`/api/forge/network-condition?udid=${encodeURIComponent(condUdid.value)}`);
+    const b = (await res.json()) as { available?: boolean; conditioned?: string; raw?: string };
+    condAvailable.value = b.available !== false;
+    condStatus.value = b.available === false ? '' : (b.conditioned === 'yes' ? (b.raw ?? 'conditioned') : b.conditioned === 'no' ? 'none' : (b.raw || 'unknown'));
+  } catch { /* keep last */ }
+}
+async function applyCondition(): Promise<void> {
+  if (!condUdid.value || condBusy.value) return;
+  condBusy.value = true;
+  try {
+    const res = await fetch('/api/forge/network-condition', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ udid: condUdid.value, profile: condProfile.value || null }),
+    });
+    const b = (await res.json()) as { ok?: boolean; error?: string };
+    msg.value = b.error ?? (condProfile.value ? `condition set: ${condProfile.value} — relaunch the app to pick it up` : 'condition cleared');
+    await loadCondStatus();
+  } finally { condBusy.value = false; }
+}
+
 async function loadMitm(): Promise<void> {
   try { mitm.value = (await (await fetch('/api/forge/mitm/status')).json()) as MitmStatus; } catch { /* offline */ }
 }
@@ -426,6 +466,7 @@ onMounted(() => {
   void loadFolders();
   void loadMitm();
   void loadRouting();
+  void loadCondDevices().then(() => void loadCondStatus());
 });
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown);
@@ -459,6 +500,19 @@ onUnmounted(() => {
         <button v-for="m in ['record', 'hybrid', 'intercept']" :key="m" class="a2-tab" :class="{ on: mode === m }" :title="MODE_HELP[m]" @click="setMode(m)">{{ m }}</button>
       </span>
       <span class="ctl-hint">{{ routing.enabled && !mitm.running ? 'proxy down — internet restored; start proxy + route sims again' : MODE_HELP[mode] }}</span>
+      <span class="sep"></span>
+      <span v-if="condAvailable" class="cond-seg">
+        <select v-model="condUdid" class="cond-sel" title="device to condition" @change="void loadCondStatus()">
+          <option v-for="d in condDevices" :key="d.udid" :value="d.udid">{{ d.name ?? d.udid }}</option>
+        </select>
+        <select v-model="condProfile" class="cond-sel" :disabled="condBusy" title="link conditioner preset (Baguette VirtualNetwork — apps must relaunch to pick it up)">
+          <option value="">— none —</option>
+          <option v-for="p in NETWORK_PRESETS" :key="p" :value="p">{{ p }}</option>
+        </select>
+        <button class="btn btn-sm" :disabled="condBusy || !condUdid" @click="applyCondition">{{ condProfile ? 'set' : 'clear' }}</button>
+        <span class="cond-status mono" :title="condStatus">net: {{ condStatus || '—' }}</span>
+      </span>
+      <span v-else class="ctl-hint" title="baguette binary not found — set BAGUETTE_PATH or baguettePath in ~/.alloy/crucible.json">conditioner off</span>
     </div>
 
     <div v-if="msg" class="meta-row">{{ msg }}</div>
@@ -717,6 +771,9 @@ export default { name: 'ForgePage' };
 .ctl .dot.off { background: var(--color-steel); }
 .ctl .sep { color: var(--color-pewter); margin: 0 var(--s-1); }
 .ctl-hint { color: var(--color-steel); margin-left: auto; }
+.cond-seg { display: inline-flex; align-items: center; gap: var(--s-1); }
+.cond-sel { background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-fog); font-family: var(--font-mono); font-size: 11px; padding: 3px 6px; max-width: 150px; }
+.cond-status { font-size: 10px; color: var(--color-steel); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* scenario list rows (grid mirrors the thead tracks) */
 .a2-thead { display: grid; grid-template-columns: 26px minmax(0, 2.2fr) minmax(0, 70px) minmax(0, 70px) minmax(0, 90px) minmax(0, 260px); align-items: center; background: var(--color-graphite); border-bottom: 1px solid var(--color-iron); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-steel); }
 .a2-thead > span { padding: 7px 8px; }

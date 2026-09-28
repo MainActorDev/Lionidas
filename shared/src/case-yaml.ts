@@ -595,8 +595,9 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
     const vocab = Array.isArray(t.swaps) && t.swaps.length > 0 ? 'swaps' : 'variants';
     lines.push(`${vocab}:`);
     for (const rawV of vlist) {
-      const v = rawV as unknown as { id: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> };
+      const v = rawV as unknown as { id: string; network?: string; networkScenario?: string; scenarios?: string[]; env?: Record<string, string> };
       lines.push(`  - id: ${yamlScalar(v.id)}`);
+      if (v.network !== undefined) lines.push(`    network: ${yamlScalar(v.network)}`);
       if (v.networkScenario !== undefined) lines.push(`    networkScenario: ${yamlScalar(v.networkScenario)}`);
       if (Array.isArray(v.scenarios) && v.scenarios.length > 0) lines.push(`    scenarios: [${v.scenarios.map((x) => yamlScalar(x)).join(', ')}]`);
       if (v.env && Object.keys(v.env).length > 0) {
