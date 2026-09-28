@@ -382,64 +382,66 @@ const groups = computed<RowGroup[]>(() => {
 });
 const collapsed = ref(new Set<string>());
 
-// ── folders (plan 20260928T023000Z): cPanel navigation, not disclosure ──
+// ── folders (plan 20260928T023000Z rev 3): THE page model, not a mode —
+// every app section always shows folders first, then cases; navigation is
+// cPanel breadcrumbs; selection works at every level ──
 interface FolderRow { id: string; name: string; caseCount: number }
 interface FolderListing { folders: FolderRow[]; caseIds: string[]; path: Array<{ id: string; name: string }> }
-const nav = ref<{ bundle: string; folderId: string | null } | null>(null); // null = app roots
-const listing = ref<FolderListing | null>(null);
+const folderNav = ref<Record<string, string | null>>({}); // bundle → current folder (null/undefined = app root)
+const listings = ref<Record<string, FolderListing>>({}); // bundle → listing at its current depth
 const selection = ref(new Set<string>());
 const moveOpen = ref(false);
-const moveTarget = ref<string>('');
+const moveTarget = ref('');
 const folderBusy = ref('');
-function navPath(): Array<{ id: string | null; name: string }> {
-  if (!nav.value) return [];
-  const root = [{ id: null as string | null, name: nav.value.bundle.split('.').slice(-1)[0] ?? nav.value.bundle }];
-  return [...root, ...(listing.value?.path ?? [])];
-}
-async function openFolder(bundle: string, folderId: string | null): Promise<void> {
-  nav.value = { bundle, folderId };
-  listing.value = null;
-  selection.value = new Set();
+
+async function loadListing(bundle: string): Promise<void> {
+  const folderId = folderNav.value[bundle] ?? null;
   const q = new URLSearchParams({ app: bundle });
   if (folderId) q.set('parentId', folderId);
   try {
     const r = await fetch(`/api/folders?${q}`);
-    listing.value = (await r.json()) as FolderListing;
-  } catch { /* listing stays null — rows show all, breadcrumb hides */ }
+    listings.value = { ...listings.value, [bundle]: (await r.json()) as FolderListing };
+  } catch { /* keep stale */ }
 }
-function navTo(idx: number): void {
-  if (!nav.value) return;
-  const path = navPath();
-  if (idx === 0) { void openFolder(nav.value.bundle, null); return; }
-  const target = path[idx];
-  if (target) void openFolder(nav.value.bundle, target.id);
+async function loadAllListings(): Promise<void> {
+  const bundles = [...new Set(templates.value.map((t) => t.appBundleId).filter((x): x is string => Boolean(x)))];
+  await Promise.all(bundles.map((b) => loadListing(b)));
 }
-async function createFolderHere(): Promise<void> {
-  if (!nav.value) return;
+function crumbPath(bundle: string): Array<{ id: string | null; name: string }> {
+  const short = bundle.split('.').slice(-1)[0] ?? bundle;
+  return [{ id: null as string | null, name: short }, ...(listings.value[bundle]?.path ?? [])];
+}
+async function openFolder(bundle: string, folderId: string | null): Promise<void> {
+  folderNav.value = { ...folderNav.value, [bundle]: folderId };
+  await loadListing(bundle);
+}
+async function createFolderHere(bundle: string): Promise<void> {
   const name = window.prompt('folder name:')?.trim();
   if (!name) return;
   folderBusy.value = 'new';
   try {
-    const r = await fetch('/api/folders', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ appBundleId: nav.value.bundle, parentId: nav.value.folderId, name }) });
+    const r = await fetch('/api/folders', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ appBundleId: bundle, parentId: folderNav.value[bundle] ?? null, name }) });
     const b = await r.json() as { error?: string };
     if (!r.ok) { flash(`folder failed: ${b.error ?? r.status}`); return; }
-    await openFolder(nav.value.bundle, nav.value.folderId);
+    await loadListing(bundle);
   } finally { folderBusy.value = ''; }
 }
-async function renameFolder(id: string, cur: string): Promise<void> {
+async function renameFolder(bundle: string, id: string, cur: string): Promise<void> {
   const name = window.prompt('rename folder:', cur)?.trim();
   if (!name || name === cur) return;
   const r = await fetch(`/api/folders/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) });
   const b = await r.json() as { error?: string };
   if (!r.ok) { flash(`rename failed: ${b.error ?? r.status}`); return; }
-  if (nav.value) await openFolder(nav.value.bundle, nav.value.folderId);
+  await loadListing(bundle);
 }
-async function deleteFolder(id: string, name: string): Promise<void> {
+async function deleteFolder(bundle: string, id: string, name: string): Promise<void> {
   if (!window.confirm(`delete folder "${name}"? (empty subfolders go with it)`)) return;
   const r = await fetch(`/api/folders/${id}`, { method: 'DELETE' });
   const b = await r.json() as { error?: string };
   if (!r.ok) { flash(b.error ?? 'delete failed'); return; }
-  if (nav.value) await openFolder(nav.value.bundle, nav.value.folderId);
+  // if we were inside it, fall back to the app root
+  if (folderNav.value[bundle] === id) folderNav.value = { ...folderNav.value, [bundle]: null };
+  await loadListing(bundle);
 }
 async function runFolder(id: string, name: string): Promise<void> {
   folderBusy.value = id;
@@ -455,13 +457,33 @@ function toggleSel(id: string): void {
   selection.value = next;
 }
 function selectAllVisible(): void {
-  const rows = listedCases();
+  const rows = visibleRows();
   selection.value = new Set(rows.length === selection.value.size ? [] : rows.map((t) => t.id));
 }
-function listedCases(): Template[] {
-  if (!nav.value || !listing.value) return shown();
-  const ids = new Set(listing.value.caseIds);
-  return shown().filter((t) => ids.has(t.id));
+function visibleRows(): Template[] {
+  const out: Template[] = [];
+  for (const g of groups.value) {
+    if (collapsed.value.has(g.key)) continue;
+    out.push(...(g.key === NO_APP ? g.rows : listedCases(g.label)));
+  }
+  return out;
+}
+function listedCases(bundle: string): Template[] {
+  const l = listings.value[bundle];
+  if (!l) return [];
+  const ids = new Set(l.caseIds);
+  return shown().filter((t) => t.appBundleId === bundle && ids.has(t.id));
+}
+function moveChoices(): FolderRow[] {
+  const out: FolderRow[] = [];
+  const seen = new Set<string>();
+  for (const t of templates.value) {
+    if (!selection.value.has(t.id) || !t.appBundleId) continue;
+    for (const f of listings.value[t.appBundleId]?.folders ?? []) {
+      if (!seen.has(f.id)) { seen.add(f.id); out.push(f); }
+    }
+  }
+  return out;
 }
 async function doMove(): Promise<void> {
   if (selection.value.size === 0) return;
@@ -471,7 +493,7 @@ async function doMove(): Promise<void> {
   flash(`moved ${b.moved} case(s)`);
   moveOpen.value = false; selection.value = new Set();
   await load();
-  if (nav.value) await openFolder(nav.value.bundle, nav.value.folderId);
+  await loadAllListings();
 }
 async function runSelected(): Promise<void> {
   if (selection.value.size === 0) return;
@@ -704,7 +726,7 @@ onMounted(() => window.addEventListener('keydown', onCmdF));
 onBeforeUnmount(() => { window.removeEventListener('keydown', onCmdF); });
 
 onMounted(() => {
-  void load().then(() => void adoptRunningRun()); void loadBootedDevices(); initActiveRuns(); recountStatuses();
+  void load().then(async () => { await adoptRunningRun(); await loadAllListings(); }); void loadBootedDevices(); initActiveRuns(); recountStatuses();
   // delegated tooltip wiring for every .ibtn (current + future rows)
   const enter = (e: Event) => { const b = (e.target as HTMLElement).closest?.('.ibtn'); if (b) ibtnEnter(b as HTMLElement); };
   const leave = (e: Event) => { if ((e.target as HTMLElement).closest?.('.ibtn')) ibtnLeave(); };
@@ -834,7 +856,7 @@ const suiteSummary = computed(() => {
         <div class="import-h">move {{ selection.size }} case(s)</div>
         <select v-model="moveTarget" class="a2-select-like">
           <option value="">— app root (no folder) —</option>
-          <option v-for="f in listing?.folders ?? []" :key="f.id" :value="f.id">{{ f.name }} ({{ f.caseCount }})</option>
+          <option v-for="f in moveChoices()" :key="f.id" :value="f.id">{{ f.name }} ({{ f.caseCount }})</option>
         </select>
         <div class="import-actions">
           <button class="btn" @click="moveOpen = false">cancel</button>
@@ -875,16 +897,16 @@ const suiteSummary = computed(() => {
           @click="statusFilter = s[0]">{{ s[1] }} <span class="n">{{ statusCountsDirty ? '·' : statusCounts[s[0] === '' ? 'all' : s[0]] }}</span></button>
       </div>
       <input ref="filterEl" v-model="filter" class="a2-search" placeholder="search cases…  ⌘F" />
-      <template v-if="nav && selection.size > 0">
-        <button class="btn" @click="selectAllVisible">{{ selection.size === listedCases().length ? 'clear' : 'select all' }}</button>
+      <template v-if="selection.size > 0">
+        <button class="btn" @click="selectAllVisible">{{ selection.size === visibleRows().length ? 'clear' : 'select all' }}</button>
         <button class="btn" @click="moveOpen = true">move {{ selection.size }} to…</button>
         <button class="btn" :disabled="folderBusy === 'runsel'" @click="runSelected">{{ folderBusy === 'runsel' ? 'running…' : `run ${selection.size}` }}</button>
       </template>
     </div>
     <!-- ── case table: own scroll region, sticky header ── -->
-    <div class="a2-table a2-list" :class="{ foldered: !!nav }">
+    <div class="a2-table a2-list foldered">
       <div class="a2-thead">
-        <span v-if="nav" class="col-sel"></span>
+        <span class="col-sel"></span>
         <span class="col-case">case</span>
         <span class="col-ver" title="app version — stamped live by the runner">ver</span>
         <span class="col-steps">steps</span>
@@ -895,55 +917,37 @@ const suiteSummary = computed(() => {
         <span class="col-actions"></span>
       </div>
 
-      <!-- ── folder view (cPanel navigation): breadcrumb + folder rows + cases ── -->
-      <template v-if="nav">
-        <div class="a2-crumbs">
-          <template v-for="(c, i) in navPath()" :key="i">
-            <span v-if="i > 0" class="crumb-sep">/</span>
-            <button class="crumb" :class="{ cur: i === navPath().length - 1 }" @click="navTo(i)">{{ c.name }}</button>
-          </template>
-          <span class="crumb-acts">
-            <button class="btn btn-sm" :disabled="folderBusy === 'new'" @click="createFolderHere">+ folder</button>
-            <button class="btn btn-sm btn-ghost" @click="nav = null; listing = null; selection = new Set()">exit</button>
-          </span>
-        </div>
-        <div v-for="f in listing?.folders ?? []" :key="f.id" class="a2-folder-row" @click="openFolder(nav.bundle, f.id)" :title="`open ${f.name} — ${f.caseCount} case(s) in subtree`">
-          <span class="f-glyph">▸</span>
-          <span class="f-name">{{ f.name }}</span>
-          <span class="f-n">{{ f.caseCount }}</span>
-          <span class="f-acts" @click.stop>
-            <button class="btn btn-sm btn-ghost" @click="renameFolder(f.id, f.name)">rename</button>
-            <button class="btn btn-sm btn-ghost" :disabled="folderBusy === f.id" @click="runFolder(f.id, f.name)">{{ folderBusy === f.id ? 'running…' : 'run' }}</button>
-            <button class="btn btn-sm btn-ghost" @click="deleteFolder(f.id, f.name)">delete</button>
-          </span>
-        </div>
-        <article v-for="t in listedCases()" :key="t.id" class="a2-row-card" :class="{ editing: yamlOpenId === t.id, deprecated: t.status === 'deprecated' }">
-          <div class="a2-row" @click="openYaml(t)" title="click to edit this case">
-            <span class="col-sel"><input type="checkbox" class="a2-sel" :checked="selection.has(t.id)" @click.stop @change="toggleSel(t.id)" title="select for bulk move/run" /></span>
-            <span class="col-case"><span class="a2-name">{{ t.name }}</span></span>
-            <span class="col-ver"><span v-if="t.appVersion" class="a2-ver-val">v{{ t.appVersion }}</span><span v-else class="a2-app-none">—</span></span>
-            <span class="col-steps">{{ t.steps.length }}</span>
-            <span class="col-updated">—</span>
-            <span class="col-trend"><span class="a2-trend-none">—</span></span>
-            <span class="col-evidence"></span>
-            <span class="col-verdict"><span v-if="t.verdict" :class="`status ${verdictStatusClass(t)}`" :title="verdictLabel(t)">{{ verdictLabel(t) }}</span><span v-else class="status status-none">never run</span></span>
-            <span class="col-actions" @click.stop></span>
-          </div>
-        </article>
-      </template>
-
-      <template v-else v-for="g in groups" :key="g.key">
+<template v-for="g in groups" :key="g.key">
       <div class="a2-group-head" @click.stop="toggleGroup(g.key)" :title="g.key === NO_APP ? 'cases without an app' : g.label">
         <span class="caret">{{ collapsed.has(g.key) ? '▸' : '▾' }}</span>
         <span class="owner">{{ g.label }}</span>
         <span class="n">{{ g.rows.length }}</span>
-        <span v-if="g.key !== NO_APP" class="bundle-acts" @click.stop>
-          <button class="mini-act" title="browse this app's folders" @click="openFolder(g.label, null)">folders</button>
-        </span>
       </div>
-      <article v-for="t in g.rows" v-show="!collapsed.has(g.key)" :key="t.id" class="a2-row-card" :class="{ editing: yamlOpenId === t.id, deprecated: t.status === 'deprecated' }">
+      <template v-if="!collapsed.has(g.key) && g.key !== NO_APP">
+        <div class="a2-crumbs">
+          <template v-for="(c, ci) in crumbPath(g.label)" :key="ci">
+            <span v-if="ci > 0" class="crumb-sep">/</span>
+            <button class="crumb" :class="{ cur: ci === crumbPath(g.label).length - 1 }" @click="openFolder(g.label, ci === 0 ? null : c.id)">{{ c.name }}</button>
+          </template>
+          <span class="crumb-acts">
+            <button class="btn btn-sm" :disabled="folderBusy === 'new'" @click="createFolderHere(g.label)">+ folder</button>
+          </span>
+        </div>
+        <div v-for="f in listings[g.label]?.folders ?? []" :key="f.id" class="a2-folder-row" @click="openFolder(g.label, f.id)" :title="`open ${f.name} — ${f.caseCount} case(s) in subtree`">
+          <span class="f-glyph">▸</span>
+          <span class="f-name">{{ f.name }}</span>
+          <span class="f-n">{{ f.caseCount }}</span>
+          <span class="f-acts" @click.stop>
+            <button class="btn btn-sm btn-ghost" @click="renameFolder(g.label, f.id, f.name)">rename</button>
+            <button class="btn btn-sm btn-ghost" :disabled="folderBusy === f.id" @click="runFolder(f.id, f.name)">{{ folderBusy === f.id ? 'running…' : 'run' }}</button>
+            <button class="btn btn-sm btn-ghost" @click="deleteFolder(g.label, f.id, f.name)">delete</button>
+          </span>
+        </div>
+      </template>
+      <article v-for="t in (g.key === NO_APP ? g.rows : listedCases(g.label))" v-show="!collapsed.has(g.key)" :key="t.id" class="a2-row-card" :class="{ editing: yamlOpenId === t.id, deprecated: t.status === 'deprecated' }">
         <div class="a2-row" @click="openYaml(t)" title="click to edit this case">
-          <span class="col-case">
+            <span class="col-sel"><input type="checkbox" class="a2-sel" :checked="selection.has(t.id)" @click.stop @change="toggleSel(t.id)" title="select for bulk move/run" /></span>
+<span class="col-case">
             <span class="a2-name">{{ t.name }}</span>
             <span v-if="t.status === 'draft'" class="lifecycle-pill lifecycle-draft" title="draft — unfinished; still runs in batches">draft</span>
             <span v-else-if="t.status === 'deprecated'" class="lifecycle-pill lifecycle-deprecated" title="deprecated — skipped by run filtered + suites; manual run still allowed">deprecated</span>
