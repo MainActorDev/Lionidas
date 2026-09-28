@@ -69,6 +69,9 @@ export interface PlaybackDeps {
   /** installed-apps seam for the APP_NOT_INSTALLED pre-check (tests stub;
    *  default = real listSimulatorApps). */
   listApps?: (udid: string) => Promise<Array<{ bundleId: string }>>;
+  /** network conditioner seam (plan 20260928T153608Z): default = the
+   *  Baguette CLI shim. Tests inject fakes; null disables conditioning. */
+  networkCondition?: ((udid: string, op: { kind: 'set'; profile: string } | { kind: 'clear' }) => Promise<{ ok: boolean; reason?: string; detail?: string }>) | null;
   /** location ops seam (Tier 2.3): grant/set/clear. Default = TCC write +
    *  simctl shells. Tests inject fakes. */
   locationControl?: {
@@ -337,6 +340,12 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
   // (same contract as APP_NOT_INSTALLED). Granting at the first location
   // STEP would force a disruptive mid-run restart.
   const locationOps = deps.locationControl ?? defaultLocationControl;
+  // network conditioner default: the Baguette CLI shim (lazy import keeps
+  // test startup free of binary resolution)
+  const defaultNetworkCondition: NonNullable<PlaybackDeps['networkCondition']> = async (udid, op) => {
+    const { baguetteNetwork } = await import('../forge/baguette-network.ts');
+    return baguetteNetwork(udid, op);
+  };
   if (steps.some((st) => st.action === 'location')) {
     try {
       await locationOps.grant(udid, appToLaunch);
@@ -393,7 +402,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
   deps.db
     .prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, note, template_id, app_version, app_build, case_version_id, scenario_id, scenario_sha, variant_id, suite_id, batch_id)
               VALUES (?, ?, 'manual', 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(runId, t.ticket_key ?? '-', opts.triggeredBy ?? 'qa', udid, Date.now(), `template:${templateId} ${t.name}${opts.variant ? ` / ${opts.variant.id}` : ''}`, templateId, appVersion, appBuild, version.id, scenarioChoice, version.scenarioSha, opts.variant?.id ?? null, opts.suiteId ?? null, opts.batchId ?? null);
+    .run(runId, t.ticket_key ?? '-', opts.triggeredBy ?? 'qa', udid, Date.now(), `template:${templateId} ${t.name}${opts.variant ? ` / ${opts.variant.id}` : ''}${opts.variant?.network ? ` · net:${opts.variant.network}` : ''}`, templateId, appVersion, appBuild, version.id, scenarioChoice, version.scenarioSha, opts.variant?.id ?? null, opts.suiteId ?? null, opts.batchId ?? null);
   // the runner just observed this bundle's INSTALLED version — write it
   // through so the cases list always shows the last runner context, not a
   // value frozen at record/create time
@@ -450,6 +459,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     // Tier 2.3 — location plumbing (run-scoped): locationOps is the ops
     // seam declared at route level; the flag below arms the finally-clear.
     let locationSet = false;
+    let conditionSet = false; // network conditioner hygiene flag (same lifecycle as locationSet)
     const recorder = new EvidenceRecorder(
       { db: deps.db, artifactsDir: deps.artifactsDir, dispatchDeps: deps.dispatchDeps,
         dispatch: (tool, input, dd) => alloy.dispatch(tool, input, dd) as never,
@@ -551,6 +561,23 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       // reason. simctl terminate is best-effort (not-running app → error we
       // ignore); then a fresh open with the watchdog.
       deps.bus.emit('run.phase', { runId, phase: 'app' });
+      // ── network conditioner (plan 20260928T153608Z rev 2) ──
+      // The variant pin degrades the SIMULATOR's link BEFORE any app process
+      // exists: Baguette injects VirtualNetwork.dylib at exec time, so the
+      // condition must be set before the terminate/sweep/open dance (the
+      // sweep probe itself relaunches the app via reverifyEnv). Unpinned
+      // runs touch NOTHING — a manual condition set from the UI survives.
+      const networkPin = opts.variant?.network ?? null;
+      if (networkPin) {
+        const cond = deps.networkCondition === undefined ? defaultNetworkCondition : deps.networkCondition;
+        if (cond) {
+          const r = await cond(udid, { kind: 'set', profile: networkPin });
+          if (!r.ok) {
+            throw new PlaybackError('NETWORK_CONDITION_FAILED' as PlaybackError['code'], `network conditioner unavailable for profile "${networkPin}" — ${r.detail ?? r.reason ?? 'failed'}`, { appBundleId: appToLaunch, udid });
+          }
+          conditionSet = true;
+        }
+      }
       try {
         await execFileAsync('xcrun', ['simctl', 'terminate', udid, appToLaunch]);
       } catch { /* app not running — exactly what we want */ }
@@ -1772,6 +1799,14 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       // best-effort by contract — a wedged clear never fails the run.
       if (locationSet) {
         try { await locationOps.clear(udid); } catch { /* hygiene best-effort */ }
+      }
+      // network conditioner hygiene (plan 20260928T153608Z): clear ONLY when
+      // this run set a condition — an unpinned run must never wipe a manual
+      // one (review F2). Best-effort; fires on abort too (this finally runs
+      // for every settled run).
+      if (conditionSet) {
+        const cond = deps.networkCondition === undefined ? defaultNetworkCondition : deps.networkCondition;
+        if (cond) { try { await cond(udid, { kind: 'clear' }); } catch { /* hygiene best-effort */ } }
       }
       // restore prior forge state — scenario was run-scoped by contract
       if (restorePresets) {

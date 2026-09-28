@@ -19,7 +19,8 @@
     "./view-tree": "./src/view-tree.ts",
     "./yaml-variants": "./src/yaml-variants.ts",
     "./app-screens": "./src/app-screens.ts",
-    "./scenario-yaml": "./src/scenario-yaml.ts"
+    "./scenario-yaml": "./src/scenario-yaml.ts",
+    "./network-profiles": "./src/network-profiles.ts"
   },
   "dependencies": {
     "yaml": "^2.9.0"

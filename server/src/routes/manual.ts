@@ -442,7 +442,7 @@ export function registerManualRoutes(
       const stepsHaveSwap = (() => {
         try { return row?.steps_json ? (JSON.parse(row.steps_json) as Array<{ action?: string }>).some((s) => s.action === 'swap' || s.action === 'world') : false; } catch { return false; }
       })();
-      let variants: Array<{ id: string; networkScenario?: string; env?: Record<string, string> }> = [];
+      let variants: Array<{ id: string; network?: string; networkScenario?: string; env?: Record<string, string> }> = [];
       if (row?.variants_json) {
         try { variants = JSON.parse(row.variants_json) as typeof variants; } catch { variants = []; /* malformed — honest degrade */ }
       }
@@ -478,7 +478,7 @@ export function registerManualRoutes(
           (db.prepare('SELECT status FROM runs WHERE id = ?').get(rid) as { status: string } | undefined)?.status ?? null;
         // start ≠ done: resolve when the run row exists (watch dock opens
         // NOW), done settles when the lane finishes (chain sequencing)
-        const startLane = async (v: { id: string; networkScenario?: string; env?: Record<string, string> }): Promise<{ runId: string; done: Promise<unknown> }> => {
+        const startLane = async (v: { id: string; network?: string; networkScenario?: string; env?: Record<string, string> }): Promise<{ runId: string; done: Promise<unknown> }> => {
           const { runId, udid, done } = await runTemplatePlayback(pbDeps, id, { ...baseOpts, variant: v, batchId });
           runIds.push(runId);
           perVariant.find((p) => p.id === v.id)!.runId = runId;
@@ -651,10 +651,10 @@ export function registerManualRoutes(
     // Phase C: variant expansion — a variants case becomes one lane entry
     // per variant (the variantless/plain execution never mingles with them).
     // Malformed variants_json degrades to plain (honest, vocabulary rule).
-    const variantsOf = (templateId: string): Array<{ id: string; networkScenario?: string; env?: Record<string, string> }> => {
+    const variantsOf = (templateId: string): Array<{ id: string; network?: string; networkScenario?: string; env?: Record<string, string> }> => {
       const row = db.prepare('SELECT variants_json FROM templates WHERE id = ?').get(templateId) as { variants_json: string | null } | undefined;
       if (!row?.variants_json) return [];
-      try { return JSON.parse(row.variants_json) as Array<{ id: string; networkScenario?: string; env?: Record<string, string> }>; } catch { return []; }
+      try { return JSON.parse(row.variants_json) as Array<{ id: string; network?: string; networkScenario?: string; env?: Record<string, string> }>; } catch { return []; }
     };
     // Phase C: variant expansion — a variants case becomes one lane entry
     // per variant (the variantless/plain execution never mingles with them).
