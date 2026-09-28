@@ -882,8 +882,9 @@ const suiteSummary = computed(() => {
       </template>
     </div>
     <!-- ── case table: own scroll region, sticky header ── -->
-    <div class="a2-table a2-list">
+    <div class="a2-table a2-list" :class="{ foldered: !!nav }">
       <div class="a2-thead">
+        <span v-if="nav" class="col-sel"></span>
         <span class="col-case">case</span>
         <span class="col-ver" title="app version — stamped live by the runner">ver</span>
         <span class="col-steps">steps</span>
@@ -918,10 +919,8 @@ const suiteSummary = computed(() => {
         </div>
         <article v-for="t in listedCases()" :key="t.id" class="a2-row-card" :class="{ editing: yamlOpenId === t.id, deprecated: t.status === 'deprecated' }">
           <div class="a2-row" @click="openYaml(t)" title="click to edit this case">
-            <span class="col-case">
-              <input type="checkbox" class="a2-sel" :checked="selection.has(t.id)" @click.stop @change="toggleSel(t.id)" title="select for bulk move/run" />
-              <span class="a2-name">{{ t.name }}</span>
-            </span>
+            <span class="col-sel"><input type="checkbox" class="a2-sel" :checked="selection.has(t.id)" @click.stop @change="toggleSel(t.id)" title="select for bulk move/run" /></span>
+            <span class="col-case"><span class="a2-name">{{ t.name }}</span></span>
             <span class="col-ver"><span v-if="t.appVersion" class="a2-ver-val">v{{ t.appVersion }}</span><span v-else class="a2-app-none">—</span></span>
             <span class="col-steps">{{ t.steps.length }}</span>
             <span class="col-updated">—</span>
@@ -1272,8 +1271,11 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 .a2-folder-row .f-glyph { color: var(--color-ember); width: 14px; }
 .a2-folder-row .f-n { color: var(--color-steel); margin-left: 6px; }
 .a2-folder-row .f-acts { margin-left: auto; display: flex; gap: 4px; }
-.a2-row .col-case { display: inline-flex; align-items: center; min-width: 0; }
-.col-case .a2-sel { margin-right: 8px; cursor: pointer; flex: none; }
+/* folder mode: a dedicated 26px selection track precedes the 8 columns */
+.a2-table.foldered .a2-thead, .a2-table.foldered .a2-row { grid-template-columns: 26px minmax(0, 2.0fr) minmax(0, 70px) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 64px) minmax(0, 235px) minmax(0, 200px); }
+.a2-table.foldered .a2-thead > span:first-child { } /* thead's case label lands in track 2 — correct: track 1 is the sel column */
+.col-sel { display: flex; align-items: center; }
+.a2-sel { cursor: pointer; }
 .a2-select-like { width: 100%; padding: 6px 8px; margin: 8px 0; background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-family: var(--font-mono); font-size: 12px; }
 /* .a2-group-head lives in global components.css (shared across list pages) */
 /* verdict pill ellipsizes inside its track at extreme narrow widths (the
