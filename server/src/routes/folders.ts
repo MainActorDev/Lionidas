@@ -111,7 +111,7 @@ export function registerFolderRoutes(app: FastifyInstance, db: Database.Database
     if (!q.app) return { folders: [], caseIds: [], path: [] };
     const parentId = q.parentId?.trim() ? q.parentId : null;
     const kids = db.prepare('SELECT * FROM folders WHERE app_bundle_id = ? AND parent_id IS ? ORDER BY name').all(q.app, parentId) as FolderRow[];
-    const folders = kids.map((k) => ({ id: k.id, name: k.name, parentId: k.parent_id, caseCount: subtreeUsage(db, subtreeIds(db, k.id)).cases }));
+    const folders = kids.map((k) => ({ id: k.id, name: k.name, parentId: k.parent_id, caseCount: subtreeUsage(db, subtreeIds(db, k.id)).cases, createdBy: k.created_by, createdAt: k.created_at }));
     const caseIds = parentId
       ? (db.prepare('SELECT id FROM templates WHERE folder_id = ? ORDER BY name').all(parentId) as Array<{ id: string }>).map((r) => r.id)
       : (db.prepare('SELECT id FROM templates WHERE app_bundle_id = ? AND folder_id IS NULL ORDER BY name').all(q.app) as Array<{ id: string }>).map((r) => r.id);

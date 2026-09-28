@@ -385,7 +385,7 @@ const collapsed = ref(new Set<string>());
 // ── folders (plan 20260928T023000Z rev 3): THE page model, not a mode —
 // every app section always shows folders first, then cases; navigation is
 // cPanel breadcrumbs; selection works at every level ──
-interface FolderRow { id: string; name: string; caseCount: number }
+interface FolderRow { id: string; name: string; caseCount: number; createdBy?: string; createdAt?: number }
 interface FolderListing { folders: FolderRow[]; caseIds: string[]; path: Array<{ id: string; name: string }> }
 const folderNav = ref<Record<string, string | null>>({}); // bundle → current folder (null/undefined = app root)
 const listings = ref<Record<string, FolderListing>>({}); // bundle → listing at its current depth
@@ -941,20 +941,21 @@ const suiteSummary = computed(() => {
         </div>
         <div v-for="f in listings[g.label]?.folders ?? []" :key="f.id" class="a2-folder-row" @click="openFolder(g.label, f.id)" :title="`open ${f.name} — ${f.caseCount} case(s) in subtree`">
           <span class="f-spacer"><svg class="f-glyph" viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 4.5A1.5 1.5 0 014 3h3.6a1.5 1.5 0 011.1.5l1.1 1.2H16A1.5 1.5 0 0117.5 6.2v9.3A1.5 1.5 0 0116 17H4a1.5 1.5 0 01-1.5-1.5V4.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></span>
-          <span class="f-name">{{ f.name }}</span>
-          <span class="f-n">{{ f.caseCount }}</span>
+          <span class="f-body">
+            <span class="f-line"><span class="f-name">{{ f.name }}</span><span class="f-n">{{ f.caseCount }}</span></span>
+            <span class="f-meta" :title="`created by ${f.createdBy ?? 'unknown'} · ${f.createdAt ? new Date(f.createdAt).toLocaleString() : '—'}`">{{ f.createdBy ?? 'unknown' }} · {{ f.createdAt ? new Date(f.createdAt).toLocaleDateString() : '—' }}</span>
+          </span>
           <span class="f-acts" @click.stop>
             <button class="btn btn-sm btn-ghost" @click="renameFolder(g.label, f.id, f.name)">rename</button>
             <button class="btn btn-sm btn-ghost" :disabled="folderBusy === f.id" @click="runFolder(f.id, f.name)">{{ folderBusy === f.id ? 'running…' : 'run' }}</button>
             <button v-if="f.caseCount === 0" class="btn btn-sm btn-ghost" @click="deleteFolder(g.label, f.id, f.name)" title="delete this empty folder">delete</button>
-            <span v-else class="f-hint" title="move or delete its contents first — the guard refuses non-empty folders">not empty</span>
           </span>
         </div>
       </template>
       <article v-for="t in (g.key === NO_APP ? g.rows : listedCases(g.label))" v-show="!collapsed.has(g.key)" :key="t.id" class="a2-row-card" :class="{ editing: yamlOpenId === t.id, deprecated: t.status === 'deprecated' }">
         <div class="a2-row" @click="openYaml(t)" title="click to edit this case">
             <span v-if="selectMode" class="col-sel"><input type="checkbox" class="a2-sel" :checked="selection.has(t.id)" @click.stop @change="toggleSel(t.id)" title="select for bulk move/run" /></span>
-          <span v-else class="col-sel"></span>
+          <span v-else class="col-sel"><svg class="doc-glyph" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5h7l3 3v12H5v-15z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M11.5 2.7V6h3.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></span>
 <span class="col-case">
             <span class="a2-name">{{ t.name }}</span>
             <span v-if="t.status === 'draft'" class="lifecycle-pill lifecycle-draft" title="draft — unfinished; still runs in batches">draft</span>
@@ -1289,6 +1290,10 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 .a2-table.foldered .a2-thead > span:first-child { } /* thead's case label lands in track 2 — correct: track 1 is the sel column */
 .col-sel { display: flex; align-items: center; }
 .f-hint { font-size: 10px; color: var(--color-steel); }
+.doc-glyph { width: 14px; height: 14px; color: var(--color-pewter); }
+.f-body { display: flex; flex-direction: column; min-width: 0; }
+.f-line { display: flex; align-items: baseline; gap: 6px; }
+.f-meta { font-size: 10px; color: var(--color-steel); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .btn.on { border-color: var(--color-ember); color: var(--color-ember); }
 .a2-sel { cursor: pointer; }
 .a2-select-like { width: 100%; padding: 6px 8px; margin: 8px 0; background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-family: var(--font-mono); font-size: 12px; }
