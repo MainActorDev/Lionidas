@@ -163,7 +163,11 @@ const dirty = computed(() => docDirty || fName.value !== props.name || (fLaunchA
 
 onMounted(async () => {
   if (!host.value) return;
-  await ed.mount(host.value, formToDoc(), () => void save(), undefined, { noCaseCompletions: true });
+  const scenarioVocab = computed<import('@crucible/shared/scenario-yaml').ScenarioEditorVocabulary>(() => ({
+        presetIds: allPresetsFull.value.map((p) => p.id),
+        presetNames: Object.fromEntries(allPresetsFull.value.map((p) => [p.id, p.name ?? p.id])),
+      }));
+    await ed.mount(host.value, formToDoc(), () => void save(), undefined, { noCaseCompletions: true, scenarioVocab: scenarioVocab.value });
   host.value.addEventListener('input', onDocChanged);
 });
 onBeforeUnmount(() => { host.value?.removeEventListener('input', onDocChanged); if (blurTimer) clearTimeout(blurTimer); });

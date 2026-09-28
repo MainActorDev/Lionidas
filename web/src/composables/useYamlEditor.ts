@@ -7,13 +7,14 @@
 import { ref, type Ref, onBeforeUnmount } from 'vue';
 import type { EditorView } from '@codemirror/view';
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete';
+import { scenarioCompletions } from '@crucible/shared/scenario-yaml';
 import type { DecorationSet } from '@codemirror/view';
 
 export type EditorVocabulary = import('@crucible/shared/yaml-completions').EditorVocabulary;
 
 export interface YamlEditorHandle {
   ready: Ref<boolean>;
-  mount(el: HTMLElement, initial: string, onSave: () => void, vocab?: EditorVocabulary, opts?: { noCaseCompletions?: boolean }): Promise<void>;
+  mount(el: HTMLElement, initial: string, onSave: () => void, vocab?: EditorVocabulary, opts?: { noCaseCompletions?: boolean; scenarioVocab?: import('@crucible/shared/scenario-yaml').ScenarioEditorVocabulary }): Promise<void>;
   getValue(): string;
   setValue(v: string): void;
   setErrors(lines: number[]): void;
@@ -32,7 +33,7 @@ export function useYamlEditor(): YamlEditorHandle {
   let viewModRef: typeof import('@codemirror/view') | null = null;
   let editCompartment: import('@codemirror/state').Compartment | null = null;
 
-  async function mount(el: HTMLElement, initial: string, onSave: () => void, vocab?: EditorVocabulary, opts?: { noCaseCompletions?: boolean }): Promise<void> {
+  async function mount(el: HTMLElement, initial: string, onSave: () => void, vocab?: EditorVocabulary, opts?: { noCaseCompletions?: boolean; scenarioVocab?: import('@crucible/shared/scenario-yaml').ScenarioEditorVocabulary }): Promise<void> {
     // no vocabulary (endpoint down / old caller) → grammar-only completions
     const theVocab: EditorVocabulary = vocab ?? { selectors: [], caseNames: [], apps: [], tags: [] };
     saveCb = onSave;
@@ -118,7 +119,25 @@ export function useYamlEditor(): YamlEditorHandle {
     // before it is an open quote, values apply RAW (already inside quotes —
     // applying the quoted form would double-quote).
     const completionSource = (ctx: CompletionContext): CompletionResult | null => {
-      if (opts?.noCaseCompletions) return null; // non-case documents (scenario/preset) — the slot grammar is testcase-shaped
+      // non-case documents: the slot grammar is testcase-shaped. A scenario
+      // editor gets the SCENARIO grammar; a preset editor gets none (JSON body).
+      if (opts?.noCaseCompletions) {
+        if (!opts?.scenarioVocab) return null;
+        const sDoc = ctx.state.doc.toString();
+        const lineStart = sDoc.lastIndexOf('\n', ctx.pos - 1) + 1;
+        const line = sDoc.slice(lineStart, ctx.pos);
+        const before = line.slice(0, ctx.pos - lineStart);
+        const frag = /[A-Za-z0-9_'-]+$/.exec(before);
+        const from = frag ? ctx.pos - frag[0].length : ctx.pos;
+        const options = scenarioCompletions(line, opts.scenarioVocab).map((c) => {
+          const o: Completion = { label: c.label, apply: c.apply };
+          if (c.detail !== undefined) o.detail = c.detail;
+          if (c.type !== undefined) o.type = c.type;
+          return o;
+        });
+        if (options.length === 0) return null;
+        return { from, options, validFor: /^[A-Za-z0-9_'-]*$/ };
+      }
       const doc = ctx.state.doc.toString();
       const slot = slotsMod.slotAt(doc, ctx.pos);
       if (slot === 'none') return null;
