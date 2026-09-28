@@ -226,7 +226,7 @@ export default { name: 'ScenarioDocPanel' };
 .scd-meta { font-size: 10px; color: var(--color-steel); }
 .scd-fill { flex: 1; }
 .chip.changed { border: 1px solid color-mix(in srgb, var(--color-ember) 40%, transparent); color: var(--color-ember); font-family: var(--font-mono); font-size: 10px; padding: 2px 6px; border-radius: var(--r-sm); }
-.scd-body { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); min-height: 0; }
+.scd-body { display: grid; grid-template-columns: minmax(340px, 5fr) minmax(0, 7fr); min-height: 0; }
 .scd-form { padding: var(--s-3) var(--s-4); overflow-y: auto; max-height: 420px; min-height: 0; }
 .scd-doc { display: flex; flex-direction: column; padding: var(--s-3) var(--s-4); min-height: 0; border-left: 1px solid var(--color-iron); }
 .doc-h { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-steel); margin-bottom: var(--s-2); }
@@ -237,11 +237,14 @@ export default { name: 'ScenarioDocPanel' };
 .fld input { flex: 1; background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 5px var(--s-2); }
 .fld input:disabled { color: var(--color-steel); }
 .sec-h { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-steel); margin: var(--s-3) 0 var(--s-2); }
-.mrow { display: flex; align-items: center; gap: var(--s-2); padding: 4px 0; font-size: var(--text-caption); }
-.mrow .path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.mrow { display: flex; align-items: center; gap: var(--s-2); padding: 5px 8px; font-size: var(--text-caption); border-bottom: 1px solid var(--color-iron); background: var(--color-carbon); }
+.mrow:last-of-type { border-bottom: none; }
+.mrow input[type='checkbox'] { width: auto; flex: none; } /* the global input width rule stretched it to 465px */
+.mrow .path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--color-fog); }
 .mrow .st { color: var(--color-fog); font-size: 10px; }
-.mrow.add { padding-top: var(--s-2); }
-.usedby-h { cursor: pointer; display: flex; gap: 5px; align-items: baseline; }
+.mrow.add { padding: var(--s-2) 8px; background: none; border-bottom: none; }
+.usedby-h { cursor: pointer; display: flex; gap: 5px; align-items: baseline; flex-wrap: wrap; line-height: 1.6; }
+.usedby-h .mut { min-width: 0; overflow-wrap: anywhere; }
 .usedby-h:hover { color: var(--color-fog); }
 .usedby-h .caret { color: var(--color-steel); }
 .used-list { max-height: 140px; overflow-y: auto; border-left: 1px solid var(--color-iron); padding-left: var(--s-2); margin-bottom: var(--s-2); }
