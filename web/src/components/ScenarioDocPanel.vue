@@ -258,7 +258,7 @@ export default { name: 'ScenarioDocPanel' };
 .picker { position: relative; margin-top: var(--s-2); }
 .picker-toggle .mut { color: var(--color-steel); margin-left: 4px; }
 .picker-pop { position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; right: 0; background: var(--color-graphite); border: 1px solid var(--color-slate); border-radius: var(--r-sm); box-shadow: 0 12px 32px rgba(0,0,0,0.5); display: flex; flex-direction: column; }
-.picker-search { margin: 6px; background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: 11px; padding: 5px 7px; }
+.picker-search { width: calc(100% - 12px); margin: 6px; background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: 11px; padding: 5px 7px; box-sizing: border-box; }
 .picker-search:focus { outline: 1px solid var(--color-ember); outline-offset: 0; }
 .picker-list { max-height: 220px; overflow-y: auto; padding-bottom: 4px; }
 .picker-group { padding: 6px 10px 2px; font-size: 10px; color: var(--color-steel); text-transform: none; letter-spacing: 0; }
