@@ -682,6 +682,7 @@ async function confirmImport(): Promise<void> {
     const b = await r.json() as { imported?: Array<{ name: string }>; renamed?: Array<{ to: string }>; error?: string };
     if (!r.ok) { flash(`import rejected: ${b.error ?? r.status}`); return; }
     await load();
+    await loadAllListings(); // imported cases may carry folder: chains — refresh listings so they are VISIBLE (root or in-folder), never silently filed away
     flash(`imported ${b.imported?.length ?? 0} case(s)${b.renamed?.length ? ` · ${b.renamed.length} renamed` : ''}`);
     importing.value = false; importPayload = null; importPreview.value = null;
   } catch (e) { flash(`import failed: ${e instanceof Error ? e.message : String(e)}`); }
