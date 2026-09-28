@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>021-C · network — document-first scenarios</title>
+<link rel="stylesheet" href="../tokens.css" />
+<style>
+  body { background: var(--color-void); color: var(--color-paper); font-family: var(--font-sans); font-size: var(--text-body); padding: 0 var(--s-6) var(--s-7); }
+  .ph { display: flex; align-items: baseline; gap: var(--s-4); padding: var(--s-5) 0 var(--s-3); border-bottom: 1px solid var(--color-iron); margin-bottom: var(--s-4); }
+  .ph h1 { font-size: var(--text-heading-sm); font-weight: var(--weight-bold); letter-spacing: -0.01em; }
+  .ph .desc { font-family: var(--font-mono); font-size: var(--text-caption); color: var(--color-steel); }
+  .ph .actions { margin-left: auto; display: flex; gap: var(--s-2); }
+
+  .ctl { display: flex; align-items: center; gap: var(--s-2); border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); padding: 6px 10px; margin-bottom: var(--s-4); font-family: var(--font-mono); font-size: 11px; color: var(--color-fog); }
+  .ctl .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-ok); flex: none; }
+  .ctl .sep { color: var(--color-pewter); margin: 0 var(--s-1); }
+
+  .btn { appearance: none; border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); color: var(--color-fog); font: 500 11px/1 var(--font-mono); letter-spacing: 0.03em; padding: 6px 10px; cursor: pointer; }
+  .btn:hover { color: var(--color-paper); border-color: var(--color-slate); }
+  .btn.pri { border-color: var(--color-ember); color: var(--color-ember); }
+  .btn.sm { padding: 4px 8px; font-size: 10px; }
+
+  .split { display: grid; grid-template-columns: 340px 1fr; gap: var(--s-4); align-items: start; }
+
+  .a2-list { border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); }
+  .scn-row { display: flex; align-items: center; gap: var(--s-2); padding: 9px 12px; border-bottom: 1px solid var(--color-iron); cursor: pointer; }
+  .scn-row:last-child { border-bottom: none; }
+  .scn-row:hover { background: var(--color-graphite); }
+  .scn-row.sel { background: var(--color-graphite); box-shadow: inset 2px 0 0 var(--color-ember); }
+  .scn-row .nm { font-weight: 600; font-size: var(--text-label); }
+  .scn-row .meta { margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--color-steel); }
+  .list-head { display: flex; align-items: center; gap: var(--s-2); padding: 8px 12px; border-bottom: 1px solid var(--color-iron); }
+  .list-head .t { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-pewter); }
+  .list-head .btn { margin-left: auto; }
+
+  /* the document */
+  .doc { border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); }
+  .doc-head { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--color-iron); }
+  .doc-head .t { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-pewter); }
+  .doc-head .acts { margin-left: auto; display: flex; gap: 6px; }
+  .doc pre { margin: 0; padding: var(--s-4); font-family: var(--font-mono); font-size: 12px; line-height: 1.75; color: var(--color-fog); overflow-x: auto; white-space: pre; }
+  .k { color: var(--color-chalk); }
+  .v { color: var(--color-paper); }
+  .cm { color: var(--color-steel); }
+  .ac { color: var(--color-ember); }
+  .doc-foot { display: flex; align-items: center; gap: var(--s-2); border-top: 1px solid var(--color-iron); padding: 8px var(--s-4); font-family: var(--font-mono); font-size: 10px; color: var(--color-steel); }
+
+  .hint { display: flex; gap: 6px; align-items: center; font-family: var(--font-mono); font-size: 10px; color: var(--color-steel); padding: 6px var(--s-4) 0; }
+  .traffic { margin-top: var(--s-5); }
+  .sec-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-pewter); margin: var(--s-4) 0 var(--s-2); display: flex; gap: var(--s-2); align-items: center; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { background: var(--color-graphite); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-steel); text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--color-iron); }
+  tbody td { padding: 8px 10px; border-bottom: 1px solid var(--color-iron); font-size: var(--text-caption); }
+  tbody tr:hover { background: var(--color-graphite); }
+  .mono { font-family: var(--font-mono); }
+  .path { font-family: var(--font-mono); font-size: 11px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .st { font-family: var(--font-mono); font-size: 10px; }
+  .mut { color: var(--color-steel); }
+  input[type="search"] { background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-fog); font: 400 12px var(--font-mono); padding: 6px 8px; width: 220px; margin-left: auto; }
+</style>
+</head>
+<body>
+  <div class="ph">
+    <h1>network · scenarios</h1>
+    <span class="desc">3 scenarios · the document is the source of truth</span>
+    <div class="actions">
+      <button class="btn">+ scenario</button>
+    </div>
+  </div>
+
+  <div class="ctl">
+    <span class="dot"></span>
+    <span>proxy 127.0.0.1:8899</span>
+    <span class="sep">·</span>
+    <span>sims routed</span>
+    <span class="sep">·</span>
+    <span>mode</span>
+    <button class="btn sm pri" style="margin-left:2px;">hybrid</button>
+    <button class="btn sm">record</button>
+    <button class="btn sm">intercept</button>
+  </div>
+
+  <div class="split">
+    <div>
+      <div class="a2-list">
+        <div class="list-head"><span class="t">scenarios</span><button class="btn sm">+ new</button></div>
+        <div class="scn-row sel"><span class="nm">countries-sg</span><span class="meta">62 runs</span></div>
+        <div class="scn-row"><span class="nm">countries-my</span><span class="meta">21 runs</span></div>
+        <div class="scn-row"><span class="nm">countries-empty</span><span class="meta">21 runs</span></div>
+      </div>
+      <div class="hint">↑ ids stay stable — names are labels. Agent + case yaml pin the id.</div>
+    </div>
+
+    <div class="doc">
+      <div class="doc-head">
+        <span class="t">scenario document</span>
+        <span class="mono" style="font-size:10px;color:var(--color-steel);">countries-sg · s_c1265727</span>
+        <div class="acts">
+          <button class="btn sm" title="form ⇄ document, like screens">form</button>
+          <button class="btn sm pri">save</button>
+        </div>
+      </div>
+<pre><span class="k">scenario:</span> <span class="v">countries-sg</span>
+<span class="k">id:</span> <span class="v">s_c1265727</span>          <span class="cm"># stable pin — rename freely</span>
+<span class="k">presets:</span>
+  <span class="ac">-</span> <span class="k">preset:</span> <span class="v">p_1b58882e</span>
+    <span class="k">method:</span> <span class="v">GET</span>
+    <span class="k">path:</span> <span class="v">/v1/algo-shipment/route/tariff/destination-recommendation</span>
+    <span class="k">status:</span> <span class="v">200</span>
+    <span class="k">body:</span> <span class="v">lp-countries-sg.body</span>
+    <span class="k">enabled:</span> <span class="v">true</span>
+<span class="k">launch_arg:</span> <span class="v">LP_COUNTRY=SG</span>
+<span class="cm"># used by:</span>  <span class="cm">variant `sg` of “intl drill — destination worlds (R2)”</span></pre>
+      <div class="doc-foot">sha 4f2a…c91 · stamped by 62 runs · edits apply from next play</div>
+    </div>
+  </div>
+
+  <div class="traffic">
+    <div class="sec-label">traffic <input type="search" placeholder="search host or path…" /></div>
+    <div class="a2-list">
+      <table>
+        <thead><tr><th>time</th><th>method</th><th>host</th><th>path</th><th>status</th><th>latency</th><th>preset</th></tr></thead>
+        <tbody>
+          <tr><td class="mono mut">11:42:07</td><td class="mono">GET</td><td class="mono mut">api.lioparcel.services</td><td class="path">/v1/algo-shipment/route/tariff/destination-recommendation</td><td class="st" style="color:var(--color-fog);">200</td><td class="mut">412ms</td><td class="mono" style="color:var(--color-ember);">p_1b58882e</td></tr>
+          <tr><td class="mono mut">11:42:01</td><td class="mono">GET</td><td class="mono mut">api.lioparcel.services</td><td class="path">/v1/auth/session</td><td class="st" style="color:var(--color-fog);">200</td><td class="mut">88ms</td><td class="mut"></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const rows = document.querySelectorAll('.scn-row');
+    rows.forEach((r) => r.addEventListener('click', () => {
+      rows.forEach((x) => x.classList.remove('sel'));
+      r.classList.add('sel');
+      document.querySelector('.doc-head .mono').textContent = `${r.querySelector('.nm').textContent} · s_xxxxxxxx`;
+    }));
+  </script>
+</body>
+</html>

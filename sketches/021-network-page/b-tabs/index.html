@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>021-B · network — tabs by concern</title>
+<link rel="stylesheet" href="../tokens.css" />
+<style>
+  body { background: var(--color-void); color: var(--color-paper); font-family: var(--font-sans); font-size: var(--text-body); padding: 0 var(--s-6) var(--s-7); }
+  .ph { display: flex; align-items: baseline; gap: var(--s-4); padding: var(--s-5) 0 var(--s-3); border-bottom: 1px solid var(--color-iron); margin-bottom: var(--s-3); }
+  .ph h1 { font-size: var(--text-heading-sm); font-weight: var(--weight-bold); letter-spacing: -0.01em; }
+  .ph .desc { font-family: var(--font-mono); font-size: var(--text-caption); color: var(--color-steel); }
+  .ph .actions { margin-left: auto; display: flex; gap: var(--s-2); align-items: center; }
+
+  .ctl { display: flex; align-items: center; gap: var(--s-2); border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); padding: 6px 10px; margin-bottom: var(--s-4); font-family: var(--font-mono); font-size: 11px; color: var(--color-fog); }
+  .ctl .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-ok); flex: none; }
+  .ctl .sep { color: var(--color-pewter); margin: 0 var(--s-1); }
+
+  .btn { appearance: none; border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); color: var(--color-fog); font: 500 11px/1 var(--font-mono); letter-spacing: 0.03em; padding: 6px 10px; cursor: pointer; }
+  .btn:hover { color: var(--color-paper); border-color: var(--color-slate); }
+  .btn.pri { border-color: var(--color-ember); color: var(--color-ember); }
+  .btn.sm { padding: 4px 8px; font-size: 10px; }
+
+  .a2-tabs { display: inline-flex; align-items: stretch; border: 1px solid var(--color-iron); border-radius: var(--r-sm); overflow: hidden; background: var(--color-void); margin-bottom: var(--s-4); }
+  .a2-tab { appearance: none; border: none; border-right: 1px solid var(--color-iron); background: transparent; padding: 7px 16px; cursor: pointer; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-pewter); }
+  .a2-tab:last-child { border-right: none; }
+  .a2-tab .n { color: var(--color-steel); margin-left: 4px; }
+  .a2-tab:hover { color: var(--color-paper); background: var(--color-graphite); }
+  .a2-tab.on { color: var(--color-ember); background: var(--color-graphite); }
+
+  .a2-list { border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { position: sticky; top: 0; background: var(--color-graphite); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-steel); text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--color-iron); }
+  tbody td { padding: 8px 10px; border-bottom: 1px solid var(--color-iron); font-size: var(--text-caption); }
+  tbody tr:hover { background: var(--color-graphite); }
+  td.mono, .mono { font-family: var(--font-mono); }
+  .path { font-family: var(--font-mono); font-size: 11px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .st { font-family: var(--font-mono); font-size: 10px; }
+  .st.ok { color: var(--color-fog); } .st.err { color: var(--color-paper); text-decoration: underline; }
+  .mut { color: var(--color-steel); }
+
+  .row-x { display: flex; align-items: center; gap: var(--s-2); padding: 9px 12px; border-bottom: 1px solid var(--color-iron); }
+  .row-x:last-child { border-bottom: none; }
+  .row-x:hover { background: var(--color-graphite); }
+  .row-x .nm { font-weight: 600; font-size: var(--text-label); }
+  .row-x .meta { margin-left: auto; display: flex; gap: 6px; align-items: center; font-family: var(--font-mono); font-size: 10px; color: var(--color-steel); }
+  .chip { border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 2px 6px; font-family: var(--font-mono); font-size: 10px; color: var(--color-ash); }
+  .chip.used { color: var(--color-ember); border-color: color-mix(in srgb, var(--color-ember) 40%, transparent); }
+
+  .members { background: var(--color-void); border-top: 1px solid var(--color-iron); padding: var(--s-2) var(--s-3); }
+  .m-row { display: flex; align-items: center; gap: var(--s-2); padding: 6px 0; font-size: var(--text-caption); }
+  .m-row .mono { font-size: 11px; }
+  .changed { display: flex; align-items: center; gap: 6px; border-left: 2px solid var(--color-ember); padding: 5px 8px; font-family: var(--font-mono); font-size: 10px; color: var(--color-fog); margin-top: var(--s-2); }
+  .changed b { color: var(--color-ember); }
+
+  input[type="text"], input[type="search"] { background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-fog); font: 400 12px var(--font-mono); padding: 6px 8px; }
+  input:focus { outline: 1px solid var(--color-ember); outline-offset: 0; }
+  .search { width: 220px; margin-left: auto; }
+  .pane { display: none; } .pane.on { display: block; }
+  .tb-head { display: flex; align-items: center; gap: var(--s-2); margin-bottom: var(--s-2); }
+  .tb-head .t { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-pewter); }
+</style>
+</head>
+<body>
+  <div class="ph">
+    <h1>network</h1>
+    <span class="desc">3 scenarios · 3 presets · 12,779 requests captured</span>
+    <div class="actions">
+      <button class="btn">+ scenario</button>
+      <button class="btn">+ preset</button>
+    </div>
+  </div>
+
+  <div class="ctl">
+    <span class="dot"></span>
+    <span>proxy 127.0.0.1:8899</span>
+    <span class="sep">·</span>
+    <span>sims routed</span>
+    <span class="sep">·</span>
+    <span>mode</span>
+    <button class="btn sm pri" style="margin-left:2px;">hybrid</button>
+    <button class="btn sm">record</button>
+    <button class="btn sm">intercept</button>
+    <span style="margin-left:auto;" class="mut">always visible — controls every tab</span>
+  </div>
+
+  <div class="a2-tabs">
+    <button class="a2-tab on" data-pane="scn">scenarios <span class="n">3</span></button>
+    <button class="a2-tab" data-pane="pre">presets <span class="n">3</span></button>
+    <button class="a2-tab" data-pane="trf">traffic <span class="n">live</span></button>
+  </div>
+
+  <div class="pane on" id="scn">
+    <div class="a2-list">
+      <div class="row-x">
+        <span class="nm">countries-sg</span>
+        <span class="id mono mut" style="font-size:10px;">s_c1265727</span>
+        <span class="meta"><span class="chip used">used</span><span>62 runs</span><span>▾</span></span>
+      </div>
+      <div class="members">
+        <div class="m-row"><input type="checkbox" checked /> <b class="mono">GET</b> <span class="path" style="max-width:340px;">/v1/algo-shipment/route/tariff/destination-recommendation</span> <span class="st ok">200</span> <button class="btn sm" style="margin-left:auto;">edit</button></div>
+        <div class="m-row"><button class="btn sm">+ add preset</button></div>
+        <div class="changed"><b>changed since last play</b><span> — applies from the next run</span></div>
+      </div>
+      <div class="row-x">
+        <span class="nm">countries-my</span>
+        <span class="mono mut" style="font-size:10px;">s_c42eaf1e</span>
+        <span class="meta"><span class="chip used">used</span><span>21 runs</span><span>▸</span></span>
+      </div>
+      <div class="row-x">
+        <span class="nm">countries-empty</span>
+        <span class="mono mut" style="font-size:10px;">s_6062b5db</span>
+        <span class="meta"><span class="chip used">used</span><span>21 runs</span><span>▸</span></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="pane" id="pre">
+    <div class="a2-list">
+      <table>
+        <thead><tr><th>method</th><th>path</th><th>match</th><th>status</th><th>body</th><th>in scenarios</th><th></th></tr></thead>
+        <tbody>
+          <tr><td class="mono">GET</td><td class="path">/v1/algo-shipment/route/tariff/destination-recommendation</td><td class="mono mut">exact</td><td class="st ok">200</td><td class="mono mut">lp-countries-sg.body</td><td><span class="chip">countries-sg</span></td><td style="white-space:nowrap;"><button class="btn sm">edit</button> <button class="btn sm">✕</button></td></tr>
+          <tr><td class="mono">GET</td><td class="path">/v1/algo-shipment/route/tariff/destination-recommendation</td><td class="mono mut">exact</td><td class="st ok">200</td><td class="mono mut">lp-countries-my.body</td><td><span class="chip">countries-my</span></td><td style="white-space:nowrap;"><button class="btn sm">edit</button> <button class="btn sm">✕</button></td></tr>
+          <tr><td class="mono">GET</td><td class="path">/v1/algo-shipment/route/tariff/destination-recommendation</td><td class="mono mut">exact</td><td class="st ok">200</td><td class="mono mut">lp-countries-empty.body</td><td><span class="chip">countries-empty</span></td><td style="white-space:nowrap;"><button class="btn sm">edit</button> <button class="btn sm">✕</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="pane" id="trf">
+    <div class="tb-head"><span class="t">live feed</span><input type="search" class="search" placeholder="search host or path…" /></div>
+    <div class="a2-list">
+      <table>
+        <thead><tr><th>time</th><th>method</th><th>host</th><th>path</th><th>status</th><th>latency</th><th>preset</th></tr></thead>
+        <tbody>
+          <tr><td class="mono mut">11:42:07</td><td class="mono">GET</td><td class="mono mut">api.lioparcel.services</td><td class="path">/v1/algo-shipment/route/tariff/destination-recommendation</td><td class="st ok">200</td><td class="mut">412ms</td><td class="mono" style="color:var(--color-ember);">p_1b58882e</td></tr>
+          <tr><td class="mono mut">11:42:01</td><td class="mono">GET</td><td class="mono mut">api.lioparcel.services</td><td class="path">/v1/auth/session</td><td class="st ok">200</td><td class="mut">88ms</td><td class="mut"></td></tr>
+          <tr><td class="mono mut">11:41:55</td><td class="mono">POST</td><td class="mono mut">api.lioparcel.services</td><td class="path">/v1/algo-shipment/route/tariff/quote</td><td class="st err">500</td><td class="mut">1240ms</td><td class="mut"></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const tabs = document.querySelectorAll('.a2-tab');
+    tabs.forEach((t) => t.addEventListener('click', () => {
+      tabs.forEach((x) => x.classList.remove('on'));
+      t.classList.add('on');
+      document.querySelectorAll('.pane').forEach((p) => p.classList.remove('on'));
+      document.getElementById(t.dataset.pane).classList.add('on');
+    }));
+    document.querySelector('.row-x').addEventListener('click', (e) => {
+      if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+      const m = document.querySelector('.members');
+      m.style.display = m.style.display === 'none' ? '' : 'none';
+    });
+  </script>
+</body>
+</html>

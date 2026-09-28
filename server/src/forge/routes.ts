@@ -9,6 +9,8 @@ import { startMitm, stopMitmIfRunning, mitmRunning } from './mitm/manager.ts';
 import { simRoutingState, enableSimRouting, healStaleProxies, installRootCertToSims } from './sim-routing.ts';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { scenarioSnapshot } from '../manual/case-versions.ts';
 
 
 export function registerForgeRoutes(app: FastifyInstance, db: Database.Database, forgeState: ForgeState, forgeBus?: { emit: (type: never, payload: never) => void }): void {
@@ -50,14 +52,35 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
 
   app.delete('/api/forge/presets/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
+    // review F3: an override row (enabled OR disabled) means a scenario would
+    // silently lose a member to the FK cascade — name them and refuse.
+    const members = db.prepare(
+      'SELECT s.name FROM scenario_overrides so JOIN scenarios s ON s.id = so.scenario_id WHERE so.preset_id = ?',
+    ).all(id) as Array<{ name: string }>;
+    if (members.length > 0) {
+      return reply.code(409).send({ error: `preset is a member of ${members.length} scenario${members.length === 1 ? '' : 's'} (${members.map((m) => m.name).join(', ')}) — remove it from them first`, scenarios: members.map((m) => m.name) });
+    }
     const r = db.prepare('DELETE FROM presets WHERE id = ?').run(id);
     if (r.changes === 0) return reply.code(404).send({ error: 'not found' });
     syncPresetsToMitm();
     return { ok: true };
   });
 
-  app.get('/api/forge/presets', async () => {
-    const rows = db.prepare('SELECT * FROM presets ORDER BY created_at DESC').all();
+  app.get('/api/forge/presets', async (req) => {
+    const q = req.query as { folderId?: string };
+    const all = db.prepare('SELECT * FROM presets ORDER BY created_at DESC').all() as Array<Record<string, unknown>>;
+    let rows: Array<Record<string, unknown>>;
+    if (q.folderId === undefined) {
+      rows = all;
+    } else if (q.folderId === '') {
+      rows = all.filter((r) => r.folder_id == null);
+    } else {
+      // cPanel navigation (bug fix): a folder lists its DIRECT presets only —
+      // descendants are reached by navigating in. (The old subtree filter made
+      // a parent keep showing presets after they were moved into a child.)
+      // Folder-row counts stay subtree-based (how much is inside overall).
+      rows = all.filter((r) => r.folder_id === q.folderId);
+    }
     return { presets: rows };
   });
 
@@ -97,6 +120,11 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
     const vals: unknown[] = [];
     const col = (name: string, value: unknown): void => { sets.push(`${name} = ?`); vals.push(value); };
     if (b['method'] !== undefined) col('method', b['method'] as string);
+    if (b['folderId'] !== undefined && b['folderId'] !== null) {
+      const folder = db.prepare('SELECT id FROM preset_folders WHERE id = ?').get(b['folderId']) as { id: string } | undefined;
+      if (!folder) return reply.code(409).send({ error: `folder "${String(b['folderId'])}" not found` });
+    }
+    if (b['folderId'] !== undefined) col('folder_id', b['folderId'] as string | null);
     if (b['pathPattern'] !== undefined) {
       const p = b['pathPattern'] as string;
       if (typeof p !== 'string' || !p.startsWith('/')) return reply.code(400).send({ error: 'pathPattern must be an absolute path string' });
@@ -186,9 +214,63 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
     return { id };
   });
 
-  app.get('/api/forge/scenarios', async () => {
-    const rows = db.prepare('SELECT * FROM scenarios ORDER BY rowid DESC').all();
-    return { scenarios: rows };
+  app.get('/api/forge/scenarios', async (req) => {
+    const q = req.query as { folderId?: string };
+    // review F5: subtree filter via the folder tree (recursive descent), NOT a
+    // selectTemplates mirror — different table, global tree. folderId=empty
+    // string means the ROOT folder (folder_id IS NULL), matching the UI's
+    // breadcrumb navigation.
+    const all = db.prepare('SELECT * FROM scenarios ORDER BY rowid DESC').all() as Array<Record<string, unknown>>;
+    let list: Array<Record<string, unknown>>;
+    if (q.folderId === undefined) {
+      list = all;
+    } else if (q.folderId === '') {
+      list = all.filter((r) => r.folder_id == null);
+    } else {
+      // cPanel navigation (bug fix, same as presets): direct children only.
+      list = all.filter((r) => r.folder_id === q.folderId);
+    }
+    // per-scenario rollups (plan Stage 1): runCount (runs store the scenarioChoice
+    // string — names for variant plays, ids for direct picks: count BOTH forms),
+    // usedBy across three surfaces (review F2), changedSincePlay via the
+    // VERBATIM scenarioSnapshot hash (review F1)
+    const tpls = db.prepare('SELECT id, name, variants_json FROM templates').all() as Array<{ id: string; name: string; variants_json: string | null }>;
+    const cvRefs = db.prepare('SELECT cv.template_id, cv.scenario_id, t.name AS tpl_name, cv.revision FROM case_versions cv LEFT JOIN templates t ON t.id = cv.template_id WHERE cv.scenario_id IS NOT NULL').all() as Array<{ template_id: string; scenario_id: string; tpl_name: string | null; revision: number }>;
+    const runRefs = db.prepare('SELECT scenario_id, COUNT(*) AS n FROM runs WHERE scenario_id IS NOT NULL GROUP BY scenario_id').all() as Array<{ scenario_id: string; n: number }>;
+    const newestSha = new Map<string, string>();
+    for (const r of db.prepare('SELECT scenario_id, scenario_sha FROM runs WHERE scenario_id IS NOT NULL AND scenario_sha IS NOT NULL ORDER BY started_at ASC').all() as Array<{ scenario_id: string; scenario_sha: string }>) {
+      newestSha.set(r.scenario_id, r.scenario_sha); // ASC → last write wins = newest
+    }
+    const scenarios = list.map((s) => {
+      const id = s.id as string;
+      const name = s.name as string;
+      const consumers: Array<{ label: string }> = [];
+      for (const t of tpls) {
+        if (!t.variants_json) continue;
+        try {
+          const vs = JSON.parse(t.variants_json) as Array<{ id?: string; scenarios?: string[]; networkScenario?: string }>;
+          for (const v of vs) {
+            const pins = [...(v.scenarios ?? []), ...(v.networkScenario ? [v.networkScenario] : [])];
+            if (pins.includes(id) || pins.includes(name)) consumers.push({ label: `variant \`${v.id ?? '?'}\` of case “${t.name}”` });
+          }
+        } catch { /* malformed variants_json — honest degrade */ }
+      }
+      for (const cv of cvRefs) {
+        if (cv.scenario_id === id || cv.scenario_id === name) consumers.push({ label: `case version r${cv.revision} of “${cv.tpl_name ?? cv.template_id}”` });
+      }
+      const runCount = runRefs.filter((r) => r.scenario_id === id || r.scenario_id === name).reduce((a, r) => a + r.n, 0);
+      // F1: the VERBATIM snapshot recipe — sha256(JSON.stringify(scenarioSnapshot()))
+      const snap = scenarioSnapshot(db, id);
+      const shaCurrent = snap ? createHash('sha256').update(JSON.stringify(snap)).digest('hex') : null;
+      const shaStamped = newestSha.get(id) ?? newestSha.get(name) ?? null;
+      // F1 semantics: membership+bodies only (launch_arg is NOT in the snapshot).
+      // No stamped sha yet → nothing to diff → false. A snapshot that went
+      // NULL (every member disabled/removed) vs a stamped sha IS a change.
+      const changedSincePlay = shaStamped !== null && shaCurrent !== shaStamped;
+      const memberCount = (db.prepare('SELECT COUNT(*) AS n FROM scenario_overrides WHERE scenario_id = ?').get(id) as { n: number }).n;
+      return { ...s, memberCount, runCount, usedBy: consumers, shaCurrent, changedSincePlay };
+    });
+    return { scenarios };
   });
 
   // ── M3 scenario management: rename, delete, membership read/write.
@@ -197,7 +279,7 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
   // live traffic at play time (disclosed in the UI confirm).
   app.patch('/api/forge/scenarios/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const b = req.body as { name?: string; description?: string | null; launchArg?: string | null };
+    const b = req.body as { name?: string; description?: string | null; launchArg?: string | null; folderId?: string | null };
     const row = db.prepare('SELECT id FROM scenarios WHERE id = ?').get(id) as { id: string } | undefined;
     if (!row) return reply.code(404).send({ error: 'scenario not found' });
     if (b.name !== undefined) {
@@ -205,11 +287,16 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
       const clash = db.prepare('SELECT id FROM scenarios WHERE name = ? AND id != ?').get(b.name.trim(), id);
       if (clash) return reply.code(409).send({ error: `a scenario named "${b.name.trim()}" already exists` });
     }
+    if (b.folderId !== undefined && b.folderId !== null) {
+      const folder = db.prepare('SELECT id FROM scenario_folders WHERE id = ?').get(b.folderId) as { id: string } | undefined;
+      if (!folder) return reply.code(409).send({ error: `folder "${b.folderId}" not found` });
+    }
     const sets: string[] = [];
     const vals: unknown[] = [];
     if (b.name !== undefined) { sets.push('name = ?'); vals.push(b.name.trim()); }
     if (b.description !== undefined) { sets.push('description = ?'); vals.push(b.description); }
     if (b.launchArg !== undefined) { sets.push('launch_arg = ?'); vals.push(b.launchArg); }
+    if (b.folderId !== undefined) { sets.push('folder_id = ?'); vals.push(b.folderId); }
     if (sets.length === 0) return reply.code(400).send({ error: 'nothing to update' });
     db.prepare(`UPDATE scenarios SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
     return { ok: true, id };
@@ -217,12 +304,62 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
 
   app.delete('/api/forge/scenarios/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const r = db.prepare('DELETE FROM scenarios WHERE id = ?').run(id);
-    if (r.changes === 0) return reply.code(404).send({ error: 'scenario not found' });
+    const row = db.prepare('SELECT id, name FROM scenarios WHERE id = ?').get(id) as { id: string; name: string } | undefined;
+    if (!row) return reply.code(404).send({ error: 'scenario not found' });
+    // review F2: usedBy scans THREE surfaces — variants_json, case_versions,
+    // runs (provenance). Policy (operator 2026-09-28): variants + case_versions
+    // are live pins → BLOCK; runs-only → WARN and proceed (provenance strings
+    // survive; stamped snapshots replay independently).
+    const consumers: Array<{ label: string }> = [];
+    for (const t of db.prepare('SELECT id, name, variants_json FROM templates').all() as Array<{ id: string; name: string; variants_json: string | null }>) {
+      if (!t.variants_json) continue;
+      try {
+        const vs = JSON.parse(t.variants_json) as Array<{ id?: string; scenarios?: string[]; networkScenario?: string }>;
+        for (const v of vs) {
+          const pins = [...(v.scenarios ?? []), ...(v.networkScenario ? [v.networkScenario] : [])];
+          if (pins.includes(id) || pins.includes(row.name)) consumers.push({ label: `variant \`${v.id ?? '?'}\` of case “${t.name}”` });
+        }
+      } catch { /* malformed variants_json — honest degrade */ }
+    }
+    for (const cv of db.prepare('SELECT cv.template_id, cv.revision, t.name AS tpl_name FROM case_versions cv LEFT JOIN templates t ON t.id = cv.template_id WHERE cv.scenario_id = ? OR cv.scenario_id = ?').all(id, row.name) as Array<{ template_id: string; revision: number; tpl_name: string | null }>) {
+      consumers.push({ label: `case version r${cv.revision} of “${cv.tpl_name ?? cv.template_id}”` });
+    }
+    if (consumers.length > 0) {
+      return reply.code(409).send({
+        error: `scenario "${row.name}" is pinned by ${consumers.length} reference${consumers.length === 1 ? '' : 's'} (${consumers.map((c) => c.label).slice(0, 3).join(', ')}${consumers.length > 3 ? '…' : ''}) — remove the pins first`,
+        consumers,
+      });
+    }
+    const runCount = (db.prepare('SELECT COUNT(*) AS n FROM runs WHERE scenario_id = ? OR scenario_id = ?').get(id, row.name) as { n: number }).n;
+    db.prepare('DELETE FROM scenarios WHERE id = ?').run(id);
     // membership rows cascade (FK) — but a mid-activation delete would leave
     // the in-process proxy serving ghost presets; clear the override path.
     forgeStateService({ db, forgeState }).clearScenario();
-    return { ok: true };
+    return runCount > 0
+      ? { ok: true, warning: `${runCount} run${runCount === 1 ? '' : 's'} keep this scenario's name as provenance — their stamped snapshots replay unchanged`, runCount }
+      : { ok: true, runCount: 0 };
+  });
+
+  // duplicate (plan Stage 1): copy membership + launch_arg into the source's
+  // folder; NEW id; immutable_since NULL. Read-only on the source (review F4).
+  app.post('/api/forge/scenarios/:id/duplicate', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = (req.body ?? {}) as { name?: string };
+    const src = db.prepare('SELECT * FROM scenarios WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    if (!src) return reply.code(404).send({ error: 'scenario not found' });
+    if (!b.name?.trim()) return reply.code(400).send({ error: 'name required' });
+    const name = b.name.trim();
+    if (db.prepare('SELECT 1 FROM scenarios WHERE name = ?').get(name)) return reply.code(409).send({ error: `a scenario named "${name}" already exists` });
+    const newId = `s_${randomUUID().slice(0, 8)}`;
+    const tx = db.transaction(() => {
+      db.prepare('INSERT INTO scenarios(id, name, description, launch_arg, folder_id, created_by, immutable_since) VALUES (?, ?, ?, ?, ?, ?, NULL)')
+        .run(newId, name, (src.description as string | null) ?? null, (src.launch_arg as string | null) ?? null, (src.folder_id as string | null) ?? null, req.user?.name ?? 'api');
+      for (const m of db.prepare('SELECT preset_id, enabled FROM scenario_overrides WHERE scenario_id = ?').all(id) as Array<{ preset_id: string; enabled: number }>) {
+        db.prepare('INSERT INTO scenario_overrides(scenario_id, preset_id, enabled) VALUES (?, ?, ?)').run(newId, m.preset_id, m.enabled);
+      }
+    });
+    tx();
+    return reply.code(201).send({ id: newId, name, folderId: (src.folder_id as string | null) ?? null });
   });
 
   app.get('/api/forge/scenarios/:id', async (req, reply) => {
@@ -399,15 +536,19 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
   });
 
   app.get('/api/forge/traffic', async (req) => {
-    const q = req.query as { runId?: string; limit?: string; q?: string };
+    const q = req.query as { runId?: string; limit?: string; q?: string; page?: string };
     const limit = Math.min(Number.parseInt(q.limit ?? '100', 10) || 100, 500);
+    const page = Math.max(Number.parseInt(q.page ?? '1', 10) || 1, 1);
     const like = q.q ? `%${q.q.replace(/[%_]/g, (c) => `\\${c}`)}%` : null;
-    const rows = q.runId
-      ? db.prepare('SELECT * FROM traffic WHERE run_id = ? ORDER BY ts DESC LIMIT ?').all(q.runId, limit)
-      : like
-        ? db.prepare("SELECT * FROM traffic WHERE path LIKE ? ESCAPE '\\' OR host LIKE ? ESCAPE '\\' ORDER BY ts DESC LIMIT ?").all(like, like, limit)
-        : db.prepare('SELECT * FROM traffic ORDER BY ts DESC LIMIT ?').all(limit);
-    return { traffic: rows };
+    // plan 20260928T105500Z stage 4: page-based pagination (25/page in the UI).
+    // Offset paging: the log is ts-DESC and append-heavy — adequate for a log
+    // view, cheap total via the same WHERE.
+    const where = q.runId ? 'WHERE run_id = ?' : like ? "WHERE path LIKE ? ESCAPE '\\' OR host LIKE ? ESCAPE '\\'" : '';
+    const whereArgs = q.runId ? [q.runId] : like ? [like, like] : [];
+    const total = (db.prepare(`SELECT COUNT(*) AS n FROM traffic ${where}`).get(...whereArgs) as { n: number }).n;
+    const offset = (page - 1) * limit;
+    const rows = db.prepare(`SELECT * FROM traffic ${where} ORDER BY ts DESC LIMIT ? OFFSET ?`).all(...whereArgs, limit, offset);
+    return { traffic: rows, total, page, limit };
   });
 
   // save as preset from a traffic row: replays the CAPTURED response forever.
