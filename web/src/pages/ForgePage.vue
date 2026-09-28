@@ -69,6 +69,8 @@ const preMoveOpen = ref(false);
 // not horizontally stacked buttons (operator direction, test-cases pattern)
 const scnMoveTarget = ref('');
 const preMoveTarget = ref('');
+// endpoint-group collapse (operator ask): 'GET /path' keys that are collapsed
+const epCollapsed = ref(new Set<string>());
 // flat folder trees for the move pickers (path-labeled, full tree — not just current children)
 const scnFolderTree = ref<Array<{ id: string; path: string; scenarioCount: number }>>([]);
 const preFolderTree = ref<Array<{ id: string; path: string; presetCount: number }>>([]);
@@ -206,6 +208,11 @@ async function deletePreFolder(id: string): Promise<void> {
 function togglePreSelectMode(): void {
   preSelectMode.value = !preSelectMode.value;
   if (!preSelectMode.value) preSelection.value = new Set();
+}
+function toggleEpGroup(key: string): void {
+  const n = new Set(epCollapsed.value);
+  if (n.has(key)) n.delete(key); else n.add(key);
+  epCollapsed.value = n;
 }
 function togglePreSel(id: string): void {
   const n = new Set(preSelection.value);
@@ -570,8 +577,12 @@ onUnmounted(() => {
         </template>
       </div>
       <template v-for="g in presetGroups" :key="g.key">
-        <div class="ep-group mono" :title="`${g.rows.length} preset(s) serve this endpoint`">{{ g.method }} {{ g.path }} <span class="f-n">{{ g.rows.length }}</span></div>
-        <div v-for="p in g.rows" :key="p.id" class="pre-row" :title="p.id">
+        <div class="ep-group mono" :title="`${g.rows.length} preset(s) serve this endpoint`" @click="toggleEpGroup(g.key)">
+          <span class="caret">{{ epCollapsed.has(g.key) ? '▸' : '▾' }}</span>
+          <span class="ep-k">{{ g.method }} {{ g.path }}</span>
+          <span class="f-n">{{ g.rows.length }}</span>
+        </div>
+        <div v-for="p in g.rows" v-show="!epCollapsed.has(g.key)" :key="p.id" class="pre-row" :title="p.id">
           <span class="col-sel">
             <input v-if="preSelectMode" type="checkbox" :checked="preSelection.has(p.id)" @click.stop @change="togglePreSel(p.id)" title="select for bulk move" />
             <svg v-else class="doc-glyph" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5h7l3 3v12H5v-15z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M11.5 2.7V6h3.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
@@ -704,7 +715,10 @@ export default { name: 'ForgePage' };
 .ibtn svg { width: 16px; height: 16px; pointer-events: none; }
 #rowtip { position: fixed; z-index: 300; background: var(--color-graphite); border: 1px solid var(--color-slate); color: var(--color-fog); font-family: var(--font-mono); font-size: 10px; padding: 3px 7px; border-radius: var(--r-sm); pointer-events: none; white-space: nowrap; transform: translateX(-50%); }
 /* endpoint group head */
-.ep-group { display: flex; align-items: center; gap: 6px; padding: 7px 12px; border-bottom: 1px solid var(--color-iron); font-family: var(--font-mono); font-size: 11px; color: var(--color-pewter); background: var(--color-void); }
+.ep-group { display: flex; align-items: center; gap: 6px; padding: 7px 12px; border-bottom: 1px solid var(--color-iron); font-family: var(--font-mono); font-size: 11px; color: var(--color-pewter); background: var(--color-void); cursor: pointer; user-select: none; }
+.ep-group:hover { color: var(--color-paper); background: var(--color-graphite); }
+.ep-group .caret { width: 12px; color: var(--color-steel); flex: none; }
+.ep-group .ep-k { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ep-group .f-n { color: var(--color-steel); margin-left: auto; }
 .pre-name { color: var(--color-fog); font-size: 11px; }
 /* pager */
