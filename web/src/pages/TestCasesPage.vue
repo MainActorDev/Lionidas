@@ -918,11 +918,15 @@ const suiteSummary = computed(() => {
         </div>
         <article v-for="t in listedCases()" :key="t.id" class="a2-row-card" :class="{ editing: yamlOpenId === t.id, deprecated: t.status === 'deprecated' }">
           <div class="a2-row" @click="openYaml(t)" title="click to edit this case">
-            <span class="col-sel" @click.stop><input type="checkbox" :checked="selection.has(t.id)" @change="toggleSel(t.id)" title="select for bulk move/run" /></span>
-            <span class="col-case"><span class="a2-name">{{ t.name }}</span></span>
+            <span class="col-case">
+              <input type="checkbox" class="a2-sel" :checked="selection.has(t.id)" @click.stop @change="toggleSel(t.id)" title="select for bulk move/run" />
+              <span class="a2-name">{{ t.name }}</span>
+            </span>
             <span class="col-ver"><span v-if="t.appVersion" class="a2-ver-val">v{{ t.appVersion }}</span><span v-else class="a2-app-none">—</span></span>
             <span class="col-steps">{{ t.steps.length }}</span>
             <span class="col-updated">—</span>
+            <span class="col-trend"><span class="a2-trend-none">—</span></span>
+            <span class="col-evidence"></span>
             <span class="col-verdict"><span v-if="t.verdict" :class="`status ${verdictStatusClass(t)}`" :title="verdictLabel(t)">{{ verdictLabel(t) }}</span><span v-else class="status status-none">never run</span></span>
             <span class="col-actions" @click.stop></span>
           </div>
@@ -1268,7 +1272,8 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 .a2-folder-row .f-glyph { color: var(--color-ember); width: 14px; }
 .a2-folder-row .f-n { color: var(--color-steel); margin-left: 6px; }
 .a2-folder-row .f-acts { margin-left: auto; display: flex; gap: 4px; }
-.col-sel { display: flex; align-items: center; }
+.a2-row .col-case { display: inline-flex; align-items: center; min-width: 0; }
+.col-case .a2-sel { margin-right: 8px; cursor: pointer; flex: none; }
 .a2-select-like { width: 100%; padding: 6px 8px; margin: 8px 0; background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-family: var(--font-mono); font-size: 12px; }
 /* .a2-group-head lives in global components.css (shared across list pages) */
 /* verdict pill ellipsizes inside its track at extreme narrow widths (the
