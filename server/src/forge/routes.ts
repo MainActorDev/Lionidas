@@ -66,8 +66,19 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
     return { ok: true };
   });
 
-  app.get('/api/forge/presets', async () => {
-    const rows = db.prepare('SELECT * FROM presets ORDER BY created_at DESC').all();
+  app.get('/api/forge/presets', async (req) => {
+    const q = req.query as { folderId?: string };
+    const all = db.prepare('SELECT * FROM presets ORDER BY created_at DESC').all() as Array<Record<string, unknown>>;
+    let rows: Array<Record<string, unknown>>;
+    if (q.folderId === undefined) {
+      rows = all;
+    } else if (q.folderId === '') {
+      rows = all.filter((r) => r.folder_id == null);
+    } else {
+      const { folderSubtreeIds } = await import('../routes/folder-routes-factory.ts');
+      const ids = folderSubtreeIds(db, 'preset_folders', q.folderId);
+      rows = all.filter((r) => typeof r.folder_id === 'string' && ids.includes(r.folder_id));
+    }
     return { presets: rows };
   });
 
@@ -107,6 +118,11 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
     const vals: unknown[] = [];
     const col = (name: string, value: unknown): void => { sets.push(`${name} = ?`); vals.push(value); };
     if (b['method'] !== undefined) col('method', b['method'] as string);
+    if (b['folderId'] !== undefined && b['folderId'] !== null) {
+      const folder = db.prepare('SELECT id FROM preset_folders WHERE id = ?').get(b['folderId']) as { id: string } | undefined;
+      if (!folder) return reply.code(409).send({ error: `folder "${String(b['folderId'])}" not found` });
+    }
+    if (b['folderId'] !== undefined) col('folder_id', b['folderId'] as string | null);
     if (b['pathPattern'] !== undefined) {
       const p = b['pathPattern'] as string;
       if (typeof p !== 'string' || !p.startsWith('/')) return reply.code(400).send({ error: 'pathPattern must be an absolute path string' });
@@ -519,15 +535,19 @@ export function registerForgeRoutes(app: FastifyInstance, db: Database.Database,
   });
 
   app.get('/api/forge/traffic', async (req) => {
-    const q = req.query as { runId?: string; limit?: string; q?: string };
+    const q = req.query as { runId?: string; limit?: string; q?: string; page?: string };
     const limit = Math.min(Number.parseInt(q.limit ?? '100', 10) || 100, 500);
+    const page = Math.max(Number.parseInt(q.page ?? '1', 10) || 1, 1);
     const like = q.q ? `%${q.q.replace(/[%_]/g, (c) => `\\${c}`)}%` : null;
-    const rows = q.runId
-      ? db.prepare('SELECT * FROM traffic WHERE run_id = ? ORDER BY ts DESC LIMIT ?').all(q.runId, limit)
-      : like
-        ? db.prepare("SELECT * FROM traffic WHERE path LIKE ? ESCAPE '\\' OR host LIKE ? ESCAPE '\\' ORDER BY ts DESC LIMIT ?").all(like, like, limit)
-        : db.prepare('SELECT * FROM traffic ORDER BY ts DESC LIMIT ?').all(limit);
-    return { traffic: rows };
+    // plan 20260928T105500Z stage 4: page-based pagination (25/page in the UI).
+    // Offset paging: the log is ts-DESC and append-heavy — adequate for a log
+    // view, cheap total via the same WHERE.
+    const where = q.runId ? 'WHERE run_id = ?' : like ? "WHERE path LIKE ? ESCAPE '\\' OR host LIKE ? ESCAPE '\\'" : '';
+    const whereArgs = q.runId ? [q.runId] : like ? [like, like] : [];
+    const total = (db.prepare(`SELECT COUNT(*) AS n FROM traffic ${where}`).get(...whereArgs) as { n: number }).n;
+    const offset = (page - 1) * limit;
+    const rows = db.prepare(`SELECT * FROM traffic ${where} ORDER BY ts DESC LIMIT ? OFFSET ?`).all(...whereArgs, limit, offset);
+    return { traffic: rows, total, page, limit };
   });
 
   // save as preset from a traffic row: replays the CAPTURED response forever.

@@ -55,6 +55,20 @@ const presetConfirmDelete = ref<string | null>(null);
 const folderRename = ref<{ id: string; name: string } | null>(null);
 const folderCreating = ref(false);
 const folderNewName = ref('');
+// preset folders (round 2): same cPanel pattern, plus endpoint grouping inside the view
+const preFolders = ref<Array<{ id: string; name: string; presetCount: number; createdBy: string; createdAt: number }>>([]);
+const preCrumbs = ref<Array<{ id: string; name: string }>>([]);
+const preCurFolder = ref<string | null>(null);
+const preFolderCreating = ref(false);
+const preFolderNewName = ref('');
+const preFolderRename = ref<{ id: string; name: string } | null>(null);
+const preSelectMode = ref(false);
+const preSelection = ref(new Set<string>());
+const preMoveOpen = ref(false);
+// traffic pagination (round 2)
+const trafficPage = ref(1);
+const trafficTotal = ref(0);
+const TRAFFIC_PAGE_SIZE = 25;
 
 const MODE_HELP: Record<string, string> = {
   record: 'watch only — real traffic passes through and is logged',
@@ -107,18 +121,88 @@ async function setMode(m: string): Promise<void> {
 
 // ── traffic (subordinate feed, unchanged contract) ──
 async function loadTraffic(): Promise<void> {
-  const q = search.value.trim() ? `?q=${encodeURIComponent(search.value.trim())}&limit=200` : '?limit=200';
-  const res = await fetch(`/api/forge/traffic${q}`);
-  traffic.value = (await res.json() as { traffic: TrafficRow[] }).traffic;
+  const params = new URLSearchParams({ limit: String(TRAFFIC_PAGE_SIZE), page: String(trafficPage.value) });
+  if (search.value.trim()) params.set('q', search.value.trim());
+  const res = await fetch(`/api/forge/traffic?${params}`);
+  const b = (await res.json()) as { traffic: TrafficRow[]; total: number };
+  traffic.value = b.traffic;
+  trafficTotal.value = b.total;
+}
+function trafficPages(): number { return Math.max(1, Math.ceil(trafficTotal.value / TRAFFIC_PAGE_SIZE)); }
+function gotoTrafficPage(p: number): void {
+  const max = trafficPages();
+  trafficPage.value = Math.min(Math.max(1, p), max);
+  void loadTraffic();
 }
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 watch(search, () => {
   if (searchTimer) clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => { void loadTraffic(); }, 250);
+  searchTimer = setTimeout(() => { trafficPage.value = 1; void loadTraffic(); }, 250); // search resets to page 1
 });
 async function loadPresets(): Promise<void> {
-  const res = await fetch('/api/forge/presets');
+  // round 2: always folder-scoped ('' = root); the doc picker uses the unscoped list
+  const res = await fetch(`/api/forge/presets?folderId=${preCurFolder.value ?? ''}`);
   presets.value = (await res.json() as { presets: PresetRow[] }).presets;
+}
+const presetGroups = computed(() => {
+  const groups = new Map<string, PresetRow[]>();
+  for (const p of presets.value) {
+    const k = `${p.method} ${p.path_pattern}`;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k)!.push(p);
+  }
+  return [...groups.entries()].map(([key, rows]) => ({ key, method: rows[0]!.method, path: rows[0]!.path_pattern, rows }));
+});
+async function loadPreFolders(): Promise<void> {
+  const q = preCurFolder.value ? `?parentId=${preCurFolder.value}` : '';
+  const res = await fetch(`/api/preset-folders${q}`);
+  const b = (await res.json()) as { folders: typeof preFolders.value; path: Array<{ id: string; name: string }> };
+  preFolders.value = b.folders;
+  preCrumbs.value = [{ id: '', name: 'presets' }, ...b.path.map((x) => ({ id: x.id, name: x.name }))];
+}
+async function openPreFolder(id: string | null): Promise<void> {
+  preCurFolder.value = id;
+  await Promise.all([loadPreFolders(), loadPresets()]);
+}
+async function createPreFolder(): Promise<void> {
+  const name = preFolderNewName.value.trim();
+  if (!name) return;
+  const res = await fetch('/api/preset-folders', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, parentId: preCurFolder.value }) });
+  const b = (await res.json()) as { id?: string; error?: string };
+  if (b.id) { preFolderNewName.value = ''; preFolderCreating.value = false; await loadPreFolders(); }
+  else msg.value = b.error ?? 'folder create failed';
+}
+async function renamePreFolder(): Promise<void> {
+  if (!preFolderRename.value) return;
+  const res = await fetch(`/api/preset-folders/${preFolderRename.value.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: preFolderRename.value.name }) });
+  const b = (await res.json()) as { error?: string };
+  if (b.error) msg.value = b.error;
+  preFolderRename.value = null;
+  await loadPreFolders();
+}
+async function deletePreFolder(id: string): Promise<void> {
+  const res = await fetch(`/api/preset-folders/${id}`, { method: 'DELETE' });
+  const b = (await res.json()) as { error?: string };
+  if (b.error) msg.value = b.error;
+  await loadPreFolders();
+}
+function togglePreSelectMode(): void {
+  preSelectMode.value = !preSelectMode.value;
+  if (!preSelectMode.value) preSelection.value = new Set();
+}
+function togglePreSel(id: string): void {
+  const n = new Set(preSelection.value);
+  if (n.has(id)) n.delete(id); else n.add(id);
+  preSelection.value = n;
+}
+async function movePresets(folderId: string | null): Promise<void> {
+  for (const id of preSelection.value) {
+    await fetch(`/api/forge/presets/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ folderId }) });
+  }
+  preMoveOpen.value = false;
+  preSelection.value = new Set();
+  preSelectMode.value = false;
+  await Promise.all([loadPresets(), loadPreFolders()]);
 }
 async function openDetail(t: TrafficRow): Promise<void> {
   selected.value = null;
@@ -132,7 +216,11 @@ async function saveAsPreset(): Promise<void> {
     const res = await fetch(`/api/forge/traffic/${selected.value.id}/save-preset`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     const b = (await res.json()) as { id?: string; error?: string };
     msg.value = b.id ? `preset ${b.id} — this endpoint now replays the captured response` : (b.error ?? 'failed');
-    if (b.id) { await loadPresets(); if (selected.value) await openDetail(selected.value); }
+    if (b.id) {
+      if (preCurFolder.value) await fetch(`/api/forge/presets/${b.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ folderId: preCurFolder.value }) });
+      await loadPresets();
+      if (selected.value) await openDetail(selected.value);
+    }
   } finally { savingPreset.value = false; }
 }
 const detailBody = computed((): BodyInfo | null => {
@@ -142,8 +230,9 @@ const detailBody = computed((): BodyInfo | null => {
 
 // ── scenario list + folders ──
 async function loadScenarios(): Promise<void> {
-  const q = curFolder.value === null ? '' : `?folderId=${curFolder.value ?? ''}`;
-  const res = await fetch(`/api/forge/scenarios${q}`);
+  // fix1 (round 2): ALWAYS filter by folder — '' = root (folder_id IS NULL).
+  // The old code sent no param at root, so foldered scenarios leaked into root.
+  const res = await fetch(`/api/forge/scenarios?folderId=${curFolder.value ?? ''}`);
   scenarios.value = (await res.json() as { scenarios: ScenarioRow[] }).scenarios;
 }
 async function loadFolders(): Promise<void> {
@@ -248,16 +337,55 @@ async function moveSelected(folderId: string | null): Promise<void> {
 
 const unwatch = watch(() => live.traffic.length, () => { void loadTraffic(); });
 
+// fix6 (round 2): Esc collapses the open scenario document — same pattern as
+// the test-cases yaml panel. Scoped: no modal open (preset editor), no input
+// or select focused (typing Esc into a field must do its normal job).
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key !== 'Escape' || !docOpenId.value) return;
+  if (editingPreset.value) return;
+  const el = document.activeElement;
+  if (el && (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA' || (el as HTMLElement).isContentEditable)) return;
+  docOpenId.value = null;
+}
+
+// the single fixed tooltip element for .ibtn (delegated — never clipped)
+const rowtip = document.createElement('div');
+rowtip.id = 'rowtip';
+rowtip.style.display = 'none';
+document.body.appendChild(rowtip);
+function onRowOver(e: MouseEvent): void {
+  const t = (e.target as HTMLElement).closest?.('.ibtn') as HTMLElement | null;
+  if (!t) return;
+  rowtip.textContent = t.dataset.tip ?? '';
+  const r = t.getBoundingClientRect();
+  rowtip.style.display = '';
+  rowtip.style.left = `${r.left + r.width / 2}px`;
+  rowtip.style.top = `${r.bottom + 5}px`;
+}
+function onRowOut(e: MouseEvent): void {
+  if ((e.target as HTMLElement).closest?.('.ibtn')) rowtip.style.display = 'none';
+}
+
 onMounted(() => {
+  window.addEventListener('keydown', onKeydown);
+  document.addEventListener('mouseover', onRowOver);
+  document.addEventListener('mouseout', onRowOut);
   live.connect();
   void loadTraffic();
   void loadPresets();
+  void loadPreFolders();
   void loadScenarios();
   void loadFolders();
   void loadMitm();
   void loadRouting();
 });
-onUnmounted(() => { unwatch(); live.release(); if (searchTimer) clearTimeout(searchTimer); });
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown);
+  document.removeEventListener('mouseover', onRowOver);
+  document.removeEventListener('mouseout', onRowOut);
+  rowtip.remove();
+  unwatch(); live.release(); if (searchTimer) clearTimeout(searchTimer);
+});
 </script>
 
 <template>
@@ -362,9 +490,9 @@ onUnmounted(() => { unwatch(); live.release(); if (searchTimer) clearTimeout(sea
           <span class="row-acts">
             <span v-if="s.changedSincePlay" class="chip changed" title="membership or preset bodies changed since the newest stamped run — applies from the next play">changed</span>
             <span v-if="s.usedBy.length > 0" class="chip used" :title="s.usedBy.map((u) => u.label).join('\n')">used</span>
-            <button class="btn btn-sm" title="copy membership + launch_arg to a new scenario" @click.stop="duplicateScenario(s.id, s.name)">duplicate</button>
             <button v-if="scnConfirmDelete === s.id" class="btn btn-sm btn-danger" @click.stop="deleteScenario(s)">confirm</button>
-            <button v-else class="btn btn-sm" title="delete this scenario (blocked while variants/case versions pin it)" @click.stop="scnConfirmDelete = s.id">delete</button>
+            <button v-else class="ibtn" data-tip="delete — blocked while variants/case versions pin it" @click.stop="scnConfirmDelete = s.id"><svg viewBox="0 0 20 20"><path d="M4 6h12M8 6V4h4v2m-7 0l1 11h8l1-11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <button class="ibtn" data-tip="duplicate — copy membership + launch_arg" @click.stop="duplicateScenario(s.id, s.name)"><svg viewBox="0 0 20 20"><rect x="7" y="7" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M13 4.5V3H3v10h1.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
           </span>
         </div>
         <ScenarioDocPanel
@@ -379,24 +507,73 @@ onUnmounted(() => { unwatch(); live.release(); if (searchTimer) clearTimeout(sea
       </div>
     </div>
 
-    <!-- presets library (picker-managed; rows open the editor) -->
+    <!-- presets: foldered (manual organization) + grouped by endpoint inside the view -->
     <div class="sec-label">presets <span class="n">{{ presets.length }}</span></div>
     <div class="a2-list">
       <div class="a2-thead pre-thead">
-        <span>method</span><span>path</span><span>status</span><span>body</span><span></span>
+        <span class="col-sel"></span><span>endpoint / preset</span><span>status</span><span>body</span><span></span>
       </div>
-      <div v-for="p in presets" :key="p.id" class="pre-row" :title="p.path_pattern">
-        <span class="mono">{{ p.method }}</span>
-        <span class="mono path">{{ p.path_pattern }}</span>
-        <span class="mono">{{ p.status }}</span>
-        <span class="mono mut">{{ p.body_path ? '✓' : '—' }}</span>
-        <span class="row-acts">
-          <button class="btn btn-sm" @click="editingPreset = p.id">edit</button>
-          <button v-if="presetConfirmDelete === p.id" class="btn btn-sm btn-danger" title="deletes the preset — refused while a scenario includes it" @click="deletePreset(p.id)">confirm</button>
-          <button v-else class="btn btn-sm" @click="presetConfirmDelete = p.id">delete</button>
+      <div class="a2-crumbs">
+        <template v-for="(c, ci) in preCrumbs" :key="ci">
+          <span v-if="ci > 0" class="crumb-sep">/</span>
+          <button class="crumb" :class="{ cur: ci === preCrumbs.length - 1 }" @click="openPreFolder(ci === 0 ? null : c.id)">{{ c.name }}</button>
+        </template>
+        <span class="crumb-acts">
+          <button class="btn btn-sm" @click="preFolderCreating = !preFolderCreating">+ folder</button>
+          <button class="btn btn-sm" :class="{ on: preSelectMode }" :title="preSelectMode ? 'leave selection mode' : 'select presets for bulk move'" @click="togglePreSelectMode">{{ preSelectMode ? '✕ select' : 'select' }}</button>
+          <template v-if="preSelectMode && preSelection.size > 0">
+            <span class="mono mut">{{ preSelection.size }} picked</span>
+            <button class="btn btn-sm" @click="preMoveOpen = !preMoveOpen">move to…</button>
+            <span v-if="preMoveOpen" class="mv">
+              <button class="btn btn-sm" @click="movePresets(null)">root</button>
+              <button v-for="f in preFolders" :key="f.id" class="btn btn-sm" @click="movePresets(f.id)">{{ f.name }}</button>
+            </span>
+          </template>
         </span>
       </div>
-      <div v-if="presets.length === 0" class="empty">no presets — open a request below and save as preset</div>
+      <div v-if="preFolderCreating" class="meta-row">
+        <span class="k">name</span>
+        <input v-model="preFolderNewName" placeholder="e.g. consumer app" style="flex: 1;" @keydown.enter="createPreFolder" />
+        <button class="btn btn-sm btn-primary" :disabled="!preFolderNewName.trim()" @click="createPreFolder">create</button>
+        <button class="btn btn-sm" @click="preFolderCreating = false">cancel</button>
+      </div>
+      <div v-for="f in preFolders" :key="f.id" class="a2-folder-row" :title="`open ${f.name} — ${f.presetCount} preset(s) in subtree`" @click="openPreFolder(f.id)">
+        <span class="f-spacer"><svg class="f-glyph" viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 4.5A1.5 1.5 0 014 3h3.6a1.5 1.5 0 011.1.5l1.1 1.2H16A1.5 1.5 0 0117.5 6.2v9.3A1.5 1.5 0 0116 17H4a1.5 1.5 0 01-1.5-1.5V4.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></span>
+        <template v-if="preFolderRename?.id === f.id">
+          <input v-model="preFolderRename.name" style="flex: 1;" @keydown.enter="renamePreFolder" @keydown.esc="preFolderRename = null" @click.stop />
+          <button class="btn btn-sm btn-primary" @click.stop="renamePreFolder">save</button>
+          <button class="btn btn-sm" @click.stop="preFolderRename = null">cancel</button>
+        </template>
+        <template v-else>
+          <span class="f-name">{{ f.name }}</span>
+          <span class="f-n">{{ f.presetCount }}</span>
+          <span class="f-fill"></span>
+          <span class="f-meta" :title="`created by ${f.createdBy} · ${new Date(f.createdAt).toLocaleString()}`">{{ f.createdBy }} · {{ new Date(f.createdAt).toLocaleDateString() }}</span>
+          <span class="f-sep"></span>
+          <span class="f-acts" @click.stop>
+            <button class="btn btn-sm" @click="preFolderRename = { id: f.id, name: f.name }">rename</button>
+            <button class="btn btn-sm f-del" :class="{ ghosted: f.presetCount > 0 }" :disabled="f.presetCount > 0" :title="f.presetCount > 0 ? 'move or delete its presets first' : 'delete this empty folder'" @click="deletePreFolder(f.id)">delete</button>
+          </span>
+        </template>
+      </div>
+      <template v-for="g in presetGroups" :key="g.key">
+        <div class="ep-group mono" :title="`${g.rows.length} preset(s) serve this endpoint`">{{ g.method }} {{ g.path }} <span class="f-n">{{ g.rows.length }}</span></div>
+        <div v-for="p in g.rows" :key="p.id" class="pre-row" :title="p.id">
+          <span class="col-sel">
+            <input v-if="preSelectMode" type="checkbox" :checked="preSelection.has(p.id)" @click.stop @change="togglePreSel(p.id)" title="select for bulk move" />
+            <svg v-else class="doc-glyph" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5h7l3 3v12H5v-15z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M11.5 2.7V6h3.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="mono pre-name" :title="p.id">{{ p.id }}</span>
+          <span class="mono">{{ p.status }}</span>
+          <span class="mono mut">{{ p.body_path ? '✓' : '—' }}</span>
+          <span class="row-acts">
+            <button v-if="presetConfirmDelete === p.id" class="btn btn-sm btn-danger" title="deletes the preset — refused while a scenario includes it" @click="deletePreset(p.id)">confirm</button>
+            <button v-else class="ibtn" data-tip="delete — refused while a scenario includes it" @click="presetConfirmDelete = p.id"><svg viewBox="0 0 20 20"><path d="M4 6h12M8 6V4h4v2m-7 0l1 11h8l1-11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <button class="ibtn" data-tip="edit what this preset serves" @click="editingPreset = p.id"><svg viewBox="0 0 20 20"><path d="M13.5 2.5l4 4L8 16H4v-4l9.5-9.5zm-2.8 3.7l1.6-1.6-1.2-1.2-1.6 1.6 1.2 1.2zM12.9 8.4l1.6-1.6-1.2-1.2-1.6 1.6 1.2 1.2zM5 13v2h2l1-1-2-2-1 1z" fill="currentColor"/></svg></button>
+          </span>
+        </div>
+      </template>
+      <div v-if="presets.length === 0 && preFolders.length === 0" class="empty">no presets here — capture traffic below and save as preset</div>
     </div>
 
     <!-- traffic: subordinate live feed -->
@@ -414,7 +591,7 @@ onUnmounted(() => { unwatch(); live.release(); if (searchTimer) clearTimeout(sea
         <span class="mut nowrap">{{ t.latency_ms }}ms</span>
         <span class="mono pre-hit">{{ t.matched_preset_id ?? '' }}</span>
       </div>
-      <div v-if="traffic.length === 0" class="empty">
+      <div v-if="traffic.length === 0 && trafficTotal === 0" class="empty">
         <div>no requests{{ search ? ' matching the filter' : ' yet' }}</div>
         <div v-if="!search" class="empty-steps">
           <b>to see traffic here:</b><br />
@@ -422,6 +599,12 @@ onUnmounted(() => { unwatch(); live.release(); if (searchTimer) clearTimeout(sea
           2. <b>route sims</b> — then restart booted simulators (shut down → boot)<br />
           3. use the app on the device
         </div>
+      </div>
+      <div class="pager mono" v-if="trafficTotal > 0">
+        <span class="mut">{{ trafficTotal }} requests</span>
+        <button class="btn btn-sm" :disabled="trafficPage <= 1" @click="gotoTrafficPage(trafficPage - 1)">‹</button>
+        <span>page {{ trafficPage }} / {{ trafficPages() }}</span>
+        <button class="btn btn-sm" :disabled="trafficPage >= trafficPages()" @click="gotoTrafficPage(trafficPage + 1)">›</button>
       </div>
     </div>
 
@@ -474,6 +657,17 @@ export default { name: 'ForgePage' };
 .chip { border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 1px 6px; font-family: var(--font-mono); font-size: 10px; color: var(--color-ash); }
 .chip.used { color: var(--color-ember); border-color: color-mix(in srgb, var(--color-ember) 40%, transparent); }
 .chip.changed { color: var(--color-ember); border-color: color-mix(in srgb, var(--color-ember) 40%, transparent); }
+/* icon buttons (test-cases .ibtn idiom) + the single fixed tooltip */
+.ibtn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: none; background: none; color: var(--color-pewter); cursor: pointer; border-radius: var(--r-sm); }
+.ibtn:hover { color: var(--color-paper); background: var(--color-graphite); }
+.ibtn svg { width: 16px; height: 16px; pointer-events: none; }
+#rowtip { position: fixed; z-index: 300; background: var(--color-graphite); border: 1px solid var(--color-slate); color: var(--color-fog); font-family: var(--font-mono); font-size: 10px; padding: 3px 7px; border-radius: var(--r-sm); pointer-events: none; white-space: nowrap; transform: translateX(-50%); }
+/* endpoint group head */
+.ep-group { display: flex; align-items: center; gap: 6px; padding: 7px 12px; border-bottom: 1px solid var(--color-iron); font-family: var(--font-mono); font-size: 11px; color: var(--color-pewter); background: var(--color-void); }
+.ep-group .f-n { color: var(--color-steel); margin-left: auto; }
+.pre-name { color: var(--color-fog); font-size: 11px; }
+/* pager */
+.pager { display: flex; align-items: center; gap: var(--s-2); padding: 7px 12px; border-top: 1px solid var(--color-iron); font-size: 11px; color: var(--color-fog); }
 .mono { font-family: var(--font-mono); }
 .mut { color: var(--color-steel); }
 .nowrap { white-space: nowrap; }
@@ -502,8 +696,8 @@ export default { name: 'ForgePage' };
 .btn.on { border-color: var(--color-ember); color: var(--color-ember); }
 .mv { display: inline-flex; gap: 4px; }
 /* presets library */
-.pre-thead { grid-template-columns: minmax(0, 60px) minmax(0, 1fr) minmax(0, 60px) minmax(0, 50px) minmax(0, 170px); }
-.pre-row { display: grid; grid-template-columns: minmax(0, 60px) minmax(0, 1fr) minmax(0, 60px) minmax(0, 50px) minmax(0, 170px); align-items: center; border-bottom: 1px solid var(--color-iron); font-size: var(--text-caption); cursor: default; }
+.pre-thead { grid-template-columns: 26px minmax(0, 1fr) minmax(0, 60px) minmax(0, 50px) minmax(0, 120px); }
+.pre-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) minmax(0, 60px) minmax(0, 50px) minmax(0, 120px); align-items: center; border-bottom: 1px solid var(--color-iron); font-size: var(--text-caption); cursor: default; }
 .pre-row:hover { background: var(--color-graphite); }
 .pre-row > span { padding: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 /* traffic */

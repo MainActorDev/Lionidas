@@ -29,6 +29,7 @@ const err = ref('');
 const saveMsg = ref('');
 const saving = ref(false);
 const editingPreset = ref<string | null>(null);
+const usedByOpen = ref(false); // fix5 (round 2): collapsed by default — depth behind disclosure
 
 // ── form model ──
 const fName = ref(props.name);
@@ -127,6 +128,27 @@ async function save(): Promise<void> {
   }
 }
 
+const pickerGroups = computed(() => {
+  const avail = props.allPresets.filter((p) => !fMembers.value.some((m) => m.preset_id === p.id));
+  const groups = new Map<string, typeof avail>();
+  for (const p of avail) {
+    const k = `${p.method} ${p.path_pattern}`;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k)!.push(p);
+  }
+  return [...groups.entries()].map(([key, rows]) => ({ key, method: rows[0]!.method, path: rows[0]!.path_pattern, rows }));
+});
+
+const usedBySummary = computed(() => {
+  const labels = props.usedBy.map((u) => u.label);
+  const variants = labels.filter((l) => l.startsWith('variant'));
+  const versions = labels.length - variants.length;
+  const bits: string[] = [];
+  if (variants.length > 0) bits.push(variants.join(' · '));
+  if (versions > 0) bits.push(`${versions} case version${versions === 1 ? '' : 's'}`);
+  return bits.join(' · ');
+});
+
 const dirty = computed(() => docDirty || fName.value !== props.name || (fLaunchArg.value.trim() || null) !== (props.launchArg ?? null) || JSON.stringify(fMembers.value.map((m) => [m.preset_id, m.enabled])) !== JSON.stringify(props.members.map((m) => [m.preset_id, m.enabled])));
 
 onMounted(async () => {
@@ -154,6 +176,7 @@ onBeforeUnmount(() => { host.value?.removeEventListener('input', onDocChanged); 
         <div class="sec-h">presets</div>
         <div v-for="(m, i) in fMembers" :key="m.preset_id" class="mrow">
           <input type="checkbox" :checked="m.enabled === 1" title="enabled presets are served when this scenario runs" @change="m.enabled = m.enabled === 1 ? 0 : 1" />
+          <span class="chipx" :class="{ on: m.enabled === 1 }" :title="m.enabled === 1 ? 'served when this scenario runs' : 'member, but not served'">{{ m.enabled === 1 ? 'on' : 'off' }}</span>
           <b class="mono">{{ m.method }}</b>
           <span class="mono path" :title="m.path_pattern">{{ m.path_pattern }}</span>
           <span class="st mono">{{ m.status }}</span>
@@ -163,11 +186,19 @@ onBeforeUnmount(() => { host.value?.removeEventListener('input', onDocChanged); 
         <div class="mrow add">
           <select class="a2-select-like" @change="($event.target as HTMLSelectElement).value && (addPreset(($event.target as HTMLSelectElement).value), (($event.target as HTMLSelectElement).value = ''))">
             <option value="">+ add preset…</option>
-            <option v-for="p in allPresets.filter((p) => !fMembers.some((m) => m.preset_id === p.id))" :key="p.id" :value="p.id">{{ p.method }} {{ p.path_pattern }} ({{ p.status }})</option>
+            <optgroup v-for="g in pickerGroups" :key="g.key" :label="`${g.method} ${g.path}`">
+              <option v-for="p in g.rows" :key="p.id" :value="p.id">{{ p.id }} ({{ p.status }})</option>
+            </optgroup>
           </select>
         </div>
-        <div v-if="usedBy.length > 0" class="sec-h">used by</div>
-        <div v-for="(u, i) in usedBy" :key="i" class="used mono">{{ u.label }}</div>
+        <template v-if="usedBy.length > 0">
+          <div class="sec-h usedby-h" :title="usedBy.map((u) => u.label).join('\n')" @click="usedByOpen = !usedByOpen">
+            used by {{ usedBy.length }} <span class="mut">— {{ usedBySummary }}</span> <span class="caret">{{ usedByOpen ? '▾' : '▸' }}</span>
+          </div>
+          <div v-if="usedByOpen" class="used-list">
+            <div v-for="(u, i) in usedBy" :key="i" class="used mono">{{ u.label }}</div>
+          </div>
+        </template>
       </div>
       <div class="scd-doc">
         <div class="doc-h">the document — what variants and the agent read</div>
@@ -198,7 +229,7 @@ export default { name: 'ScenarioDocPanel' };
 .scd-fill { flex: 1; }
 .chip.changed { border: 1px solid color-mix(in srgb, var(--color-ember) 40%, transparent); color: var(--color-ember); font-family: var(--font-mono); font-size: 10px; padding: 2px 6px; border-radius: var(--r-sm); }
 .scd-body { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); min-height: 0; }
-.scd-form { padding: var(--s-3) var(--s-4); overflow-y: auto; max-height: 420px; }
+.scd-form { padding: var(--s-3) var(--s-4); overflow-y: auto; max-height: 420px; min-height: 0; }
 .scd-doc { display: flex; flex-direction: column; padding: var(--s-3) var(--s-4); min-height: 0; border-left: 1px solid var(--color-iron); }
 .doc-h { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-steel); margin-bottom: var(--s-2); }
 .cm-host { flex: 1; min-height: 260px; overflow: hidden; display: flex; }
@@ -212,7 +243,13 @@ export default { name: 'ScenarioDocPanel' };
 .mrow .path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .mrow .st { color: var(--color-fog); font-size: 10px; }
 .mrow.add { padding-top: var(--s-2); }
+.usedby-h { cursor: pointer; display: flex; gap: 5px; align-items: baseline; }
+.usedby-h:hover { color: var(--color-fog); }
+.usedby-h .caret { color: var(--color-steel); }
+.used-list { max-height: 140px; overflow-y: auto; border-left: 1px solid var(--color-iron); padding-left: var(--s-2); margin-bottom: var(--s-2); }
 .used { font-size: 10px; color: var(--color-ash); padding: 1px 0; }
+.chipx { border: 1px solid var(--color-iron); border-radius: var(--r-sm); font-family: var(--font-mono); font-size: 9px; color: var(--color-steel); padding: 0 4px; }
+.chipx.on { color: var(--color-fog); border-color: var(--color-slate); }
 .ed-err { color: var(--color-ember); font-size: var(--text-caption); margin-top: var(--s-2); }
 .scd-foot { display: flex; gap: var(--s-2); align-items: center; margin-top: var(--s-2); font-size: 10px; color: var(--color-steel); }
 .scd-foot .fill { flex: 1; }

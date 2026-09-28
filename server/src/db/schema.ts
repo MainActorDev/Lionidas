@@ -554,6 +554,15 @@ export function migrateM1(db: Database.Database): void {
       updated_at INTEGER NOT NULL
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_scenario_folders_sibling ON scenario_folders(IFNULL(parent_id, ''), name);
+    CREATE TABLE IF NOT EXISTS preset_folders(
+      id TEXT PRIMARY KEY,
+      parent_id TEXT REFERENCES preset_folders(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_preset_folders_sibling ON preset_folders(IFNULL(parent_id, ''), name);
   `);
   const tplCols = db.prepare("SELECT name FROM pragma_table_info('templates')").all() as Array<{ name: string }>;
   if (!tplCols.some((x) => x.name === 'folder_id')) {
@@ -563,6 +572,12 @@ export function migrateM1(db: Database.Database): void {
   const scnCols = db.prepare("SELECT name FROM pragma_table_info('scenarios')").all() as Array<{ name: string }>;
   if (!scnCols.some((x) => x.name === 'folder_id')) {
     db.prepare('ALTER TABLE scenarios ADD COLUMN folder_id TEXT REFERENCES scenario_folders(id) ON DELETE SET NULL').run();
+  }
+  // preset folders (plan 20260928T105500Z): manual operator organization (e.g. by app);
+  // matcher/serving unchanged — folders are pure organization
+  const preCols = db.prepare("SELECT name FROM pragma_table_info('presets')").all() as Array<{ name: string }>;
+  if (!preCols.some((x) => x.name === 'folder_id')) {
+    db.prepare('ALTER TABLE presets ADD COLUMN folder_id TEXT REFERENCES preset_folders(id) ON DELETE SET NULL').run();
   }
   // app_screens gains the login recipe (Stage 1.2): nullable JSON column,
   // shape {entry, phoneField, passwordField, submit, session}.
