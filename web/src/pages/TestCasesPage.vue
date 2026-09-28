@@ -409,16 +409,17 @@ async function loadAllListings(): Promise<void> {
   await Promise.all(bundles.map((b) => loadListing(b)));
 }
 function crumbPath(bundle: string): Array<{ id: string | null; name: string }> {
-  const short = bundle.split('.').slice(-1)[0] ?? bundle;
-  return [{ id: null as string | null, name: short }, ...(listings.value[bundle]?.path ?? [])];
+  // sweep #2: the root crumb carries the FULL app identifier (operator)
+  return [{ id: null as string | null, name: bundle }, ...(listings.value[bundle]?.path ?? [])];
 }
 async function openFolder(bundle: string, folderId: string | null): Promise<void> {
   folderNav.value = { ...folderNav.value, [bundle]: folderId };
+  selection.value = new Set(); // sweep #7: stale selections must not outlive their rows
   await loadListing(bundle);
 }
 async function createFolderHere(bundle: string): Promise<void> {
   const name = window.prompt('folder name:')?.trim();
-  if (!name) return;
+  if (!name) { if (name !== undefined) flash('folder name cannot be empty'); return; } // sweep #8
   folderBusy.value = 'new';
   try {
     const r = await fetch('/api/folders', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ appBundleId: bundle, parentId: folderNav.value[bundle] ?? null, name }) });
@@ -441,7 +442,7 @@ async function deleteFolder(bundle: string, id: string, name: string): Promise<v
   const b = await r.json() as { error?: string };
   if (!r.ok) { flash(b.error ?? 'delete failed'); return; }
   // if we were inside it, fall back to the app root
-  if (folderNav.value[bundle] === id) folderNav.value = { ...folderNav.value, [bundle]: null };
+  folderNav.value = { ...folderNav.value, [bundle]: null }; // sweep #3: the deleted tree may CONTAIN the current nav depth — reset to root, not just on exact match
   await loadListing(bundle);
 }
 
@@ -469,6 +470,9 @@ function visibleRows(): Template[] {
 function listedCases(bundle: string): Template[] {
   const l = listings.value[bundle];
   if (!l) return [];
+  // sweep #6: an ACTIVE search is a FIND operation — it sees the whole app
+  // (filed + unfiled); folder scoping applies to browsing only
+  if (filter.value.trim()) return shown().filter((t) => t.appBundleId === bundle);
   const ids = new Set(l.caseIds);
   return shown().filter((t) => t.appBundleId === bundle && ids.has(t.id));
 }
@@ -613,6 +617,7 @@ async function duplicateCase(t: Template): Promise<void> {
     const b = await r.json() as { id?: string; name?: string; error?: string };
     if (!r.ok || !b.id) { flash(`duplicate failed: ${b.error ?? r.status}`); return; }
     await load(); // refresh list so the copy shows
+    await loadAllListings(); // the copy inherits the source's folder — refresh listings so it appears in-folder (sweep #1)
     const copy = templates.value.find((c) => c.id === b.id);
     if (copy) openYaml(copy); // operator decision: jump into the copy
     flash(`duplicated → ${b.name}`);

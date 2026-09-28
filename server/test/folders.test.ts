@@ -154,3 +154,34 @@ describe('folders × yaml round-trip', () => {
     expect(path.path.map((p2) => p2.name)).toEqual(['top', 'sub']);
   });
 });
+
+describe('folders edge sweep (20260928T133000Z)', () => {
+  it('duplicate inherits the source case\'s folder (sweep #1)', async () => {
+    const f = (await app.inject({ method: 'POST', url: '/api/folders', payload: { appBundleId: 'com.a', name: 'src' } })).json() as { id: string };
+    mkCase('tpl_70000001', 'original', 'com.a', f.id);
+    db.prepare("UPDATE templates SET steps_json = ? WHERE id = 'tpl_70000001'").run(JSON.stringify([{ idx: 0, action: 'scroll', direction: 'down' }]));
+    const dup = await app.inject({ method: 'POST', url: '/api/templates/tpl_70000001/duplicate' });
+    expect(dup.statusCode).toBe(201);
+    const row = db.prepare("SELECT folder_id FROM templates WHERE name = 'original (copy)'").get() as { folder_id: string | null };
+    expect(row.folder_id).toBe(f.id);
+  });
+
+  it('app change with a folder of the OLD app → 409 named (sweep #4)', async () => {
+    const f = (await app.inject({ method: 'POST', url: '/api/folders', payload: { appBundleId: 'com.a', name: 'home' } })).json() as { id: string };
+    mkCase('tpl_70000002', 'moving', 'com.a', f.id);
+    const r = await app.inject({ method: 'PATCH', url: '/api/templates/tpl_70000002', payload: { appBundleId: 'com.b' } });
+    expect(r.statusCode).toBe(409);
+    expect((r.json() as { error: string }).error).toContain('com.a');
+    // move out first → app change succeeds
+    await app.inject({ method: 'PATCH', url: '/api/templates/tpl_70000002', payload: { folderId: null } });
+    const ok = await app.inject({ method: 'PATCH', url: '/api/templates/tpl_70000002', payload: { appBundleId: 'com.b' } });
+    expect(ok.statusCode).toBe(200);
+  });
+
+  it('import: folder without app → 422 all-or-nothing (sweep #5)', async () => {
+    const r = await app.inject({ method: 'POST', url: '/api/templates/import', payload: { yaml: 'name: orphan folder case\nfolder: a/b\nsteps:\n  - scroll: down\n' } });
+    expect(r.statusCode).toBe(422);
+    expect((r.json() as { error: string }).error).toContain('folder requires an app');
+    expect((db.prepare('SELECT COUNT(*) AS n FROM templates').get() as { n: number }).n).toBeGreaterThanOrEqual(0);
+  });
+});

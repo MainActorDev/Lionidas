@@ -409,9 +409,9 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
         name = `${row.name} (copy ${n})`; n += 1;
       }
       db.prepare(
-        `INSERT INTO templates(id, name, description, ticket_key, udid, logical_w, logical_h, steps_json, app_bundle_id, app_name, app_version, tags_json, setup_json, alerts_policy, variants_json, entry_json, default_preset_id, status, created_by, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)`,
-      ).run(newId, name, row.description, row.ticket_key, row.udid, row.logical_w, row.logical_h, row.steps_json, row.app_bundle_id, row.app_name, row.app_version, row.tags_json, row.setup_json, row.alerts_policy, row.variants_json, row.entry_json, row.default_preset_id, req.user?.name ?? 'unknown', now, now);
+        `INSERT INTO templates(id, name, description, ticket_key, udid, logical_w, logical_h, steps_json, app_bundle_id, app_name, app_version, tags_json, setup_json, alerts_policy, variants_json, entry_json, default_preset_id, status, folder_id, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)`,
+      ).run(newId, name, row.description, row.ticket_key, row.udid, row.logical_w, row.logical_h, row.steps_json, row.app_bundle_id, row.app_name, row.app_version, row.tags_json, row.setup_json, row.alerts_policy, row.variants_json, row.entry_json, row.default_preset_id, row.folder_id, req.user?.name ?? 'unknown', now, now);
       return name;
     });
     const name = tx() as string;
@@ -446,6 +446,10 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       if (!r.ok || !r.case) return reply.code(422).send({ error: `${d.label}: ${(r.errors[0]?.message) ?? 'unparsable'}`, allRejected: true });
       const refErr = resolveCaseRefs(db, r.case as never, r.case.app ?? null);
       if (refErr) return reply.code(422).send({ error: `${d.label}: ${refErr}`, allRejected: true });
+      // sweep #5: a folder path with no app to hang it on would silently drop
+      if ((r.case as { folder?: string }).folder && !(r.case as { app?: string }).app) {
+        return reply.code(422).send({ error: `${d.label}: folder requires an app (app: <bundle>) to resolve its tree`, allRejected: true });
+      }
       parsed.push({ label: d.label, case: r.case });
     }
     const now = Date.now();
@@ -508,7 +512,15 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       return reply.code(400).send({ error: 'status must be draft|active|deprecated' });
     }
     // folders (plan 20260928T023000Z): moves validated at the seam — target
-    // folder must belong to the case's app (folders are app-scoped)
+    // folder must belong to the case's app (folders are app-scoped).
+    // Sweep #4: changing a case's APP while it sits in a folder would orphan
+    // it from both trees — refuse unless the folder belongs to the new app.
+    if (b.appBundleId !== undefined && b.appBundleId !== row.app_bundle_id && row.folder_id) {
+      const curFolder = db.prepare('SELECT app_bundle_id FROM folders WHERE id = ?').get(row.folder_id) as { app_bundle_id: string } | undefined;
+      if (curFolder && curFolder.app_bundle_id !== b.appBundleId) {
+        return reply.code(409).send({ error: `case sits in a folder of ${curFolder.app_bundle_id} — move it out before changing its app` });
+      }
+    }
     if (b.folderId !== undefined && b.folderId !== null) {
       const folder = db.prepare('SELECT app_bundle_id FROM folders WHERE id = ?').get(b.folderId) as { app_bundle_id: string } | undefined;
       if (!folder) return reply.code(409).send({ error: `folder "${b.folderId}" not found` });
