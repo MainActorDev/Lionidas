@@ -15,7 +15,6 @@ export interface ScenarioDocPanelProps {
   name: string;
   launchArg: string | null;
   members: Array<{ preset_id: string; enabled: number; method: string; path_pattern: string; status: number }>;
-  allPresets: Array<{ id: string; method: string; path_pattern: string; status: number }>;
   runCount: number;
   changedSincePlay: boolean;
 }
@@ -29,13 +28,23 @@ const saveMsg = ref('');
 const saving = ref(false);
 
 // ── form model ──
+// ALL presets, unscoped (the page's list is folder-scoped since round 2 —
+// binding the picker to it emptied the picker inside folders; bug fix)
+const allPresetsFull = ref<Array<{ id: string; name: string | null; method: string; path_pattern: string; status: number }>>([]);
+void (async () => {
+  try {
+    const res = await fetch('/api/forge/presets');
+    allPresetsFull.value = (await res.json() as { presets: typeof allPresetsFull.value }).presets;
+  } catch { /* picker degrades to members-only */ }
+})();
+
 const fName = ref(props.name);
 const fLaunchArg = ref(props.launchArg ?? '');
 const fMembers = ref(props.members.map((m) => ({ ...m })));
 
 const hints = computed(() => {
   const h: Record<string, { method?: string; path?: string; status?: number }> = {};
-  for (const m of [...fMembers.value, ...props.allPresets]) {
+  for (const m of [...fMembers.value, ...allPresetsFull.value]) {
     const id = 'preset_id' in m ? m.preset_id : m.id;
     h[id] = { method: m.method, path: m.path_pattern, status: m.status };
   }
@@ -64,7 +73,7 @@ async function docToForm(): Promise<void> {
   fName.value = r.doc.scenario;
   fLaunchArg.value = r.doc.launchArg ?? '';
   fMembers.value = r.doc.presets.map((p) => {
-    const hint = props.allPresets.find((x) => x.id === p.preset);
+    const hint = allPresetsFull.value.find((x) => x.id === p.preset);
     return { preset_id: p.preset, enabled: p.enabled ? 1 : 0, method: hint?.method ?? '?', path_pattern: hint?.path_pattern ?? '?', status: hint?.status ?? 0 };
   });
   err.value = '';
@@ -86,7 +95,7 @@ function onDocChanged(): void {
 
 function addPreset(pid: string): void {
   if (!pid || fMembers.value.some((m) => m.preset_id === pid)) return;
-  const p = props.allPresets.find((x) => x.id === pid);
+  const p = allPresetsFull.value.find((x) => x.id === pid);
   if (p) fMembers.value.unshift({ preset_id: p.id, enabled: 1, method: p.method, path_pattern: p.path_pattern, status: p.status });
 }
 
@@ -126,7 +135,7 @@ async function save(): Promise<void> {
 }
 
 const pickerGroups = computed(() => {
-  const avail = props.allPresets.filter((p) => !fMembers.value.some((m) => m.preset_id === p.id));
+  const avail = allPresetsFull.value.filter((p) => !fMembers.value.some((m) => m.preset_id === p.id));
   const groups = new Map<string, typeof avail>();
   for (const p of avail) {
     const k = `${p.method} ${p.path_pattern}`;
@@ -174,7 +183,7 @@ onBeforeUnmount(() => { host.value?.removeEventListener('input', onDocChanged); 
           <select class="a2-select-like" @change="($event.target as HTMLSelectElement).value && (addPreset(($event.target as HTMLSelectElement).value), (($event.target as HTMLSelectElement).value = ''))">
             <option value="">+ add preset…</option>
             <optgroup v-for="g in pickerGroups" :key="g.key" :label="`${g.method} ${g.path}`">
-              <option v-for="p in g.rows" :key="p.id" :value="p.id">{{ p.id }} ({{ p.status }})</option>
+              <option v-for="p in g.rows" :key="p.id" :value="p.id">{{ p.name ?? p.id }} ({{ p.status }})</option>
             </optgroup>
           </select>
         </div>
