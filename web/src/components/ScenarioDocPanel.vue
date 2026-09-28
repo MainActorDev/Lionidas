@@ -39,6 +39,10 @@ void (async () => {
 })();
 
 const fName = ref(props.name);
+// custom preset picker (operator ask): searchable, scrollable, house-styled —
+// replaces the native <select> which can't search and renders OS-styled
+const pickerOpen = ref(false);
+const pickerSearch = ref('');
 const fLaunchArg = ref(props.launchArg ?? '');
 const fMembers = ref(props.members.map((m) => ({ ...m })));
 
@@ -136,14 +140,24 @@ async function save(): Promise<void> {
 
 const pickerGroups = computed(() => {
   const avail = allPresetsFull.value.filter((p) => !fMembers.value.some((m) => m.preset_id === p.id));
+  const q = pickerSearch.value.trim().toLowerCase();
+  const matched = q
+    ? avail.filter((p) => (p.name ?? p.id).toLowerCase().includes(q) || `${p.method} ${p.path_pattern}`.toLowerCase().includes(q))
+    : avail;
   const groups = new Map<string, typeof avail>();
-  for (const p of avail) {
+  for (const p of matched) {
     const k = `${p.method} ${p.path_pattern}`;
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k)!.push(p);
   }
   return [...groups.entries()].map(([key, rows]) => ({ key, method: rows[0]!.method, path: rows[0]!.path_pattern, rows }));
 });
+const pickerTotal = computed(() => pickerGroups.value.reduce((n, g) => n + g.rows.length, 0));
+function pickPreset(pid: string): void {
+  addPreset(pid);
+  pickerSearch.value = '';
+  pickerOpen.value = false;
+}
 
 const dirty = computed(() => docDirty || fName.value !== props.name || (fLaunchArg.value.trim() || null) !== (props.launchArg ?? null) || JSON.stringify(fMembers.value.map((m) => [m.preset_id, m.enabled])) !== JSON.stringify(props.members.map((m) => [m.preset_id, m.enabled])));
 
@@ -179,13 +193,19 @@ onBeforeUnmount(() => { host.value?.removeEventListener('input', onDocChanged); 
           <button class="btn btn-sm" title="edit what this preset serves — opens at its row in the presets section" @click="emit('editPreset', m.preset_id)">edit</button>
           <button class="btn btn-sm" title="remove from this scenario" @click="fMembers.splice(i, 1)">✕</button>
         </div>
-        <div class="mrow add">
-          <select class="a2-select-like" @change="($event.target as HTMLSelectElement).value && (addPreset(($event.target as HTMLSelectElement).value), (($event.target as HTMLSelectElement).value = ''))">
-            <option value="">+ add preset…</option>
-            <optgroup v-for="g in pickerGroups" :key="g.key" :label="`${g.method} ${g.path}`">
-              <option v-for="p in g.rows" :key="p.id" :value="p.id">{{ p.name ?? p.id }} ({{ p.status }})</option>
-            </optgroup>
-          </select>
+        <div class="picker">
+          <button class="btn btn-sm picker-toggle" :title="pickerTotal + ' preset(s) available'" @click="pickerOpen = !pickerOpen">{{ pickerOpen ? '▾' : '▸' }} + add preset <span class="mut">{{ pickerTotal }}</span></button>
+          <div v-if="pickerOpen" class="picker-pop">
+            <input v-model="pickerSearch" class="picker-search" placeholder="search name, method, path…" @keydown.esc="pickerOpen = false" />
+            <div class="picker-list">
+              <div v-for="g in pickerGroups" :key="g.key" class="picker-group mono">{{ g.method }} {{ g.path }}</div>
+              <button v-for="p in pickerGroups.flatMap((g) => g.rows)" :key="p.id" class="picker-opt" :title="p.id" @click="pickPreset(p.id)">
+                <span class="picker-name">{{ p.name ?? p.id }}</span>
+                <span class="picker-st mono">{{ p.status }}</span>
+              </button>
+              <div v-if="pickerTotal === 0" class="picker-empty mono">no matching presets</div>
+            </div>
+          </div>
         </div>
       </div>
       <div class="scd-doc">
@@ -234,6 +254,19 @@ export default { name: 'ScenarioDocPanel' };
 .mrow.add { padding: var(--s-2) 8px; background: none; border-bottom: none; }
 .chipx { border: 1px solid var(--color-iron); border-radius: var(--r-sm); font-family: var(--font-mono); font-size: 9px; color: var(--color-steel); padding: 0 4px; }
 .chipx.on { color: var(--color-fog); border-color: var(--color-slate); }
+/* custom preset picker: house-styled, searchable, capped+scrollable */
+.picker { position: relative; margin-top: var(--s-2); }
+.picker-toggle .mut { color: var(--color-steel); margin-left: 4px; }
+.picker-pop { position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; right: 0; background: var(--color-graphite); border: 1px solid var(--color-slate); border-radius: var(--r-sm); box-shadow: 0 12px 32px rgba(0,0,0,0.5); display: flex; flex-direction: column; }
+.picker-search { margin: 6px; background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: 11px; padding: 5px 7px; }
+.picker-search:focus { outline: 1px solid var(--color-ember); outline-offset: 0; }
+.picker-list { max-height: 220px; overflow-y: auto; padding-bottom: 4px; }
+.picker-group { padding: 6px 10px 2px; font-size: 10px; color: var(--color-steel); text-transform: none; letter-spacing: 0; }
+.picker-opt { display: flex; align-items: center; gap: var(--s-2); width: 100%; text-align: left; padding: 6px 10px; background: none; border: none; color: var(--color-fog); font-family: var(--font-mono); font-size: 11px; cursor: pointer; }
+.picker-opt:hover { background: var(--color-void); color: var(--color-paper); }
+.picker-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-st { color: var(--color-steel); font-size: 10px; }
+.picker-empty { padding: 10px; font-size: 11px; color: var(--color-steel); }
 .ed-err { color: var(--color-ember); font-size: var(--text-caption); margin-top: var(--s-2); }
 .scd-foot { display: flex; gap: var(--s-2); align-items: center; margin-top: var(--s-2); font-size: 10px; color: var(--color-steel); }
 .scd-foot .fill { flex: 1; }
