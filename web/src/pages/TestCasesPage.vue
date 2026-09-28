@@ -390,6 +390,7 @@ interface FolderListing { folders: FolderRow[]; caseIds: string[]; path: Array<{
 const folderNav = ref<Record<string, string | null>>({}); // bundle → current folder (null/undefined = app root)
 const listings = ref<Record<string, FolderListing>>({}); // bundle → listing at its current depth
 const selection = ref(new Set<string>());
+const selectMode = ref(false); // toggle: checkboxes render only in select mode (operator rule)
 const moveOpen = ref(false);
 const moveTarget = ref('');
 const folderBusy = ref('');
@@ -450,6 +451,10 @@ async function runFolder(id: string, name: string): Promise<void> {
     const b = await r.json() as { runIds?: string[]; count?: number; error?: string };
     flash(b.error ? `folder run failed: ${b.error}` : `folder "${name}" → ${b.count ?? 0} run(s) queued`);
   } finally { folderBusy.value = ''; }
+}
+function toggleSelectMode(): void {
+  selectMode.value = !selectMode.value;
+  if (!selectMode.value) selection.value = new Set();
 }
 function toggleSel(id: string): void {
   const next = new Set(selection.value);
@@ -897,8 +902,9 @@ const suiteSummary = computed(() => {
           @click="statusFilter = s[0]">{{ s[1] }} <span class="n">{{ statusCountsDirty ? '·' : statusCounts[s[0] === '' ? 'all' : s[0]] }}</span></button>
       </div>
       <input ref="filterEl" v-model="filter" class="a2-search" placeholder="search cases…  ⌘F" />
-      <template v-if="selection.size > 0">
-        <button class="btn" @click="selectAllVisible">{{ selection.size === visibleRows().length ? 'clear' : 'select all' }}</button>
+      <button class="btn" :class="{ on: selectMode }" :title="selectMode ? 'leave selection mode' : 'select cases for bulk move/run'" @click="toggleSelectMode">{{ selectMode ? '✕ select' : 'select' }}</button>
+      <template v-if="selectMode && selection.size > 0">
+        <button class="btn" @click="selectAllVisible">{{ selection.size === visibleRows().length ? 'clear all' : 'select all' }}</button>
         <button class="btn" @click="moveOpen = true">move {{ selection.size }} to…</button>
         <button class="btn" :disabled="folderBusy === 'runsel'" @click="runSelected">{{ folderBusy === 'runsel' ? 'running…' : `run ${selection.size}` }}</button>
       </template>
@@ -940,13 +946,15 @@ const suiteSummary = computed(() => {
           <span class="f-acts" @click.stop>
             <button class="btn btn-sm btn-ghost" @click="renameFolder(g.label, f.id, f.name)">rename</button>
             <button class="btn btn-sm btn-ghost" :disabled="folderBusy === f.id" @click="runFolder(f.id, f.name)">{{ folderBusy === f.id ? 'running…' : 'run' }}</button>
-            <button class="btn btn-sm btn-ghost" @click="deleteFolder(g.label, f.id, f.name)">delete</button>
+            <button v-if="f.caseCount === 0" class="btn btn-sm btn-ghost" @click="deleteFolder(g.label, f.id, f.name)" title="delete this empty folder">delete</button>
+            <span v-else class="f-hint" title="move or delete its contents first — the guard refuses non-empty folders">not empty</span>
           </span>
         </div>
       </template>
       <article v-for="t in (g.key === NO_APP ? g.rows : listedCases(g.label))" v-show="!collapsed.has(g.key)" :key="t.id" class="a2-row-card" :class="{ editing: yamlOpenId === t.id, deprecated: t.status === 'deprecated' }">
         <div class="a2-row" @click="openYaml(t)" title="click to edit this case">
-            <span class="col-sel"><input type="checkbox" class="a2-sel" :checked="selection.has(t.id)" @click.stop @change="toggleSel(t.id)" title="select for bulk move/run" /></span>
+            <span v-if="selectMode" class="col-sel"><input type="checkbox" class="a2-sel" :checked="selection.has(t.id)" @click.stop @change="toggleSel(t.id)" title="select for bulk move/run" /></span>
+          <span v-else class="col-sel"></span>
 <span class="col-case">
             <span class="a2-name">{{ t.name }}</span>
             <span v-if="t.status === 'draft'" class="lifecycle-pill lifecycle-draft" title="draft — unfinished; still runs in batches">draft</span>
@@ -1279,6 +1287,8 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 .a2-table.foldered .a2-thead, .a2-table.foldered .a2-row { grid-template-columns: 26px minmax(0, 2.0fr) minmax(0, 70px) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 64px) minmax(0, 235px) minmax(0, 200px); }
 .a2-table.foldered .a2-thead > span:first-child { } /* thead's case label lands in track 2 — correct: track 1 is the sel column */
 .col-sel { display: flex; align-items: center; }
+.f-hint { font-size: 10px; color: var(--color-steel); }
+.btn.on { border-color: var(--color-ember); color: var(--color-ember); }
 .a2-sel { cursor: pointer; }
 .a2-select-like { width: 100%; padding: 6px 8px; margin: 8px 0; background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-family: var(--font-mono); font-size: 12px; }
 /* .a2-group-head lives in global components.css (shared across list pages) */
