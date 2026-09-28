@@ -444,14 +444,7 @@ async function deleteFolder(bundle: string, id: string, name: string): Promise<v
   if (folderNav.value[bundle] === id) folderNav.value = { ...folderNav.value, [bundle]: null };
   await loadListing(bundle);
 }
-async function runFolder(id: string, name: string): Promise<void> {
-  folderBusy.value = id;
-  try {
-    const r = await fetch(`/api/folders/${id}/run`, { method: 'POST' });
-    const b = await r.json() as { runIds?: string[]; count?: number; error?: string };
-    flash(b.error ? `folder run failed: ${b.error}` : `folder "${name}" → ${b.count ?? 0} run(s) queued`);
-  } finally { folderBusy.value = ''; }
-}
+
 function toggleSelectMode(): void {
   selectMode.value = !selectMode.value;
   if (!selectMode.value) selection.value = new Set();
@@ -941,15 +934,13 @@ const suiteSummary = computed(() => {
         </div>
         <div v-for="f in listings[g.label]?.folders ?? []" :key="f.id" class="a2-folder-row" @click="openFolder(g.label, f.id)" :title="`open ${f.name} — ${f.caseCount} case(s) in subtree`">
           <span class="f-spacer"><svg class="f-glyph" viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 4.5A1.5 1.5 0 014 3h3.6a1.5 1.5 0 011.1.5l1.1 1.2H16A1.5 1.5 0 0117.5 6.2v9.3A1.5 1.5 0 0116 17H4a1.5 1.5 0 01-1.5-1.5V4.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></span>
-          <span class="f-body">
-            <span class="f-line"><span class="f-name">{{ f.name }}</span><span class="f-n">{{ f.caseCount }}</span></span>
-            <span class="f-meta" :title="`created by ${f.createdBy ?? 'unknown'} · ${f.createdAt ? new Date(f.createdAt).toLocaleString() : '—'}`">{{ f.createdBy ?? 'unknown' }} · {{ f.createdAt ? new Date(f.createdAt).toLocaleDateString() : '—' }}</span>
-          </span>
+          <span class="f-name">{{ f.name }}</span>
+          <span class="f-n">{{ f.caseCount }}</span>
           <span class="f-acts" @click.stop>
             <button class="btn btn-sm btn-ghost" @click="renameFolder(g.label, f.id, f.name)">rename</button>
-            <button class="btn btn-sm btn-ghost" :disabled="folderBusy === f.id" @click="runFolder(f.id, f.name)">{{ folderBusy === f.id ? 'running…' : 'run' }}</button>
             <button v-if="f.caseCount === 0" class="btn btn-sm btn-ghost" @click="deleteFolder(g.label, f.id, f.name)" title="delete this empty folder">delete</button>
           </span>
+          <span class="f-meta" :title="`created by ${f.createdBy ?? 'unknown'} · ${f.createdAt ? new Date(f.createdAt).toLocaleString() : '—'}`">{{ f.createdBy ?? 'unknown' }} · {{ f.createdAt ? new Date(f.createdAt).toLocaleDateString() : '—' }}</span>
         </div>
       </template>
       <article v-for="t in (g.key === NO_APP ? g.rows : listedCases(g.label))" v-show="!collapsed.has(g.key)" :key="t.id" class="a2-row-card" :class="{ editing: yamlOpenId === t.id, deprecated: t.status === 'deprecated' }">
@@ -1293,7 +1284,7 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 .doc-glyph { width: 14px; height: 14px; color: var(--color-pewter); }
 .f-body { display: flex; flex-direction: column; min-width: 0; }
 .f-line { display: flex; align-items: baseline; gap: 6px; }
-.f-meta { font-size: 10px; color: var(--color-steel); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.f-meta { font-size: 10px; color: var(--color-steel); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-left: auto; }
 .btn.on { border-color: var(--color-ember); color: var(--color-ember); }
 .a2-sel { cursor: pointer; }
 .a2-select-like { width: 100%; padding: 6px 8px; margin: 8px 0; background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-family: var(--font-mono); font-size: 12px; }
