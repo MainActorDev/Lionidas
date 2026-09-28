@@ -114,7 +114,13 @@ export function registerFolderRoutes(app: FastifyInstance, db: Database.Database
   });
 
   app.get(`/api/${routeBase}`, async (req) => {
-    const q = req.query as { parentId?: string };
+    const q = req.query as { parentId?: string; flat?: string };
+    // flat=1: the full tree as path-labeled rows (move pickers, cross-folder navigation)
+    if (q.flat === '1') {
+      const all = db.prepare(`SELECT * FROM ${folderTable} ORDER BY name`).all() as FolderRow[];
+      const flat = all.map((f) => ({ id: f.id, name: f.name, path: folderPath(db, folderTable, f.id).map((p) => p.name).join('/'), [`${itemNoun}Count`]: subtreeUsage(folderSubtreeIds(db, folderTable, f.id)).items, parentId: f.parent_id }));
+      return { folders: flat, path: [] };
+    }
     const parentId = q.parentId?.trim() ? q.parentId : null;
     const kids = db.prepare(`SELECT * FROM ${folderTable} WHERE parent_id IS ? ORDER BY name`).all(parentId) as FolderRow[];
     const folders = kids.map((k) => ({ id: k.id, name: k.name, parentId: k.parent_id, [`${itemNoun}Count`]: subtreeUsage(folderSubtreeIds(db, folderTable, k.id)).items, createdBy: k.created_by, createdAt: k.created_at }));

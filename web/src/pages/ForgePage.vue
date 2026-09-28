@@ -65,6 +65,23 @@ const preFolderRename = ref<{ id: string; name: string } | null>(null);
 const preSelectMode = ref(false);
 const preSelection = ref(new Set<string>());
 const preMoveOpen = ref(false);
+// move pickers (round 2 follow-up): a small modal with a vertical picker —
+// not horizontally stacked buttons (operator direction, test-cases pattern)
+const scnMoveTarget = ref('');
+const preMoveTarget = ref('');
+// flat folder trees for the move pickers (path-labeled, full tree — not just current children)
+const scnFolderTree = ref<Array<{ id: string; path: string; scenarioCount: number }>>([]);
+const preFolderTree = ref<Array<{ id: string; path: string; presetCount: number }>>([]);
+async function loadFolderTrees(): Promise<void> {
+  try {
+    const s = await (await fetch('/api/scenario-folders?flat=1')).json() as { folders: typeof scnFolderTree.value };
+    scnFolderTree.value = s.folders;
+  } catch { /* picker falls back to direct children */ }
+  try {
+    const p = await (await fetch('/api/preset-folders?flat=1')).json() as { folders: typeof preFolderTree.value };
+    preFolderTree.value = p.folders;
+  } catch { /* ditto */ }
+}
 // traffic pagination (round 2)
 const trafficPage = ref(1);
 const trafficTotal = ref(0);
@@ -195,11 +212,13 @@ function togglePreSel(id: string): void {
   if (n.has(id)) n.delete(id); else n.add(id);
   preSelection.value = n;
 }
-async function movePresets(folderId: string | null): Promise<void> {
+async function movePresets(): Promise<void> {
+  const folderId = preMoveTarget.value || null;
   for (const id of preSelection.value) {
     await fetch(`/api/forge/presets/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ folderId }) });
   }
   preMoveOpen.value = false;
+  preMoveTarget.value = '';
   preSelection.value = new Set();
   preSelectMode.value = false;
   await Promise.all([loadPresets(), loadPreFolders()]);
@@ -325,11 +344,13 @@ function toggleSel(id: string): void {
   if (n.has(id)) n.delete(id); else n.add(id);
   selection.value = n;
 }
-async function moveSelected(folderId: string | null): Promise<void> {
+async function moveSelected(): Promise<void> {
+  const folderId = scnMoveTarget.value || null;
   for (const id of selection.value) {
     await fetch(`/api/forge/scenarios/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ folderId }) });
   }
   moveOpen.value = false;
+  scnMoveTarget.value = '';
   selection.value = new Set();
   selectMode.value = false;
   await Promise.all([loadScenarios(), loadFolders()]);
@@ -435,11 +456,7 @@ onUnmounted(() => {
           <button class="btn btn-sm" :class="{ on: selectMode }" :title="selectMode ? 'leave selection mode' : 'select scenarios for bulk move'" @click="toggleSelectMode">{{ selectMode ? '✕ select' : 'select' }}</button>
           <template v-if="selectMode && selection.size > 0">
             <span class="mono mut">{{ selection.size }} picked</span>
-            <button class="btn btn-sm" @click="moveOpen = !moveOpen">move to…</button>
-            <span v-if="moveOpen" class="mv">
-              <button class="btn btn-sm" @click="moveSelected(null)">root</button>
-              <button v-for="f in folders" :key="f.id" class="btn btn-sm" @click="moveSelected(f.id)">{{ f.name }}</button>
-            </span>
+            <button class="btn btn-sm" @click="moveOpen = true; void loadFolderTrees()">move to…</button>
           </template>
         </span>
       </div>
@@ -523,11 +540,7 @@ onUnmounted(() => {
           <button class="btn btn-sm" :class="{ on: preSelectMode }" :title="preSelectMode ? 'leave selection mode' : 'select presets for bulk move'" @click="togglePreSelectMode">{{ preSelectMode ? '✕ select' : 'select' }}</button>
           <template v-if="preSelectMode && preSelection.size > 0">
             <span class="mono mut">{{ preSelection.size }} picked</span>
-            <button class="btn btn-sm" @click="preMoveOpen = !preMoveOpen">move to…</button>
-            <span v-if="preMoveOpen" class="mv">
-              <button class="btn btn-sm" @click="movePresets(null)">root</button>
-              <button v-for="f in preFolders" :key="f.id" class="btn btn-sm" @click="movePresets(f.id)">{{ f.name }}</button>
-            </span>
+            <button class="btn btn-sm" @click="preMoveOpen = true; void loadFolderTrees()">move to…</button>
           </template>
         </span>
       </div>
@@ -626,6 +639,34 @@ onUnmounted(() => {
       <div v-else class="mut det-none">no {{ detailSide === 'res' ? 'response' : 'request' }} body captured</div>
     </div>
 
+    <!-- move pickers: vertical select in a small modal (not stacked buttons) -->
+    <div v-if="moveOpen" class="mv-modal" @click.self="moveOpen = false">
+      <div class="mv-card">
+        <div class="mv-h">move {{ selection.size }} scenario(s)</div>
+        <select v-model="scnMoveTarget" class="a2-select-like">
+          <option value="">— root (no folder) —</option>
+          <option v-for="f in scnFolderTree" :key="f.id" :value="f.id">{{ f.path }} ({{ f.scenarioCount }})</option>
+        </select>
+        <div class="mv-acts">
+          <button class="btn btn-sm" @click="moveOpen = false">cancel</button>
+          <button class="btn btn-sm btn-primary" @click="moveSelected">move</button>
+        </div>
+      </div>
+    </div>
+    <div v-if="preMoveOpen" class="mv-modal" @click.self="preMoveOpen = false">
+      <div class="mv-card">
+        <div class="mv-h">move {{ preSelection.size }} preset(s)</div>
+        <select v-model="preMoveTarget" class="a2-select-like">
+          <option value="">— root (no folder) —</option>
+          <option v-for="f in preFolderTree" :key="f.id" :value="f.id">{{ f.path }} ({{ f.presetCount }})</option>
+        </select>
+        <div class="mv-acts">
+          <button class="btn btn-sm" @click="preMoveOpen = false">cancel</button>
+          <button class="btn btn-sm btn-primary" @click="movePresets">move</button>
+        </div>
+      </div>
+    </div>
+
     <PresetEditorModal v-if="editingPreset" :preset-id="editingPreset" @close="editingPreset = null" @saved="msg = 'preset saved — serving updated'; void loadPresets()" />
   </div>
 </template>
@@ -695,6 +736,11 @@ export default { name: 'ForgePage' };
 .doc-glyph { width: 14px; height: 14px; color: var(--color-pewter); margin-left: 6px; }
 .btn.on { border-color: var(--color-ember); color: var(--color-ember); }
 .mv { display: inline-flex; gap: 4px; }
+.mv-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 60; }
+.mv-card { background: var(--color-graphite); border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: var(--s-4); min-width: 340px; max-width: 440px; }
+.mv-h { font-family: var(--font-mono); font-weight: var(--weight-bold); font-size: var(--text-caption); margin-bottom: var(--s-3); color: var(--color-paper); }
+.mv-card select { width: 100%; }
+.mv-acts { display: flex; gap: var(--s-2); justify-content: flex-end; margin-top: var(--s-3); }
 /* presets library */
 .pre-thead { grid-template-columns: 26px minmax(0, 1fr) minmax(0, 60px) minmax(0, 50px) minmax(0, 120px); }
 .pre-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) minmax(0, 60px) minmax(0, 50px) minmax(0, 120px); align-items: center; border-bottom: 1px solid var(--color-iron); font-size: var(--text-caption); cursor: default; }
