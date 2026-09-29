@@ -166,7 +166,19 @@ export function registerAppScreenRoutes(app: FastifyInstance, db: Database.Datab
   app.get('/api/apps/:bundle/screens.yaml', async (req, reply) => {
     const { bundle } = req.params as { bundle: string };
     reply.header('content-type', 'text/yaml; charset=utf-8');
-    return toYaml(screensFor(bundle));
+    // the recipes ride the export (they're per-bundle facts like the screens):
+    // wrapper form `screens: […]; login: …; logout: …` — the bare list stays
+    // importable for hand-written/legacy files
+    const screensYaml = toYaml(screensFor(bundle));
+    const loginRow = db.prepare('SELECT login_json FROM app_login WHERE bundle_id = ?').get(bundle) as { login_json: string } | undefined;
+    const logoutRow = db.prepare('SELECT logout_json FROM app_logout WHERE bundle_id = ?').get(bundle) as { logout_json: string } | undefined;
+    if (!loginRow && !logoutRow) return screensYaml;
+    const YAML = await import('yaml');
+    const indent = (y: string): string => y.split('\n').filter((l) => l.trim()).map((l) => `  ${l}`).join('\n');
+    const parts = [`screens:\n${indent(screensYaml)}`];
+    if (loginRow) parts.push(`login:\n${indent(YAML.stringify(JSON.parse(loginRow.login_json)))}`);
+    if (logoutRow) parts.push(`logout:\n${indent(YAML.stringify(JSON.parse(logoutRow.logout_json)))}`);
+    return parts.join('\n') + '\n';
   });
 
   app.put('/api/apps/:bundle/screens.yaml', async (req, reply) => {
@@ -179,10 +191,42 @@ export function registerAppScreenRoutes(app: FastifyInstance, db: Database.Datab
     try { parsed = YAML.parse(yaml); } catch (err) {
       return reply.code(422).send({ errors: [`invalid yaml: ${err instanceof Error ? err.message : String(err)}`] });
     }
-    const errors = validateRegistry(parsed);
+    // wrapper form: {screens: […], login: …, logout: …} — recipes are
+    // optional; validate with the same validators the panels use
+    let screensDoc = parsed;
+    let loginDoc: unknown = undefined;
+    let logoutDoc: unknown = undefined;
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) && 'screens' in (parsed as Record<string, unknown>)) {
+      const w = parsed as Record<string, unknown>;
+      screensDoc = w['screens'];
+      loginDoc = w['login'];
+      logoutDoc = w['logout'];
+      if (loginDoc !== undefined) {
+        const errs = validateAppLogin(loginDoc, screensFor(bundle) as unknown as unknown[]);
+        if (errs.length > 0) return reply.code(422).send({ errors: errs.map((e) => `login: ${e}`) });
+      }
+      if (logoutDoc !== undefined) {
+        const errs = validateAppLogout(logoutDoc);
+        if (errs.length > 0) return reply.code(422).send({ errors: errs.map((e) => `logout: ${e}`) });
+      }
+    }
+    const errors = validateRegistry(screensDoc);
     if (errors.length > 0) return reply.code(422).send({ errors });
-    replaceRegistry(bundle, parsed as AppScreen[]);
-    return { ok: true, count: (parsed as AppScreen[]).length };
+    replaceRegistry(bundle, screensDoc as AppScreen[]);
+    // import REPLACES absent recipe keys? No — screens replace wholesale, but
+    // recipes are absent-safe: only write what the file carries (a legacy
+    // bare-list export must not delete the panels' recipes)
+    if (loginDoc !== undefined) {
+      db.prepare(`INSERT INTO app_login(bundle_id, login_json, updated_at, revision) VALUES (?, ?, ?, 1)
+                  ON CONFLICT(bundle_id) DO UPDATE SET login_json = excluded.login_json, updated_at = excluded.updated_at, revision = revision + 1`)
+        .run(bundle, JSON.stringify(loginDoc), Date.now());
+    }
+    if (logoutDoc !== undefined) {
+      db.prepare(`INSERT INTO app_logout(bundle_id, logout_json, updated_at, revision) VALUES (?, ?, ?, 1)
+                  ON CONFLICT(bundle_id) DO UPDATE SET logout_json = excluded.logout_json, updated_at = excluded.updated_at, revision = revision + 1`)
+        .run(bundle, JSON.stringify(logoutDoc), Date.now());
+    }
+    return { ok: true, count: (screensDoc as AppScreen[]).length, ...(loginDoc !== undefined ? { login: true } : {}), ...(logoutDoc !== undefined ? { logout: true } : {}) };
   });
 
   // per-screen login routes REMOVED (settlement 2026-09-29, plan

@@ -52,6 +52,35 @@ describe('login settlement (F1/F3)', () => {
   });
 });
 
+describe('screens.yaml carries the recipes', () => {
+  it('export includes login/logout; import (wrapper form) restores them; bare-list import keeps working', async () => {
+    const app: FastifyInstance = Fastify();
+    app.addHook('onRequest', async (req) => { (req as unknown as { user: unknown }).user = { name: 't', role: 'operator' }; });
+    registerAppScreenRoutes(app, db);
+    await app.ready();
+    const bundle = 'com.example.app';
+    // seed: one screen + both recipes
+    await app.inject({ method: 'PUT', url: `/api/apps/${bundle}/screens`, payload: { screens: [{ id: 'home', entry: { tab: { label: 'Home' } }, states: { guest: { all: [{ label: 'welcome' }] } } }, { id: 'auth', entry: { tab: { label: 'Log In' } }, states: { logged_out: { all: [{ label: 'log_in' }] } } }] } });
+    await app.inject({ method: 'PUT', url: `/api/apps/${bundle}/logout`, payload: { logout: { button: 'b1', confirm: 'c1' } } });
+    await app.inject({ method: 'PUT', url: `/api/apps/${bundle}/login`, payload: { login: { entry: { tab: { label: 'Log In' } }, phone: 'ph', password: 'pw', submit: 'go', verify: { screen: 'auth', state: 'logged_out' } } } });
+    const yaml = (await (await app.inject({ method: 'GET', url: `/api/apps/${bundle}/screens.yaml` })).body);
+    expect(yaml).toContain('login:');
+    expect(yaml).toContain('logout:');
+    expect(yaml).toContain('button: b1');
+    // wipe and re-import the exported yaml → recipes restored
+    await app.inject({ method: 'DELETE', url: `/api/apps/${bundle}/logout` });
+    const imp = await app.inject({ method: 'PUT', url: `/api/apps/${bundle}/screens.yaml`, payload: { yaml } });
+    expect(imp.statusCode).toBe(200);
+    const got = await app.inject({ method: 'GET', url: `/api/apps/${bundle}/logout` });
+    expect(got.json().logout).toEqual({ button: 'b1', confirm: 'c1' });
+    // bare list (legacy form) still imports
+    const legacy = (await (await app.inject({ method: 'GET', url: `/api/apps/${bundle}/screens.yaml` })).body);
+    const bareList = legacy.split('\n').filter((l) => !/^(login|logout):/.test(l) && !/^  /.test(l) || /^  (entry|states|refresh)/.test(l)).join('\n');
+    const imp2 = await app.inject({ method: 'PUT', url: `/api/apps/${bundle}/screens.yaml`, payload: { yaml: '- id: home\n  entry:\n    tab:\n      label: Home\n  states:\n    guest:\n      all:\n        - label: welcome\n' } });
+    expect(imp2.statusCode).toBe(200);
+  });
+});
+
 describe('app_logout routes', () => {
   it('GET 404-shape → {logout: null}; PUT validates + revision-guards; DELETE round-trips', async () => {
     const app: FastifyInstance = Fastify();
