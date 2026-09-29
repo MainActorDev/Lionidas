@@ -468,7 +468,7 @@ async function requestAbort(): Promise<void> {
 .rp-fail-reason { font-size: 10px; color: var(--color-steel); word-break: break-word; }
 
 .rp-steps { overflow-y: auto; overscroll-behavior: contain; min-height: 0; padding: 8px 0; }
-.rp-narrate { grid-column: 1 / -1; margin-top: 2px; padding-left: 26px; font-size: 10px; line-height: 1.5; }
+.rp-narrate { flex-basis: 100%; order: -1; padding-left: 26px; font-size: 10px; line-height: 1.5; margin-bottom: -2px; }
 .rp-narrate-kw { color: var(--color-fog); font-weight: 600; margin-right: 4px; }
 .rp-narrate-rest { color: var(--color-steel); }
 .rp-steps-title {
@@ -477,7 +477,7 @@ async function requestAbort(): Promise<void> {
   padding: 2px 16px 8px; border-bottom: 1px solid var(--color-iron);
 }
 .rp-step {
-  display: flex; gap: 10px; align-items: center; min-height: 36px;
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center; min-height: 36px;
   padding: 4px 16px; color: var(--color-steel); position: relative; min-width: 0;
 }
 .rp-idx { width: 22px; text-align: right; flex: none; font-size: 11px; }
