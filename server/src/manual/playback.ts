@@ -1520,7 +1520,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // preferred, label fallback), confirm the sheet, verify the
             // session indicator is GONE. All resolution is live — no
             // recorded points, cross-device safe by construction.
-            const cfg = s.ensureLogout!;
+            const cfg = s.ensureLogout! as typeof s.ensureLogout & { back?: string };
             const snapNow = async () => {
               const sn = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
                 | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
@@ -1556,9 +1556,23 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 if (!nodes) nodes = await snapNow();
               }
             }
+            // back (mirror of via): after the preflight ends — either path —
+            // return to the screen the case was authored from. via: parks the
+            // app on the session screen (e.g. Account tab); without back the
+            // first case step runs against the wrong screen (live: tnc failed
+            // at its home-login-bar tap for three consecutive runs).
+            const tapBack = async (): Promise<void> => {
+              if (!cfg.back) return;
+              let cur = nodes ?? (await snapNow());
+              const pt = cur ? findOne(cur, cfg.back) : null;
+              if (!pt) return; // target absent (already there or id drifted) — no-op, case proceeds
+              await alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: pt.x, y: pt.y }, settle: false }, deps.dispatchDeps).catch(() => undefined);
+              await new Promise((res2) => setTimeout(res2, 600));
+            };
             const sessionVisible = nodes ? findOne(nodes, cfg.button) !== null : false;
             if (!sessionVisible) {
-              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure logout', 'pass', 'already logged out (no session)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, checked: cfg.button }), s.narrate ?? null);
+              await tapBack();
+              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure logout', 'pass', 'already logged out (no session)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, checked: cfg.button, ...(cfg.back ? { back: cfg.back } : {}) }), s.narrate ?? null);
             } else {
               const btn = nodes ? findOne(nodes, cfg.button) : null;
               if (!btn) throw new Error(`ensure logout: session indicator ${JSON.stringify(cfg.button)} vanished between reads`);
@@ -1582,7 +1596,8 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 gone = nodes ? findOne(nodes, cfg.button) === null : false;
               }
               if (!gone) throw new Error('ensure logout: confirm tapped but the session indicator is still visible');
-              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure logout', 'pass', 'session logged out (button → confirm → verified gone)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, button: cfg.button, confirm: cfg.confirm }), s.narrate ?? null);
+              await tapBack();
+              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure logout', 'pass', 'session logged out (button → confirm → verified gone)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, button: cfg.button, confirm: cfg.confirm, ...(cfg.back ? { back: cfg.back } : {}) }), s.narrate ?? null);
             }
             continue;
           }

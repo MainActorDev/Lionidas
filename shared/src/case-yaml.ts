@@ -515,6 +515,11 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
         const stay = b['stay'] as unknown;
         const confirm = b['confirm'] as unknown;
         const via = b['via'] as unknown;
+        const back = b['back'] as unknown;
+        if (back !== undefined && (typeof back !== 'string' || !back.trim())) {
+          errors.push({ line: 1, message: `${prefix(i)}: back needs a non-empty label-or-id (the screen to return to after the preflight)` });
+          continue;
+        }
         if (typeof bo !== 'string' || !bo.trim() || typeof confirm !== 'string' || !confirm.trim()) {
           errors.push({ line: 1, message: `${prefix(i)}: ensure logout needs button: <label-or-id> and confirm: <label-or-id> (stay: optional sheet-title check)` });
           continue;
@@ -527,6 +532,7 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
             stay: typeof stay === 'string' ? stay.trim() : '',
             confirm: confirm.trim(),
             ...(typeof via === 'string' && via.trim() ? { via: via.trim() } : {}),
+            ...(typeof back === 'string' && back.trim() ? { back: back.trim() } : {}),
           },
         });
         continue;
@@ -765,6 +771,7 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       lines.push(`      confirm: ${yamlScalar(el?.confirm ?? '?')}`);
       if (el?.stay) lines.push(`      stay: ${yamlScalar(el.stay)}`);
       if (el?.via) lines.push(`      via: ${yamlScalar(el.via)}`);
+      if ((el as { back?: string }).back) lines.push(`      back: ${yamlScalar((el as { back?: string }).back!)}`);
       if (typeof s['narrate'] === 'string' && s['narrate']) lines.push(`      narrate: ${yamlScalar(s['narrate'])}`);
     } else if (action === 'ensureLogin') {
       const el = s['ensureLogin'] as { entry?: string; phoneField?: string; passwordField?: string; submit?: string; session?: string; phone?: string; password?: string; screen?: string } | undefined;
