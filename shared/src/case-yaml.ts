@@ -435,7 +435,12 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
       // tap / type / expect: body is a mapping
       if (body === null || typeof body !== 'object' || Array.isArray(body)) {
         if (action === 'expect' && typeof body === 'string' && body.trim()) {
-          stepsOut.push({ idx: stepsOut.length, action: 'expect', selector: { label: body.trim() } });
+          // scalar sugar classifies EXACTLY like the on: mapping path
+          // (identifier iff IDENTIFIER_RE) — a divergence here silently
+          // downgrades identifier→label on one editor save, and the expect
+          // starts matching accessibility labels instead of asset ids
+          // (live 2026-09-29: run_c317a4ae failed on legal_doc_terms_screen)
+          stepsOut.push({ idx: stepsOut.length, action: 'expect', selector: IDENTIFIER_RE.test(body.trim()) ? { identifier: body.trim() } : { label: body.trim() } });
           continue;
         }
         errors.push({ line: 1, message: `${prefix(i)}: ${action} needs a mapping (or a plain label for expect)` });

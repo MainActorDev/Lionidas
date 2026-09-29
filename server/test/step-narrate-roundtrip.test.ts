@@ -101,6 +101,28 @@ describe('step narrate: grammar + round-trip', () => {
     expect(r2.errors.some(e => e.message.includes('narrate'))).toBe(true);
   });
 
+  it('scalar expect sugar classifies snake_case as IDENTIFIER (identifier→label downgrade regression)', () => {
+    // emitter renders identifier-only expects as the scalar sugar; the scalar
+    // parse must run the SAME IDENTIFIER_RE classification as the on: path,
+    // else one editor save downgrades identifier → label and the expect
+    // starts matching accessibility LABELS instead of ids (live: run_c317a4ae)
+    const r = parseCaseYaml('name: m\nsteps:\n  - expect: legal_doc_terms_screen');
+    expect(r.ok, r.errors.map((e: { message: string }) => e.message).join('; ')).toBe(true);
+    const sel = (r.case!.steps[0] as unknown as { selector: { identifier?: string; label?: string } }).selector;
+    expect(sel.identifier).toBe('legal_doc_terms_screen');
+    expect(sel.label).toBeUndefined();
+    // human-readable stays a label
+    const r2 = parseCaseYaml('name: m\nsteps:\n  - expect: Done');
+    const sel2 = (r2.case!.steps[0] as unknown as { selector: { identifier?: string; label?: string } }).selector;
+    expect(sel2.label).toBe('Done');
+    expect(sel2.identifier).toBeUndefined();
+    // full round-trip: emit→parse keeps identifier
+    const yaml = caseToYaml({ name: 'm', tags: [], steps: [{ idx: 0, action: 'expect', selector: { identifier: 'legal_doc_terms_screen' } }] });
+    const back = parseCaseYaml(yaml);
+    expect(back.ok).toBe(true);
+    expect((back.case!.steps[0] as unknown as { selector: { identifier?: string } }).selector.identifier).toBe('legal_doc_terms_screen');
+  });
+
   it('non-Gherkin narrate → warning, never an error (F2)', () => {
     const r = parseCaseYaml('name: m\nsteps:\n  - tap: { point: [1, 2], narrate: do the tap thing }');
     expect(r.ok).toBe(true);
