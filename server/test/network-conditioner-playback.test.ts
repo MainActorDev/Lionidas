@@ -14,7 +14,7 @@ import type { AlloyExports } from '../src/alloy/client.ts';
 
 let db: Database.Database;
 let tmp: string;
-const condCalls: Array<{ udid: string; op: string; profile?: string }> = [];
+const condCalls: Array<{ udid: string; op: string; profile?: string | undefined }> = [];
 const openCalls: string[] = [];
 const timeline: string[] = []; // unified ordering: 'set' / 'open' / 'clear' in real call order
 let condImpl: ((udid: string, op: { kind: 'set'; profile: string } | { kind: 'clear' }) => Promise<{ ok: boolean; reason?: string; detail?: string }>) | null = async (udid, op) => {

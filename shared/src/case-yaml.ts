@@ -36,6 +36,11 @@ export interface YamlStep {
   atLeast?: number;
   /** alert action target — accept or dismiss the frontmost system dialog */
   alertAction?: 'accept' | 'dismiss';
+  /** OPTIONAL human acceptance-criteria line (Gherkin Given/When/Then/And/But).
+   *  Display-only: rides parse→emit round-trip, persists on run_steps, renders
+   *  in the run panel. Never affects matching, dispatch, or pass/fail. Single
+   *  line; non-Gherkin text warns, never errors. */
+  narrate?: string;
   /** location action target — simulated GPS point (simctl location set) */
   location?: { latitude: number; longitude: number };
   /** R2 verbs — arrive: <screen-id>, refresh: <screen-id>, swap: <target-id> */
@@ -88,7 +93,7 @@ export interface RunFlowRefs { names: string[] }
 
 /** Parse + validate YAML text → { case, errors }. Errors carry YAML line
  *  numbers (from the yaml lib's source context). Never throws. */
-export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | null; errors: YamlError[]; runFlowNames: string[] } {
+export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | null; errors: YamlError[]; runFlowNames: string[]; warnings: YamlError[] } {
   const errors: YamlError[] = [];
   let doc: unknown;
   try {
@@ -98,12 +103,13 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
     // yaml v2: linePos is [{line, col}, {line, col}] (range); older docs say [line, col]
     const lp = e.linePos;
     const line = Array.isArray(lp) && lp.length > 0 ? (typeof lp[0] === 'number' ? (lp[0] as number) : (lp[0] as { line: number }).line) : 1;
-    return { ok: false, case: null, errors: [{ line, message: e.message ?? 'invalid yaml' }], runFlowNames: [] };
+    return { ok: false, case: null, errors: [{ line, message: e.message ?? 'invalid yaml' }], runFlowNames: [], warnings: [] };
   }
   if (doc === null || typeof doc !== 'object' || Array.isArray(doc)) {
-    return { ok: false, case: null, errors: [{ line: 1, message: 'the case must be a yaml mapping (name:, tags:, steps:…)' }], runFlowNames: [] };
+    return { ok: false, case: null, errors: [{ line: 1, message: 'the case must be a yaml mapping (name:, tags:, steps:…)' }], runFlowNames: [], warnings: [] };
   }
   const c = doc as Record<string, unknown>;
+  const warnings: YamlError[] = [];
   const lineOf = (key: string): number => {
     // the yaml lib keeps source ranges on parsed values ( CST ) — for v2
     // plain objects we approximate: keys are usually near the top; line 1
@@ -183,7 +189,7 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
     if (!Array.isArray(c['setup']) || (c['setup'] as unknown[]).length === 0) {
       errors.push({ line: 1, message: 'setup, when present, needs at least one step — remove the key if the case has no preconditions' });
     } else {
-      const r = parseStepList(c['setup'] as unknown[], 'setup', i => `setup step ${i + 1}`, errors);
+      const r = parseStepList(c['setup'] as unknown[], 'setup', i => `setup step ${i + 1}`, errors, warnings);
       setupOut = r.steps;
     }
   }
@@ -194,20 +200,20 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
   if (!Array.isArray(c['steps']) || (c['steps'] as unknown[]).length === 0) {
     errors.push({ line: 1, message: 'steps is required and must be a non-empty list — a case must do something' });
   } else {
-    const r = parseStepList(c['steps'] as unknown[], 'steps', i => `step ${i + 1}`, errors);
+    const r = parseStepList(c['steps'] as unknown[], 'steps', i => `step ${i + 1}`, errors, warnings);
     stepsOut.push(...r.steps);
     runFlowNames.push(...r.names);
   }
-  if (errors.length > 0) return { ok: false, case: null, errors, runFlowNames };
+  if (errors.length > 0) return { ok: false, case: null, errors, runFlowNames, warnings };
   const outCase: YamlCase = { name, tags, ...(app ? { app } : {}), ...(folder ? { folder } : {}), ...(setupOut ? { setup: setupOut } : {}), ...(alerts ? { alerts } : {}), ...(variantsOut ? { variants: variantsOut } : {}), steps: stepsOut };
   if (worldsOut) outCase.swaps = worldsOut;
   if (entry) outCase.entry = entry;
-  return { ok: true, case: outCase, errors: [], runFlowNames };
+  return { ok: true, case: outCase, errors: [], runFlowNames, warnings };
 }
 
 /** One step list (steps: or setup:) → validated steps + runFlow name refs.
  *  section names the list for error prefixing and gates setup-only rules. */
-function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i: number) => string, errors: YamlError[]): { steps: YamlStep[]; names: string[] } {
+function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i: number) => string, errors: YamlError[], warnings: YamlError[]): { steps: YamlStep[]; names: string[] } {
   const stepsOut: YamlStep[] = [];
   const runFlowNames: string[] = [];
   {
@@ -218,7 +224,26 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
         continue;
       }
       const s = raw as Record<string, unknown>;
-      const keys = Object.keys(s);
+      // narrate (optional per-step AC line): lift BEFORE anything pushes, validate,
+      // stamp on every step this iteration produces at iteration end (finally —
+      // every `continue` path stamps too; review F1)
+      const lenBefore = stepsOut.length;
+      const rawNarrate = s['narrate'];
+      let narrate: string | undefined;
+      if (rawNarrate !== undefined) {
+        if (typeof rawNarrate !== 'string' || !rawNarrate.trim()) {
+          errors.push({ line: 1, message: `${prefix(i)}: narrate needs a non-empty single-line string (Gherkin Given/When/Then/And/But)` });
+        } else if (rawNarrate.includes('\n')) {
+          errors.push({ line: 1, message: `${prefix(i)}: narrate must be a single line — multi-line AC is a case-level feature` });
+        } else {
+          narrate = rawNarrate.trim();
+          if (!/^(given|when|then|and|but)\b/i.test(narrate)) {
+            warnings.push({ line: 1, message: `${prefix(i)}: narrate is not Gherkin (expected Given/When/Then/And/But) — prose accepted` });
+          }
+        }
+      }
+      const keys = Object.keys(s).filter((k) => k !== 'narrate');
+      try {
       if (keys.length !== 1) {
         if (keys.length === 2 && (keys.includes('when') || keys.includes('optional'))) {
           const mod = keys.includes('when') ? 'when' : 'optional';
@@ -238,6 +263,28 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
         continue;
       }
       const body = s[action];
+      // narrate may ride INSIDE the action body (- tap: { point: …, narrate: … });
+      // lift+strip it here, once, before ANY branch consumes the body (the
+      // per-branch key whitelists must never see it)
+      if (body !== null && typeof body === 'object' && !Array.isArray(body)) {
+        const bm = body as Record<string, unknown>;
+        if (bm['narrate'] !== undefined) {
+          const bn = bm['narrate'];
+          if (narrate !== undefined) {
+            errors.push({ line: 1, message: `${prefix(i)}: narrate appears twice (step-level and body-level) — keep one` });
+          } else if (typeof bn !== 'string' || !bn.trim()) {
+            errors.push({ line: 1, message: `${prefix(i)}: narrate needs a non-empty single-line string (Gherkin Given/When/Then/And/But)` });
+          } else if (bn.includes('\n')) {
+            errors.push({ line: 1, message: `${prefix(i)}: narrate must be a single line — multi-line AC is a case-level feature` });
+          } else {
+            narrate = bn.trim();
+            if (!/^(given|when|then|and|but)\b/i.test(narrate)) {
+              warnings.push({ line: 1, message: `${prefix(i)}: narrate is not Gherkin (expected Given/When/Then/And/But) — prose accepted` });
+            }
+          }
+          delete bm['narrate'];
+        }
+      }
 
       // ── R2 verbs (S4): scalar screen/world targets + expect screen form ──
       if (action === 'arrive' || action === 'refresh') {
@@ -542,6 +589,11 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
       }
       attachWhen(es, b, section, prefix, i, errors);
       stepsOut.push(es);
+      } finally {
+        if (narrate !== undefined) {
+          for (let j = lenBefore; j < stepsOut.length; j++) stepsOut[j]!.narrate = narrate;
+        }
+      }
     }
   }
   return { steps: stepsOut, names: runFlowNames };
@@ -644,6 +696,9 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
     const icSuffix = (sel: unknown): string => ((sel as YamlSelector | undefined)?.ignoreCase === true ? ', ignoreCase: true' : '');
     const optSuffix = (o: unknown): string => (o === true ? ', optional: true' : '');
     const whenSuffix = (w: unknown): string => (typeof w === 'string' && w ? `, when: ${yamlScalar(w)}` : '');
+    const narrateSuffix = (n: unknown): string => (typeof n === 'string' && n ? `, narrate: ${yamlScalar(n)}` : '');
+    /** multi-line forms (ensure logout/login): narrate rides as a sibling key line */
+    const narrateLine = (n: unknown): string => (typeof n === 'string' && n ? `      narrate: ${yamlScalar(n)}\n` : '');
     if (action === 'tap') {
       // point only when recorded — selector-only steps (identifier/label
       // overloads) carry no coordinates and must not emit
@@ -658,19 +713,19 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       if (opt) parts.push(opt.replace(/^, /, ''));
       const wh = whenSuffix(s['when']);
       if (wh) parts.push(wh.replace(/^, /, ''));
-      lines.push(`  - tap: { ${parts.join(', ')} }`);
+      lines.push(`  - tap: { ${parts.join(', ')}${narrateSuffix(s['narrate'])} }`);
     } else if (action === 'scroll') {
-      lines.push(`  - scroll: ${s['direction']}`);
+      if (typeof s['narrate'] === 'string' && s['narrate']) { lines.push(`  - scroll: ${s['direction']}`); lines.push(`    narrate: ${yamlScalar(s['narrate'])}`); } else lines.push(`  - scroll: ${s['direction']}`);
     } else if (action === 'alert') {
-      lines.push(`  - alert: ${s['alertAction'] ?? 'dismiss'}`);
+      if (typeof s['narrate'] === 'string' && s['narrate']) { lines.push(`  - alert: ${s['alertAction'] ?? 'dismiss'}`); lines.push(`    narrate: ${yamlScalar(s['narrate'])}`); } else lines.push(`  - alert: ${s['alertAction'] ?? 'dismiss'}`);
     } else if (action === 'location') {
       const loc = s['location'] as { latitude: number; longitude: number };
-      lines.push(`  - location: { latitude: ${loc.latitude}, longitude: ${loc.longitude} }`);
+      lines.push(`  - location: { latitude: ${loc.latitude}, longitude: ${loc.longitude}${narrateSuffix(s['narrate'])} }`);
     } else if (action === 'type') {
       const pt = s['x'] !== undefined && s['y'] !== undefined ? `point: [${s['x']}, ${s['y']}], ` : '';
-      lines.push(`  - type: { ${pt}text: ${yamlScalar(String(s['text'] ?? ''))}${on(s['selector']) ? `, ${on(s['selector'])!}` : ''}${icSuffix(s['selector'])}${optSuffix(s['optional'])}${whenSuffix(s['when'])} }`);
+      lines.push(`  - type: { ${pt}text: ${yamlScalar(String(s['text'] ?? ''))}${on(s['selector']) ? `, ${on(s['selector'])!}` : ''}${icSuffix(s['selector'])}${optSuffix(s['optional'])}${whenSuffix(s['when'])}${narrateSuffix(s['narrate'])} }`);
     } else if (action === 'runFlow') {
-      lines.push(`  - runFlow: { name: ${yamlScalar(String(s['templateId'] ?? ''))}${optSuffix(s['optional'])} }`);
+      lines.push(`  - runFlow: { name: ${yamlScalar(String(s['templateId'] ?? ''))}${optSuffix(s['optional'])}${narrateSuffix(s['narrate'])} }`);
     } else if (action === 'expect') {
       const sl = s['selector'] as YamlSelector | undefined;
       // probe point rides along when recorded (sweep recovery, baguette 1.1):
@@ -681,22 +736,23 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       if (sl && (sl.labelContains !== undefined || sl.ignoreCase === true)) {
         // mode/flag selectors always render as a mapping (the scalar sugar is exact-cs only)
         const body = `${on(s['selector']) ?? 'on: ?'}${icSuffix(s['selector'])}${optSuffix(s['optional'])}${at}${card}`;
-        lines.push(`  - expect: { ${body.replace(/^, /, '')} }`);
+        lines.push(`  - expect: { ${body.replace(/^, /, '')}${narrateSuffix(s['narrate'])} }`);
       } else {
         const label = sl?.label ?? sl?.identifier ?? '?';
-        if (s['optional'] === true || at || card) lines.push(`  - expect: { on: ${yamlScalar(label)}${s['optional'] === true ? ', optional: true' : ''}${at}${card} }`);
-        else lines.push(`  - expect: ${yamlScalar(label)}`);
+        if (s['optional'] === true || at || card) lines.push(`  - expect: { on: ${yamlScalar(label)}${s['optional'] === true ? ', optional: true' : ''}${at}${card}${narrateSuffix(s['narrate'])} }`);
+        else if (typeof s['narrate'] === 'string' && s['narrate']) lines.push(`  - expect: { on: ${yamlScalar(label)}, narrate: ${yamlScalar(s['narrate'])} }`);
+      else lines.push(`  - expect: ${yamlScalar(label)}`);
       }
     } else if (action === 'arrive') {
-      lines.push(`  - arrive: ${yamlScalar(String(s['screen'] ?? ''))}`);
+      if (typeof s['narrate'] === 'string' && s['narrate']) { lines.push(`  - arrive: ${yamlScalar(String(s['screen'] ?? ''))}`); lines.push(`    narrate: ${yamlScalar(s['narrate'])}`); } else lines.push(`  - arrive: ${yamlScalar(String(s['screen'] ?? ''))}`);
     } else if (action === 'refresh') {
-      lines.push(`  - refresh: ${yamlScalar(String(s['screen'] ?? ''))}`);
+      if (typeof s['narrate'] === 'string' && s['narrate']) { lines.push(`  - refresh: ${yamlScalar(String(s['screen'] ?? ''))}`); lines.push(`    narrate: ${yamlScalar(s['narrate'])}`); } else lines.push(`  - refresh: ${yamlScalar(String(s['screen'] ?? ''))}`);
     } else if (action === 'swap') {
-      lines.push(`  - swap: ${yamlScalar(String(s['swap'] ?? s['world'] ?? ''))}`);
+      if (typeof s['narrate'] === 'string' && s['narrate']) { lines.push(`  - swap: ${yamlScalar(String(s['swap'] ?? s['world'] ?? ''))}`); lines.push(`    narrate: ${yamlScalar(s['narrate'])}`); } else lines.push(`  - swap: ${yamlScalar(String(s['swap'] ?? s['world'] ?? ''))}`);
     } else if (action === 'world') {
       // legacy stored form (pre-rename 2026-09-24) — emit the new vocabulary;
       // a stored world step must NEVER fall through to the placeholder path
-      lines.push(`  - swap: ${yamlScalar(String(s['world'] ?? ''))}`);
+      if (typeof s['narrate'] === 'string' && s['narrate']) { lines.push(`  - swap: ${yamlScalar(String(s['world'] ?? ''))}`); lines.push(`    narrate: ${yamlScalar(s['narrate'])}`); } else lines.push(`  - swap: ${yamlScalar(String(s['world'] ?? ''))}`);
     } else if (action === 'ensureLogout') {
       const el = s['ensureLogout'] as { button?: string; stay?: string; confirm?: string; via?: string } | undefined;
       lines.push(`  - ensure logout:`);
@@ -704,6 +760,7 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       lines.push(`      confirm: ${yamlScalar(el?.confirm ?? '?')}`);
       if (el?.stay) lines.push(`      stay: ${yamlScalar(el.stay)}`);
       if (el?.via) lines.push(`      via: ${yamlScalar(el.via)}`);
+      if (typeof s['narrate'] === 'string' && s['narrate']) lines.push(`      narrate: ${yamlScalar(s['narrate'])}`);
     } else if (action === 'ensureLogin') {
       const el = s['ensureLogin'] as { entry?: string; phoneField?: string; passwordField?: string; submit?: string; session?: string; phone?: string; password?: string; screen?: string } | undefined;
       if (el?.screen) {
@@ -725,11 +782,14 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       lines.push(`      phone: ${yamlScalar(el?.phone ?? '?')}`);
       lines.push(`      password: ${yamlScalar(el?.password ?? '?')}`);
       }
+      if (typeof s['narrate'] === 'string' && s['narrate']) lines.push(`      narrate: ${yamlScalar(s['narrate'])}`);
     } else if (action === 'expectScreen') {
       const es = s['expectScreen'] as { screen?: string; state?: string; negate?: boolean } | undefined;
       const scr = es?.screen ?? '?';
       const st = es?.state ?? '?';
-      lines.push(es?.negate === true
+      const nsc = narrateSuffix(s['narrate']);
+      if (nsc) { lines.push(`  - expect screen: ${es?.negate === true ? yamlScalar(`${scr}.state != ${st}`) : yamlScalar(`${scr}.${st}`)}`); lines.push(`    narrate: ${yamlScalar(String(s['narrate']))}`); }
+      else lines.push(es?.negate === true
         ? `  - expect screen: ${yamlScalar(`${scr}.state != ${st}`)}`
         : `  - expect screen: ${yamlScalar(`${scr}.${st}`)}`);
     } else {
