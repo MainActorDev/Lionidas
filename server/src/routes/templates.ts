@@ -442,7 +442,9 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     type Parsed = { label: string; case: ReturnType<typeof parseCaseYaml>['case'] };
     const parsed: Parsed[] = [];
     for (const d of docs) {
-      const r = parseCaseYaml(d.text);
+      const peekImp = parseCaseYaml(d.text);
+      const docAppImp = (peekImp.case as { app?: string } | null)?.app ?? null;
+      const r = parseCaseYaml(d.text, { hasLogoutRecipe: (bundle) => (bundle === null || bundle === undefined) ? (docAppImp !== null ? hasLogoutRecipe(docAppImp) : true) : hasLogoutRecipe(bundle) });
       if (!r.ok || !r.case) return reply.code(422).send({ error: `${d.label}: ${(r.errors[0]?.message) ?? 'unparsable'}`, allRejected: true });
       const refErr = resolveCaseRefs(db, r.case as never, r.case.app ?? null);
       if (refErr) return reply.code(422).send({ error: `${d.label}: ${refErr}`, allRejected: true });
@@ -800,6 +802,14 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     };
   });
 
+  /** bare `ensure logout:` save-time guard (plan 20260929T080249Z F2):
+   *  true when the app has a recipe in app_logout. Absent app → unchecked
+   *  here; playback fails closed with the same message. */
+  const hasLogoutRecipe = (bundle: string | null | undefined): boolean => {
+    if (!bundle) return false;
+    return !!db.prepare('SELECT 1 FROM app_logout WHERE bundle_id = ?').get(bundle);
+  };
+
   app.post('/api/templates/yaml/validate', async (req) => {
     const b = req.body as { yaml?: string };
     const r = parseCaseYaml(b.yaml ?? '');
@@ -862,7 +872,9 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     const row = db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
     const b = req.body as { yaml?: string };
-    const r = parseCaseYaml(b.yaml ?? '');
+const peekPut = parseCaseYaml(b.yaml ?? '');
+    const docAppPut = (peekPut.case as { app?: string } | null)?.app ?? null;
+    const r = parseCaseYaml(b.yaml ?? '', { hasLogoutRecipe: (bundle) => (bundle === null || bundle === undefined) ? hasLogoutRecipe(row.app_bundle_id) : hasLogoutRecipe(bundle) });
     if (!r.ok || !r.case) return reply.code(422).send({ errors: r.errors });
     // one resolution bar, shared with import (review F1). Conflict-class
     // failures keep the historical 409 contract (runFlow name unresolved,

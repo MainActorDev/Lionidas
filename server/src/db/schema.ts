@@ -593,4 +593,31 @@ export function migrateM1(db: Database.Database): void {
   if (!screenCols.some((x) => x.name === 'login_json')) {
     db.prepare('ALTER TABLE app_screens ADD COLUMN login_json TEXT').run();
   }
+  // ── logout recipe registry (plan 20260929T080249Z): app-level procedure,
+  // mirror of app_login. ONE recipe per bundle; cases reference it with the
+  // bare `ensure logout:` verb. ATOMIC settlement of the login duality in
+  // the same migration pass (review F1/F3): migrate screen-level recipes →
+  // app_login wins → drop the screen column. No server state exists where
+  // the column is gone but readers/writers still reference it (routes and
+  // the registry-replace snapshot are updated in this same change).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_logout(
+      bundle_id TEXT PRIMARY KEY,
+      logout_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1
+    );
+  `);
+  // login settlement: any screen-level recipes move to app_login exactly
+  // once (existing app_login rows win), then the column drops.
+  db.prepare(`INSERT INTO app_login(bundle_id, login_json, updated_at, revision)
+              SELECT app_bundle_id, login_json, 0, 1 FROM app_screens
+              WHERE login_json IS NOT NULL
+                AND app_bundle_id NOT IN (SELECT bundle_id FROM app_login)`).run();
+  try {
+    db.prepare('ALTER TABLE app_screens DROP COLUMN login_json').run();
+  } catch {
+    // SQLite <3.35 cannot DROP COLUMN — leave the orphaned column (unused);
+    // verified safe on this stack's better-sqlite3 (3.49.2), kept as a hedge.
+  }
 }

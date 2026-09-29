@@ -111,7 +111,7 @@ export interface PlaybackStep {
   /** location action target — simulated GPS point (simctl location set) */
   location?: { latitude: number; longitude: number };
   /** ensure logout: coordinate-free session preflight (identifier-first) */
-  ensureLogout?: { button: string; stay: string; confirm: string; via?: string };
+  ensureLogout?: { recipe?: 'app'; button?: string; stay?: string; confirm?: string; via?: string; back?: string };
   /** ensure login: coordinate-free login preflight; phone/password are
    *  ${env.X} refs resolved at playback — never literal secrets */
   ensureLogin?: { entry: string; phoneField: string; passwordField: string; submit: string; session: string; phone: string; password: string; screen?: string };
@@ -318,6 +318,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
   // app binding: playback launches the app the template was recorded in —
   // steps land on a known screen, not whatever happened to be foreground
   const appToLaunch = opts.bundleId ?? tpl.app_bundle_id ?? 'com.apple.Preferences';
+  const recipeBundle = tpl.app_bundle_id ?? opts.bundleId ?? null; // logout-recipe lookup order mirrors launch (plan 20260929T080249Z)
   // app presence pre-check (user contract 2026-09-04): a run against a sim
   // missing the target app must fail FAST with an actionable error — not a
   // ~17s engine-note abort. Checked BEFORE the run row exists (no phantom run).
@@ -1268,42 +1269,16 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               sessionVia = (proc.verify as { via?: string }).via ?? null; // optional: a control to tap before polling (state lives on another screen)
               sessionStateScreen = proc.verify.screen;
             }
-            if (screenRef) {
-              const row = deps.db.prepare('SELECT entry_json, states_json, login_json FROM app_screens WHERE app_bundle_id = ? AND screen_id = ?').get(tpl.app_bundle_id, screenRef) as { entry_json: string; states_json: string; login_json: string | null } | undefined;
-              const failRecipe = (why: string): void => {
-                runStatus = 'failed';
-                insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'fail', `ensure login: screen "${screenRef}" ${why}`, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action }), s.narrate ?? null);
-              };
-              if (!row) { failRecipe('is not in the screens registry for this app'); break; }
-              let recipe: Record<string, string> | null = null;
-              try { recipe = row.login_json ? (JSON.parse(row.login_json) as Record<string, string>) : null; } catch { recipe = null; }
-              if (!recipe) { failRecipe('has no login capability'); break; }
-              if ('phone' in recipe) {
-                // v2: controls from the block; entry + session from the screen's own facts
-                const gaps = (['phone', 'password', 'submit', 'session'] as const).filter((k) => typeof recipe[k] !== 'string' || !recipe[k]!.trim());
-                if (gaps.length > 0) { failRecipe(`login capability is missing ${gaps.join(', ')}`); break; }
-                type ScreenEntryShape = { tab?: { identifier?: string; label?: string }; deepLink?: string; navigate?: Array<Record<string, unknown>> };
-                let screenEntry: ScreenEntryShape | null = null;
-                let screenStates: Record<string, unknown> | null = null;
-                try { screenEntry = JSON.parse(row.entry_json) as ScreenEntryShape; } catch { screenEntry = null; }
-                try { screenStates = JSON.parse(row.states_json) as Record<string, unknown>; } catch { screenStates = null; }
-                if (!screenEntry || !screenStates) { failRecipe('has malformed entry/states — cannot derive the login flow'); break; }
-                if (!(recipe['session']! in screenStates)) { failRecipe(`login.session "${recipe['session']}" is not one of its states (has: ${Object.keys(screenStates).join(', ')})`); break; }
-                // legacy v2 fallback routes through the SAME entry player as
-                // the app procedure (per-step navigate playback — the join
-                // hack is dead everywhere, review F1)
-                const hasUsableEntry = !!screenEntry.tab || !!screenEntry.deepLink || (Array.isArray(screenEntry.navigate) && screenEntry.navigate.length > 0);
-                if (!hasUsableEntry) { failRecipe('declares no usable entry for the login flow'); break; }
-                procedureEntry = screenEntry;
-                selSource = { entry: '', phoneField: recipe['phone']!, passwordField: recipe['password']!, submit: recipe['submit']!, session: recipe['session']! };
-                sessionStateName = recipe['session']!;
-                sessionStateScreen = screenRef;
-              } else {
-                // legacy 5-field: literal values as stored
-                const gaps = (['entry', 'phoneField', 'passwordField', 'submit', 'session'] as const).filter((k) => typeof recipe[k] !== 'string' || !recipe[k]!.trim());
-                if (gaps.length > 0) { failRecipe(`login recipe is missing ${gaps.join(', ')}`); break; }
-                selSource = { entry: recipe['entry']!, phoneField: recipe['phoneField']!, passwordField: recipe['passwordField']!, submit: recipe['submit']!, session: recipe['session']! };
-              }
+            // screen-level login recipes are GONE (settlement 2026-09-29,
+            // plan 20260929T080249Z review F1): app_login is the single
+            // source. `screen:` on ensure login is accepted for back-compat
+            // with existing cases and now refers to the app procedure; if
+            // the app has no login flow the app-procedure branch above
+            // already failed the step with the honest message.
+            if (screenRef && !selSource) {
+              runStatus = 'failed';
+              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'fail', `ensure login: this app has no login flow registered — register it on the screens page (login flow)`, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, screenRef }), s.narrate ?? null);
+              break;
             }
             const cfg: Record<string, string | null> = {
               entry: selSource ? selSource.entry : cfgRaw.entry || null,
@@ -1520,7 +1495,27 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // preferred, label fallback), confirm the sheet, verify the
             // session indicator is GONE. All resolution is live — no
             // recorded points, cross-device safe by construction.
-            const cfg = s.ensureLogout! as typeof s.ensureLogout & { back?: string };
+            let cfg = s.ensureLogout! as typeof s.ensureLogout & { back?: string };
+            // registry (bare) form: resolve the app's recipe from app_logout
+            // (plan 20260929T080249Z). Inline keys win over the registry —
+            // a case-level override of the shared procedure. Fail-closed on
+            // a missing recipe: never a silent pass.
+            if (cfg.recipe === 'app') {
+              const row = (recipeBundle
+                ? deps.db.prepare('SELECT logout_json FROM app_logout WHERE bundle_id = ?').get(recipeBundle) as { logout_json: string } | undefined
+                : undefined);
+              type Recipe = { button?: string; stay?: string; confirm?: string; via?: string };
+              let recipe: Recipe | null = null;
+              try { recipe = row ? (JSON.parse(row.logout_json) as Recipe) : null; } catch { recipe = null; }
+              if (!recipe || !recipe.button || !recipe.confirm) {
+                runStatus = 'failed';
+                insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure logout', 'fail', `ensure logout: this app has no logout flow registered — register it on the screens page (logout flow) or inline button/confirm here`, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, source: 'registry' }), s.narrate ?? null);
+                break;
+              }
+              cfg = { button: recipe.button, stay: recipe.stay ?? '', confirm: recipe.confirm, ...(recipe.via ? { via: recipe.via } : {}), ...(cfg.back ? { back: cfg.back } : {}) };
+            }
+            const cfgButton = cfg.button ?? '';
+            const cfgConfirm = cfg.confirm ?? '';
             const snapNow = async () => {
               const sn = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
                 | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
@@ -1540,7 +1535,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // on another screen (logout button = account tab) — tap through
             // before the preflight, both for the check and the real logout
             let nodes = await snapNow();
-            const viaSel = (s.ensureLogout as { via?: string }).via;
+            const viaSel = cfg.via; // recipe or inline — read the RESOLVED cfg (plan 20260929T080249Z)
             if (viaSel) {
               const viaPt = nodes ? findOne(nodes, viaSel) : null;
               if (viaPt) {
@@ -1551,7 +1546,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 for (let k = 0; k < 15 && !isAborted(runId); k++) {
                   await new Promise((res2) => setTimeout(res2, 200));
                   nodes = await snapNow();
-                  if (nodes && findOne(nodes, cfg.button)) break;
+                  if (nodes && findOne(nodes, cfgButton)) break;
                 }
                 if (!nodes) nodes = await snapNow();
               }
@@ -1569,12 +1564,12 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               await alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: pt.x, y: pt.y }, settle: false }, deps.dispatchDeps).catch(() => undefined);
               await new Promise((res2) => setTimeout(res2, 600));
             };
-            const sessionVisible = nodes ? findOne(nodes, cfg.button) !== null : false;
+            const sessionVisible = nodes ? findOne(nodes, cfgButton) !== null : false;
             if (!sessionVisible) {
               await tapBack();
               insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure logout', 'pass', 'already logged out (no session)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, checked: cfg.button, ...(cfg.back ? { back: cfg.back } : {}) }), s.narrate ?? null);
             } else {
-              const btn = nodes ? findOne(nodes, cfg.button) : null;
+              const btn = nodes ? findOne(nodes, cfgButton) : null;
               if (!btn) throw new Error(`ensure logout: session indicator ${JSON.stringify(cfg.button)} vanished between reads`);
               const r1 = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: btn.x, y: btn.y }, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, 'ensure logout: open sheet')) as { ok: boolean; error?: { message: string } };
               if (!r1.ok) throw new Error(r1.error?.message ?? 'ensure logout: sheet tap failed');
@@ -1583,7 +1578,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               for (let k = 0; k < 50 && !confirm && !isAborted(runId); k++) {
                 await new Promise((res2) => setTimeout(res2, 100));
                 nodes = await snapNow();
-                confirm = nodes ? findOne(nodes, cfg.confirm) : null;
+                confirm = nodes ? findOne(nodes, cfgConfirm) : null;
               }
               if (!confirm) throw new Error(`ensure logout: confirm control ${JSON.stringify(cfg.confirm)} never appeared`);
               const r2 = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: confirm.x, y: confirm.y }, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, 'ensure logout: confirm')) as { ok: boolean; error?: { message: string } };
@@ -1593,7 +1588,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               for (let k = 0; k < 30 && !gone && !isAborted(runId); k++) {
                 await new Promise((res2) => setTimeout(res2, 200));
                 nodes = await snapNow();
-                gone = nodes ? findOne(nodes, cfg.button) === null : false;
+                gone = nodes ? findOne(nodes, cfgButton) === null : false;
               }
               if (!gone) throw new Error('ensure logout: confirm tapped but the session indicator is still visible');
               await tapBack();

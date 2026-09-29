@@ -205,6 +205,25 @@ export interface AppLogin {
   verify: { screen: string; state: string };
 }
 
+/** Logout as an app-level procedure (plan 20260929T080249Z F4): recipe
+ *  shape {button, stay?, confirm, via?} — button/confirm non-empty strings,
+ *  stay/via optional strings, unknown keys rejected. Mirrors
+ *  validateAppLogin's strictness. */
+export function validateAppLogout(logout: unknown): string[] {
+  if (!isPlainObject(logout)) return ['logout flow must be a mapping'];
+  const l = logout as Record<string, unknown>;
+  const errors: string[] = [];
+  const allowed = ['button', 'stay', 'confirm', 'via'];
+  for (const k of Object.keys(l)) if (!allowed.includes(k)) errors.push(`logout flow: unknown key "${k}" — allowed: ${allowed.join(', ')}`);
+  for (const req of ['button', 'confirm'] as const) {
+    if (typeof l[req] !== 'string' || !(l[req] as string).trim()) errors.push(`logout flow needs ${req}: a non-empty label-or-id`);
+  }
+  for (const optKey of ['stay', 'via'] as const) {
+    if (l[optKey] !== undefined && (typeof l[optKey] !== 'string' || !(l[optKey] as string).trim())) errors.push(`logout flow ${optKey}, when present, needs a non-empty label-or-id`);
+  }
+  return errors;
+}
+
 export function validateAppLogin(login: unknown, screens: unknown): string[] {
   const errors: string[] = [];
   if (!isPlainObject(login)) return ['login flow must be a mapping'];

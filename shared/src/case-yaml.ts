@@ -48,7 +48,7 @@ export interface YamlStep {
   /** ensure logout: if a session indicator is visible, walk the app's logout
    *  flow (list button → confirm sheet) by IDENTIFIER first, label second —
    *  coordinate-free, cross-device safe. No-op pass when already logged out. */
-  ensureLogout?: { button: string; stay: string; confirm: string; via?: string };
+  ensureLogout?: { recipe?: 'app'; button?: string; stay?: string; confirm?: string; via?: string; back?: string };
   ensureLogin?: { entry: string; phoneField: string; passwordField: string; submit: string; session: string; phone: string; password: string; screen?: string };
   /** swap: <id from this case's swaps/variants> */
   swap?: string;
@@ -93,7 +93,7 @@ export interface RunFlowRefs { names: string[] }
 
 /** Parse + validate YAML text → { case, errors }. Errors carry YAML line
  *  numbers (from the yaml lib's source context). Never throws. */
-export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | null; errors: YamlError[]; runFlowNames: string[]; warnings: YamlError[] } {
+export function parseCaseYaml(text: string, opts?: { hasLogoutRecipe?: (appBundleId: string | null | undefined) => boolean }): { ok: boolean; case: YamlCase | null; errors: YamlError[]; runFlowNames: string[]; warnings: YamlError[] } {
   const errors: YamlError[] = [];
   let doc: unknown;
   try {
@@ -189,7 +189,7 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
     if (!Array.isArray(c['setup']) || (c['setup'] as unknown[]).length === 0) {
       errors.push({ line: 1, message: 'setup, when present, needs at least one step — remove the key if the case has no preconditions' });
     } else {
-      const r = parseStepList(c['setup'] as unknown[], 'setup', i => `setup step ${i + 1}`, errors, warnings);
+      const r = parseStepList(c['setup'] as unknown[], 'setup', i => `setup step ${i + 1}`, errors, warnings, { app, hasLogoutRecipe: opts?.hasLogoutRecipe });
       setupOut = r.steps;
     }
   }
@@ -200,7 +200,7 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
   if (!Array.isArray(c['steps']) || (c['steps'] as unknown[]).length === 0) {
     errors.push({ line: 1, message: 'steps is required and must be a non-empty list — a case must do something' });
   } else {
-    const r = parseStepList(c['steps'] as unknown[], 'steps', i => `step ${i + 1}`, errors, warnings);
+    const r = parseStepList(c['steps'] as unknown[], 'steps', i => `step ${i + 1}`, errors, warnings, { app, hasLogoutRecipe: opts?.hasLogoutRecipe });
     stepsOut.push(...r.steps);
     runFlowNames.push(...r.names);
   }
@@ -213,7 +213,7 @@ export function parseCaseYaml(text: string): { ok: boolean; case: YamlCase | nul
 
 /** One step list (steps: or setup:) → validated steps + runFlow name refs.
  *  section names the list for error prefixing and gates setup-only rules. */
-function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i: number) => string, errors: YamlError[], warnings: YamlError[]): { steps: YamlStep[]; names: string[] } {
+function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i: number) => string, errors: YamlError[], warnings: YamlError[], ctx?: { app?: string | undefined; hasLogoutRecipe?: ((appBundleId: string | null | undefined) => boolean) | undefined }): { steps: YamlStep[]; names: string[] } {
   const stepsOut: YamlStep[] = [];
   const runFlowNames: string[] = [];
   {
@@ -443,6 +443,16 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
           stepsOut.push({ idx: stepsOut.length, action: 'expect', selector: IDENTIFIER_RE.test(body.trim()) ? { identifier: body.trim() } : { label: body.trim() } });
           continue;
         }
+        // bare registry form: `- ensure logout:` with empty/null body
+        if (action === 'ensure logout' && (body === null || (typeof body === 'string' && !body.trim()))) {
+          const hasIt = ctx?.hasLogoutRecipe;
+          if (hasIt && ctx?.app !== undefined && !hasIt(ctx.app)) {
+            errors.push({ line: 1, message: `${prefix(i)}: this app has no logout flow registered — register it on the screens page (logout flow) or inline button/confirm here` });
+            continue;
+          }
+          stepsOut.push({ idx: stepsOut.length, action: 'ensureLogout', ensureLogout: { recipe: 'app' } });
+          continue;
+        }
         errors.push({ line: 1, message: `${prefix(i)}: ${action} needs a mapping (or a plain label for expect)` });
         continue;
       }
@@ -511,6 +521,31 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
       }
       // ── ensure logout: coordinate-free session preflight ──
       if (action === 'ensure logout') {
+        // registry (bare) form: `ensure logout:` with no keys → the app's
+        // recipe resolves at run time (app_logout table). Inline keys + bare
+        // is ambiguous — one form per step.
+        // back is CASE-owned (where the case's first step starts), never recipe — a back-only body is the bare form + return target
+        const inlineKeys = ['button', 'on', 'stay', 'confirm', 'via'].filter((k) => b[k] !== undefined);
+        const hasRecipeMarker = (b['recipe'] as unknown) === 'app';
+        if (inlineKeys.length === 0 && (Object.keys(b).length === 0 || hasRecipeMarker)) {
+          const hasIt = ctx?.hasLogoutRecipe;
+          if (hasIt && ctx?.app !== undefined && !hasIt(ctx.app)) {
+            errors.push({ line: 1, message: `${prefix(i)}: this app has no logout flow registered — register it on the screens page (logout flow) or inline button/confirm here` });
+            continue;
+          }
+          const backOnly = b['back'];
+          const backVal = typeof backOnly === 'string' && backOnly.trim() ? backOnly.trim() : undefined;
+          if (backOnly !== undefined && !backVal) {
+            errors.push({ line: 1, message: `${prefix(i)}: back needs a non-empty label-or-id (the screen to return to after the preflight)` });
+            continue;
+          }
+          stepsOut.push({ idx: stepsOut.length, action: 'ensureLogout', ensureLogout: { recipe: 'app', ...(backVal ? { back: backVal } : {}) } });
+          continue;
+        }
+        if (hasRecipeMarker && inlineKeys.length > 0) {
+          errors.push({ line: 1, message: `${prefix(i)}: ensure logout is either bare (registry recipe) or inline (button/confirm) — not both` });
+          continue;
+        }
         const bo = (b['button'] ?? b['on']) as unknown;
         const stay = b['stay'] as unknown;
         const confirm = b['confirm'] as unknown;
@@ -521,6 +556,21 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
           continue;
         }
         if (typeof bo !== 'string' || !bo.trim() || typeof confirm !== 'string' || !confirm.trim()) {
+          // back-only body = bare registry form + case-owned return target
+          if (inlineKeys.length === 0 && b['back'] !== undefined) {
+            const bval = typeof b['back'] === 'string' && (b['back'] as string).trim() ? (b['back'] as string).trim() : undefined;
+            if (b['back'] !== undefined && !bval) {
+              errors.push({ line: 1, message: `${prefix(i)}: back needs a non-empty label-or-id (the screen to return to after the preflight)` });
+              continue;
+            }
+            const hasIt2 = ctx?.hasLogoutRecipe;
+            if (hasIt2 && ctx?.app !== undefined && !hasIt2(ctx.app)) {
+              errors.push({ line: 1, message: `${prefix(i)}: this app has no logout flow registered — register it on the screens page (logout flow) or inline button/confirm here` });
+              continue;
+            }
+            stepsOut.push({ idx: stepsOut.length, action: 'ensureLogout', ensureLogout: { recipe: 'app', ...(bval ? { back: bval } : {}) } });
+            continue;
+          }
           errors.push({ line: 1, message: `${prefix(i)}: ensure logout needs button: <label-or-id> and confirm: <label-or-id> (stay: optional sheet-title check)` });
           continue;
         }
@@ -765,7 +815,9 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       // a stored world step must NEVER fall through to the placeholder path
       if (typeof s['narrate'] === 'string' && s['narrate']) { lines.push(`  - swap: ${yamlScalar(String(s['world'] ?? ''))}`); lines.push(`    narrate: ${yamlScalar(s['narrate'])}`); } else lines.push(`  - swap: ${yamlScalar(String(s['world'] ?? ''))}`);
     } else if (action === 'ensureLogout') {
-      const el = s['ensureLogout'] as { button?: string; stay?: string; confirm?: string; via?: string } | undefined;
+      const el = s['ensureLogout'] as { recipe?: string; button?: string; stay?: string; confirm?: string; via?: string } | undefined;
+      if (el?.recipe === 'app') { lines.push(typeof s['narrate'] === 'string' && s['narrate'] ? `  - ensure logout: { back: ${yamlScalar(String((el as { back?: string }).back ?? ''))}, narrate: ${yamlScalar(s['narrate'])} }` : ((el as { back?: string }).back ? `  - ensure logout: { back: ${yamlScalar((el as { back?: string }).back!)} }` : `  - ensure logout: {}`)); }
+      else {
       lines.push(`  - ensure logout:`);
       lines.push(`      button: ${yamlScalar(el?.button ?? '?')}`);
       lines.push(`      confirm: ${yamlScalar(el?.confirm ?? '?')}`);
@@ -773,6 +825,7 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       if (el?.via) lines.push(`      via: ${yamlScalar(el.via)}`);
       if ((el as { back?: string }).back) lines.push(`      back: ${yamlScalar((el as { back?: string }).back!)}`);
       if (typeof s['narrate'] === 'string' && s['narrate']) lines.push(`      narrate: ${yamlScalar(s['narrate'])}`);
+      }
     } else if (action === 'ensureLogin') {
       const el = s['ensureLogin'] as { entry?: string; phoneField?: string; passwordField?: string; submit?: string; session?: string; phone?: string; password?: string; screen?: string } | undefined;
       if (el?.screen) {
