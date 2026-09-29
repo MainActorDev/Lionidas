@@ -5,7 +5,7 @@ import { useLiveEvents } from '../stores/live.ts';
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 
-interface Step { idx: number; flow_name: string; kind: string; name: string; status: string; reason: string | null; duration_ms: number; evidence_ids_json: string; evaluated_json?: string | null }
+interface Step { idx: number; flow_name: string; kind: string; name: string; status: string; reason: string | null; duration_ms: number; evidence_ids_json: string; evaluated_json?: string | null; narrate?: string | null }
 interface EvidenceRow { id: string; type: string; path: string; bytes: number }
 interface Run { id: string; ticket_key: string; status: string; kind: string; triggered_by: string; device_udid: string; artifact_hash: string | null; freshness: string; launch_args_json: string; started_at: number | null; finished_at: number | null; template_id: string | null; app_version: string | null; app_build?: string | null; app_bundle_id?: string | null; blocked: number; note: string | null }
 
@@ -71,6 +71,9 @@ async function attachJira(): Promise<void> {
 
 /** A4 evaluated display: the post-substitution step (what actually executed),
  *  shown when it differs from the recorded template step. */
+/** Gherkin narrate split (plan 20260929T030722Z): keyword accented, rest muted */
+function narrateKeyword(n: string): string { const m = n.match(/^(Given|When|Then|And|But)\b\s*/i); return m ? m[0].trim() : ''; }
+function narrateRest(n: string): string { return n.slice(narrateKeyword(n).length).trim(); }
 function evaluatedText(s: Step): string | null {
   if (!s.evaluated_json) return null;
   try {
@@ -272,6 +275,7 @@ onMounted(() => {
           <span class="flow">{{ s.flow_name }}</span>
           <span class="mid">
             <span v-if="s.name && s.name !== s.flow_name" class="flow-sub">{{ s.name }}</span>
+            <span v-if="s.narrate" class="narrate"><span class="narrate-kw">{{ narrateKeyword(s.narrate) }}</span>{{ narrateRest(s.narrate) }}</span>
             <span v-if="evaluatedText(s)" class="ev">↳ {{ evaluatedText(s) }}</span>
             <span v-if="s.reason" class="rs" :title="s.reason">{{ s.reason }}</span>
           </span>
@@ -381,6 +385,8 @@ onMounted(() => {
 .tlog-head:hover { color:var(--color-fog); }
 .tlog-head .n { color:var(--color-pewter); font-weight:400; }
 .tlog-head .arrow { margin-left:auto; color:var(--color-pewter); }
+.narrate { font-size: 10px; color: var(--color-steel); margin-left: 6px; }
+.narrate-kw { color: var(--color-fog); font-weight: 600; margin-right: 3px; }
 .tline { display:grid; grid-template-columns:56px 170px minmax(0,1fr) 70px 80px; gap:12px; padding:6px 0; border-bottom:1px solid var(--color-graphite); align-items:baseline; }
 .tline .idx { color:var(--color-steel); font-size:var(--text-caption); }
 .tline .idx.mono { color:var(--color-fog); }

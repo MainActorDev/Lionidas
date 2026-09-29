@@ -91,6 +91,8 @@ export interface PlaybackStep {
   /** Maestro-style soft step: a dispatch miss records skip, run stays green
    *  (interstitial popups, "dismiss if shown"). Missing env still hard-fails. */
   optional?: boolean;
+  /** optional per-step Gherkin AC line (plan 20260929T030722Z) — display-only */
+  narrate?: string;
   /** A6 element selector — resolved against the live hierarchy at playback */
   selector?: { identifier?: string; label?: string; type?: string };
   /** A5 subflow reference — expanded to child steps before execution */
@@ -534,16 +536,16 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     }
     deps.bus.emit('run.phase', { runId, phase: 'stream' });
     const insStmt = deps.db.prepare(
-      `INSERT INTO run_steps(run_id, idx, flow_name, kind, name, status, reason, started_at, duration_ms, evidence_ids_json, evaluated_json)
-       VALUES (?, ?, ?, 'step', ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO run_steps(run_id, idx, flow_name, kind, name, status, reason, started_at, duration_ms, evidence_ids_json, evaluated_json, narrate)
+       VALUES (?, ?, ?, 'step', ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     /** insert + emit step.finished — the write IS the finish. step.started
      *  fires at the top of the executing iteration (before dispatch), giving
      *  the run panel a real running window to highlight. */
     const insStep = {
-      run(runId: string, idx: number, flow: string, name: string, status: string, reason: string | null, startedAt: number, durationMs: number, evidence: string, evaluated: string | null): void {
-        insStmt.run(runId, idx, flow, name, status, reason, startedAt, durationMs, evidence, evaluated);
-        deps.bus.emit('step.finished', { runId, idx, flow, name, status, durationMs });
+      run(runId: string, idx: number, flow: string, name: string, status: string, reason: string | null, startedAt: number, durationMs: number, evidence: string, evaluated: string | null, narrate: string | null): void {
+        insStmt.run(runId, idx, flow, name, status, reason, startedAt, durationMs, evidence, evaluated, narrate);
+        deps.bus.emit('step.finished', { runId, idx, flow, name, status, durationMs, narrate });
       },
     };
     try {
@@ -699,7 +701,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       // events to template steps (expandFlows reindexes), so the truth ships.
       deps.bus.emit('run.plan', {
         runId, templateId, udid,
-        steps: execSteps.map((s) => ({ idx: s.idx, action: s.action, name: stepLabel(s), flow: s.flow ?? null, optional: s.optional === true })),
+        steps: execSteps.map((s) => ({ idx: s.idx, action: s.action, name: stepLabel(s), flow: s.flow ?? null, optional: s.optional === true, narrate: s.narrate ?? null })),
       });
       // Task 3 — system-dialog interceptor (run-start site): permission dialogs
       // render in SpringBoard, so the app AX tree stays populated behind them
@@ -721,7 +723,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           runStatus = 'failed';
           deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run(`blocked by system dialog: ${what}`, runId);
           for (const st of execSteps) {
-            insStep.run(runId, st.idx, st.flow ?? t.name, stepName(st), 'skip', 'blocked by system dialog (not reached)', Date.now(), 0, '[]', null);
+            insStep.run(runId, st.idx, st.flow ?? t.name, stepName(st), 'skip', 'blocked by system dialog (not reached)', Date.now(), 0, '[]', null, st.narrate ?? null);
           }
           skipAllSteps = true;
         } else if (insp.ok && insp.result?.message && !firstIsAlert && alertPolicy !== null) {
@@ -735,7 +737,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             runStatus = 'failed';
             deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run(kind, runId);
             for (const st of execSteps) {
-              insStep.run(runId, st.idx, st.flow ?? t.name, stepName(st), 'skip', `${kind} (not reached)`, Date.now(), 0, '[]', null);
+              insStep.run(runId, st.idx, st.flow ?? t.name, stepName(st), 'skip', `${kind} (not reached)`, Date.now(), 0, '[]', null, st.narrate ?? null);
             }
             skipAllSteps = true;
           }
@@ -773,12 +775,12 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
         // B2: operator abort — checked between steps; remaining steps skipped,
         // run aborted, device freed (B5 guard reads terminal status).
         if (isAborted(runId)) {
-          insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'skip', 'aborted by operator', Date.now(), 0, '[]', null);
+          insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'skip', 'aborted by operator', Date.now(), 0, '[]', null, s.narrate ?? null);
           continue;
         }
         // the panel's running highlight: this step is executing NOW (the
         // matching step.finished fires at the write, after dispatch settles)
-        deps.bus.emit('step.started', { runId, idx: s.idx, flow: s.flow ?? t.name, name: stepName(s) });
+        deps.bus.emit('step.started', { runId, idx: s.idx, flow: s.flow ?? t.name, name: stepName(s), narrate: s.narrate ?? null });
         // setup when-guard: one snapshot, existence check (not uniqueness).
         // Absent element = no-op skip. Guard runs BEFORE any dispatch — fast.
         if (s.when !== undefined) {
@@ -787,7 +789,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           const guardNodes = guard.ok ? (guard.result.nodes ?? []) : [];
           const shown = countMatches(guardNodes, { labelContains: s.when, ignoreCase: true }) > 0;
           if (!shown) {
-            insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'skip', `when not shown: ${s.when}`, t0, Date.now() - t0, '[]', null);
+            insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'skip', `when not shown: ${s.when}`, t0, Date.now() - t0, '[]', null, s.narrate ?? null);
             continue;
           }
         }
@@ -800,9 +802,9 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
         const resolved = substituteStep(s, activeEnv);
         if (resolved.error) {
           runStatus = 'failed';
-          insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', resolved.error, t0, 0, '[]', JSON.stringify(resolved));
+          insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', resolved.error, t0, 0, '[]', JSON.stringify(resolved), s.narrate ?? null);
           for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
-            insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null);
+            insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null, rest.narrate ?? null);
           }
           break;
         }
@@ -876,7 +878,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             const boundLabel = s.count !== undefined ? `exactly ${s.count}` : s.atLeast !== undefined ? `at least ${s.atLeast}` : 'exactly 1';
             const boundMet = s.count !== undefined ? matched === s.count : s.atLeast !== undefined ? matched >= s.atLeast : matched === 1;
             if (boundMet) {
-              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', s.count !== undefined || s.atLeast !== undefined ? `matched ${matched} (bound: ${boundLabel})` : null, t0, Date.now() - t0, expectEvidence, JSON.stringify(ev));
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', s.count !== undefined || s.atLeast !== undefined ? `matched ${matched} (bound: ${boundLabel})` : null, t0, Date.now() - t0, expectEvidence, JSON.stringify(ev), s.narrate ?? null);
             } else if (matched === 0 && probeFn && s.x !== undefined && s.y !== undefined && read?.nodesL) {
               // Tier 1 Task 4: walk missed — single-point probe at the recorded
               // coordinate (devtools sees what the walk cannot). A hit upgrades
@@ -886,7 +888,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               const probeHit = probeViews.some((v) => matchesSelector(v as never, s.selector!));
               if (probeHit) {
                 deps.bus.emit('sweep.stats', { runId, probes: 1, hits: 1, latencyMs: 0, step: s.idx });
-                insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', 'expect via point-probe (walk-blind)', t0, Date.now() - t0, expectEvidence, JSON.stringify(ev));
+                insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', 'expect via point-probe (walk-blind)', t0, Date.now() - t0, expectEvidence, JSON.stringify(ev), s.narrate ?? null);
                 continue;
               }
             } else {
@@ -896,13 +898,13 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 ? `not found: ${human} (${selJson})`
                 : `bound not met — found ${matched}, ${boundLabel}: ${human} (${selJson})`;
               if (s.optional) {
-                insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'skip', `optional expect miss: ${reason}`, t0, Date.now() - t0, '[]', JSON.stringify(ev));
+                insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'skip', `optional expect miss: ${reason}`, t0, Date.now() - t0, '[]', JSON.stringify(ev), s.narrate ?? null);
                 continue;
               }
               runStatus = 'failed';
-              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', reason, t0, Date.now() - t0, expectEvidence, JSON.stringify(ev));
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', reason, t0, Date.now() - t0, expectEvidence, JSON.stringify(ev), s.narrate ?? null);
               for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
-                insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null);
+                insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null, rest.narrate ?? null);
               }
               break;
             }
@@ -1142,7 +1144,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // names the two fixes. optional:true skips (the author's toggle).
             const why = 'cross-device coordinate tap without a selector — record a selector or mark the step optional';
             if (s.optional) {
-              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'skip', `optional miss: ${why}`, t0, Date.now() - t0, '[]', JSON.stringify(resolved));
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'skip', `optional miss: ${why}`, t0, Date.now() - t0, '[]', JSON.stringify(resolved), s.narrate ?? null);
               continue;
             }
             throw new Error(why);
@@ -1190,12 +1192,12 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             const passEv = outcome.ok && s.action === 'expectScreen' ? await recorder.captureStateEvidence() : null;
             const passEvidence = passEv ? JSON.stringify([passEv]) : '[]';
             if (outcome.ok) {
-              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, passEvidence, JSON.stringify({ action: s.action, note: outcome.note, ...(activeSwap ? { swapTarget: activeSwap } : {}), ...(outcome.waitMs !== undefined ? { waitMs: outcome.waitMs, workMs: Math.max(0, (Date.now() - t0) - outcome.waitMs) } : {}) }));
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, passEvidence, JSON.stringify({ action: s.action, note: outcome.note, ...(activeSwap ? { swapTarget: activeSwap } : {}), ...(outcome.waitMs !== undefined ? { waitMs: outcome.waitMs, workMs: Math.max(0, (Date.now() - t0) - outcome.waitMs) } : {}) }), s.narrate ?? null);
             } else {
               runStatus = 'failed';
-              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', `${outcome.code}: ${outcome.note}`, t0, Date.now() - t0, passEvidence, JSON.stringify({ action: s.action, code: outcome.code }));
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', `${outcome.code}: ${outcome.note}`, t0, Date.now() - t0, passEvidence, JSON.stringify({ action: s.action, code: outcome.code }), s.narrate ?? null);
               for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
-                insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null);
+                insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null, rest.narrate ?? null);
               }
               break;
             }
@@ -1209,13 +1211,13 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             try {
               const r = await locationOps.set(udid, loc.latitude, loc.longitude);
               locationSet = true;
-              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify({ action: 'location', ...r, ...(s.flow && { flow: s.flow }) }));
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify({ action: 'location', ...r, ...(s.flow && { flow: s.flow }) }), s.narrate ?? null);
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err);
               runStatus = 'failed';
-              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', msg, t0, Date.now() - t0, '[]', JSON.stringify({ action: 'location', latitude: loc.latitude, longitude: loc.longitude }));
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', msg, t0, Date.now() - t0, '[]', JSON.stringify({ action: 'location', latitude: loc.latitude, longitude: loc.longitude }), s.narrate ?? null);
               for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
-                insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null);
+                insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null, rest.narrate ?? null);
               }
               break;
             }
@@ -1257,7 +1259,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               try { proc = JSON.parse(appLoginRow.login_json) as ProcShape; } catch { proc = null; }
               if (!proc || !proc.entry || !proc.phone || !proc.password || !proc.submit || !proc.verify?.screen || !proc.verify?.state) {
                 runStatus = 'failed';
-                insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'fail', `ensure login: the app's login flow is incomplete — edit it on the screens page`, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action }));
+                insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'fail', `ensure login: the app's login flow is incomplete — edit it on the screens page`, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action }), s.narrate ?? null);
                 break;
               }
               procedureEntry = proc.entry;
@@ -1270,7 +1272,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               const row = deps.db.prepare('SELECT entry_json, states_json, login_json FROM app_screens WHERE app_bundle_id = ? AND screen_id = ?').get(tpl.app_bundle_id, screenRef) as { entry_json: string; states_json: string; login_json: string | null } | undefined;
               const failRecipe = (why: string): void => {
                 runStatus = 'failed';
-                insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'fail', `ensure login: screen "${screenRef}" ${why}`, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action }));
+                insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'fail', `ensure login: screen "${screenRef}" ${why}`, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action }), s.narrate ?? null);
               };
               if (!row) { failRecipe('is not in the screens registry for this app'); break; }
               let recipe: Record<string, string> | null = null;
@@ -1315,7 +1317,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             const missing = Object.entries(cfg).filter(([, v]) => v === null || v === undefined).map(([k]) => k);
             if (missing.length > 0) {
               runStatus = 'failed';
-              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'fail', `missing env: ${missing.join(', ')}`, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action }));
+              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'fail', `missing env: ${missing.join(', ')}`, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action }), s.narrate ?? null);
               break;
             }
             const cfgResolved = cfg as unknown as { entry: string; phoneField: string; passwordField: string; submit: string; session: string; phone: string; password: string };
@@ -1371,13 +1373,13 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 nodes = await snapNow();
                 alreadyIn = await sessionHolds(nodes);
                 if (alreadyIn) {
-                  insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'pass', 'session already held (via verify.via probe)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action }));
+                  insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'pass', 'session already held (via verify.via probe)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action }), s.narrate ?? null);
                   continue;
                 }
               }
             }
             if (alreadyIn) {
-              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'pass', sessionStateName ? `already logged in (state "${sessionStateName}" holds)` : 'already logged in (session visible)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, checked: cfgResolved.session }));
+              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'pass', sessionStateName ? `already logged in (state "${sessionStateName}" holds)` : 'already logged in (session visible)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, checked: cfgResolved.session }), s.narrate ?? null);
             } else {
               // state restoration can land the app DIRECTLY on the login
               // form (iOS scene restore after terminate). If the form is
@@ -1508,7 +1510,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 seen = await sessionHolds(nodes);
               }
               if (!seen) throw new Error(sessionStateName ? `ensure login: submitted but the screen state "${sessionStateName}" never held` : 'ensure login: submitted but the session indicator never appeared');
-              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'pass', 'logged in (entry → type → submit → verified)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, entry: cfgResolved.entry }));
+              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'pass', 'logged in (entry → type → submit → verified)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, entry: cfgResolved.entry }), s.narrate ?? null);
             }
             continue;
           }
@@ -1518,7 +1520,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // preferred, label fallback), confirm the sheet, verify the
             // session indicator is GONE. All resolution is live — no
             // recorded points, cross-device safe by construction.
-            const cfg = s.ensureLogout!;
+            const cfg = s.ensureLogout! as typeof s.ensureLogout & { back?: string };
             const snapNow = async () => {
               const sn = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
                 | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
@@ -1554,9 +1556,23 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 if (!nodes) nodes = await snapNow();
               }
             }
+            // back (mirror of via): after the preflight ends — either path —
+            // return to the screen the case was authored from. via: parks the
+            // app on the session screen (e.g. Account tab); without back the
+            // first case step runs against the wrong screen (live: tnc failed
+            // at its home-login-bar tap for three consecutive runs).
+            const tapBack = async (): Promise<void> => {
+              if (!cfg.back) return;
+              let cur = nodes ?? (await snapNow());
+              const pt = cur ? findOne(cur, cfg.back) : null;
+              if (!pt) return; // target absent (already there or id drifted) — no-op, case proceeds
+              await alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: pt.x, y: pt.y }, settle: false }, deps.dispatchDeps).catch(() => undefined);
+              await new Promise((res2) => setTimeout(res2, 600));
+            };
             const sessionVisible = nodes ? findOne(nodes, cfg.button) !== null : false;
             if (!sessionVisible) {
-              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure logout', 'pass', 'already logged out (no session)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, checked: cfg.button }));
+              await tapBack();
+              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure logout', 'pass', 'already logged out (no session)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, checked: cfg.button, ...(cfg.back ? { back: cfg.back } : {}) }), s.narrate ?? null);
             } else {
               const btn = nodes ? findOne(nodes, cfg.button) : null;
               if (!btn) throw new Error(`ensure logout: session indicator ${JSON.stringify(cfg.button)} vanished between reads`);
@@ -1580,7 +1596,8 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 gone = nodes ? findOne(nodes, cfg.button) === null : false;
               }
               if (!gone) throw new Error('ensure logout: confirm tapped but the session indicator is still visible');
-              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure logout', 'pass', 'session logged out (button → confirm → verified gone)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, button: cfg.button, confirm: cfg.confirm }));
+              await tapBack();
+              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure logout', 'pass', 'session logged out (button → confirm → verified gone)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, button: cfg.button, confirm: cfg.confirm, ...(cfg.back ? { back: cfg.back } : {}) }), s.narrate ?? null);
             }
             continue;
           }
@@ -1590,12 +1607,12 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               | { ok: true; result: { message?: string } }
               | { ok: false; error?: { message?: string } };
             if (alr.ok) {
-              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify({ action: 'alert', alertAction: act, result: alr.result?.message ?? 'cleared' }));
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify({ action: 'alert', alertAction: act, result: alr.result?.message ?? 'cleared' }), s.narrate ?? null);
               continue;
             }
             const msg = alr.error?.message ?? 'engine error';
             if (msg.includes('alert not found')) {
-              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'skip', 'no alert up', t0, Date.now() - t0, '[]', JSON.stringify({ action: 'alert', alertAction: act }));
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'skip', 'no alert up', t0, Date.now() - t0, '[]', JSON.stringify({ action: 'alert', alertAction: act }), s.narrate ?? null);
               continue;
             }
             throw new Error(msg);
@@ -1690,9 +1707,9 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 const what = dlg.result?.message ?? 'unknown system dialog';
                 runStatus = 'failed';
                 deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run(`blocked by system dialog: ${what}`, runId);
-                insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', `blocked by system dialog: ${what}`, t0, Date.now() - t0, '[]', JSON.stringify(resolved));
+                insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', `blocked by system dialog: ${what}`, t0, Date.now() - t0, '[]', JSON.stringify(resolved), s.narrate ?? null);
                 for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
-                  insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null);
+                  insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null, rest.narrate ?? null);
                 }
                 break;
               }
@@ -1712,9 +1729,9 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 const kind = dialogs.handlings >= dialogs.cap ? `alert storm: >${ALERT_CAP} dialogs auto-handled — last "${err.dialogText}"` : `blocked by system dialog: ${err.dialogText}`;
                 runStatus = 'failed';
                 deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run(kind, runId);
-                insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', kind, t0, Date.now() - t0, '[]', JSON.stringify(resolved));
+                insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', kind, t0, Date.now() - t0, '[]', JSON.stringify(resolved), s.narrate ?? null);
                 for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
-                  insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null);
+                  insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null, rest.narrate ?? null);
                 }
                 break;
               }
@@ -1766,22 +1783,22 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             } catch { /* hardening is best-effort — never fails the run */ }
           }
           const resolvedByOut = resolvedBy === 'selector-point-scaled' ? 'selector' : resolvedBy;
-          insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', warnReason, t0, Date.now() - t0, '[]', JSON.stringify({ ...resolved, resolvedBy: resolvedByOut, ...(recentredAudit && { ...recentredAudit }), ...(sweepAudit && { sweep: sweepAudit }), ...(screenChanged !== undefined ? { screenChanged } : {}), ...(hardened && { hardened: true, selector: hardenedSel }), ...(s.flow && { flow: s.flow }) }));
+          insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', warnReason, t0, Date.now() - t0, '[]', JSON.stringify({ ...resolved, resolvedBy: resolvedByOut, ...(recentredAudit && { ...recentredAudit }), ...(sweepAudit && { sweep: sweepAudit }), ...(screenChanged !== undefined ? { screenChanged } : {}), ...(hardened && { hardened: true, selector: hardenedSel }), ...(s.flow && { flow: s.flow }) }), s.narrate ?? null);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           if (s.optional) {
             // optional miss: record and continue — the run stays green
-            insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'skip', `optional miss: ${msg}`, t0, Date.now() - t0, '[]', JSON.stringify(resolved));
+            insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'skip', `optional miss: ${msg}`, t0, Date.now() - t0, '[]', JSON.stringify(resolved), s.narrate ?? null);
             continue;
           }
           runStatus = 'failed';
           // blocked = infrastructure failure (open/session/lease/timeout) —
           // renders amber ◆, distinct from an app-failure red.
           if (classifyBlocked(msg)) runBlocked = 1;
-          insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', msg, t0, Date.now() - t0, '[]', JSON.stringify(resolved));
+          insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', msg, t0, Date.now() - t0, '[]', JSON.stringify(resolved), s.narrate ?? null);
           // remaining steps are skipped (deterministic replay stops at first failure)
           for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
-            insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null);
+            insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null, rest.narrate ?? null);
           }
           break;
         }

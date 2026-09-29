@@ -16,7 +16,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useDeviceStream } from '../composables/deviceStream.ts';
 import { useLiveEvents } from '../stores/live.ts';
 
-interface PlanStep { idx: number; action: string; name: string; flow: string | null; optional: boolean }
+interface PlanStep { idx: number; action: string; name: string; flow: string | null; optional: boolean; narrate?: string | null }
 interface Row extends PlanStep { status: 'pending' | 'running' | 'pass' | 'fail' | 'skip'; durationMs: number | null; reason: string | null }
 
 const props = defineProps<{
@@ -73,12 +73,12 @@ async function hydrate(): Promise<void> {
       }
     }
     const s = await fetch(`/api/runs/${props.runId}/steps`);
-    const sb = (await s.json()) as { steps?: Array<{ idx: number; flow_name: string | null; name: string; status: string; reason: string | null; duration_ms: number | null }> };
+    const sb = (await s.json()) as { steps?: Array<{ idx: number; flow_name: string | null; name: string; status: string; reason: string | null; duration_ms: number | null; narrate?: string | null }> };
     if (sb.steps?.length) {
       // prefer live truth over partial hydrate: keep any running row
       if (rows.value.length === 0) {
         rows.value = sb.steps.map((x) => ({
-          idx: x.idx, action: 'step', name: x.name, flow: x.flow_name, optional: false,
+          idx: x.idx, action: 'step', name: x.name, flow: x.flow_name, optional: false, narrate: x.narrate ?? null,
           status: x.status === 'pass' ? 'pass' : x.status === 'fail' ? 'fail' : x.status === 'skip' ? 'skip' : 'pending',
           durationMs: x.duration_ms, reason: x.reason,
         }));
@@ -137,6 +137,8 @@ function onEvent(ev: { type: string; payload: Record<string, unknown> }): void {
     const idx = p['idx'] as number;
     const row = rows.value.find((r) => r.idx === idx);
     if (row) row.status = 'running';
+    const nv = p['narrate'] as string | null | undefined; // absent on old servers — tolerate
+    if (row && nv !== undefined && row.narrate === undefined) row.narrate = nv;
   } else if (ev.type === 'step.finished') {
     const idx = p['idx'] as number;
     const row = rows.value.find((r) => r.idx === idx);
@@ -302,6 +304,10 @@ const verdict = computed(() => {
 
 // auto-scroll the active step into view
 const stepsEl = ref<HTMLElement | null>(null);
+/** Gherkin narrate split: keyword (Given/When/Then/And/But) subtly accented */
+function narrateKeyword(n: string): string { const m = n.match(/^(Given|When|Then|And|But)\b\s*/i); return m ? m[0].trim() : ''; }
+function narrateRest(n: string): string { return n.slice(narrateKeyword(n).length).trim(); }
+
 watch(activeIdx, async () => { await nextTick(); stepsEl.value?.querySelector('.rp-step.active')?.scrollIntoView({ block: 'nearest' }); });
 
 // LOCKED until the run is terminal — close is refused while running
@@ -371,6 +377,7 @@ async function requestAbort(): Promise<void> {
           <span class="rp-detail">{{ r.name }}</span>
           <span v-if="r.flow" class="rp-flow" :title="`subflow: ${r.flow}`">↳ {{ r.flow }}</span>
           <span class="rp-dur">{{ r.status === 'running' ? '…' : r.durationMs !== null ? `${(r.durationMs / 1000).toFixed(1)}s` : '' }}</span>
+          <div v-if="r.narrate" class="rp-narrate"><span class="rp-narrate-kw">{{ narrateKeyword(r.narrate) }}</span><span class="rp-narrate-rest">{{ narrateRest(r.narrate) }}</span></div>
         </div>
       </div>
     </div>
@@ -461,13 +468,16 @@ async function requestAbort(): Promise<void> {
 .rp-fail-reason { font-size: 10px; color: var(--color-steel); word-break: break-word; }
 
 .rp-steps { overflow-y: auto; overscroll-behavior: contain; min-height: 0; padding: 8px 0; }
+.rp-narrate { flex-basis: 100%; order: -1; padding-left: 26px; font-size: 10px; line-height: 1.5; margin-bottom: -2px; }
+.rp-narrate-kw { color: var(--color-fog); font-weight: 600; margin-right: 4px; }
+.rp-narrate-rest { color: var(--color-steel); }
 .rp-steps-title {
   position: sticky; top: 0; z-index: 1; background: var(--color-void);
   font-size: 10px; color: var(--color-steel); text-transform: uppercase; letter-spacing: 0.1em;
   padding: 2px 16px 8px; border-bottom: 1px solid var(--color-iron);
 }
 .rp-step {
-  display: flex; gap: 10px; align-items: center; min-height: 36px;
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center; min-height: 36px;
   padding: 4px 16px; color: var(--color-steel); position: relative; min-width: 0;
 }
 .rp-idx { width: 22px; text-align: right; flex: none; font-size: 11px; }
