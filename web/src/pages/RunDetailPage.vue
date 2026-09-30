@@ -278,10 +278,10 @@ onMounted(() => {
               <div class="evvid-wrap">
                 <video :ref="(el) => { if (el) vidEls[ev.id] = el as HTMLVideoElement }" :src="`/api/evidence/${ev.id}/file`" preload="metadata" muted playsinline @ended="vidPlaying.delete(ev.id)"></video>
                 <button v-if="!vidPlaying.has(ev.id)" class="evvid-play" :title="'play video'" @click="toggleVid(ev.id)">
-                  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>
+                  <span class="evvid-tri"></span>
                 </button>
                 <button v-else class="evvid-pause" title="pause" @click="toggleVid(ev.id)">
-                  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor"/></svg>
+                  <span class="evvid-bars"></span>
                 </button>
               </div>
               <a class="evmeta" :href="`/api/evidence/${ev.id}/file`" target="_blank" title="open video in a new tab">video · {{ fmtBytes(ev.bytes) }} ↗</a>
@@ -407,14 +407,16 @@ onMounted(() => {
 .evcard:hover { border-color:var(--color-slate); }
 .evcard img { display:block; width:220px; height:auto; }
 .evicon { display:flex; align-items:center; justify-content:center; width:220px; height:120px; font-size:28px; color:var(--color-fog); }
-/* video evidence: same card as photos; the <video> is the thumbnail */
-.evvid-wrap { position:relative; width:220px; background:var(--color-void); }
-.evvid-wrap video { display:block; width:220px; height:auto; max-height:260px; object-fit:contain; background:var(--color-void); }
-.evvid-play, .evvid-pause { position:absolute; inset:0; width:100%; height:100%; display:grid; place-items:center; background:none; border:none; cursor:pointer; }
-.evvid-play::before { content:''; width:46px; height:46px; border-radius:50%; background:color-mix(in srgb, var(--color-void) 62%, transparent); border:1px solid var(--color-slate); backdrop-filter:blur(2px); }
-.evvid-play svg { position:relative; margin-left:4px; color:var(--color-paper); filter:drop-shadow(0 1px 2px rgb(0 0 0 / 0.6)); }
-.evvid-pause { background:color-mix(in srgb, var(--color-void) 22%, transparent); }
-.evvid-pause svg { color:var(--color-paper); filter:drop-shadow(0 1px 2px rgb(0 0 0 / 0.6)); }
+/* video evidence: SAME card geometry as photos — the video fills the card
+   width at the device aspect (390/844, object-fit cover like .card .thumb) */
+.evvid-wrap { position:relative; width:220px; background:var(--color-graphite); }
+.evvid-wrap video { display:block; width:220px; aspect-ratio:390/844; object-fit:cover; object-position:top; background:var(--color-graphite); }
+/* play: one round button, filled bg + border, CSS triangle centered */
+.evvid-play { position:absolute; left:50%; top:50%; transform:translate(-50%, -50%); width:46px; height:46px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:color-mix(in srgb, var(--color-void) 72%, transparent); border:1px solid var(--color-slate); cursor:pointer; backdrop-filter:blur(2px); padding:0; }
+.evvid-play:hover { border-color:var(--color-chalk); background:color-mix(in srgb, var(--color-void) 55%, transparent); }
+.evvid-tri { width:0; height:0; border-left:16px solid rgba(238,238,238,0.95); border-top:10px solid transparent; border-bottom:10px solid transparent; margin-left:4px; filter:drop-shadow(0 1px 2px rgb(0 0 0 / 0.6)); }
+.evvid-pause { position:absolute; left:50%; top:50%; transform:translate(-50%, -50%); width:46px; height:46px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:color-mix(in srgb, var(--color-void) 60%, transparent); border:1px solid var(--color-slate); cursor:pointer; backdrop-filter:blur(2px); padding:0; }
+.evvid-bars { width:14px; height:16px; background:rgba(238,238,238,0.95); clip-path: polygon(0 0, 38% 0, 38% 100%, 0 100%, 62% 0, 100% 0, 100% 100%, 62% 100%); filter:drop-shadow(0 1px 2px rgb(0 0 0 / 0.6)); }
 .evcard-video .evmeta { color:var(--color-steel); }
 .evcard-video .evmeta:hover { color:var(--color-fog); }
 .evmeta { display:block; padding:6px 10px; font-size:var(--text-caption); color:var(--color-steel); border-top:1px solid var(--color-iron); }

@@ -140,18 +140,18 @@ watch(() => props.open, (o) => { if (!o) { cinema.value = null; filter.value = '
               <span class="cap"><span class="ix">#{{ item.stepIdx >= 0 ? item.stepIdx + 1 : '·' }}</span>
                 <span class="nm">{{ item.stepName }}</span></span>
             </button>
-          </div>
-          <!-- B1 tier 2: the whole-run video as a subordinated full-width strip
-               (chronology, not a gallery peer — the shots above are the proof) -->
-          <button v-for="item in videoItems(l)" :key="item.evId" class="vid-strip"
-            :title="`whole run — click to play`" @click="openCinema(li, item)">
-            <span class="vid-glyph"><span class="tri"></span></span>
-            <span class="vid-info">
-              <span class="t">whole run</span>
-              <span class="m">{{ l.swapRun ? (l.worldSeq ?? []).join(' → ') : laneLabel(l) }} · tap overlay available</span>
-            </span>
-            <span class="vid-len">cinema →</span>
+            <!-- whole-run video: a GALLERY CARD peer IN THE SAME GRID —
+                 the <video> first frame is the thumbnail; the play badge opens the
+                 cinema (tap-overlay player). B1's strip form retired. -->
+            <button v-for="item in videoItems(l)" :key="item.evId" class="card card-video"
+            :title="`whole run video — click to open the player`" @click="openCinema(li, item)">
+            <video class="thumb vid-thumb-frame" :src="`/api/evidence/${item.evId}/file`" preload="metadata" muted playsinline></video>
+            <span class="vid-play-badge"><span class="tri"></span></span>
+            <span class="stamp">whole run</span>
+            <span class="cap"><span class="ix">#·</span>
+              <span class="nm">whole run · tap overlay available</span></span>
           </button>
+          </div>
         </section>
       </div>
 
@@ -226,6 +226,12 @@ watch(() => props.open, (o) => { if (!o) { cinema.value = null; filter.value = '
 .card:hover { border-color: var(--color-chalk); }
 .card .thumb { aspect-ratio: 390 / 844; width: 100%; background: var(--color-graphite); object-fit: cover; object-position: top; display: block; }
 .vid-thumb { pointer-events: none; }   /* the frame is a poster — clicks belong to the card */
+.card-video .vid-thumb-frame { object-fit: cover; object-position: top; background: var(--color-graphite); max-width: 100%; min-width: 0; width: 100%; height: auto; }
+.card-video { min-width: 0; max-width: 100%; }
+.vid-play-badge { position:absolute; left:50%; top:calc(50% - 12px); transform:translate(-50%,-50%); width:46px; height:46px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:color-mix(in srgb, var(--color-void) 72%, transparent); border:1px solid var(--color-slate); backdrop-filter:blur(2px); pointer-events:none; }
+.card-video:hover .vid-play-badge { border-color:var(--color-chalk); background:color-mix(in srgb, var(--color-void) 55%, transparent); }
+.vid-play-badge .tri { width:0; height:0; border-left:16px solid rgba(238,238,238,0.95); border-top:10px solid transparent; border-bottom:10px solid transparent; margin-left:4px; filter:drop-shadow(0 1px 2px rgb(0 0 0 / 0.6)); }
+.card-video .stamp { position:absolute; top:6px; left:6px; }
 .vid-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
 .vid-play .tri { width: 0; height: 0; border-left: 18px solid rgba(238, 238, 238, 0.9); border-top: 11px solid transparent; border-bottom: 11px solid transparent; filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.8)); }
 .card .cap { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-top: 1px solid var(--color-iron); }
