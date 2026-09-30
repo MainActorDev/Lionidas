@@ -97,11 +97,13 @@ describe('stage-0 commands', () => {
     expect(body.node?.ok).toBe(true);
   });
 
-  it('stack down → honest phase-1 message, non-zero exit', async () => {
-    const r = await cli('stack', 'down', '--json');
+  it('stack up guard: refuses when node is too old (unit-level — version gate)', async () => {
+    // down/up manage REAL processes; not exercised in the contract suite
+    // (live-drilled instead). Here we only pin the unknown-action contract.
+    const r = await cli('stack', 'frobnicate', '--json');
     expect(r.code).toBe(1);
     const body = JSON.parse(r.out) as { error?: string };
-    expect(body.error).toContain('phase 1');
+    expect((body.error ?? '')).toContain('unknown stack action');
   });
 
   it('unknown case id → NOT_FOUND error, exit 1', async () => {
