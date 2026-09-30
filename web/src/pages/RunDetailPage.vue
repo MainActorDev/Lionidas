@@ -13,6 +13,19 @@ const route = useRoute();
 const runId = route.params.id as string;
 const run = ref<Run | null>(null);
 const evidence = ref<EvidenceRow[]>([]);
+/** video cards: inline playback state (play/pause toggle in the card) */
+const vidEls = ref<Record<string, HTMLVideoElement | undefined>>({});
+const vidPlaying = ref(new Set<string>());
+function toggleVid(id: string): void {
+  const el = vidEls.value[id];
+  if (!el) return;
+  if (el.paused) {
+    void el.play().then(() => { vidPlaying.value = new Set([...vidPlaying.value, id]); }).catch(() => undefined);
+  } else {
+    el.pause();
+    const s = new Set(vidPlaying.value); s.delete(id); vidPlaying.value = s;
+  }
+}
 const steps = ref<Step[]>([]);
 const live = useLiveEvents();
 const now = ref(Date.now());
@@ -257,11 +270,28 @@ onMounted(() => {
       <button class="tlog-head" @click="evOpen = !evOpen">evidence <span class="n">· {{ evidence.length }}</span><span class="arrow">{{ evOpen ? '▾' : '▸' }}</span></button>
       <template v-if="evOpen">
         <div class="evgrid">
-          <a v-for="ev in evidence" :key="ev.id" class="evcard" :href="`/api/evidence/${ev.id}/file`" target="_blank" :title="`open ${ev.type} (${fmtBytes(ev.bytes)})`">
-            <img v-if="ev.type === 'screenshot' || ev.type === 'diff'" :src="`/api/evidence/${ev.id}/file`" :alt="ev.type" />
-            <span v-else class="evicon">{{ ev.type === 'video' ? '▶' : '▤' }}</span>
-            <span class="evmeta">{{ ev.type }} · {{ fmtBytes(ev.bytes) }}</span>
-          </a>
+          <template v-for="ev in evidence" :key="ev.id">
+            <!-- video: same card as photos — the <video> itself is the thumbnail
+                 (first frame via preload=metadata); the play button toggles inline
+                 playback in the card; the meta row stays the open-in-tab link -->
+            <div v-if="ev.type === 'video'" class="evcard evcard-video" :title="`video (${fmtBytes(ev.bytes)})`">
+              <div class="evvid-wrap">
+                <video :ref="(el) => { if (el) vidEls[ev.id] = el as HTMLVideoElement }" :src="`/api/evidence/${ev.id}/file`" preload="metadata" muted playsinline @ended="vidPlaying.delete(ev.id)"></video>
+                <button v-if="!vidPlaying.has(ev.id)" class="evvid-play" :title="'play video'" @click="toggleVid(ev.id)">
+                  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>
+                </button>
+                <button v-else class="evvid-pause" title="pause" @click="toggleVid(ev.id)">
+                  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor"/></svg>
+                </button>
+              </div>
+              <a class="evmeta" :href="`/api/evidence/${ev.id}/file`" target="_blank" title="open video in a new tab">video · {{ fmtBytes(ev.bytes) }} ↗</a>
+            </div>
+            <a v-else class="evcard" :href="`/api/evidence/${ev.id}/file`" target="_blank" :title="`open ${ev.type} (${fmtBytes(ev.bytes)})`">
+              <img v-if="ev.type === 'screenshot' || ev.type === 'diff'" :src="`/api/evidence/${ev.id}/file`" :alt="ev.type" />
+              <span v-else class="evicon">▤</span>
+              <span class="evmeta">{{ ev.type }} · {{ fmtBytes(ev.bytes) }}</span>
+            </a>
+          </template>
         </div>
       </template>
     </div>
@@ -377,6 +407,16 @@ onMounted(() => {
 .evcard:hover { border-color:var(--color-slate); }
 .evcard img { display:block; width:220px; height:auto; }
 .evicon { display:flex; align-items:center; justify-content:center; width:220px; height:120px; font-size:28px; color:var(--color-fog); }
+/* video evidence: same card as photos; the <video> is the thumbnail */
+.evvid-wrap { position:relative; width:220px; background:var(--color-void); }
+.evvid-wrap video { display:block; width:220px; height:auto; max-height:260px; object-fit:contain; background:var(--color-void); }
+.evvid-play, .evvid-pause { position:absolute; inset:0; width:100%; height:100%; display:grid; place-items:center; background:none; border:none; cursor:pointer; }
+.evvid-play::before { content:''; width:46px; height:46px; border-radius:50%; background:color-mix(in srgb, var(--color-void) 62%, transparent); border:1px solid var(--color-slate); backdrop-filter:blur(2px); }
+.evvid-play svg { position:relative; margin-left:4px; color:var(--color-paper); filter:drop-shadow(0 1px 2px rgb(0 0 0 / 0.6)); }
+.evvid-pause { background:color-mix(in srgb, var(--color-void) 22%, transparent); }
+.evvid-pause svg { color:var(--color-paper); filter:drop-shadow(0 1px 2px rgb(0 0 0 / 0.6)); }
+.evcard-video .evmeta { color:var(--color-steel); }
+.evcard-video .evmeta:hover { color:var(--color-fog); }
 .evmeta { display:block; padding:6px 10px; font-size:var(--text-caption); color:var(--color-steel); border-top:1px solid var(--color-iron); }
 
 /* log sections */
