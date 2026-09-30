@@ -100,7 +100,7 @@ describe('caseToYaml — R2 verb emitters (data-loss pin)', () => {
  *  structure (both forms parse identically — the block form is now the
  *  canonical emission). */
 describe('caseToYaml — ensure verbs block form', () => {
-  it('ensure login emits one field per line and round-trips losslessly', () => {
+  it('inline ensure-login selectors are REJECTED with a pointing error (login-as-steps plan)', () => {
     const src = [
       'name: li',
       'steps:',
@@ -114,23 +114,8 @@ describe('caseToYaml — ensure verbs block form', () => {
       "      password: '${env.DRILL_PASSWORD}'",
     ].join('\n') + '\n';
     const parsed = parseCaseYaml(src);
-    expect(parsed.ok).toBe(true);
-    const out = caseToYaml({ name: 'li', tags: [], variants: [], steps: parsed.case!.steps as unknown[] });
-    for (const line of [
-      '  - ensure login:',
-      '      entry: home_login_bar_login_button',
-      '      phoneField: auth_login_phone_field',
-      '      passwordField: auth_login_password_field',
-      '      submit: auth_login_button',
-      '      session: account_logout_button',
-      "      phone: '${env.DRILL_PHONE}'",
-      "      password: '${env.DRILL_PASSWORD}'",
-    ]) expect(out).toContain(line);
-    // no single-line flow form for the verb body
-    expect(out).not.toMatch(/ensure login: *\{/);
-    const back = parseCaseYaml(out);
-    expect(back.ok).toBe(true);
-    expect(JSON.stringify(back.case!.steps)).toBe(JSON.stringify(parsed.case!.steps));
+    expect(parsed.ok).toBe(false);
+    expect(parsed.errors.some((e: { message: string }) => e.message.includes("bare 'ensure login: {}'"))).toBe(true);
   });
 
   it('ensure logout emits block form; stay renders only when set', () => {
@@ -225,25 +210,22 @@ describe('caseToYaml — ensure login screen form', () => {
     expect(parsed.errors.some((e) => e.message.includes('phone/password env refs'))).toBe(true);
   });
 
-  it('inline form still parses and emits unchanged (back-compat)', () => {
+  it('inline form is rejected (gone — recipe owns the form)', () => {
     const src = [
-      'name: inline',
+      'name: if',
       'steps:',
       '  - ensure login:',
-      '      entry: home_login_bar_login_button',
-      '      phoneField: auth_login_phone_field',
-      '      passwordField: auth_login_password_field',
-      '      submit: auth_login_button',
-      '      session: account_logout_button',
-      "      phone: '${env.DRILL_PHONE}'",
-      "      password: '${env.DRILL_PASSWORD}'",
+      '      entry: e',
+      '      phoneField: p',
+      '      passwordField: w',
+      '      submit: s',
+      '      session: ss',
+      "      phone: '${env.P}'",
+      "      password: '${env.W}'",
     ].join('\n') + '\n';
     const parsed = parseCaseYaml(src);
-    expect(parsed.ok).toBe(true);
-    expect((parsed.case!.steps[0] as unknown as { ensureLogin: { screen?: string } }).ensureLogin.screen).toBeUndefined();
-    const out = caseToYaml({ name: 'inline', tags: [], variants: [], steps: parsed.case!.steps as unknown[] });
-    expect(out).toContain('entry: home_login_bar_login_button');
-    expect(out).not.toContain('screen:');
+    expect(parsed.ok).toBe(false);
+    expect(parsed.errors.some((e: { message: string }) => e.message.includes("bare 'ensure login: {}'"))).toBe(true);
   });
 });
 

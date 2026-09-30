@@ -9,6 +9,8 @@
  *  on both write paths so the registry can never hold a screen the runner
  *  can't use. */
 
+import { parseStepsFragment } from './case-yaml.js';
+
 export interface ScreenSelector {
   identifier?: string;
   label?: string;
@@ -228,7 +230,7 @@ export function validateAppLogin(login: unknown, screens: unknown): string[] {
   const errors: string[] = [];
   if (!isPlainObject(login)) return ['login flow must be a mapping'];
   const l = login as Record<string, unknown>;
-  const allowed = ['entry', 'phone', 'password', 'submit', 'verify'];
+  const allowed = ['entry', 'steps', 'verify'];
   for (const k of Object.keys(l)) if (!allowed.includes(k)) errors.push(`login flow: unknown key "${k}" — allowed: ${allowed.join(', ')}`);
 
   // entry: reuse the screen entry rules (exactly one of tab/deepLink/navigate)
@@ -250,12 +252,27 @@ export function validateAppLogin(login: unknown, screens: unknown): string[] {
     }
   }
 
-  for (const k of ['phone', 'password', 'submit'] as const) {
-    const v = l[k];
-    if (typeof v !== 'string' || v.trim().length === 0) errors.push(`login flow.${k} must be a non-empty identifier`);
+  // steps form (plan 20260930T044550Z): any app's login form is a step list.
+  // Legacy 5-slot recipes are rejected post-migration with a pointing error —
+  // the migration reshapes them (env names derived from referencing cases).
+  const PRELOGIN_ALLOWED = new Set(['tap', 'type', 'expect']);
+  if (l['steps'] !== undefined) {
+    if (!Array.isArray(l['steps']) || l['steps'].length === 0) {
+      errors.push('login flow.steps must be a non-empty list of steps (tap/type/expect)');
+    } else {
+      const frag = parseStepsFragment(l['steps']);
+      for (const e of frag.errors) errors.push(`login flow: ${e.message}`);
+      for (const st of frag.steps) {
+        if (!PRELOGIN_ALLOWED.has(st.action)) {
+          errors.push(`login flow: step ${st.idx + 1} action "${st.action}" is not allowed in a login recipe (allowed: tap, type, expect)`);
+        }
+      }
+    }
+  } else {
+    errors.push('login flow needs steps: a list of tap/type/expect steps — the recipe-as-steps form (the old phone/password/submit slots are gone; stored recipes were reshaped by the migration)');
   }
 
-  // verify: (screen, state) reference — cross-validated against the app's registry
+  // verify: (screen, state[, via]) reference — cross-validated against the app's registry
   const verify = l['verify'];
   if (!isPlainObject(verify) || typeof (verify as Record<string, unknown>)['screen'] !== 'string' || typeof (verify as Record<string, unknown>)['state'] !== 'string') {
     errors.push('login flow.verify must be { screen: <id>, state: <name> }');

@@ -187,15 +187,16 @@ describe('navigate selector steps (register-flow S1)', () => {
 import { validateAppLogin } from '@crucible/shared/app-screens';
 describe('app-level login procedure', () => {
   const screens = [{ id: 'auth', entry: { tab: { label: 'x' } }, states: { logged_in: { all: [{ identifier: 'lo' }] } } }];
-  const good = { entry: { navigate: [{ on: 'a' }, { on: 'b' }] }, phone: 'p', password: 'q', submit: 's', verify: { screen: 'auth', state: 'logged_in' } };
+  const good = { entry: { navigate: [{ on: 'a' }, { on: 'b' }] }, steps: [{ type: { on: 'phone_field', text: '${env.P}' } }, { tap: { on: 'submit' } }], verify: { screen: 'auth', state: 'logged_in' } };
   it('valid procedure passes', () => expect(validateAppLogin(good, screens)).toEqual([]));
   it('verify referencing an unknown screen / state → named errors', () => {
     expect(validateAppLogin({ ...good, verify: { screen: 'nope', state: 'x' } }, screens)[0]).toContain('verify.screen "nope" is not in this app');
     expect(validateAppLogin({ ...good, verify: { screen: 'auth', state: 'zz' } }, screens)[0]).toContain('verify.state "zz" is not a state');
   });
-  it('entry must be exactly one kind; controls non-empty', () => {
+  it('entry must be exactly one kind; legacy 5-slot keys rejected', () => {
     expect(validateAppLogin({ ...good, entry: { tab: { identifier: 't' }, deepLink: 'x://' } }, screens).some((e) => e.includes('only one of'))).toBe(true);
-    expect(validateAppLogin({ ...good, phone: '' }, screens).some((e) => e.includes('login flow.phone'))).toBe(true);
+    expect(validateAppLogin({ ...good, phone: 'p' } as never, screens).some((e) => e.includes('unknown key "phone"'))).toBe(true);
+    expect(validateAppLogin({ ...good, steps: [] }, screens).some((e) => e.includes('steps'))).toBe(true);
   });
   it('screens reject login on NEW data (the era ends loudly)', () => {
     const errs = validateRegistry([{ id: 's', entry: { tab: { label: 'L' } }, states: { ok: { all: [{ label: 'X' }] } }, login: good } as never]);

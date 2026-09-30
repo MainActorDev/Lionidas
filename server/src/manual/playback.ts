@@ -1248,26 +1248,36 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             let selSource: SelSource | null = null;
             let sessionStateName: string | null = null;
             let sessionVia: string | null = null; // verify.via — tap this control before polling the state (state lives elsewhere) // poll this STATE instead of a raw identifier
+            let recipeSteps: Array<Record<string, unknown>> | null = null; // steps-form recipe (login-as-steps plan): played after entry
             let sessionStateScreen: string | null = null; // …on THIS screen
             let procedureEntry: { tab?: { identifier?: string; label?: string }; deepLink?: string; navigate?: Array<Record<string, unknown>> } | null = null; // app procedure: play via the entry player
             const screenRef = (cfgRaw as { screen?: string }).screen;
-            const appLoginRow = (tpl.app_bundle_id
-              ? deps.db.prepare('SELECT login_json FROM app_login WHERE bundle_id = ?').get(tpl.app_bundle_id) as { login_json: string } | undefined
+            const appLoginRow = (recipeBundle
+              ? deps.db.prepare('SELECT login_json FROM app_login WHERE bundle_id = ?').get(recipeBundle) as { login_json: string } | undefined
               : undefined);
             if (appLoginRow) {
-              type ProcShape = { entry?: { tab?: { identifier?: string; label?: string }; deepLink?: string; navigate?: Array<Record<string, unknown>> }; phone?: string; password?: string; submit?: string; verify?: { screen?: string; state?: string } };
+              type ProcShape = { entry?: { tab?: { identifier?: string; label?: string }; deepLink?: string; navigate?: Array<Record<string, unknown>> }; steps?: Array<Record<string, unknown>>; phone?: string; password?: string; submit?: string; verify?: { screen?: string; state?: string; via?: string } };
               let proc: ProcShape | null = null;
               try { proc = JSON.parse(appLoginRow.login_json) as ProcShape; } catch { proc = null; }
-              if (!proc || !proc.entry || !proc.phone || !proc.password || !proc.submit || !proc.verify?.screen || !proc.verify?.state) {
+              // steps-form (plan 20260930T044550Z): steps + verify required;
+              // the legacy 5-slot shape is only reachable pre-migration
+              const stepsForm = proc && Array.isArray(proc.steps) && proc.steps.length > 0 && proc.verify?.screen && proc.verify?.state;
+              const legacyForm = proc && proc.entry && proc.phone && proc.password && proc.submit && proc.verify?.screen && proc.verify?.state;
+              if (!proc || (!stepsForm && !legacyForm)) {
                 runStatus = 'failed';
                 insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'fail', `ensure login: the app's login flow is incomplete — edit it on the screens page`, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action }), s.narrate ?? null);
                 break;
               }
-              procedureEntry = proc.entry;
-              selSource = { entry: '', phoneField: proc.phone, passwordField: proc.password, submit: proc.submit, session: proc.verify.state };
-              sessionStateName = proc.verify.state;
-              sessionVia = (proc.verify as { via?: string }).via ?? null; // optional: a control to tap before polling (state lives on another screen)
-              sessionStateScreen = proc.verify.screen;
+              procedureEntry = proc.entry ?? null;
+              recipeSteps = stepsForm ? (proc.steps as Array<Record<string, unknown>>) : null;
+              if (stepsForm && proc.verify) {
+                // steps-form: no selSource walk — the step player handles the form
+                sessionStateName = proc.verify.state ?? null;
+                sessionVia = proc.verify.via ?? null;
+                sessionStateScreen = proc.verify.screen ?? null;
+              } else {
+                selSource = { entry: '', phoneField: proc.phone ?? '', passwordField: proc.password ?? '', submit: proc.submit ?? '', session: proc.verify?.state ?? '' };
+              }
             }
             // screen-level login recipes are GONE (settlement 2026-09-29,
             // plan 20260929T080249Z review F1): app_login is the single
@@ -1275,21 +1285,38 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // with existing cases and now refers to the app procedure; if
             // the app has no login flow the app-procedure branch above
             // already failed the step with the honest message.
-            if (screenRef && !selSource) {
+            // bare marker with NO app recipe → fail closed (never the legacy
+            // env-missing noise; the fix is registering the flow). A legacy
+            // screen-form case with an app recipe present resolves THROUGH the
+            // recipe (the screenRef fail-below only fires when none exists).
+            const appHasLogin = !!appLoginRow;
+            if ((s.ensureLogin as { recipe?: string }).recipe === 'app' && !appHasLogin) {
+              runStatus = 'failed';
+              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'fail', `ensure login: this app has no login flow registered — register it on the screens page (login flow)`, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action }), s.narrate ?? null);
+              break;
+            }
+            if (screenRef && !selSource && !recipeSteps && !appHasLogin) {
               runStatus = 'failed';
               insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'fail', `ensure login: this app has no login flow registered — register it on the screens page (login flow)`, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, screenRef }), s.narrate ?? null);
               break;
             }
-            const cfg: Record<string, string | null> = {
-              entry: selSource ? selSource.entry : cfgRaw.entry || null,
-              phoneField: selSource ? selSource.phoneField : cfgRaw.phoneField || null,
-              passwordField: selSource ? selSource.passwordField : cfgRaw.passwordField || null,
-              submit: selSource ? selSource.submit : cfgRaw.submit || null,
-              session: selSource ? selSource.session : cfgRaw.session || null,
-              phone: cfgRaw.phone !== undefined ? expandEnvText(cfgRaw.phone, activeEnv) : null,
-              password: cfgRaw.password !== undefined ? expandEnvText(cfgRaw.password, activeEnv) : null,
+            // steps-form recipe: NO legacy cfg — the step player runs after
+            // entry; synthesize a cfg that satisfies the legacy probes
+            // (alreadyIn / formAlreadyUp use session/phoneField) and skips
+            // the missing-env gate
+            const legacyCfgRaw = cfgRaw as { entry?: string; phoneField?: string; passwordField?: string; submit?: string; session?: string; phone?: string; password?: string };
+            const cfg: Record<string, string | null> = recipeSteps
+              ? { entry: '', phoneField: '', passwordField: '', submit: '', session: sessionStateName ?? '', phone: '', password: '' }
+              : {
+              entry: selSource ? selSource.entry : legacyCfgRaw.entry || null,
+              phoneField: selSource ? selSource.phoneField : legacyCfgRaw.phoneField || null,
+              passwordField: selSource ? selSource.passwordField : legacyCfgRaw.passwordField || null,
+              submit: selSource ? selSource.submit : legacyCfgRaw.submit || null,
+              session: selSource ? selSource.session : legacyCfgRaw.session || null,
+              phone: legacyCfgRaw.phone !== undefined ? expandEnvText(legacyCfgRaw.phone, activeEnv) : null,
+              password: legacyCfgRaw.password !== undefined ? expandEnvText(legacyCfgRaw.password, activeEnv) : null,
             };
-            const missing = Object.entries(cfg).filter(([, v]) => v === null || v === undefined).map(([k]) => k);
+            const missing = recipeSteps ? [] : Object.entries(cfg).filter(([, v]) => v === null || v === undefined).map(([k]) => k);
             if (missing.length > 0) {
               runStatus = 'failed';
               insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'fail', `missing env: ${missing.join(', ')}`, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action }), s.narrate ?? null);
@@ -1325,7 +1352,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               if (!sessionStateName) return findOne(currentNodes, cfgResolved.session) !== null;
               const stateScreen = sessionStateScreen ?? screenRef;
               if (!stateScreen) return false;
-              const stateRow = deps.db.prepare('SELECT states_json FROM app_screens WHERE app_bundle_id = ? AND screen_id = ?').get(tpl.app_bundle_id, stateScreen) as { states_json: string } | undefined;
+              const stateRow = deps.db.prepare('SELECT states_json FROM app_screens WHERE app_bundle_id = ? AND screen_id = ?').get(recipeBundle ?? tpl.app_bundle_id, stateScreen) as { states_json: string } | undefined;
               if (!stateRow) return false;
               try {
                 const states = JSON.parse(stateRow.states_json) as Record<string, { all?: Array<Record<string, string>>; any?: Array<Record<string, string>> }>;
@@ -1359,7 +1386,10 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               // state restoration can land the app DIRECTLY on the login
               // form (iOS scene restore after terminate). If the form is
               // already up, the entry tap is unnecessary — skip it.
-              const formAlreadyUp = await settleFind(cfgResolved.phoneField, 1500);
+              const formProbeTarget = recipeSteps
+                ? (() => { const first = recipeSteps[0] as Record<string, unknown> | undefined; const b0 = (first?.['tap'] ?? first?.['type'] ?? first?.['expect']) as Record<string, unknown> | undefined; return typeof b0?.['on'] === 'string' ? (b0['on'] as string) : null; })()
+                : cfgResolved.phoneField;
+              const formAlreadyUp = formProbeTarget ? await settleFind(formProbeTarget, 1500) : null;
               if (!formAlreadyUp) {
                 if (procedureEntry) {
                   // the entry PLAYER (review F1): navigate lists play
@@ -1454,6 +1484,34 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 await alloy.dispatch('alloy_act', { udid, action: 'keyboardDismiss' }, deps.dispatchDeps).catch(() => undefined);
                 await new Promise((res2) => setTimeout(res2, 350));
               };
+              // steps-form recipe (plan 20260930T044550Z): the recipe's step
+              // list plays through the same primitives — resolve selector →
+              // press / resilientFill (+ keyboardDismiss) — env refs expand
+              // via the run's active env. Replaces the 5-slot walk.
+              if (recipeSteps) {
+                const YAMLSTEPS = recipeSteps;
+                for (let si = 0; si < YAMLSTEPS.length && !isAborted(runId); si++) {
+                  const st = YAMLSTEPS[si]! as { tap?: Record<string, unknown>; type?: Record<string, unknown>; expect?: Record<string, unknown> };
+                  const kind = st.tap ? 'tap' : st.type ? 'type' : st.expect ? 'expect' : null;
+                  if (!kind) throw new Error(`ensure login: recipe step ${si + 1} is not tap/type/expect`);
+                  const bodyR = (st[kind as 'tap'] ?? {}) as Record<string, unknown>;
+                  const onR = typeof bodyR['on'] === 'string' ? bodyR['on'] : null;
+                  if (!onR) throw new Error(`ensure login: recipe step ${si + 1} needs on: <label-or-id>`);
+                  const pt = await settleFind(onR);
+                  if (!pt) throw new Error(`ensure login: recipe step ${si + 1} target ${JSON.stringify(onR)} never appeared`);
+                  if (kind === 'tap') {
+                    const rr = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: pt.x, y: pt.y }, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message?: string } }>, `ensure login: recipe step ${si + 1} (tap)`)) as { ok: boolean; error?: { message?: string } };
+                    if (!rr.ok) throw new Error(rr.error?.message ?? `ensure login: recipe step ${si + 1} tap failed`);
+                  } else if (kind === 'type') {
+                    const rawText = String(bodyR['text'] ?? '');
+                    const text = expandEnvText(rawText, activeEnv);
+                    if (text === null) throw new Error(`ensure login: recipe step ${si + 1} references an env var that is not set (${rawText})`);
+                    await resilientFill(pt.x, pt.y, text, `recipe step ${si + 1} (type)`);
+                    await dismissKeyboard();
+                  }
+                  // expect: existence via settleFind above; absent → the throw above (fail-closed)
+                }
+              } else {
               const phone = formAlreadyUp ?? await settleFind(cfgResolved.phoneField);
               if (!phone) throw new Error(`ensure login: phone field ${JSON.stringify(cfgResolved.phoneField)} never appeared`);
               await resilientFill(phone.x, phone.y, cfgResolved.phone, 'type phone');
@@ -1466,6 +1524,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               if (!submit) throw new Error(`ensure login: submit ${JSON.stringify(cfgResolved.submit)} never appeared`);
               const r4 = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: submit.x, y: submit.y }, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, 'ensure login: submit')) as { ok: boolean; error?: { message: string } };
               if (!r4.ok) throw new Error(r4.error?.message ?? 'ensure login: submit failed');
+              }
               // verify the session: sessionHolds (hoisted) — v2 polls the
               // screen's named state; legacy/inline the raw identifier
               // verify.via (app-procedure): some session states live on

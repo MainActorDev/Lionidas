@@ -49,7 +49,7 @@ export interface YamlStep {
    *  flow (list button → confirm sheet) by IDENTIFIER first, label second —
    *  coordinate-free, cross-device safe. No-op pass when already logged out. */
   ensureLogout?: { recipe?: 'app'; button?: string; stay?: string; confirm?: string; via?: string; back?: string };
-  ensureLogin?: { entry: string; phoneField: string; passwordField: string; submit: string; session: string; phone: string; password: string; screen?: string };
+  ensureLogin?: { recipe?: 'app'; entry?: string; phoneField?: string; passwordField?: string; submit?: string; session?: string; phone?: string; password?: string; screen?: string };
   /** swap: <id from this case's swaps/variants> */
   swap?: string;
   /** expect screen: "<screen>.<state>" — parsed into parts; negate for != */
@@ -93,7 +93,17 @@ export interface RunFlowRefs { names: string[] }
 
 /** Parse + validate YAML text → { case, errors }. Errors carry YAML line
  *  numbers (from the yaml lib's source context). Never throws. */
-export function parseCaseYaml(text: string, opts?: { hasLogoutRecipe?: (appBundleId: string | null | undefined) => boolean }): { ok: boolean; case: YamlCase | null; errors: YamlError[]; runFlowNames: string[]; warnings: YamlError[] } {
+/** Parse a bare step LIST fragment (recipe steps — login-as-steps plan
+ *  20260930T044550Z F3): same grammar as case steps, no document wrapper.
+ *  Errors carry step-indexed prefixes. */
+export function parseStepsFragment(steps: unknown[]): { steps: YamlStep[]; errors: YamlError[] } {
+  const errors: YamlError[] = [];
+  const warnings: YamlError[] = [];
+  const r = parseStepList(steps, 'steps', (i) => `login step ${i + 1}`, errors, warnings);
+  return { steps: r.steps, errors };
+}
+
+export function parseCaseYaml(text: string, opts?: { hasLogoutRecipe?: (appBundleId: string | null | undefined) => boolean; hasLoginRecipe?: (appBundleId: string | null | undefined) => boolean }): { ok: boolean; case: YamlCase | null; errors: YamlError[]; runFlowNames: string[]; warnings: YamlError[] } {
   const errors: YamlError[] = [];
   let doc: unknown;
   try {
@@ -189,7 +199,7 @@ export function parseCaseYaml(text: string, opts?: { hasLogoutRecipe?: (appBundl
     if (!Array.isArray(c['setup']) || (c['setup'] as unknown[]).length === 0) {
       errors.push({ line: 1, message: 'setup, when present, needs at least one step — remove the key if the case has no preconditions' });
     } else {
-      const r = parseStepList(c['setup'] as unknown[], 'setup', i => `setup step ${i + 1}`, errors, warnings, { app, hasLogoutRecipe: opts?.hasLogoutRecipe });
+      const r = parseStepList(c['setup'] as unknown[], 'setup', i => `setup step ${i + 1}`, errors, warnings, { app, hasLogoutRecipe: opts?.hasLogoutRecipe, hasLoginRecipe: opts?.hasLoginRecipe });
       setupOut = r.steps;
     }
   }
@@ -200,7 +210,7 @@ export function parseCaseYaml(text: string, opts?: { hasLogoutRecipe?: (appBundl
   if (!Array.isArray(c['steps']) || (c['steps'] as unknown[]).length === 0) {
     errors.push({ line: 1, message: 'steps is required and must be a non-empty list — a case must do something' });
   } else {
-    const r = parseStepList(c['steps'] as unknown[], 'steps', i => `step ${i + 1}`, errors, warnings, { app, hasLogoutRecipe: opts?.hasLogoutRecipe });
+    const r = parseStepList(c['steps'] as unknown[], 'steps', i => `step ${i + 1}`, errors, warnings, { app, hasLogoutRecipe: opts?.hasLogoutRecipe, hasLoginRecipe: opts?.hasLoginRecipe });
     stepsOut.push(...r.steps);
     runFlowNames.push(...r.names);
   }
@@ -213,7 +223,7 @@ export function parseCaseYaml(text: string, opts?: { hasLogoutRecipe?: (appBundl
 
 /** One step list (steps: or setup:) → validated steps + runFlow name refs.
  *  section names the list for error prefixing and gates setup-only rules. */
-function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i: number) => string, errors: YamlError[], warnings: YamlError[], ctx?: { app?: string | undefined; hasLogoutRecipe?: ((appBundleId: string | null | undefined) => boolean) | undefined }): { steps: YamlStep[]; names: string[] } {
+function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i: number) => string, errors: YamlError[], warnings: YamlError[], ctx?: { app?: string | undefined; hasLogoutRecipe?: ((appBundleId: string | null | undefined) => boolean) | undefined; hasLoginRecipe?: ((appBundleId: string | null | undefined) => boolean) | undefined }): { steps: YamlStep[]; names: string[] } {
   const stepsOut: YamlStep[] = [];
   const runFlowNames: string[] = [];
   {
@@ -443,6 +453,17 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
           stepsOut.push({ idx: stepsOut.length, action: 'expect', selector: IDENTIFIER_RE.test(body.trim()) ? { identifier: body.trim() } : { label: body.trim() } });
           continue;
         }
+        // bare registry form: `- ensure login:` with empty/null body → the
+        // app's steps-recipe resolves (credentials live in the recipe as env refs)
+        if (action === 'ensure login' && (body === null || (typeof body === 'string' && !body.trim()))) {
+          const hasIt = ctx?.hasLoginRecipe;
+          if (hasIt && ctx?.app !== undefined && !hasIt(ctx.app)) {
+            errors.push({ line: 1, message: `${prefix(i)}: this app has no login flow registered — register it on the screens page (login flow)` });
+            continue;
+          }
+          stepsOut.push({ idx: stepsOut.length, action: 'ensureLogin', ensureLogin: { recipe: 'app' } });
+          continue;
+        }
         // bare registry form: `- ensure logout:` with empty/null body
         if (action === 'ensure logout' && (body === null || (typeof body === 'string' && !body.trim()))) {
           const hasIt = ctx?.hasLogoutRecipe;
@@ -459,10 +480,25 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
       const b = body as Record<string, unknown>;
       // ── ensure login: coordinate-free login preflight ──
       if (action === 'ensure login') {
-        // screen-form (plan rev 2 S4): selectors come from the screens
-        // registry (login_json); only the env refs ride the step. screen is
-        // MUTUALLY EXCLUSIVE with inline selectors — validator error, never
-        // last-wins.
+        // bare mapping `{}` → app steps-recipe (login-as-steps plan 20260930T044550Z);
+        // narrate may ride alongside (display-only)
+        const bareKeys = Object.keys(b).filter((k) => k !== 'narrate');
+        if (bareKeys.length === 0 || b['recipe'] === 'app') {
+          if (b['recipe'] === 'app' && bareKeys.length > 1) {
+            errors.push({ line: 1, message: `${prefix(i)}: ensure login is bare (registry recipe) — extra keys don't ride it` });
+            continue;
+          }
+          const hasIt = ctx?.hasLoginRecipe;
+          if (hasIt && ctx?.app !== undefined && !hasIt(ctx.app)) {
+            errors.push({ line: 1, message: `${prefix(i)}: this app has no login flow registered — register it on the screens page (login flow)` });
+            continue;
+          }
+          stepsOut.push({ idx: stepsOut.length, action: 'ensureLogin', ensureLogin: { recipe: 'app' } });
+          continue;
+        }
+        // screen-form (back-compat): resolves the app recipe now that the
+        // procedure is canonical; env refs on the step are legacy — accepted
+        // pre-migration, the migration rewrites these cases to bare form.
         const screenRef = b['screen'] as unknown;
         if (typeof screenRef === 'string' && screenRef.trim()) {
           const inlinePresent = ['entry', 'on', 'phoneField', 'passwordField', 'submit', 'session'].some((k) => typeof b[k] === 'string' && (b[k] as string).trim());
@@ -516,7 +552,10 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
           errors.push({ line: 1, message: `${prefix(i)}: ensure login needs entry/phoneField/passwordField/submit/session selectors and phone/password env refs` });
           continue;
         }
-        stepsOut.push({ idx: stepsOut.length, action: 'ensureLogin', ensureLogin: { entry: String(entry).trim(), phoneField: String(phoneField).trim(), passwordField: String(passwordField).trim(), submit: String(submit).trim(), session: String(session).trim(), phone: String(phone).trim(), password: String(password).trim() } });
+        // full inline selectors are GONE (login-as-steps plan): the recipe owns
+        // the form shape now — point the author at it
+        errors.push({ line: 1, message: `${prefix(i)}: inline login selectors are gone — the app's login flow (screens page) owns the form; write bare 'ensure login: {}' or the screen form with env refs` });
+        continue;
         continue;
       }
       // ── ensure logout: coordinate-free session preflight ──
@@ -827,6 +866,9 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       if (typeof s['narrate'] === 'string' && s['narrate']) lines.push(`      narrate: ${yamlScalar(s['narrate'])}`);
       }
     } else if (action === 'ensureLogin') {
+      const elr = s['ensureLogin'] as { recipe?: string } | undefined;
+      if (elr?.recipe === 'app') { lines.push(typeof s['narrate'] === 'string' && s['narrate'] ? `  - ensure login: { narrate: ${yamlScalar(s['narrate'])} }` : `  - ensure login: {}`); }
+      else {
       const el = s['ensureLogin'] as { entry?: string; phoneField?: string; passwordField?: string; submit?: string; session?: string; phone?: string; password?: string; screen?: string } | undefined;
       if (el?.screen) {
         lines.push(`  - ensure login:`);
@@ -848,6 +890,7 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       lines.push(`      password: ${yamlScalar(el?.password ?? '?')}`);
       }
       if (typeof s['narrate'] === 'string' && s['narrate']) lines.push(`      narrate: ${yamlScalar(s['narrate'])}`);
+      }
     } else if (action === 'expectScreen') {
       const es = s['expectScreen'] as { screen?: string; state?: string; negate?: boolean } | undefined;
       const scr = es?.screen ?? '?';

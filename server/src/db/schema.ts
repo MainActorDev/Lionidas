@@ -620,4 +620,43 @@ export function migrateM1(db: Database.Database): void {
     // SQLite <3.35 cannot DROP COLUMN — leave the orphaned column (unused);
     // verified safe on this stack's better-sqlite3 (3.49.2), kept as a hedge.
   }
+  // ── login recipe → steps form (plan 20260930T044550Z): reshape stored
+  // 5-slot recipes into step lists. Env-ref names derive from the MOST-COMMON
+  // refs across referencing cases (review F6 — order-independent); no
+  // referencing case → LOGIN_PHONE/LOGIN_PASSWORD placeholders. Idempotent:
+  // only rows still carrying `phone`/`submit` slots (legacy shape) convert.
+  const legacyRecipes = db.prepare(`SELECT bundle_id, login_json FROM app_login WHERE login_json LIKE '%"phone"%' AND login_json NOT LIKE '%"steps"%'`).all() as Array<{ bundle_id: string; login_json: string }>;
+  for (const row of legacyRecipes) {
+    try {
+      const old = JSON.parse(row.login_json) as { entry?: unknown; phone?: string; password?: string; submit?: string; verify?: { screen?: string; state?: string; via?: string } };
+      if (!old.phone || !old.password || !old.submit || !old.verify?.screen || !old.verify.state) continue;
+      // most-common env refs across referencing cases (F6)
+      const refCases = db.prepare("SELECT setup_json FROM templates WHERE app_bundle_id = ?").all(row.bundle_id) as Array<{ setup_json: string }>;
+      const countRef = (slot: 'phone' | 'password'): string => {
+        const counts = new Map<string, number>();
+        for (const c of refCases) {
+          try {
+            for (const st of JSON.parse(c.setup_json || '[]') as Array<{ ensureLogin?: { phone?: string; password?: string } }>) {
+              const v = st.ensureLogin?.[slot];
+              if (typeof v === 'string' && v.startsWith('\${env.')) {
+                counts.set(v, (counts.get(v) ?? 0) + 1);
+              }
+            }
+          } catch { /* skip malformed */ }
+        }
+        let best = ''; let bestN = -1;
+        for (const [k, n] of counts) if (n > bestN) { best = k; bestN = n; }
+        return best;
+      };
+      const phoneRef = countRef('phone') || '\${env.LOGIN_PHONE}';
+      const pwRef = countRef('password') || '\${env.LOGIN_PASSWORD}';
+      const steps = [
+        { type: { on: old.phone, text: phoneRef } },
+        { type: { on: old.password, text: pwRef } },
+        { tap: { on: old.submit } },
+      ];
+      const next = { entry: old.entry, steps, verify: old.verify };
+      db.prepare('UPDATE app_login SET login_json = ?, updated_at = ?, revision = revision + 1 WHERE bundle_id = ?').run(JSON.stringify(next), Date.now(), row.bundle_id);
+    } catch { /* leave untouched — playback fails closed with the honest message */ }
+  }
 }

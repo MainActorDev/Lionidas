@@ -62,7 +62,7 @@ describe('screens.yaml carries the recipes', () => {
     // seed: one screen + both recipes
     await app.inject({ method: 'PUT', url: `/api/apps/${bundle}/screens`, payload: { screens: [{ id: 'home', entry: { tab: { label: 'Home' } }, states: { guest: { all: [{ label: 'welcome' }] } } }, { id: 'auth', entry: { tab: { label: 'Log In' } }, states: { logged_out: { all: [{ label: 'log_in' }] } } }] } });
     await app.inject({ method: 'PUT', url: `/api/apps/${bundle}/logout`, payload: { logout: { button: 'b1', confirm: 'c1' } } });
-    await app.inject({ method: 'PUT', url: `/api/apps/${bundle}/login`, payload: { login: { entry: { tab: { label: 'Log In' } }, phone: 'ph', password: 'pw', submit: 'go', verify: { screen: 'auth', state: 'logged_out' } } } });
+    await app.inject({ method: 'PUT', url: `/api/apps/${bundle}/login`, payload: { login: { entry: { tab: { label: 'Log In' } }, steps: [{ type: { on: 'ph', text: '${env.P}' } }, { tap: { on: 'go' } }], verify: { screen: 'auth', state: 'logged_out' } } } });
     const yaml = (await (await app.inject({ method: 'GET', url: `/api/apps/${bundle}/screens.yaml` })).body);
     expect(yaml).toContain('login:');
     expect(yaml).toContain('logout:');
