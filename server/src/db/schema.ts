@@ -593,4 +593,70 @@ export function migrateM1(db: Database.Database): void {
   if (!screenCols.some((x) => x.name === 'login_json')) {
     db.prepare('ALTER TABLE app_screens ADD COLUMN login_json TEXT').run();
   }
+  // ── logout recipe registry (plan 20260929T080249Z): app-level procedure,
+  // mirror of app_login. ONE recipe per bundle; cases reference it with the
+  // bare `ensure logout:` verb. ATOMIC settlement of the login duality in
+  // the same migration pass (review F1/F3): migrate screen-level recipes →
+  // app_login wins → drop the screen column. No server state exists where
+  // the column is gone but readers/writers still reference it (routes and
+  // the registry-replace snapshot are updated in this same change).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_logout(
+      bundle_id TEXT PRIMARY KEY,
+      logout_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1
+    );
+  `);
+  // login settlement: any screen-level recipes move to app_login exactly
+  // once (existing app_login rows win), then the column drops.
+  db.prepare(`INSERT INTO app_login(bundle_id, login_json, updated_at, revision)
+              SELECT app_bundle_id, login_json, 0, 1 FROM app_screens
+              WHERE login_json IS NOT NULL
+                AND app_bundle_id NOT IN (SELECT bundle_id FROM app_login)`).run();
+  try {
+    db.prepare('ALTER TABLE app_screens DROP COLUMN login_json').run();
+  } catch {
+    // SQLite <3.35 cannot DROP COLUMN — leave the orphaned column (unused);
+    // verified safe on this stack's better-sqlite3 (3.49.2), kept as a hedge.
+  }
+  // ── login recipe → steps form (plan 20260930T044550Z): reshape stored
+  // 5-slot recipes into step lists. Env-ref names derive from the MOST-COMMON
+  // refs across referencing cases (review F6 — order-independent); no
+  // referencing case → LOGIN_PHONE/LOGIN_PASSWORD placeholders. Idempotent:
+  // only rows still carrying `phone`/`submit` slots (legacy shape) convert.
+  const legacyRecipes = db.prepare(`SELECT bundle_id, login_json FROM app_login WHERE login_json LIKE '%"phone"%' AND login_json NOT LIKE '%"steps"%'`).all() as Array<{ bundle_id: string; login_json: string }>;
+  for (const row of legacyRecipes) {
+    try {
+      const old = JSON.parse(row.login_json) as { entry?: unknown; phone?: string; password?: string; submit?: string; verify?: { screen?: string; state?: string; via?: string } };
+      if (!old.phone || !old.password || !old.submit || !old.verify?.screen || !old.verify.state) continue;
+      // most-common env refs across referencing cases (F6)
+      const refCases = db.prepare("SELECT setup_json FROM templates WHERE app_bundle_id = ?").all(row.bundle_id) as Array<{ setup_json: string }>;
+      const countRef = (slot: 'phone' | 'password'): string => {
+        const counts = new Map<string, number>();
+        for (const c of refCases) {
+          try {
+            for (const st of JSON.parse(c.setup_json || '[]') as Array<{ ensureLogin?: { phone?: string; password?: string } }>) {
+              const v = st.ensureLogin?.[slot];
+              if (typeof v === 'string' && v.startsWith('\${env.')) {
+                counts.set(v, (counts.get(v) ?? 0) + 1);
+              }
+            }
+          } catch { /* skip malformed */ }
+        }
+        let best = ''; let bestN = -1;
+        for (const [k, n] of counts) if (n > bestN) { best = k; bestN = n; }
+        return best;
+      };
+      const phoneRef = countRef('phone') || '\${env.LOGIN_PHONE}';
+      const pwRef = countRef('password') || '\${env.LOGIN_PASSWORD}';
+      const steps = [
+        { type: { on: old.phone, text: phoneRef } },
+        { type: { on: old.password, text: pwRef } },
+        { tap: { on: old.submit } },
+      ];
+      const next = { entry: old.entry, steps, verify: old.verify };
+      db.prepare('UPDATE app_login SET login_json = ?, updated_at = ?, revision = revision + 1 WHERE bundle_id = ?').run(JSON.stringify(next), Date.now(), row.bundle_id);
+    } catch { /* leave untouched — playback fails closed with the honest message */ }
+  }
 }

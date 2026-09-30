@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
-import { validateRegistry, validateAppLogin, type AppScreen } from '@crucible/shared/app-screens';
+import { validateRegistry, validateAppLogin, validateAppLogout, type AppScreen } from '@crucible/shared/app-screens';
 import { requireRole } from '../auth/roles.ts';
 
 /** R2 S3 — app screen registry API.
@@ -15,8 +15,8 @@ import { requireRole } from '../auth/roles.ts';
  *  never historical runs (snapshots carry the selector sets). */
 export function registerAppScreenRoutes(app: FastifyInstance, db: Database.Database): void {
   const rowsFor = (bundle: string) =>
-    db.prepare('SELECT screen_id, entry_json, refresh_json, states_json, updated_at, login_json FROM app_screens WHERE app_bundle_id = ? ORDER BY screen_id').all(bundle) as
-      Array<{ screen_id: string; entry_json: string; refresh_json: string | null; states_json: string; updated_at: number; login_json: string | null }>;
+    db.prepare('SELECT screen_id, entry_json, refresh_json, states_json, updated_at FROM app_screens WHERE app_bundle_id = ? ORDER BY screen_id').all(bundle) as
+      Array<{ screen_id: string; entry_json: string; refresh_json: string | null; states_json: string; updated_at: number }>;
 
   const screensFor = (bundle: string): Array<import('@crucible/shared/app-screens').AppScreen> =>
     rowsFor(bundle).map((r) => {
@@ -28,7 +28,7 @@ export function registerAppScreenRoutes(app: FastifyInstance, db: Database.Datab
       if (r.refresh_json) screen.refresh = JSON.parse(r.refresh_json) as AppScreen['refresh'];
       // login recipe rides along (plan rev 2): the screens page + yaml export
       // surface it; null when the screen has none
-      (screen as unknown as { login?: unknown }).login = r.login_json ? JSON.parse(r.login_json) : null;
+
       return screen;
     });
 
@@ -39,22 +39,13 @@ export function registerAppScreenRoutes(app: FastifyInstance, db: Database.Datab
     const prev = (db.prepare('SELECT COALESCE(MAX(revision), 1) AS r FROM app_screens WHERE app_bundle_id = ?').get(bundle) as { r: number }).r;
     const next = prev + 1;
     const tx = db.transaction((list: AppScreen[]) => {
-      // login recipes survive a registry replace: snapshot per-screen before
-      // the delete, re-apply on insert (the replace's screen list may or may
-      // not carry login — the dedicated PUT owns that column, but a wholesale
-      // replace must not DESTROY it silently)
-      const loginSnapshot = new Map<string, string | null>(
-        (db.prepare('SELECT screen_id, login_json FROM app_screens WHERE app_bundle_id = ?').all(bundle) as Array<{ screen_id: string; login_json: string | null }>)
-          .map((r) => [r.screen_id, r.login_json]),
-      );
+      // login recipes are APP-level (app_login) since the login-as-procedure
+      // plan — a registry replace never touches them (the per-screen column
+      // is gone; settled 2026-09-29, plan 20260929T080249Z).
       db.prepare('DELETE FROM app_screens WHERE app_bundle_id = ?').run(bundle);
-      const ins = db.prepare('INSERT INTO app_screens(app_bundle_id, screen_id, entry_json, refresh_json, states_json, updated_at, revision, login_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+      const ins = db.prepare('INSERT INTO app_screens(app_bundle_id, screen_id, entry_json, refresh_json, states_json, updated_at, revision) VALUES (?, ?, ?, ?, ?, ?, ?)');
       for (const s of list) {
-        const login = (s as unknown as { login?: unknown }).login;
-        const loginJson = typeof login === 'string' && login ? login
-          : login && typeof login === 'object' ? JSON.stringify(login)
-          : loginSnapshot.get(s.id) ?? null;
-        ins.run(bundle, s.id, JSON.stringify(s.entry), s.refresh ? JSON.stringify(s.refresh) : null, JSON.stringify(s.states), Date.now(), next, loginJson);
+        ins.run(bundle, s.id, JSON.stringify(s.entry), s.refresh ? JSON.stringify(s.refresh) : null, JSON.stringify(s.states), Date.now(), next);
       }
     });
     tx(screens);
@@ -64,8 +55,8 @@ export function registerAppScreenRoutes(app: FastifyInstance, db: Database.Datab
   /** All-bundles listing (registry-UI stage 1, A2 screens page): every
    *  registry with its screens — the page groups by bundle client-side. */
   app.get('/api/apps/screens', async () => {
-    const rows = db.prepare('SELECT app_bundle_id, screen_id, entry_json, refresh_json, states_json, login_json FROM app_screens ORDER BY app_bundle_id, screen_id').all() as
-      Array<{ app_bundle_id: string; screen_id: string; entry_json: string; refresh_json: string | null; states_json: string; login_json: string | null }>;
+    const rows = db.prepare('SELECT app_bundle_id, screen_id, entry_json, refresh_json, states_json FROM app_screens ORDER BY app_bundle_id, screen_id').all() as
+      Array<{ app_bundle_id: string; screen_id: string; entry_json: string; refresh_json: string | null; states_json: string }>;
     const byBundle = new Map<string, Array<import('@crucible/shared/app-screens').AppScreen>>();
     for (const r of rows) {
       const scr: import('@crucible/shared/app-screens').AppScreen = {
@@ -74,7 +65,7 @@ export function registerAppScreenRoutes(app: FastifyInstance, db: Database.Datab
         states: JSON.parse(r.states_json) as import('@crucible/shared/app-screens').AppScreen['states'],
       };
       if (r.refresh_json) scr.refresh = JSON.parse(r.refresh_json) as import('@crucible/shared/app-screens').AppScreen['refresh'];
-      (scr as unknown as { login?: unknown }).login = r.login_json ? JSON.parse(r.login_json) : null;
+
       const list = byBundle.get(r.app_bundle_id) ?? [];
       list.push(scr);
       byBundle.set(r.app_bundle_id, list);
@@ -175,7 +166,19 @@ export function registerAppScreenRoutes(app: FastifyInstance, db: Database.Datab
   app.get('/api/apps/:bundle/screens.yaml', async (req, reply) => {
     const { bundle } = req.params as { bundle: string };
     reply.header('content-type', 'text/yaml; charset=utf-8');
-    return toYaml(screensFor(bundle));
+    // the recipes ride the export (they're per-bundle facts like the screens):
+    // wrapper form `screens: […]; login: …; logout: …` — the bare list stays
+    // importable for hand-written/legacy files
+    const screensYaml = toYaml(screensFor(bundle));
+    const loginRow = db.prepare('SELECT login_json FROM app_login WHERE bundle_id = ?').get(bundle) as { login_json: string } | undefined;
+    const logoutRow = db.prepare('SELECT logout_json FROM app_logout WHERE bundle_id = ?').get(bundle) as { logout_json: string } | undefined;
+    if (!loginRow && !logoutRow) return screensYaml;
+    const YAML = await import('yaml');
+    const indent = (y: string): string => y.split('\n').filter((l) => l.trim()).map((l) => `  ${l}`).join('\n');
+    const parts = [`screens:\n${indent(screensYaml)}`];
+    if (loginRow) parts.push(`login:\n${indent(YAML.stringify(JSON.parse(loginRow.login_json)))}`);
+    if (logoutRow) parts.push(`logout:\n${indent(YAML.stringify(JSON.parse(logoutRow.logout_json)))}`);
+    return parts.join('\n') + '\n';
   });
 
   app.put('/api/apps/:bundle/screens.yaml', async (req, reply) => {
@@ -188,48 +191,48 @@ export function registerAppScreenRoutes(app: FastifyInstance, db: Database.Datab
     try { parsed = YAML.parse(yaml); } catch (err) {
       return reply.code(422).send({ errors: [`invalid yaml: ${err instanceof Error ? err.message : String(err)}`] });
     }
-    const errors = validateRegistry(parsed);
-    if (errors.length > 0) return reply.code(422).send({ errors });
-    replaceRegistry(bundle, parsed as AppScreen[]);
-    return { ok: true, count: (parsed as AppScreen[]).length };
-  });
-
-  /** login recipe (plan rev 2 S3.2): GET returns the parsed login_json;
-   *  PUT validates the 5-selector shape and stores it on the screen row.
-   *  Operator-tier write (credential-adjacent config, matches env-vars). */
-  app.get('/api/apps/:bundle/screens/:id/login', async (req, reply) => {
-    const { bundle, id } = req.params as { bundle: string; id: string };
-    const row = db.prepare('SELECT login_json FROM app_screens WHERE app_bundle_id = ? AND screen_id = ?').get(bundle, id) as { login_json: string | null } | undefined;
-    if (!row) return reply.code(404).send({ error: 'screen not found' });
-    if (!row.login_json) return { login: null };
-    try { return { login: JSON.parse(row.login_json) }; } catch { return { login: null }; }
-  });
-
-  app.put('/api/apps/:bundle/screens/:id/login', { preHandler: requireRole('operator') }, async (req, reply) => {
-    const { bundle, id } = req.params as { bundle: string; id: string };
-    const row = db.prepare('SELECT screen_id FROM app_screens WHERE app_bundle_id = ? AND screen_id = ?').get(bundle, id) as { screen_id: string } | undefined;
-    if (!row) return reply.code(404).send({ error: 'screen not found' });
-    const b = (req.body ?? {}) as Record<string, unknown>;
-    const fields = ['entry', 'phoneField', 'passwordField', 'submit', 'session'];
-    const login: Record<string, string> = {};
-    for (const f of fields) {
-      const v = b[f];
-      if (typeof v !== 'string' || !v.trim()) return reply.code(422).send({ error: `login recipe needs all 5 selectors: ${fields.join(', ')} (missing/empty: ${f})` });
-      login[f] = v.trim();
+    // wrapper form: {screens: […], login: …, logout: …} — recipes are
+    // optional; validate with the same validators the panels use
+    let screensDoc = parsed;
+    let loginDoc: unknown = undefined;
+    let logoutDoc: unknown = undefined;
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) && 'screens' in (parsed as Record<string, unknown>)) {
+      const w = parsed as Record<string, unknown>;
+      screensDoc = w['screens'];
+      loginDoc = w['login'];
+      logoutDoc = w['logout'];
+      if (loginDoc !== undefined) {
+        const errs = validateAppLogin(loginDoc, screensFor(bundle) as unknown as unknown[]);
+        if (errs.length > 0) return reply.code(422).send({ errors: errs.map((e) => `login: ${e}`) });
+      }
+      if (logoutDoc !== undefined) {
+        const errs = validateAppLogout(logoutDoc);
+        if (errs.length > 0) return reply.code(422).send({ errors: errs.map((e) => `logout: ${e}`) });
+      }
     }
-    db.prepare('UPDATE app_screens SET login_json = ?, updated_at = ?, revision = revision + 1 WHERE app_bundle_id = ? AND screen_id = ?')
-      .run(JSON.stringify(login), Date.now(), bundle, id);
-    return { login };
+    const errors = validateRegistry(screensDoc);
+    if (errors.length > 0) return reply.code(422).send({ errors });
+    replaceRegistry(bundle, screensDoc as AppScreen[]);
+    // import REPLACES absent recipe keys? No — screens replace wholesale, but
+    // recipes are absent-safe: only write what the file carries (a legacy
+    // bare-list export must not delete the panels' recipes)
+    if (loginDoc !== undefined) {
+      db.prepare(`INSERT INTO app_login(bundle_id, login_json, updated_at, revision) VALUES (?, ?, ?, 1)
+                  ON CONFLICT(bundle_id) DO UPDATE SET login_json = excluded.login_json, updated_at = excluded.updated_at, revision = revision + 1`)
+        .run(bundle, JSON.stringify(loginDoc), Date.now());
+    }
+    if (logoutDoc !== undefined) {
+      db.prepare(`INSERT INTO app_logout(bundle_id, logout_json, updated_at, revision) VALUES (?, ?, ?, 1)
+                  ON CONFLICT(bundle_id) DO UPDATE SET logout_json = excluded.logout_json, updated_at = excluded.updated_at, revision = revision + 1`)
+        .run(bundle, JSON.stringify(logoutDoc), Date.now());
+    }
+    return { ok: true, count: (screensDoc as AppScreen[]).length, ...(loginDoc !== undefined ? { login: true } : {}), ...(logoutDoc !== undefined ? { logout: true } : {}) };
   });
 
-  app.delete('/api/apps/:bundle/screens/:id/login', { preHandler: requireRole('operator') }, async (req, reply) => {
-    const { bundle, id } = req.params as { bundle: string; id: string };
-    const row = db.prepare('SELECT screen_id FROM app_screens WHERE app_bundle_id = ? AND screen_id = ?').get(bundle, id) as { screen_id: string } | undefined;
-    if (!row) return reply.code(404).send({ error: 'screen not found' });
-    db.prepare('UPDATE app_screens SET login_json = NULL, updated_at = ?, revision = revision + 1 WHERE app_bundle_id = ? AND screen_id = ?')
-      .run(Date.now(), bundle, id);
-    return { removed: id };
-  });
+  // per-screen login routes REMOVED (settlement 2026-09-29, plan
+  // 20260929T080249Z review F1): login is app-level (app_login, the
+  // "login flow" panel). These wrote the dropped app_screens.login_json
+  // column and had no web consumers.
 
   /** login as an app-level procedure (login-as-app-procedure plan): GET /
    *  PUT / DELETE on the app's SINGLE login flow. Revision-guarded (F4);
@@ -263,6 +266,38 @@ export function registerAppScreenRoutes(app: FastifyInstance, db: Database.Datab
     const { bundle } = req.params as { bundle: string };
     const r = db.prepare('DELETE FROM app_login WHERE bundle_id = ?').run(bundle);
     if (r.changes === 0) return reply.code(404).send({ error: 'no login flow for this app' });
+    return { removed: bundle };
+  });
+
+  /** logout as an app-level procedure (plan 20260929T080249Z): ONE recipe
+   *  per bundle — the procedure bare `ensure logout:` resolves. Revision-
+   *  guarded like login (review F5); validateAppLogout enforces the shape. */
+  app.get('/api/apps/:bundle/logout', async (req, _reply) => {
+    const { bundle } = req.params as { bundle: string };
+    const row = db.prepare('SELECT logout_json, revision FROM app_logout WHERE bundle_id = ?').get(bundle) as { logout_json: string; revision: number } | undefined;
+    if (!row) return { logout: null, revision: 1 };
+    try { return { logout: JSON.parse(row.logout_json), revision: row.revision }; } catch { return { logout: null, revision: row.revision }; }
+  });
+
+  app.put('/api/apps/:bundle/logout', { preHandler: requireRole('operator') }, async (req, reply) => {
+    const { bundle } = req.params as { bundle: string };
+    const b = (req.body ?? {}) as { logout?: unknown; revision?: number };
+    const errors = validateAppLogout(b.logout);
+    if (errors.length > 0) return reply.code(422).send({ errors });
+    const prev = db.prepare('SELECT revision FROM app_logout WHERE bundle_id = ?').get(bundle) as { revision: number } | undefined;
+    const rev = prev?.revision ?? 1;
+    if (b.revision !== undefined && b.revision !== rev) return reply.code(409).send({ error: `logout flow changed since you loaded it (revision ${rev}) — reload and retry`, revision: rev });
+    const next = rev + 1;
+    db.prepare(`INSERT INTO app_logout(bundle_id, logout_json, updated_at, revision) VALUES (?, ?, ?, ?)
+                ON CONFLICT(bundle_id) DO UPDATE SET logout_json = excluded.logout_json, updated_at = excluded.updated_at, revision = excluded.revision`)
+      .run(bundle, JSON.stringify(b.logout), Date.now(), next);
+    return { ok: true, revision: next };
+  });
+
+  app.delete('/api/apps/:bundle/logout', { preHandler: requireRole('operator') }, async (req, reply) => {
+    const { bundle } = req.params as { bundle: string };
+    const r = db.prepare('DELETE FROM app_logout WHERE bundle_id = ?').run(bundle);
+    if (r.changes === 0) return reply.code(404).send({ error: 'no logout flow for this app' });
     return { removed: bundle };
   });
 }
