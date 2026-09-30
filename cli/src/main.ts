@@ -8,6 +8,9 @@ import { caseCommand } from './commands/case.ts';
 import { runCommand } from './commands/run.ts';
 import { envCommand } from './commands/env.ts';
 import { contextCommand } from './commands/context.ts';
+import { folderCommand } from './commands/folder.ts';
+import { screenCommand } from './commands/screen.ts';
+import { suiteCommand } from './commands/suite.ts';
 import { setJson, error as outError } from './output.ts';
 
 export async function run(argv: string[]): Promise<number> {
@@ -22,6 +25,9 @@ export async function run(argv: string[]): Promise<number> {
   runCommand(cli);
   envCommand(cli);
   contextCommand(cli);
+  folderCommand(cli);
+  screenCommand(cli);
+  suiteCommand(cli);
 
   setJson(argv.includes('--json'));
   // cac strips argv[0..1] (bin + script path) before matching — run() receives

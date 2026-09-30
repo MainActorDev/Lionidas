@@ -49,10 +49,35 @@ lionidas run triage <runId> <idx> # reason + evidence refs (phase 3)
 
 ## Surface map
 
-Phase 1 (now): stack · auth · context · case list/new/get/edit/run/verify ·
-run get/steps/abort · env list/set/delete.
-Phase 2 (next): case yaml/duplicate/delete/export/import/versions · folder
-list/new/move/rename/delete/run · screen list/register/login-flow/logout-flow/
-import/export · suite list/new/play/delete.
+Phase 1: stack · auth · context · case list/get/run/verify · run
+get/steps/abort · env list/set/delete.
+Phase 2 (now): case yaml/new/edit/duplicate/delete/export/import/versions ·
+folder list/new/rename/move/delete/run · screen list/register/remove/yaml/
+import/export/login-flow/logout-flow · suite list/new/get/edit/play/delete.
+
+```bash
+# authoring loop (yaml round-trip is the write path)
+lionidas case new case.yaml            # validate → import seam (folders auto-created)
+lionidas case yaml <id|name>           # read back as yaml
+lionidas case edit <id|name> new.yaml  # validate → PUT (422s carry line numbers)
+lionidas case export [--out f.zip]     # zip + manifest (ids filter)
+lionidas case import f.zip             # binary-safe; renames on collision
+
+# folders: app-scoped trees; guards surface named-409s
+lionidas folder new --app <b> --name smoke [--parent <id|path>]
+lionidas folder list --app <b>         # indented tree + subtree counts
+lionidas folder move <folder|root> --app <b> --cases id1,id2
+lionidas folder run <folderId> --device <udid>   # subtree batch, waits, 0/1
+
+# screens + app recipes (screens.yaml = the app definition)
+lionidas screen register --app <b> --name s-id --entry <json> --states <json>
+lionidas screen yaml <b> > screens.yaml           # export (recipes ride along)
+lionidas screen login-flow <b> recipe.yaml        # entry/steps/verify doc
+lionidas screen import <b> screens.yaml           # replace registry
+
+# suites: one app's pack; play surfaces named-skips
+lionidas suite new --name pack --members id1,id2 --app <b>
+lionidas suite play <suiteId> --device <udid>     # drift/deprecated/dead-pins named
+```
 Phase 3: net presets/scenarios/condition/traffic/mitm · device list/power/
 install · run list/triage/evidence · queue · flake.
