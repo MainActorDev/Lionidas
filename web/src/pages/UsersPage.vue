@@ -8,6 +8,38 @@ import { computed, ref, onMounted } from 'vue';
 // logins) — the same page, scoped to their identity by the server.
 interface Me { id: string; name: string; email: string; role: string; auth_source: string }
 const me = ref<Me | null>(null);
+
+// API tokens (CLI auth)
+const tokens = ref<Array<{ id: string; name: string; created_at: number; last_used_at: number | null }>>([]);
+const newTokenName = ref('');
+const creatingToken = ref(false);
+const freshToken = ref('');
+const cliApproveCode = ref(new URLSearchParams(location.search).get('code') ?? '');
+async function loadTokens(): Promise<void> {
+  try {
+    const r = await fetch('/api/auth/tokens');
+    if (r.ok) tokens.value = await r.json();
+  } catch { /* panel degrades silently */ }
+}
+async function createToken(): Promise<void> {
+  creatingToken.value = true;
+  freshToken.value = '';
+  try {
+    const r = await fetch('/api/auth/token', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: newTokenName.value.trim() }) });
+    const b = (await r.json()) as { token?: string; error?: string };
+    if (b.token) { freshToken.value = b.token; newTokenName.value = ''; await loadTokens(); }
+  } finally { creatingToken.value = false; }
+}
+function copyFreshToken(): void { void navigator.clipboard?.writeText(freshToken.value); }
+async function revokeToken(id: string): Promise<void> {
+  if (!window.confirm('revoke this token? the CLI using it will fail auth')) return;
+  await fetch(`/api/auth/tokens/${id}`, { method: 'DELETE' });
+  await loadTokens();
+}
+async function approveCli(): Promise<void> {
+  const r = await fetch('/api/auth/cli/approve', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: cliApproveCode.value }) });
+  if (r.ok) cliApproveCode.value = '';
+}
 const isAdmin = computed(() => me.value?.role === 'admin');
 interface ActRun { id: string; ticket_key: string | null; kind: string; status: string; started_at: number; finished_at: number | null }
 interface ActManual { id: string; udid: string; run_id: string | null; operator: string; started_at: number; finished_at: number | null }
@@ -91,7 +123,8 @@ async function killSession(id: string): Promise<void> {
   await fetch(`/api/sessions/${id}`, { method: 'DELETE' });
   await loadAccess();
 }
-onMounted(() => { if (isAdmin.value) void loadAccess(); });
+onMounted(() => {
+  void loadTokens(); if (isAdmin.value) void loadAccess(); });
 
 onMounted(() => void load());
 </script>
@@ -159,6 +192,39 @@ onMounted(() => void load());
 
     <div v-if="err" class="meta-row" style="color: var(--color-ember); margin-bottom: 10px;">{{ err }}</div>
     <div v-if="msg" class="meta-row" style="color: var(--color-fog); margin-bottom: 10px;">{{ msg }}</div>
+
+        <!-- API tokens (CLI auth — plan 20260930T092035Z): create/revoke lion_ PATs.
+         Plaintext shown ONCE at creation. Also approves CLI login codes. -->
+    <div class="section-label" style="margin-top: var(--s-4);"><span>api tokens · cli access</span></div>
+    <div class="card" style="padding: var(--s-3); display: flex; flex-direction: column; gap: var(--s-2);">
+      <div style="display: flex; gap: var(--s-2); align-items: center;">
+        <input v-model="newTokenName" placeholder="token name (e.g. laptop, ci)" class="tok-name">
+        <button class="btn btn-sm" :disabled="creatingToken || !newTokenName.trim()" @click="createToken">{{ creatingToken ? 'creating…' : 'create token' }}</button>
+      </div>
+      <div v-if="freshToken" class="tok-fresh">
+        <span>copy now — shown once:</span>
+        <code>{{ freshToken }}</code>
+        <button class="btn btn-sm" @click="copyFreshToken">copy</button>
+      </div>
+      <table v-if="tokens.length" style="width: 100%;">
+        <thead><tr><th>name</th><th>created</th><th>last used</th><th></th></tr></thead>
+        <tbody>
+          <tr v-for="t in tokens" :key="t.id">
+            <td>{{ t.name }}</td>
+            <td style="font-size: 10px; color: var(--color-steel);">{{ when(t.created_at) }}</td>
+            <td style="font-size: 10px; color: var(--color-steel);">{{ t.last_used_at ? when(t.last_used_at) : 'never' }}</td>
+            <td style="text-align: right;"><button class="btn btn-sm btn-danger" @click="revokeToken(t.id)">revoke</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div v-else class="meta-row">no tokens — the CLI's `lionidas auth login` will ask you to approve a code here</div>
+      <div v-if="cliApproveCode" class="tok-fresh" style="border-color: var(--color-ember);">
+        <span>CLI login request:</span>
+        <code>{{ cliApproveCode }}</code>
+        <button class="btn btn-sm btn-primary" @click="approveCli">approve</button>
+        <button class="btn btn-sm" @click="cliApproveCode = ''">dismiss</button>
+      </div>
+    </div>
 
     <template v-if="isAdmin">
     <div class="card" style="padding: var(--s-3); margin-bottom: var(--s-3);">
@@ -254,3 +320,9 @@ onMounted(() => void load());
     </template>
   </div>
 </template>
+
+<style scoped>
+.tok-name { flex: 1; background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 6px var(--s-2); }
+.tok-fresh { display: flex; align-items: center; gap: var(--s-2); border: 1px dashed var(--color-ember); border-radius: var(--r-sm); padding: var(--s-2) var(--s-3); font-size: var(--text-caption); }
+.tok-fresh code { font-family: var(--font-mono); color: var(--color-paper); overflow-wrap: anywhere; }
+</style>
