@@ -92,8 +92,12 @@ export function registerDraftTools(deps: ToolDeps & { registry: import('@mainact
     async execute(args) {
       const key = String(args['idOrName'] ?? '');
       const yaml = String(args['yaml'] ?? '');
-      const row = (db.prepare('SELECT * FROM templates WHERE id = ?').get(key) ?? db.prepare('SELECT * FROM templates WHERE name = ?').get(key)) as { id: string; name: string; app_bundle_id: string | null; folder_id: string | null } | undefined;
+      const row = (db.prepare('SELECT * FROM templates WHERE id = ?').get(key) ?? db.prepare('SELECT * FROM templates WHERE name = ?').get(key)) as { id: string; name: string; status: string; app_bundle_id: string | null; folder_id: string | null } | undefined;
       if (!row) return `error: no case "${key}"`;
+      // steps_004: active/deprecated cases are immutable to the agent — revise instead
+      if (row.status !== 'draft') {
+        return `INVALID: case "${key}" is ${row.status} — use case.draft.revise to edit it as a new draft (activation stays human)`;
+      }
 
       const r = parseCaseYaml(yaml, {
         hasLogoutRecipe: (bundle) => (bundle === null || bundle === undefined ? hasLogoutRecipe(row.app_bundle_id) : hasLogoutRecipe(bundle)),

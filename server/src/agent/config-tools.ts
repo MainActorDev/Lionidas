@@ -94,6 +94,69 @@ export function registerConfigTools(deps: ConfigToolDeps): void {
 
 
 
+
+  // ── case lifecycle (steps_004; F5 name flow, invalid-yaml copy survival) ──
+
+  registry.register({
+    name: 'case.draft.revise',
+    description: 'revise an ACTIVE or DEPRECATED case: saves a NEW draft copy with your yaml applied (the live case is never touched). If your yaml is invalid, a plain copy survives and its id is returned. Activation stays human.',
+    permission: 'draft',
+    parameters: { type: 'object', properties: { idOrName: { type: 'string' }, yaml: { type: 'string' } }, required: ['idOrName', 'yaml'] },
+    async execute(args, ctx) {
+      const key = String(args['idOrName'] ?? '');
+      const yaml = String(args['yaml'] ?? '');
+      const row = db.prepare('SELECT * FROM templates WHERE id = ?').get(key) ?? db.prepare('SELECT * FROM templates WHERE name = ?').get(key);
+      if (!row) return `error: no case "${key}"`;
+      if ((row as { status: string }).status === 'draft') return 'INVALID: already a draft — use case.draft.edit';
+
+      // duplicate-route semantics: fresh id, collision-loop name, FULL copy, status draft
+      const now = Date.now();
+      const newId = `tpl_${randomUUID().slice(0, 8)}`;
+      const origName = (row as { name: string }).name;
+      const tx = db.transaction(() => {
+        let name = `${origName} (copy)`;
+        let n = 2;
+        while (db.prepare('SELECT 1 FROM templates WHERE name = ?').get(name)) {
+          name = `${origName} (copy ${n})`; n += 1;
+        }
+        db.prepare(
+          `INSERT INTO templates(id, name, steps_json, app_bundle_id, tags_json, setup_json, alerts_policy, variants_json, entry_json, udid, logical_w, logical_h, status, folder_id, created_by, created_at, updated_at)
+           SELECT ?, ?, steps_json, app_bundle_id, tags_json, setup_json, alerts_policy, variants_json, entry_json, udid, logical_w, logical_h, 'draft', folder_id, 'agent', ?, ? FROM templates WHERE id = ?`,
+        ).run(newId, name, now, now, (row as { id: string }).id);
+        return name;
+      });
+      const copyName = tx() as string;
+
+      // F5: yaml without `name` keeps the copy's name — inject it so the
+      // validator doesn't reject an otherwise-fine revision for a missing key
+      const yamlWithName = /^[ \t]*name[ \t]*:/m.test(yaml) ? yaml : `name: ${copyName}\n${yaml}`;
+      // apply the user's yaml through the SAME edit path (registry round-trip:
+      // one definition of edit semantics; the guard passes — the copy is a draft)
+      const editOut = await deps.registry.execute('case.draft.edit', { idOrName: newId, yaml: yamlWithName }, ctx, { name: 'draft', allows: 'draft' });
+      if (editOut.startsWith('INVALID:')) {
+        return `${editOut} (a plain draft copy was saved as ${newId} — edit it and retry)`;
+      }
+      const applied = JSON.parse(editOut) as { name?: string };
+      return JSON.stringify({ templateId: newId, name: applied['name'] ?? copyName, status: 'draft' });
+    },
+  });
+
+  registry.register({
+    name: 'case.deprecate',
+    description: 'retire a case (status → deprecated). Only transition the agent may perform; activation is human-only. Idempotent.',
+    permission: 'draft',
+    parameters: { type: 'object', properties: { idOrName: { type: 'string' } }, required: ['idOrName'] },
+    async execute(args) {
+      const key = String(args['idOrName'] ?? '');
+      const row = (db.prepare('SELECT id, status FROM templates WHERE id = ?').get(key) ?? db.prepare('SELECT id, status FROM templates WHERE name = ?').get(key)) as { id: string; status: string } | undefined;
+      if (!row) return `error: no case "${key}"`;
+      if (row.status === 'draft') return `INVALID: drafts aren't deprecated — they're simply never activated (delete is human)`;
+      if (row.status === 'deprecated') return JSON.stringify({ templateId: row.id, status: 'deprecated', note: 'already deprecated' });
+      db.prepare('UPDATE templates SET status = ?, updated_at = ? WHERE id = ?').run('deprecated', Date.now(), row.id);
+      return JSON.stringify({ templateId: row.id, status: 'deprecated' });
+    },
+  });
+
   // ── scenario + preset writes (steps_003; F1 name guard, immutable-first, F2 sync)
 
   const IMMUTABLE_MSG = 'INVALID: scenario is immutable (referenced by runs) — duplicate it and edit the copy (POST /api/forge/scenarios/:id/duplicate)';

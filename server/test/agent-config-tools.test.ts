@@ -222,5 +222,68 @@ describe.skipIf(!hasButler)('config tools (read + write, route-faithful)', () =>
     expect(await exec('preset.draft.edit', { presetId: 'p_a' }, DRAFT)).toBe('INVALID: no updatable fields provided');
   });
 
+  // ── Step 4: case lifecycle (edit guard, revise-from-copy, deprecate) ────
+
+  it('case.draft.edit on an ACTIVE case → refusal naming revise; nothing written', async () => {
+    db.prepare(`INSERT INTO templates(id, name, udid, steps_json, app_bundle_id, status, created_by, created_at, updated_at) VALUES ('tpl_active', 'Active Case', '', '[{"action":"tap","on":"x"}]', 'com.test.app', 'active', 'seed', ?, ?)`).run(Date.now(), Date.now());
+    db.prepare(`INSERT INTO app_screens(app_bundle_id, screen_id, revision, entry_json, states_json, updated_at) VALUES ('com.test.app','scr-one',1,'{"navigate":[{"on":"root"}]}','{"default":{"all":[{"identifier":"scr_one_root"}]}}',?)`).run(Date.now());
+    const out = await exec('case.draft.edit', { idOrName: 'Active Case', yaml: 'name: Active Case\napp: com.test.app\nsteps:\n  - tap: { on: y }\n' }, DRAFT);
+    expect(out).toMatch(/^INVALID: case "Active Case" is active — use case\.draft\.revise/);
+    const steps = db.prepare('SELECT steps_json FROM templates WHERE id = ?').get('tpl_active') as { steps_json: string };
+    expect(steps.steps_json).toContain('"x"'); // untouched
+  });
+
+  it('case.draft.revise: active → NEW draft with user yaml; original untouched (F5)', async () => {
+    const out = await exec('case.draft.revise', { idOrName: 'Active Case', yaml: 'name: Active Case v2\napp: com.test.app\nsteps:\n  - tap: { on: y }\n  - expect screen: scr-one.default\n' }, DRAFT);
+    const parsed = JSON.parse(out) as { templateId: string; name: string; status: string };
+    expect(parsed.name).toBe('Active Case v2');
+    expect(parsed.status).toBe('draft');
+    const orig = db.prepare('SELECT status, steps_json FROM templates WHERE id = ?').get('tpl_active') as { status: string; steps_json: string };
+    expect(orig.status).toBe('active');
+    expect(orig.steps_json).toContain('"x"'); // original untouched
+    const copy = db.prepare('SELECT status, steps_json FROM templates WHERE id = ?').get(parsed.templateId) as { status: string; steps_json: string };
+    expect(copy.status).toBe('draft');
+    expect(copy.steps_json).toContain('"y"');
+  });
+
+  it('revise without yaml name → keeps the (copy) name (F5 pin); already-draft → refused', async () => {
+    const out = await exec('case.draft.revise', { idOrName: 'Active Case', yaml: 'app: com.test.app\nsteps:\n  - tap: { on: z }\n' }, DRAFT);
+    const parsed = JSON.parse(out) as { name: string };
+    expect(parsed.name).toMatch(/^Active Case \(copy( 2)?\)$/); // F5: yaml without name keeps the collision-loop copy name
+    const draftCase = 'Agent Suite'; // suite not case — use the LP fixture: create a draft first
+    const made = await exec('case.draft.save', { yaml: 'name: Revise Me Draft\napp: com.test.app\nsteps:\n  - tap: { on: q }\n' }, DRAFT);
+    void draftCase;
+    const id = (JSON.parse(made) as { templateId: string }).templateId;
+    const refused = await exec('case.draft.revise', { idOrName: id, yaml: 'name: Revise Me Draft\napp: com.test.app\nsteps:\n  - tap: { on: q }\n' }, DRAFT);
+    expect(refused).toMatch(/^INVALID: already a draft — use case\.draft\.edit/);
+  });
+
+  it('revise with INVALID yaml → INVALID + copy id returned; copy SURVIVES with original steps', async () => {
+    const out = await exec('case.draft.revise', { idOrName: 'Active Case', yaml: 'name: Broken Revise\napp: com.test.app\nsteps:\n  - expect screen: no-suchScreen.state\n' }, DRAFT);
+    expect(out).toMatch(/^INVALID:/);
+    expect(out).toMatch(/a plain draft copy was saved as tpl_/);
+    const copyId = /tpl_[a-f0-9]+/.exec(out)![0]!;
+    const copy = db.prepare('SELECT status, steps_json FROM templates WHERE id = ?').get(copyId) as { status: string; steps_json: string } | undefined;
+    expect(copy).toBeTruthy();
+    expect(copy!.status).toBe('draft');
+    expect(copy!.steps_json).toContain('"x"'); // original steps preserved in the surviving copy
+  });
+
+  it('case.deprecate: active → deprecated; idempotent; draft refused', async () => {
+    const ok = JSON.parse(await exec('case.deprecate', { idOrName: 'Active Case' }, DRAFT)) as { status: string };
+    expect(ok.status).toBe('deprecated');
+    const again = JSON.parse(await exec('case.deprecate', { idOrName: 'Active Case' }, DRAFT)) as { note?: string };
+    expect(again['note']).toBe('already deprecated');
+    const made = await exec('case.draft.save', { yaml: 'name: Draft To Deprecate\napp: com.test.app\nsteps:\n  - tap: { on: w }\n' }, DRAFT);
+    const id = (JSON.parse(made) as { templateId: string }).templateId;
+    const refused = await exec('case.deprecate', { idOrName: id }, DRAFT);
+    expect(refused).toMatch(/^INVALID: drafts aren't deprecated/);
+  });
+
+  it('registry sweep: NO activate/delete tool names exist (condition 6)', () => {
+    const names = app.agent.registry.list().map((t) => (t as { name: string }).name);
+    expect(names.some((n) => /activate|delete/i.test(n))).toBe(false);
+  });
+
   afterAll(() => { rmSync(dir, { recursive: true, force: true }); });
 });
