@@ -74,6 +74,8 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
 
   seedUsers(db.raw, process.env['CRUCIBLE_PIN'] || null);
   registerUserResolution(app, db.raw);
+  const { registerAuthCliRoutes } = await import('./routes/auth-cli.ts');
+  registerAuthCliRoutes(app, db.raw);
   registerAuthRoutes(app, db.raw);
 
   // Hard read gate: with CRUCIBLE_REQUIRE_AUTH (default ON), every route except

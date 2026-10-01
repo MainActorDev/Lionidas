@@ -1,5 +1,6 @@
 packages:
   - server
+  - cli
   - web
   - shared
 # pnpm 10+/11 blocks native postinstall scripts unless allowlisted (supply-chain

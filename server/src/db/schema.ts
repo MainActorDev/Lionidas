@@ -593,6 +593,19 @@ export function migrateM1(db: Database.Database): void {
   if (!screenCols.some((x) => x.name === 'login_json')) {
     db.prepare('ALTER TABLE app_screens ADD COLUMN login_json TEXT').run();
   }
+  // ── CLI personal access tokens (plan 20260930T092035Z F1): lion_<hex>,
+  // stored scrypt-hashed; plaintext shown once at mint. Role = creating user.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS api_tokens(
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      token_hash TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      last_used_at INTEGER,
+      revoked_at INTEGER
+    );
+  `);
   // ── logout recipe registry (plan 20260929T080249Z): app-level procedure,
   // mirror of app_login. ONE recipe per bundle; cases reference it with the
   // bare `ensure logout:` verb. ATOMIC settlement of the login duality in

@@ -5,6 +5,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type Database from 'better-sqlite3';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { resolveSession, userForAgentToken, verifyPassword, type Role, type UserRow } from './users.ts';
+import { resolvePat } from '../routes/auth-cli.ts';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -51,6 +52,20 @@ export function registerUserResolution(app: FastifyInstance, db: Database.Databa
         req.user = user;
         return;
       }
+    }
+    // PAT (plan 20260930T092035Z F1): Bearer lion_<hex> resolves to the
+    // CREATING user (a person, not a bot) — checked BEFORE agent/bot tokens
+    // and never falls through to bot paths. The lion_ prefix disambiguates
+    // from the existing Bearer crucible-… bot tokens.
+    const authHeader = req.headers['authorization'];
+    if (typeof authHeader === 'string' && authHeader.startsWith('Bearer lion_')) {
+      const pat = resolvePat(db, authHeader.slice('Bearer '.length)) as UserRow | null;
+      if (pat) {
+        req.user = pat;
+        return;
+      }
+      // unknown/revoked PAT: fall to anonymous (401 by route gates) — never bot
+      return;
     }
     const token = extractAgentToken(req);
     if (token && isInternalToken(token)) {
