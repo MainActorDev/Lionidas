@@ -20,7 +20,7 @@ describe.skipIf(!hasButler)('config tools (read + write, route-faithful)', () =>
   const CTX = { sessionId: 'cfg', signal: undefined };
   const READ = { name: 'read', allows: 'read' as const };
   const DRAFT = { name: 'draft', allows: 'draft' as const };
-  const exec = (name: string, args: Record<string, unknown>, policy = READ): Promise<string> =>
+  const exec = (name: string, args: Record<string, unknown>, policy: { name: string; allows: 'read' | 'draft' } = READ): Promise<string> =>
     app.agent.registry.execute(name, args, CTX, policy);
 
   beforeAll(async () => {
@@ -112,6 +112,53 @@ describe.skipIf(!hasButler)('config tools (read + write, route-faithful)', () =>
     expect(JSON.stringify(def)).toEqual(JSON.stringify(cases));
     const bad = await exec('folders.tree', { kind: 'bogus' });
     expect(bad).toMatch(/^error: unknown kind/);
+  });
+
+  // ── Step 2: suite writes (F4: tx-catch mirrored, no partial writes) ─────
+
+  it('suite.draft.save: happy path + bundle from first member', async () => {
+    const out = await exec('suite.draft.save', { name: 'Agent Suite', members: [{ templateId: 'tpl_c1' }, { templateId: 'tpl_c2' }] }, DRAFT);
+    const parsed = JSON.parse(out) as { suiteId: string; name: string; memberCount: number };
+    expect(parsed.memberCount).toBe(2);
+    const row = db.prepare('SELECT app_bundle_id FROM suites WHERE id = ?').get(parsed.suiteId) as { app_bundle_id: string };
+    expect(row.app_bundle_id).toBe('com.test.app'); // derived from members
+    const members = db.prepare('SELECT template_id, position FROM suite_members WHERE suite_id = ? ORDER BY position').all(parsed.suiteId) as Array<{ template_id: string; position: number }>;
+    expect(members).toEqual([{ template_id: 'tpl_c1', position: 0 }, { template_id: 'tpl_c2', position: 1 }]);
+  });
+
+  it('mixed-bundle member → VERBATIM route 400; no partial write', async () => {
+    db.prepare(`INSERT INTO templates(id, name, udid, steps_json, app_bundle_id, status, created_by, created_at, updated_at) VALUES ('tpl_other', 'Other App Case', '', '[]', 'com.other.app', 'active', 'seed', ?, ?)`).run(Date.now(), Date.now());
+    const before = (db.prepare('SELECT COUNT(*) n FROM suite_members').get() as { n: number }).n;
+    const out = await exec('suite.draft.save', { name: 'Mixed', members: [{ templateId: 'tpl_c1' }, { templateId: 'tpl_other' }] }, DRAFT);
+    expect(out).toBe('INVALID: member tpl_other belongs to com.other.app — suite is com.test.app');
+    const after = (db.prepare('SELECT COUNT(*) n FROM suite_members').get() as { n: number }).n;
+    expect(after).toBe(before);
+    expect(db.prepare('SELECT 1 FROM suites WHERE name = ?').get('Mixed')).toBeUndefined();
+  });
+
+  it('unknown template / variant-pin / duplicate-member → verbatim', async () => {
+    expect(await exec('suite.draft.save', { name: 'X1', members: [{ templateId: 'nope' }] }, DRAFT)).toBe('INVALID: unknown template: nope');
+    db.prepare(`UPDATE templates SET variants_json = ? WHERE id = 'tpl_c1'`).run(JSON.stringify([{ id: 'v1' }, { id: 'v2' }]));
+    expect(await exec('suite.draft.save', { name: 'X2', members: [{ templateId: 'tpl_c1', variantIds: ['v9'] }] }, DRAFT)).toBe('INVALID: member tpl_c1: unknown variants v9');
+    expect(await exec('suite.draft.save', { name: 'X3', members: [{ templateId: 'tpl_c1' }, { templateId: 'tpl_c1' }] }, DRAFT)).toBe('INVALID: duplicate member tpl_c1');
+  });
+
+  it('duplicate suite name → verbatim 409 via tx-catch; first suite untouched', async () => {
+    const out = await exec('suite.draft.save', { name: 'My Suite', members: [{ templateId: 'tpl_c1' }] }, DRAFT);
+    expect(out).toBe('INVALID: suite name already exists');
+    const members = db.prepare('SELECT template_id FROM suite_members WHERE suite_id = ? ORDER BY position').all('suite_1') as Array<{ template_id: string }>;
+    expect(members.map((m) => m.template_id)).toEqual(['tpl_c2', 'tpl_c1']); // unchanged
+  });
+
+  it('suite.draft.edit: rename + member replace; appBundleId immutable verbatim', async () => {
+    const ok = await exec('suite.draft.edit', { idOrName: 'My Suite', name: 'My Suite v2', members: [{ templateId: 'tpl_c1', variantIds: ['v1'] }] }, DRAFT);
+    expect(JSON.parse(ok) as object).toBeTruthy();
+    const row = db.prepare('SELECT name FROM suites WHERE id = ?').get('suite_1') as { name: string };
+    expect(row.name).toBe('My Suite v2');
+    const members = db.prepare('SELECT template_id, variant_ids_json FROM suite_members WHERE suite_id = ? ORDER BY position').all('suite_1') as Array<{ template_id: string; variant_ids_json: string | null }>;
+    expect(members).toEqual([{ template_id: 'tpl_c1', variant_ids_json: JSON.stringify(['v1']) }]); // wholesale replace
+    const imm = await exec('suite.draft.edit', { idOrName: 'My Suite v2', appBundleId: 'com.other.app' }, DRAFT);
+    expect(imm).toBe('INVALID: appBundleId is immutable — create a new suite to change app scope');
   });
 
   afterAll(() => { rmSync(dir, { recursive: true, force: true }); });
