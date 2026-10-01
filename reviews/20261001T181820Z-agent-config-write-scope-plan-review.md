@@ -2,7 +2,8 @@
 
 - Plan reviewed: `plans/20261001T181820Z-agent-config-write-scope-plan.md` (Ready, 2026-10-02, commit `6521420`)
 - Evidence: plan + brainstorm `20261001T181820Z-agent-config-write-scope.md` + operator decisions (verbatim in plan); route sources read 2026-10-02: `server/src/routes/suites.ts` (create 125–161, patch 163–191), `server/src/forge/routes.ts` (presets 23–204, scenarios 206–422), `server/src/routes/templates.ts` (patch 505–530, duplicate 395–420), `server/src/forge/state.ts` (forgeStateService), live DB probed (scenarios table).
-- **Verdict: Needs revision** — one High (F1), one Medium consistency gap (F2). All findings are additive guards; the stage structure, policy lines, and decision traceability are sound.
+- **Verdict: Ready for implementation (rev 2)** — F1–F6 all applied to the plan (commit `abec1e1`): F1 name pre-check + observation #2; F2 syncPresets wiring + stamp mirroring; F3 read shapes; F4 tx-catch mirroring; F5 revise name-flow pinned; F6 folder-kind semantics. Original findings retained below for traceability.
+- *(Original verdict, superseded: Needs revision — one High (F1), one Medium (F2).)*
 
 ## Traceability
 
