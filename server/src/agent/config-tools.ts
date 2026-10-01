@@ -3,7 +3,7 @@
  *  errors. Reads OMIT play-verdict rollups (F3); scenario reads include the
  *  members join. Writes land in steps 2-3. */
 import type Database from 'better-sqlite3';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { ToolRegistry } from '@mainactordev/butler';
 
 export interface ConfigToolDeps {
@@ -92,6 +92,217 @@ export function registerConfigTools(deps: ConfigToolDeps): void {
     },
   });
 
+
+
+  // ── scenario + preset writes (steps_003; F1 name guard, immutable-first, F2 sync)
+
+  const IMMUTABLE_MSG = 'INVALID: scenario is immutable (referenced by runs) — duplicate it and edit the copy (POST /api/forge/scenarios/:id/duplicate)';
+  const scenarioBy = (key: string): Record<string, unknown> | undefined =>
+    (db.prepare('SELECT * FROM scenarios WHERE id = ?').get(key) ?? db.prepare('SELECT * FROM scenarios WHERE name = ?').get(key)) as Record<string, unknown> | undefined;
+
+  registry.register({
+    name: 'scenario.draft.save',
+    description: 'create a network scenario bundling presets. Same-name create is refused (never silently merges). Errors verbatim.',
+    permission: 'draft',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        description: { type: 'string' },
+        launchArg: { type: 'string' },
+        presetIds: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['name'],
+    },
+    async execute(args) {
+      const name = String(args['name'] ?? '').trim();
+      if (!name) return 'INVALID: name required';
+      // F1 guard: the route's deterministic id + INSERT OR IGNORE + unconditional
+      // member REPLACE would silently mutate an existing scenario on name reuse.
+      if (db.prepare('SELECT 1 FROM scenarios WHERE name = ?').get(name)) {
+        return `INVALID: a scenario named "${name}" already exists`;
+      }
+      const presetIds = Array.isArray(args['presetIds']) ? (args['presetIds'] as unknown[]) : [];
+      for (const pid of presetIds) {
+        if (typeof pid !== 'string' || !db.prepare('SELECT 1 FROM presets WHERE id = ?').get(pid)) {
+          return `INVALID: unknown preset ${String(pid)}`;
+        }
+      }
+      const id = `s_${createHash('sha256').update(name).digest('hex').slice(0, 8)}`;
+      db.prepare('INSERT INTO scenarios(id, name, description, launch_arg, created_by, immutable_since) VALUES (?, ?, ?, ?, ?, NULL)')
+        .run(id, name, args['description'] != null ? String(args['description']) : null, args['launchArg'] != null ? String(args['launchArg']) : null, 'agent');
+      for (const pid of presetIds) {
+        db.prepare('INSERT OR REPLACE INTO scenario_overrides(scenario_id, preset_id, enabled) VALUES (?, ?, 1)').run(id, pid as string);
+      }
+      return JSON.stringify({ scenarioId: id, name, memberCount: presetIds.length });
+    },
+  });
+
+  registry.register({
+    name: 'scenario.draft.edit',
+    description: 'edit a scenario (name/description/launchArg/folderId). Immutable scenarios are refused — duplicate first. Errors verbatim.',
+    permission: 'draft',
+    parameters: {
+      type: 'object',
+      properties: { idOrName: { type: 'string' }, name: { type: 'string' }, description: { type: 'string' }, launchArg: { type: 'string' }, folderId: { type: 'string' } },
+      required: ['idOrName'],
+    },
+    async execute(args) {
+      const row = scenarioBy(String(args['idOrName'] ?? ''));
+      if (!row) return `error: no scenario "${String(args['idOrName'] ?? '')}"`;
+      if (row['immutable_since'] !== null && row['immutable_since'] !== undefined) return IMMUTABLE_MSG; // BEFORE name-409 (order pinned)
+      const b = args as { name?: unknown; description?: unknown; launchArg?: unknown; folderId?: unknown };
+      if (b.name !== undefined) {
+        const nm = String(b.name).trim();
+        if (!nm) return 'INVALID: name cannot be empty';
+        if (db.prepare('SELECT id FROM scenarios WHERE name = ? AND id != ?').get(nm, row['id'] as string)) {
+          return `INVALID: a scenario named "${nm}" already exists`;
+        }
+      }
+      if (b.folderId !== undefined && b.folderId !== null && !db.prepare('SELECT id FROM scenario_folders WHERE id = ?').get(b.folderId as string)) {
+        return `INVALID: folder "${String(b.folderId)}" not found`;
+      }
+      const sets: string[] = [];
+      const vals: unknown[] = [];
+      if (b.name !== undefined) { sets.push('name = ?'); vals.push(String(b.name).trim()); }
+      if (b.description !== undefined) { sets.push('description = ?'); vals.push(b.description); }
+      if (b.launchArg !== undefined) { sets.push('launch_arg = ?'); vals.push(b.launchArg); }
+      if (b.folderId !== undefined) { sets.push('folder_id = ?'); vals.push(b.folderId); }
+      if (sets.length === 0) return 'INVALID: nothing to update';
+      db.prepare(`UPDATE scenarios SET ${sets.join(', ')} WHERE id = ?`).run(...vals, row['id'] as string);
+      return JSON.stringify({ scenarioId: row['id'], name: b.name !== undefined ? String(b.name).trim() : row['name'] });
+    },
+  });
+
+  registry.register({
+    name: 'scenario.members.set',
+    description: 'replace a scenario member presets wholesale ({presetId, enabled?}). Immutable scenarios refused. Errors verbatim.',
+    permission: 'draft',
+    parameters: {
+      type: 'object',
+      properties: { idOrName: { type: 'string' }, members: { type: 'array', items: { type: 'object', properties: { presetId: { type: 'string' }, enabled: { type: 'boolean' } }, required: ['presetId'] } } },
+      required: ['idOrName', 'members'],
+    },
+    async execute(args) {
+      const row = scenarioBy(String(args['idOrName'] ?? ''));
+      if (!row) return `error: no scenario "${String(args['idOrName'] ?? '')}"`;
+      if (row['immutable_since'] !== null && row['immutable_since'] !== undefined) return IMMUTABLE_MSG;
+      const raw = args['members'];
+      if (!Array.isArray(raw)) return 'INVALID: members array required';
+      for (const m of raw as Array<Record<string, unknown>>) {
+        if (typeof m?.['presetId'] !== 'string') return 'INVALID: each member needs presetId';
+        if (!db.prepare('SELECT 1 FROM presets WHERE id = ?').get(m['presetId'])) return `INVALID: unknown preset ${String(m['presetId'])}`;
+      }
+      const tx = db.transaction(() => {
+        db.prepare('DELETE FROM scenario_overrides WHERE scenario_id = ?').run(row['id'] as string);
+        const ins = db.prepare('INSERT INTO scenario_overrides(scenario_id, preset_id, enabled) VALUES (?, ?, ?)');
+        for (const m of raw as Array<Record<string, unknown>>) ins.run(row['id'] as string, m['presetId'] as string, m['enabled'] === false ? 0 : 1);
+      });
+      tx();
+      return JSON.stringify({ scenarioId: row['id'], memberCount: raw.length });
+    },
+  });
+
+  registry.register({
+    name: 'preset.draft.save',
+    description: 'create a traffic preset (stub rule: pathPattern+status required; method/match/headers/delayMs/seq/failure/throttleKbps optional). Ids are content-addressed: identical body → same id (no-op overwrite).',
+    permission: 'draft',
+    parameters: {
+      type: 'object',
+      properties: {
+        pathPattern: { type: 'string' },
+        status: { type: 'number' },
+        method: { type: 'string' },
+        match: { type: 'string', enum: ['exact', 'glob', 'regex'] },
+        headers: { type: 'object' },
+        delayMs: { type: 'number' },
+        seq: { type: 'array', items: { type: 'object' } },
+        failure: { type: 'string' },
+        throttleKbps: { type: 'number' },
+      },
+      required: ['pathPattern', 'status'],
+    },
+    async execute(args) {
+      if (typeof args['pathPattern'] !== 'string' || typeof args['status'] !== 'number') return 'INVALID: pathPattern and status required';
+      const body = JSON.stringify(args);
+      const id = `p_${createHash('sha256').update(body).digest('hex').slice(0, 8)}`;
+      db.prepare(
+        `INSERT OR REPLACE INTO presets(id, method, path_pattern, match, status, headers_json, body_path, delay_ms, seq_json, failure, throttle_kbps, guards_json, created_by, created_at, sha256)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        (args['method'] as string) ?? '*',
+        args['pathPattern'] as string,
+        (args['match'] as string) ?? 'exact',
+        args['status'] as number,
+        args['headers'] ? JSON.stringify(args['headers']) : null,
+        null,
+        (args['delayMs'] as number | null) ?? null,
+        args['seq'] ? JSON.stringify(args['seq']) : null,
+        (args['failure'] as string) ?? null,
+        (args['throttleKbps'] as number | null) ?? null,
+        null,
+        'api',
+        Date.now(),
+        createHash('sha256').update(body).digest('hex'),
+      );
+      deps.syncPresets?.();
+      return JSON.stringify({ presetId: id });
+    },
+  });
+
+  registry.register({
+    name: 'preset.draft.edit',
+    description: 'partial-update a preset (same id — memberships keep pointing at it). Mirrors PATCH stamps; syncs the live proxy. Errors verbatim.',
+    permission: 'draft',
+    parameters: {
+      type: 'object',
+      properties: {
+        presetId: { type: 'string' },
+        name: { type: 'string' },
+        method: { type: 'string' },
+        pathPattern: { type: 'string' },
+        match: { type: 'string', enum: ['exact', 'glob', 'regex'] },
+        status: { type: 'number' },
+        headers: { type: 'object' },
+        delayMs: { type: 'number' },
+        seq: { type: 'array', items: { type: 'object' } },
+        failure: { type: 'string' },
+        throttleKbps: { type: 'number' },
+      },
+      required: ['presetId'],
+    },
+    async execute(args) {
+      const id = String(args['presetId'] ?? '');
+      if (!db.prepare('SELECT 1 FROM presets WHERE id = ?').get(id)) return `error: no preset "${id}"`;
+      const b = args as Record<string, unknown>;
+      const sets: string[] = [];
+      const vals: unknown[] = [];
+      const col = (name: string, value: unknown): void => { sets.push(`${name} = ?`); vals.push(value); };
+      if (b['method'] !== undefined) col('method', String(b['method']));
+      if (b['name'] !== undefined) col('name', b['name'] === null ? null : String(b['name']).trim() || null);
+      if (b['pathPattern'] !== undefined) col('path_pattern', String(b['pathPattern']));
+      if (b['match'] !== undefined) col('match', String(b['match']));
+      if (b['status'] !== undefined) col('status', Number(b['status']));
+      if (b['headers'] !== undefined) {
+        if (typeof b['headers'] !== 'object' || b['headers'] === null) return 'INVALID: headers must be an object';
+        col('headers_json', JSON.stringify(b['headers']));
+      }
+      if (b['delayMs'] !== undefined) col('delay_ms', b['delayMs'] === null ? null : Math.max(0, Number(b['delayMs'])));
+      if (b['throttleKbps'] !== undefined) col('throttle_kbps', b['throttleKbps'] === null ? null : Math.max(0, Number(b['throttleKbps'])));
+      if (b['failure'] !== undefined) col('failure', b['failure'] === null ? null : String(b['failure']));
+      if (b['seq'] !== undefined) {
+        if (!Array.isArray(b['seq']) || b['seq'].length === 0) return 'INVALID: seq must be a non-empty array of {status, delayMs?, bodyPath?}';
+        col('seq_json', JSON.stringify(b['seq']));
+      }
+      if (sets.length === 0) return 'INVALID: no updatable fields provided';
+      col('created_by', 'editor');
+      col('sha256', createHash('sha256').update(`${id}|${Date.now()}`).digest('hex'));
+      db.prepare(`UPDATE presets SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
+      deps.syncPresets?.();
+      return JSON.stringify({ presetId: id });
+    },
+  });
 
   // ── suite writes (steps_002; F4: mirror the route's tx-catch exactly) ────
 

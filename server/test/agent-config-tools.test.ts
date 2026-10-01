@@ -161,5 +161,66 @@ describe.skipIf(!hasButler)('config tools (read + write, route-faithful)', () =>
     expect(imm).toBe('INVALID: appBundleId is immutable — create a new suite to change app scope');
   });
 
+  // ── Step 3: scenario + preset writes (F1 name guard, immutable-first, F2 sync) ──
+
+  it('F1 regression: same-name scenario create CANNOT silently mutate', async () => {
+    const first = await exec('scenario.draft.save', { name: 'pay-err', presetIds: ['p_a'] }, DRAFT);
+    expect(JSON.parse(first) as object).toBeTruthy();
+    // second create with the SAME name and DIFFERENT members → refusal, row untouched
+    const second = await exec('scenario.draft.save', { name: 'pay-err', presetIds: ['p_b'] }, DRAFT);
+    expect(second).toBe('INVALID: a scenario named "pay-err" already exists');
+    const members = db.prepare('SELECT preset_id FROM scenario_overrides WHERE scenario_id = (SELECT id FROM scenarios WHERE name = ?)').all('pay-err') as Array<{ preset_id: string }>;
+    expect(members.map((m) => m.preset_id)).toEqual(['p_a']); // NOT mutated
+  });
+
+  it('scenario save: unknown preset → verbatim', async () => {
+    const out = await exec('scenario.draft.save', { name: 'pay-err-2', presetIds: ['p_zz'] }, DRAFT);
+    expect(out).toBe('INVALID: unknown preset p_zz');
+  });
+
+  it('immutable guard fires BEFORE name-409; edit and members.set both refused', async () => {
+    db.prepare(`UPDATE scenarios SET immutable_since = ? WHERE id = 's_one'`).run(Date.now());
+    // rename that would ALSO collide — immutability message wins (order pinned)
+    db.prepare(`INSERT INTO scenarios(id, name, created_by) VALUES ('s_clash', 'clash-name', 'seed')`).run();
+    
+    const edit = await exec('scenario.draft.edit', { idOrName: 's_one', name: 'clash-name' }, DRAFT);
+    expect(edit).toMatch(/^INVALID: scenario is immutable/);
+    expect(edit).toContain('duplicate');
+    const members = await exec('scenario.members.set', { idOrName: 's_one', members: [{ presetId: 'p_a' }] }, DRAFT);
+    expect(members).toMatch(/^INVALID: scenario is immutable/);
+  });
+
+  it('scenario edit: name 409 verbatim + happy rename', async () => {
+    const clash = await exec('scenario.draft.edit', { idOrName: 's_two', name: 'clash-name' }, DRAFT);
+    expect(clash).toBe('INVALID: a scenario named "clash-name" already exists');
+    const ok = await exec('scenario.draft.edit', { idOrName: 's_two', description: 'renamed by agent' }, DRAFT);
+    expect(JSON.parse(ok) as object).toBeTruthy();
+    const row = db.prepare('SELECT description FROM scenarios WHERE id = ?').get('s_two') as { description: string | null };
+    expect(row.description).toBe('renamed by agent');
+  });
+
+  it('preset save/edit: F2 sync fires + stamps mirrored; partial edit preserves untouched fields', async () => {
+    const syncBefore = (app.agent as unknown as { syncPresetsCalls: number }).syncPresetsCalls ?? 0;
+    const saved = JSON.parse(await exec('preset.draft.save', { pathPattern: '/v2/pay', status: 502, method: 'POST', seq: [{ status: 500, delayMs: 100 }], headers: { 'x-seed': '1' } }, DRAFT)) as { presetId: string };
+    const row = db.prepare('SELECT method, seq_json, headers_json, created_by FROM presets WHERE id = ?').get(saved.presetId) as Record<string, unknown>;
+    expect(row['method']).toBe('POST');
+    expect(JSON.parse(row['seq_json'] as string)).toEqual([{ status: 500, delayMs: 100 }]);
+    expect(row['created_by']).toBe('api'); // route default on CREATE (editor stamp is PATCH-only)
+    // partial edit: pathPattern only — seq/headers intact, editor stamp, sync fired
+    const edited = await exec('preset.draft.edit', { presetId: saved.presetId, pathPattern: '/v2/pay2' }, DRAFT);
+    expect(JSON.parse(edited) as object).toBeTruthy();
+    const row2 = db.prepare('SELECT path_pattern, seq_json, headers_json, created_by FROM presets WHERE id = ?').get(saved.presetId) as Record<string, unknown>;
+    expect(row2['path_pattern']).toBe('/v2/pay2');
+    expect(JSON.parse(row2['seq_json'] as string)).toEqual([{ status: 500, delayMs: 100 }]);
+    expect(row2['created_by']).toBe('editor');
+    const syncAfter = (app.agent as unknown as { syncPresetsCalls: number }).syncPresetsCalls ?? 0;
+    expect(syncAfter).toBeGreaterThanOrEqual(syncBefore + 2); // save + edit both synced (F2)
+  });
+
+  it('preset save: required fields verbatim; edit: no-fields verbatim', async () => {
+    expect(await exec('preset.draft.save', { status: 200 }, DRAFT)).toBe('INVALID: pathPattern and status required');
+    expect(await exec('preset.draft.edit', { presetId: 'p_a' }, DRAFT)).toBe('INVALID: no updatable fields provided');
+  });
+
   afterAll(() => { rmSync(dir, { recursive: true, force: true }); });
 });

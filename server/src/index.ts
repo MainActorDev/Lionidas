@@ -38,6 +38,7 @@ import * as runtimeMod from './alloy/runtime.ts';
 import { startDevicePoller } from './poll/devices.ts';
 import { startDispatcher } from './queue/dispatcher.ts';
 import { createForgeState, type ForgeState } from './forge/proxy.ts';
+import { forgeStateService } from './forge/state.ts';
 import { registerForgeRoutes } from './forge/routes.ts';
 import { buildAgentContext } from './agent/context.ts';
 import { registerAgentRoutes } from './agent/routes.ts';
@@ -110,7 +111,11 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
     get dispatchDeps() { return runtimeMod.alloyDispatchDepsSync(); },
   } as never);
   registerTemplateRoutes(app, db.raw);
-  const agent = buildAgentContext(db.raw, { dbPath: cfg.dbPath, artifactsDir: cfg.artifactsDir, env });
+  const agent = buildAgentContext(db.raw, {
+    dbPath: cfg.dbPath, artifactsDir: cfg.artifactsDir, env,
+    // F2: preset tool-writes sync the live forge proxy (same call the routes make)
+    syncPresets: () => forgeStateService({ db: db.raw, forgeState }).sync(),
+  });
   registerAgentRoutes(app, agent, bus);
   registerFolderRoutes(app, db.raw);
   registerScenarioFolderRoutes(app, db.raw);

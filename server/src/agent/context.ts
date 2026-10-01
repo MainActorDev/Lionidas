@@ -27,12 +27,20 @@ export interface AgentContext {
   providerConfigured: boolean;
   /** boot-time source seeding (await in tests/drills; never blocks boot) */
   seedPromise: Promise<{ documents: number; skipped: number }>;
+  /** how many times preset writes synced the live forge proxy (F2 observability) */
+  syncPresetsCalls: number;
 }
 
-export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; artifactsDir: string; env: Record<string, string | undefined> }): AgentContext {
+export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; artifactsDir: string; env: Record<string, string | undefined>; syncPresets?: () => void }): AgentContext {
   const storage = new SqliteStorage(join(cfg.dbPath + '.agent.db'));
   const retriever = new StorageRetriever(storage);
-  const registry = buildToolRegistry({ db, storage, retriever, artifactsDir: cfg.artifactsDir });
+  // observability: preset-proxy sync count (tests + future metrics). The wrap
+  // happens BEFORE the registry build so every tool closure shares the counter.
+  const syncState = { calls: 0 };
+  const syncPresets = cfg.syncPresets
+    ? (): void => { syncState.calls += 1; cfg.syncPresets!(); }
+    : undefined;
+  const registry = buildToolRegistry({ db, storage, retriever, artifactsDir: cfg.artifactsDir, ...(syncPresets ? { syncPresets } : {}) });
   registerDraftTools({ db, storage, retriever, registry, artifactsDir: cfg.artifactsDir });
 
   const baseUrl = cfg.env['BUTLER_PROVIDER_BASE_URL'];
@@ -47,7 +55,9 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
     provider = new MockProvider([{ kind: 'assistant', content: 'agent provider not configured (set BUTLER_PROVIDER_BASE_URL / BUTLER_API_KEY / BUTLER_MODEL) — mock response' }]);
   }
 
-  const ctx: AgentContext = { storage, retriever, registry, provider, policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }) };
+  const ctx: AgentContext = { storage, retriever, registry, provider, policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }), syncPresetsCalls: 0 };
+
+  Object.defineProperty(ctx, 'syncPresetsCalls', { get: () => syncState.calls });
 
   // boot-time source seed (idempotent, content-addressed; repo seed off under vitest for speed)
   const seed = import('./sources.ts').then((m) => m.seedSources(ctx, process.env['VITEST'] === 'true' ? { repoRoot: '/nonexistent-repo-hermetic' } : undefined));

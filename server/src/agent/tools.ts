@@ -11,12 +11,14 @@ export interface ToolDeps {
   storage: SqliteStorage;
   retriever: StorageRetriever;
   artifactsDir: string;
+  /** F2 (config plan review): preset writes push to the live forge proxy */
+  syncPresets?: () => void;
 }
 
 interface TemplateLite { id: string; name: string; status: string | null; folder_id: string | null; app_bundle_id: string | null }
 
 export function buildToolRegistry(deps: ToolDeps): ToolRegistry {
-  const { db, storage, retriever } = deps;
+  const { db, storage, retriever, syncPresets } = deps;
   const registry = new ToolRegistry();
 
   registry.register({
@@ -146,7 +148,7 @@ export function buildToolRegistry(deps: ToolDeps): ToolRegistry {
     },
   });
 
-  registerConfigTools({ db, registry });
+  registerConfigTools({ db, registry, ...(syncPresets ? { syncPresets } : {}) });
 
   return registry;
 }
