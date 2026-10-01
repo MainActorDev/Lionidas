@@ -95,7 +95,7 @@ lionidas run evidence <evidenceId> --out shot.jpg   # artifact bytes
 
 # devices: the simulator wall (power ops guard active runs/sessions)
 lionidas device list [--booted]
-lionidas device boot|power-off|restart <udid>   # power-off = sim shutdown
+lionidas device boot|shutdown|restart <udid>
 
 # network forge
 lionidas net condition --udid <u> --profile 3g   # set (wifi/dsl/lte/3g/
