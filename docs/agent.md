@@ -31,7 +31,7 @@ ride future turns' system prompt.
 - **draft** — `case.draft.save`, `case.draft.edit` (drafts only),
   `case.draft.revise` (active → new draft copy), `case.deprecate`,
   `suite.draft.save/edit`, `scenario.draft.save/edit`,
-  `scenario.members.set`, `preset.draft.save/edit`, `note.save`,
+  `scenario.members.set`, `scenario.duplicate`, `preset.draft.save/edit`, `preset.body.write`, `note.save`,
   `sources.ingest`
 - **act (registered, refused + invisible)** — `case.play`, `run.abort`,
   `device.power`; scenario activation and ALL deletes are not tools at
