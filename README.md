@@ -178,6 +178,10 @@ never a fake pass.
   (selector resolution), CI mode, inspect mode, location, tap overlay
 - [ADR-0001](docs/adr/ADR-0001-ios-first-platform-seams.md) — iOS-first
   platform seams (why the orchestrator is engine-blind)
+- [The agent layer](docs/agent.md) — the embedded AI test-case authoring
+  agent (reads everything, drafts through the real validator, never touches
+  devices); MCP + conversation API, drill log in
+  [docs/agent-drills.md](docs/agent-drills.md)
 - [PLAN.md](PLAN.md) — architecture and phase gates · [plans/](plans/) —
   per-phase implementation contracts
 - [DEFERRED.md](DEFERRED.md) — what was consciously not built (yet)
