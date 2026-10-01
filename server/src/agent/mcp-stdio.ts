@@ -20,6 +20,7 @@ import { openDb } from '../db/client.ts';
 import { migrateM1 } from '../db/schema.ts';
 import { hashToken } from '../routes/auth-cli.ts';
 import { buildAgentContext } from './context.ts';
+import { LIONIDAS_SYSTEM_PROMPT } from './system-prompt.ts';
 
 const dbPath = process.env['CRUCIBLE_DB_PATH'] ?? './crucible.db';
 const artifactsDir = process.env['CRUCIBLE_ARTIFACTS_DIR'] ?? './artifacts';
@@ -59,7 +60,7 @@ const ctx = await buildAgentContext(db.raw, { dbPath, artifactsDir, env: process
 // sources.search returns its honest "no documents" until seeding lands.
 void ctx.seedPromise;
 
-const server = new McpServer({ name: 'lionidas-agent', version: '0.1.0' });
+const server = new McpServer({ name: 'lionidas-agent', version: '0.1.0' }, { instructions: LIONIDAS_SYSTEM_PROMPT });
 for (const tool of ctx.registry.providerTools(ctx.policy)) {
     // REAL per-tool schema (not an args envelope) — models must see the actual
   // parameter names (idOrName, runId…) or they guess and the tools misfire.

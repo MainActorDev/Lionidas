@@ -26,6 +26,7 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AgentContext, bus
       registry: ctx.registry,
       policy: ctx.policy,
       serverInfo: { name: 'lionidas-agent', version: '0.1.0' },
+      instructions: ctx.systemPrompt,
     });
   });
 }
