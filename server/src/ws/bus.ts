@@ -1,6 +1,9 @@
 /** Typed pub/sub event bus. The taxonomy grows per phase; the impl never changes. */
 export type AppEvents = {
   'app.ready': { version: string };
+  /** agent turn lifecycle (butler conversation transport bridged): hop-level
+   *  progress for a session — consumed by the events WS + future UI. */
+  'agent.turn': { sessionId: string; type: 'turn.start' | 'provider.response' | 'tool.call' | 'tool.result' | 'turn.end' | 'turn.error'; hop: number; detail?: unknown };
   'device.changed': { udid: string; name: string | null; state: string | null; platform?: string | null; kind?: string | null; lease_holder: string | null; lease_engine: string | null };
   'run.started': { runId: string; ticketKey: string; udid?: string; templateId?: string };
   'run.freshness.checked': { runId: string; freshness: string };

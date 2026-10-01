@@ -39,6 +39,8 @@ import { startDevicePoller } from './poll/devices.ts';
 import { startDispatcher } from './queue/dispatcher.ts';
 import { createForgeState, type ForgeState } from './forge/proxy.ts';
 import { registerForgeRoutes } from './forge/routes.ts';
+import { buildAgentContext } from './agent/context.ts';
+import { registerAgentRoutes } from './agent/routes.ts';
 
 export interface App {
   app: FastifyInstance<import('node:http').Server<typeof import('node:http').IncomingMessage, typeof import('node:http').ServerResponse>, import('node:http').IncomingMessage, import('node:http').ServerResponse<import('node:http').IncomingMessage>, FastifyBaseLogger>;
@@ -46,6 +48,7 @@ export interface App {
   db: Db;
   cfg: Config;
   forgeState: ForgeState;
+  agent: ReturnType<typeof buildAgentContext>;
   close(): Promise<void>;
 }
 
@@ -107,6 +110,8 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
     get dispatchDeps() { return runtimeMod.alloyDispatchDepsSync(); },
   } as never);
   registerTemplateRoutes(app, db.raw);
+  const agent = buildAgentContext(db.raw, { dbPath: cfg.dbPath, artifactsDir: cfg.artifactsDir, env });
+  registerAgentRoutes(app, agent, bus);
   registerFolderRoutes(app, db.raw);
   registerScenarioFolderRoutes(app, db.raw);
   registerPresetFolderRoutes(app, db.raw);
@@ -189,6 +194,7 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
 
   return {
     app,
+    agent,
     bus,
     db,
     cfg,
