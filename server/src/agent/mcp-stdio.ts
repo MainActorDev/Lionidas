@@ -61,14 +61,35 @@ void ctx.seedPromise;
 
 const server = new McpServer({ name: 'lionidas-agent', version: '0.1.0' });
 for (const tool of ctx.registry.providerTools(ctx.policy)) {
-    server.registerTool(
+    // REAL per-tool schema (not an args envelope) — models must see the actual
+  // parameter names (idOrName, runId…) or they guess and the tools misfire.
+  // Minimal JSON-Schema→zod for the subset the registry uses
+  // (object/string/number/enum + required). description lives on the tool.
+  const inputSchema = schemaToZod(tool.function.parameters);
+  server.registerTool(
     tool.function.name,
-    { description: `${tool.function.description ?? ''} [${'draft'}]`, inputSchema: z.object({ args: z.record(z.string(), z.unknown()).optional() }) },
-    async (input: { args?: Record<string, unknown> | undefined }) => {
-      const out = await ctx.registry.execute(tool.function.name, input?.args ?? {}, { sessionId: 'mcp-stdio', signal: undefined }, ctx.policy);
+    { description: tool.function.description ?? '', inputSchema },
+    async (input: Record<string, unknown>) => {
+      const out = await ctx.registry.execute(tool.function.name, input ?? {}, { sessionId: 'mcp-stdio', signal: undefined }, ctx.policy);
       return { content: [{ type: 'text' as const, text: out }] };
     },
   );
+}
+
+/** minimal JSON-Schema subset → zod (object properties: string/number/enum) */
+function schemaToZod(schema: Record<string, unknown>): z.ZodType<Record<string, unknown>> {
+  const props = (schema['properties'] ?? {}) as Record<string, Record<string, unknown>>;
+  const required = new Set((schema['required'] as string[] | undefined) ?? []);
+  const shape: Record<string, z.ZodTypeAny> = {};
+  for (const [name, p] of Object.entries(props)) {
+    let field: z.ZodTypeAny;
+    if (Array.isArray(p['enum'])) field = z.enum(p['enum'] as [string, ...string[]]);
+    else if (p['type'] === 'number') field = z.number();
+    else field = z.string();
+    if (!required.has(name)) field = field.optional();
+    shape[name] = field;
+  }
+  return z.object(shape) as unknown as z.ZodType<Record<string, unknown>>;
 }
 
 await server.connect(new StdioServerTransport());
