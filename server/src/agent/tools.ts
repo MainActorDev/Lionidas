@@ -9,6 +9,7 @@ export interface ToolDeps {
   db: Database.Database;
   storage: SqliteStorage;
   retriever: StorageRetriever;
+  artifactsDir: string;
 }
 
 interface TemplateLite { id: string; name: string; status: string | null; folder_id: string | null; app_bundle_id: string | null }
