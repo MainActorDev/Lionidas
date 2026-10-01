@@ -49,11 +49,15 @@ lionidas run triage <runId> <idx> # reason + evidence refs (phase 3)
 
 ## Surface map
 
-Phase 1: stack · auth · context · case list/get/run/verify · run
-get/steps/abort · env list/set/delete.
-Phase 2 (now): case yaml/new/edit/duplicate/delete/export/import/versions ·
-folder list/new/rename/move/delete/run · screen list/register/remove/yaml/
-import/export/login-flow/logout-flow · suite list/new/get/edit/play/delete.
+Phase 1: stack · auth · context · env.
+Phase 2: case (yaml/new/edit/duplicate/delete/versions/export/import/
+run/verify) · folder (list/new/rename/move/delete/run) · screen (list/
+register/remove/yaml/import/export/login-flow/logout-flow) · suite
+(list/new/get/edit/play/delete).
+Phase 3 (now): run list/get/steps/abort/triage/evidence/attach · queue
+list/abort · flake list/quarantine/release · net presets/scenarios/
+condition/traffic/freeze/mitm · device list/boot/shutdown/restart/pin/
+unpin.
 
 ```bash
 # authoring loop (yaml round-trip is the write path)
@@ -81,3 +85,30 @@ lionidas suite play <suiteId> --device <udid>     # drift/deprecated/dead-pins n
 ```
 Phase 3: net presets/scenarios/condition/traffic/mitm · device list/power/
 install · run list/triage/evidence · queue · flake.
+
+```bash
+# triage + evidence (the failure loop)
+lionidas run list --status failed --limit 20
+lionidas run steps <runId>              # narrated steps + reasons
+lionidas run triage <runId> <stepIdx>   # wait/work split + evidence ids
+lionidas run evidence <evidenceId> --out shot.jpg   # artifact bytes
+
+# devices: the simulator wall (power ops guard active runs/sessions)
+lionidas device list [--booted]
+lionidas device boot|power-off|restart <udid>   # power-off = sim shutdown
+
+# network forge
+lionidas net condition --udid <u> --profile 3g   # set (wifi/dsl/lte/3g/
+                                                  # edge/very-bad-network/
+                                                  # 100-loss)
+lionidas net condition --udid <u>                # status
+lionidas net condition clear --udid <u>
+lionidas net traffic --run <runId>               # captured request log
+lionidas net freeze <trafficId>                  # -> preset serves it forever
+lionidas net mitm start|stop|status
+
+# flake hygiene (auditable quarantine)
+lionidas flake list
+lionidas flake quarantine <flow> --reason "flaky login 3 days"
+lionidas flake release <flow> --reason "fixed by PR #x"
+```
