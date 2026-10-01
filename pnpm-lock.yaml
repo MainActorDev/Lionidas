@@ -48,6 +48,9 @@ importers:
       '@mainactordev/butler':
         specifier: git+https://github.com/MainActorDev/butler.git#v0.2.0
         version: git+https://github.com/MainActorDev/butler.git#4c6ebb2298ec632313fde27066484eca121c1b8a(@modelcontextprotocol/server@2.2.0)(fastify@5.12.1)(supports-color@8.1.1)
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.31.0
+        version: 1.31.0(supports-color@8.1.1)(zod@4.6.5)
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
@@ -72,6 +75,9 @@ importers:
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
     devDependencies:
       '@types/better-sqlite3':
         specifier: ^7.6.0
