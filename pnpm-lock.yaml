@@ -46,8 +46,8 @@ importers:
         specifier: ^11.3.0
         version: 11.3.0
       '@mainactordev/butler':
-        specifier: git+https://github.com/MainActorDev/butler.git#v0.2.0
-        version: git+https://github.com/MainActorDev/butler.git#4c6ebb2298ec632313fde27066484eca121c1b8a(@modelcontextprotocol/server@2.2.0)(fastify@5.12.1)(supports-color@8.1.1)
+        specifier: git+https://github.com/MainActorDev/butler.git#v0.2.1
+        version: git+https://github.com/MainActorDev/butler.git#cc138a1db1e6dfeee1b40d04b26b1e3dab20ea39(@modelcontextprotocol/server@2.2.0)(fastify@5.12.1)(supports-color@8.1.1)
       '@modelcontextprotocol/sdk':
         specifier: ^1.31.0
         version: 1.31.0(supports-color@8.1.1)(zod@4.6.5)
@@ -746,8 +746,8 @@ packages:
     resolution: {integrity: sha512-9I2Zn6+NJLfaGoz9jN3lpwDgAYvfGeNYdbAIjJOqzs4Tpc+VU3Jqq4IofSUBKajiDS8k9fZIg18/z13mpk1bsA==}
     engines: {node: '>=8'}
 
-  '@mainactordev/butler@git+https://github.com/MainActorDev/butler.git#4c6ebb2298ec632313fde27066484eca121c1b8a':
-    resolution: {commit: 4c6ebb2298ec632313fde27066484eca121c1b8a, repo: https://github.com/MainActorDev/butler.git, type: git}
+  '@mainactordev/butler@git+https://github.com/MainActorDev/butler.git#cc138a1db1e6dfeee1b40d04b26b1e3dab20ea39':
+    resolution: {commit: cc138a1db1e6dfeee1b40d04b26b1e3dab20ea39, repo: https://github.com/MainActorDev/butler.git, type: git}
     version: 0.1.0
     hasBin: true
 
@@ -2730,7 +2730,7 @@ snapshots:
 
   '@lukeed/ms@2.0.2': {}
 
-  '@mainactordev/butler@git+https://github.com/MainActorDev/butler.git#4c6ebb2298ec632313fde27066484eca121c1b8a(@modelcontextprotocol/server@2.2.0)(fastify@5.12.1)(supports-color@8.1.1)':
+  '@mainactordev/butler@git+https://github.com/MainActorDev/butler.git#cc138a1db1e6dfeee1b40d04b26b1e3dab20ea39(@modelcontextprotocol/server@2.2.0)(fastify@5.12.1)(supports-color@8.1.1)':
     dependencies:
       '@fastify/static': 10.1.5
       '@fastify/websocket': 11.3.1

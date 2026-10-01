@@ -4,6 +4,7 @@
 import { ToolRegistry, type SqliteStorage, type StorageRetriever } from '@mainactordev/butler';
 import type Database from 'better-sqlite3';
 import { renderTemplateYaml } from '../routes/templates.ts';
+import { registerConfigTools } from './config-tools.ts';
 
 export interface ToolDeps {
   db: Database.Database;
@@ -13,7 +14,6 @@ export interface ToolDeps {
 }
 
 interface TemplateLite { id: string; name: string; status: string | null; folder_id: string | null; app_bundle_id: string | null }
-interface FolderNode { id: string; name: string; cases: number; children: FolderNode[] }
 
 export function buildToolRegistry(deps: ToolDeps): ToolRegistry {
   const { db, storage, retriever } = deps;
@@ -88,19 +88,31 @@ export function buildToolRegistry(deps: ToolDeps): ToolRegistry {
 
   registry.register({
     name: 'folders.tree',
-    description: 'testcase folder tree with per-folder case counts',
+    description: 'folder tree with per-folder counts. kind=cases (default): app-scoped testcase folders. kind=scenarios | presets: GLOBAL single-root trees (no app scoping).',
     permission: 'read',
-    parameters: { type: 'object', properties: {} },
-    async execute() {
-      const rows = db.prepare('SELECT f.id, f.name, f.parent_id, (SELECT COUNT(*) FROM templates t WHERE t.folder_id = f.id) AS cases FROM folders f').all() as Array<{ id: string; name: string; parent_id: string | null; cases: number }>;
-      const byParent = new Map<string | null, FolderNode[]>();
+    parameters: { type: 'object', properties: { kind: { type: 'string', enum: ['cases', 'scenarios', 'presets'] } } },
+    async execute(args) {
+      const kind = (typeof args['kind'] === 'string' ? args['kind'] : 'cases') as 'cases' | 'scenarios' | 'presets';
+      interface Row { id: string; name: string; parent_id: string | null; n: number }
+      let rows: Row[];
+      if (kind === 'cases') {
+        rows = db.prepare('SELECT f.id, f.name, f.parent_id, (SELECT COUNT(*) FROM templates t WHERE t.folder_id = f.id) AS n FROM folders f').all() as Row[];
+      } else if (kind === 'scenarios') {
+        rows = db.prepare('SELECT f.id, f.name, f.parent_id, (SELECT COUNT(*) FROM scenarios s WHERE s.folder_id = f.id) AS n FROM scenario_folders f').all() as Row[];
+      } else if (kind === 'presets') {
+        rows = db.prepare('SELECT f.id, f.name, f.parent_id, (SELECT COUNT(*) FROM presets p WHERE p.folder_id = f.id) AS n FROM preset_folders f').all() as Row[];
+      } else {
+        return `error: unknown kind "${String(args['kind'])}" — cases | scenarios | presets`;
+      }
+      interface Node { id: string; name: string; kind: 'cases' | 'scenarios' | 'presets'; count: number; children: Node[] }
+      const byParent = new Map<string | null, Node[]>();
       for (const r of rows) {
-        const node: FolderNode = { id: r.id, name: r.name, cases: r.cases, children: [] };
+        const node: Node = { id: r.id, name: r.name, kind, count: r.n, children: [] };
         const list = byParent.get(r.parent_id) ?? [];
         list.push(node);
         byParent.set(r.parent_id, list);
       }
-      const attach = (parent: string | null): FolderNode[] => {
+      const attach = (parent: string | null): Node[] => {
         const kids = byParent.get(parent) ?? [];
         for (const k of kids) k.children = attach(k.id);
         return kids;
@@ -133,6 +145,8 @@ export function buildToolRegistry(deps: ToolDeps): ToolRegistry {
       return JSON.stringify(notes.map((n) => ({ scope: n.scope_key, kind: n.kind, content: n.content, source: n.source_ref })));
     },
   });
+
+  registerConfigTools({ db, registry });
 
   return registry;
 }
