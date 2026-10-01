@@ -69,7 +69,7 @@ describe.skipIf(!hasButler)('read tools (real server harness)', () => {
     storage = new butler.SqliteStorage(join(dir, 'agent.db'));
     retriever = new butler.StorageRetriever(storage);
     const { buildToolRegistry } = await import('../src/agent/tools.ts');
-    registry = buildToolRegistry({ db, storage, retriever });
+    registry = buildToolRegistry({ db, storage, retriever, artifactsDir: process.env['CRUCIBLE_ARTIFACTS_DIR'] ?? './artifacts' });
   });
 
   it('cases.list returns real seeded templates with status', async () => {
