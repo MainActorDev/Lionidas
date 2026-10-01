@@ -80,7 +80,7 @@ describe.skipIf(!hasButler)('draft tools (real validator, real templates)', () =
     // seed a foldered case, then edit changing its app
     const fid = 'fld_t9';
     db.prepare(`INSERT INTO folders(id, app_bundle_id, parent_id, name, created_by, created_at, updated_at) VALUES (?, 'com.test.app', NULL, 't9', 't', ?, ?)`).run(fid, Date.now(), Date.now());
-    db.prepare(`INSERT INTO templates(id, name, udid, steps_json, app_bundle_id, status, folder_id, created_by, created_at, updated_at) VALUES ('tpl_t9','Foldered Case','','[]','com.test.app','active',?,'t',?,?)`).run(fid, Date.now(), Date.now());
+    db.prepare(`INSERT INTO templates(id, name, udid, steps_json, app_bundle_id, status, folder_id, created_by, created_at, updated_at) VALUES ('tpl_t9','Foldered Case','','[]','com.test.app','draft',?,'t',?,?)`).run(fid, Date.now(), Date.now());
     const out = await registry.execute('case.draft.edit', { idOrName: 'Foldered Case', yaml: 'name: Foldered Case\napp: com.other.app\nsteps:\n  - tap: { on: x }\n' }, CTX, DRAFT);
     expect(out).toContain('move it out before changing its app');
   });
