@@ -25,6 +25,8 @@ export interface AgentContext {
   artifactsDir: string;
   /** true when a real provider is env-configured; false = mock (honest flag) */
   providerConfigured: boolean;
+  /** boot-time source seeding (await in tests/drills; never blocks boot) */
+  seedPromise: Promise<{ documents: number; skipped: number }>;
 }
 
 export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; artifactsDir: string; env: Record<string, string | undefined> }): AgentContext {
@@ -45,5 +47,11 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
     provider = new MockProvider([{ kind: 'assistant', content: 'agent provider not configured (set BUTLER_PROVIDER_BASE_URL / BUTLER_API_KEY / BUTLER_MODEL) — mock response' }]);
   }
 
-  return { storage, retriever, registry, provider, policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured };
+  const ctx: AgentContext = { storage, retriever, registry, provider, policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }) };
+
+  // boot-time source seed (idempotent, content-addressed; repo seed off under vitest for speed)
+  const seed = import('./sources.ts').then((m) => m.seedSources(ctx, process.env['VITEST'] === 'true' ? { repoRoot: '/nonexistent-repo-hermetic' } : undefined));
+  ctx.seedPromise = seed;
+
+  return ctx;
 }
