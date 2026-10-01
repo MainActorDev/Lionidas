@@ -280,6 +280,37 @@ describe.skipIf(!hasButler)('config tools (read + write, route-faithful)', () =>
     expect(refused).toMatch(/^INVALID: drafts aren't deprecated/);
   });
 
+  it('preset.body.write: atomic write + contentType merge + sync (route parity)', async () => {
+    const before = (app.agent as unknown as { syncPresetsCalls: number }).syncPresetsCalls;
+    const out = await exec('preset.body.write', { presetId: 'p_a', text: '{ "data": [{ "city": "MEDAN" }] }', contentType: 'application/json' }, DRAFT);
+    const parsed = JSON.parse(out) as { bodyPath: string; bytes: number };
+    expect(parsed.bytes).toBeGreaterThan(0);
+    const { readFileSync } = await import('node:fs');
+    expect(readFileSync(parsed.bodyPath, 'utf8')).toContain('MEDAN');
+    const row = db.prepare('SELECT body_path, headers_json FROM presets WHERE id = ?').get('p_a') as { body_path: string; headers_json: string };
+    expect(row.body_path).toBe(parsed.bodyPath);
+    expect(JSON.parse(row.headers_json)['content-type']).toBe('application/json');
+    // oversized → verbatim
+    const big = await exec('preset.body.write', { presetId: 'p_a', text: 'x'.repeat(262_200) }, DRAFT);
+    expect(big).toMatch(/^INVALID: body too large/);
+    const after = (app.agent as unknown as { syncPresetsCalls: number }).syncPresetsCalls;
+    expect(after).toBe(before + 1);
+  });
+
+  it('scenario.duplicate: editable copy with members; immutable guard points at it', async () => {
+    db.prepare(`UPDATE scenarios SET immutable_since = ? WHERE id = 's_one'`).run(Date.now());
+    const out = await exec('scenario.duplicate', { idOrName: 's_one' }, DRAFT);
+    const parsed = JSON.parse(out) as { scenarioId: string; name: string };
+    expect(parsed.name).toMatch(/^scenario one \(copy/);
+    const copy = db.prepare('SELECT immutable_since FROM scenarios WHERE id = ?').get(parsed.scenarioId) as { immutable_since: number | null };
+    expect(copy.immutable_since).toBeNull();
+    const members = db.prepare('SELECT preset_id FROM scenario_overrides WHERE scenario_id = ?').all(parsed.scenarioId) as Array<{ preset_id: string }>;
+    expect(members.map((m) => m.preset_id).sort()).toEqual(['p_a', 'p_b']); // members carried
+    // guard message now names the tool
+    const refused = await exec('scenario.draft.edit', { idOrName: 's_one', description: 'x' }, DRAFT);
+    expect(refused).toContain('use scenario.duplicate');
+  });
+
   it('registry sweep: NO activate/delete tool names exist (condition 6)', () => {
     const names = app.agent.registry.list().map((t) => (t as { name: string }).name);
     expect(names.some((n) => /activate|delete/i.test(n))).toBe(false);

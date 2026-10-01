@@ -159,7 +159,7 @@ export function registerConfigTools(deps: ConfigToolDeps): void {
 
   // ── scenario + preset writes (steps_003; F1 name guard, immutable-first, F2 sync)
 
-  const IMMUTABLE_MSG = 'INVALID: scenario is immutable (referenced by runs) — duplicate it and edit the copy (POST /api/forge/scenarios/:id/duplicate)';
+  const IMMUTABLE_MSG = 'INVALID: scenario is immutable (referenced by runs) — use scenario.duplicate to make an editable copy, then edit that';
   const scenarioBy = (key: string): Record<string, unknown> | undefined =>
     (db.prepare('SELECT * FROM scenarios WHERE id = ?').get(key) ?? db.prepare('SELECT * FROM scenarios WHERE name = ?').get(key)) as Record<string, unknown> | undefined;
 
@@ -237,6 +237,35 @@ export function registerConfigTools(deps: ConfigToolDeps): void {
     },
   });
 
+
+  registry.register({
+    name: 'scenario.duplicate',
+    description: 'duplicate a scenario (new id, "(copy)" collision-loop name, same members, immutable_since NULL — editable). THE path forward when an immutable scenario needs changes.',
+    permission: 'draft',
+    parameters: { type: 'object', properties: { idOrName: { type: 'string' } }, required: ['idOrName'] },
+    async execute(args) {
+      const row = scenarioBy(String(args['idOrName'] ?? ''));
+      if (!row) return `error: no scenario "${String(args['idOrName'] ?? '')}"`;
+      const origName = String(row['name']);
+      const tx = db.transaction(() => {
+        let name = `${origName} (copy)`;
+        let n = 2;
+        while (db.prepare('SELECT 1 FROM scenarios WHERE name = ?').get(name)) {
+          name = `${origName} (copy ${n})`; n += 1;
+        }
+        const id = `s_${randomUUID().slice(0, 8)}`;
+        db.prepare('INSERT INTO scenarios(id, name, description, launch_arg, folder_id, created_by, immutable_since) VALUES (?, ?, ?, ?, ?, ?, NULL)')
+          .run(id, name, row['description'] ?? null, row['launch_arg'] ?? null, row['folder_id'] ?? null, 'agent');
+        for (const m of db.prepare('SELECT preset_id, enabled FROM scenario_overrides WHERE scenario_id = ?').all(row['id'] as string) as Array<{ preset_id: string; enabled: number }>) {
+          db.prepare('INSERT INTO scenario_overrides(scenario_id, preset_id, enabled) VALUES (?, ?, ?)').run(id, m.preset_id, m.enabled);
+        }
+        return { id, name };
+      });
+      const out = tx() as { id: string; name: string };
+      return JSON.stringify({ scenarioId: out.id, name: out.name, note: 'editable copy — immutable_since cleared' });
+    },
+  });
+
   registry.register({
     name: 'scenario.members.set',
     description: 'replace a scenario member presets wholesale ({presetId, enabled?}). Immutable scenarios refused. Errors verbatim.',
@@ -311,6 +340,50 @@ export function registerConfigTools(deps: ConfigToolDeps): void {
       );
       deps.syncPresets?.();
       return JSON.stringify({ presetId: id });
+    },
+  });
+
+
+  registry.register({
+    name: 'preset.body.write',
+    description: 'write a preset response BODY (the stub text the app receives). Mirrors PUT /api/forge/presets/:id/body: text (<=256KB) required, atomic tmp+rename, optional contentType merged into headers, live proxy synced.',
+    permission: 'draft',
+    parameters: {
+      type: 'object',
+      properties: {
+        presetId: { type: 'string' },
+        text: { type: 'string', description: 'full response body text (JSON, XML, anything textual)' },
+        contentType: { type: 'string', description: 'e.g. application/json — merged into headers (null/empty removes it)' },
+      },
+      required: ['presetId', 'text'],
+    },
+    async execute(args) {
+      const id = String(args['presetId'] ?? '');
+      const existing = db.prepare('SELECT id, headers_json FROM presets WHERE id = ?').get(id) as { id: string; headers_json: string | null } | undefined;
+      if (!existing) return `error: no preset "${id}"`;
+      if (typeof args['text'] !== 'string') return 'INVALID: text required';
+      const buf = Buffer.from(args['text'], 'utf8');
+      if (buf.length > 262_144) return `INVALID: body too large for the editor (${buf.length}B > 256KB) — edit the file at its body_path directly`;
+      // bodies dir: SAME derivation the forge state service uses (B6: under the
+      // DB path's root, overridable for tests) — no forgeState needed here.
+      const { writeFileSync, mkdirSync, renameSync } = await import('node:fs');
+      const { join, dirname, resolve } = await import('node:path');
+      const bodiesDir = resolve(join(dirname(process.env['CRUCIBLE_DB_PATH'] ?? './crucible.db'), 'preset-bodies'));
+      mkdirSync(bodiesDir, { recursive: true });
+      const finalPath = join(bodiesDir, `${id}.body`);
+      const tmpPath = `${finalPath}.${process.pid}.tmp`;
+      writeFileSync(tmpPath, buf);
+      renameSync(tmpPath, finalPath); // atomic — the addon never sees a torn body
+      if (args['contentType'] !== undefined) {
+        let headers: Record<string, string> = {};
+        try { headers = existing.headers_json ? JSON.parse(existing.headers_json) as Record<string, string> : {}; } catch { /* malformed — rebuild */ }
+        if (args['contentType'] === null || args['contentType'] === '') delete headers['content-type'];
+        else headers['content-type'] = String(args['contentType']);
+        db.prepare('UPDATE presets SET headers_json = ? WHERE id = ?').run(Object.keys(headers).length ? JSON.stringify(headers) : null, id);
+      }
+      db.prepare('UPDATE presets SET body_path = ? WHERE id = ?').run(finalPath, id);
+      deps.syncPresets?.();
+      return JSON.stringify({ presetId: id, bodyPath: finalPath, bytes: buf.length });
     },
   });
 
