@@ -1,8 +1,12 @@
 <script setup lang="ts">
-/** StreamShimmer — EXACT port of the operator's reference
- *  (attachments/aurora.html). No additions: same bands, gradients,
- *  keyframes, blur(50px) saturate(140%), glow. The only integration is
- *  visibility — shown while stream.state is connecting/reconnecting. */
+/** StreamShimmer — the operator's reference aurora
+ *  (attachments/aurora.html), with one performance fix: the reference
+ *  animates `left` (layout — reflows every frame) alongside the transform
+ *  wave; in the stream overlay that shows as stutter. The horizontal drift
+ *  is folded into the wave keyframes as translateX (same distances,
+ *  converted to element-width %) so each band runs ONE compositor-only
+ *  transform animation. Everything else is the reference verbatim. The only
+ *  integration is visibility (connecting/reconnecting). */
 import { computed } from 'vue';
 
 const props = defineProps<{ state: string }>();
@@ -57,6 +61,7 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
 
 .aurora__band:nth-child(1) {
   top: 8%;
+  /* drift folded into the wave keyframes (compositor-only; see note below) */
   background: linear-gradient(
     90deg,
     transparent 0%,
@@ -67,9 +72,7 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
     transparent 100%
   );
 
-  animation:
-    wave-one 7.5s ease-in-out infinite alternate,
-    drift-one 15s ease-in-out infinite alternate;
+  animation: wave-one 7.5s ease-in-out infinite alternate;
 }
 
 .aurora__band:nth-child(2) {
@@ -86,9 +89,7 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
 
   opacity: 0.6;
 
-  animation:
-    wave-two 9.5s ease-in-out infinite alternate,
-    drift-two 17s ease-in-out infinite alternate;
+  animation: wave-two 9.5s ease-in-out infinite alternate;
 }
 
 .aurora__band:nth-child(3) {
@@ -105,9 +106,7 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
 
   opacity: 0.5;
 
-  animation:
-    wave-three 7s ease-in-out infinite alternate,
-    drift-three 14s ease-in-out infinite alternate;
+  animation: wave-three 7s ease-in-out infinite alternate;
 }
 
 .aurora::after {
@@ -129,9 +128,16 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
   animation: glow 6s ease-in-out infinite alternate;
 }
 
+/* waves now carry the horizontal drift too (translateX) — ONE transform
+ * animation per band, compositor-only. The reference animated `left`
+ * (a layout property) alongside the transform wave; in the smaller
+ * stream overlay that reflow-every-frame shows as stutter. Distances are
+ * the reference's drift spans converted from containing-block % to the
+ * element's own width. */
 @keyframes wave-one {
   0% {
     transform:
+      translateX(-8.57%)
       translateY(0)
       skewY(-6deg)
       scaleY(0.85)
@@ -140,6 +146,7 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
 
   50% {
     transform:
+      translateX(0%)
       translateY(45px)
       skewY(8deg)
       scaleY(1.2)
@@ -148,6 +155,7 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
 
   100% {
     transform:
+      translateX(8.57%)
       translateY(-10px)
       skewY(-3deg)
       scaleY(0.95)
@@ -158,6 +166,7 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
 @keyframes wave-two {
   0% {
     transform:
+      translateX(5%)
       translateY(25px)
       skewY(6deg)
       scaleY(1.1)
@@ -166,6 +175,7 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
 
   50% {
     transform:
+      translateX(0%)
       translateY(-30px)
       skewY(-9deg)
       scaleY(0.75)
@@ -174,6 +184,7 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
 
   100% {
     transform:
+      translateX(-5%)
       translateY(20px)
       skewY(4deg)
       scaleY(1.15)
@@ -184,6 +195,7 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
 @keyframes wave-three {
   0% {
     transform:
+      translateX(-7.86%)
       translateY(-15px)
       skewY(-5deg)
       scaleY(0.8);
@@ -191,6 +203,7 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
 
   50% {
     transform:
+      translateX(0%)
       translateY(30px)
       skewY(7deg)
       scaleY(1.08);
@@ -198,39 +211,10 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
 
   100% {
     transform:
+      translateX(7.86%)
       translateY(-5px)
       skewY(-2deg)
       scaleY(0.9);
-  }
-}
-
-@keyframes drift-one {
-  from {
-    left: -22%;
-  }
-
-  to {
-    left: 2%;
-  }
-}
-
-@keyframes drift-two {
-  from {
-    left: -10%;
-  }
-
-  to {
-    left: -24%;
-  }
-}
-
-@keyframes drift-three {
-  from {
-    left: -18%;
-  }
-
-  to {
-    left: 4%;
   }
 }
 
