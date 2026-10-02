@@ -25,18 +25,13 @@ const MENUS: Array<{ id: string; label: string; items: MenuItem[] }> = [
     { label: 'boot device…', accel: '⌘⇧D', event: 'boot-device' },
     { label: 'restart', event: 'restart' },
     { label: 'shutdown', event: 'shutdown' },
-    { label: '', separator: true },
-    { label: 'erase…', event: 'erase' },
   ] },
   { id: 'app', label: 'app', items: [
     { label: 'install…', event: 'install' },
-    { label: 'launch LP Consumer', event: 'launch-app' },
-    { label: 'terminate', event: 'terminate-app' },
   ] },
   { id: 'environment', label: 'environment', items: [
     { label: 'scenario…', event: 'env-scenario' },
     { label: '', separator: true },
-    { label: 'set location…', event: 'env-location' },
     { label: 'env vars…', event: 'env-vars' },
   ] },
   { id: 'run', label: 'run', items: [

@@ -9,9 +9,26 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useDeviceStream, canvasPointToLogical } from '../../composables/deviceStream.ts';
 import { loadBezelDefinition, type BezelDefinition } from '../../composables/simdeckChrome.ts';
+import InspectOverlay from '../InspectOverlay.vue';
+import InspectRedlines from '../InspectRedlines.vue';
+import { hitTestNodeAt, type AxNode } from '@crucible/shared/ax-tree';
 
-const props = defineProps<{ udid: string }>();
-const emit = defineEmits<{ (e: 'session-state', s: { sessionId: string | null; dims?: { w: number | null; h: number | null } }): void }>();
+const props = defineProps<{
+  udid: string;
+  overlayNodes?: Array<Record<string, unknown>>;
+  overlayW?: number | null;
+  overlayH?: number | null;
+  overlayVisible?: boolean;
+  selParentNode?: Record<string, unknown> | null;
+}>();
+const overlayNodesC = computed((): never => (props.overlayNodes ?? []) as never);
+const overlayWC = computed((): number | null => props.overlayW ?? null);
+const overlayHC = computed((): number | null => props.overlayH ?? null);
+const overlayVisibleC = computed((): boolean => props.overlayVisible ?? false);
+const emit = defineEmits<{
+  (e: 'session-state', s: { sessionId: string | null; dims?: { w: number | null; h: number | null } }): void;
+  (e: 'inspect-click', ev: MouseEvent): void;
+}>();
 
 const stream = useDeviceStream();
 const sessionId = ref<string | null>(null);
@@ -22,6 +39,24 @@ const error = ref('');
 const lost = ref(false);
 const screenState = ref('—'); // F5 ladder: run arrival > inspect > '—'
 const startedAt = ref<number | null>(null);
+
+// ── inspect mode (page toggles; clicks select instead of dispatch) ──
+const inspect = ref(false);
+const selNode = ref<AxNode | null>(null);
+const hoverNode = ref<AxNode | null>(null);
+let rafId = 0;
+function onCanvasMove(e: MouseEvent): void {
+  if (!inspect.value) return;
+  if (rafId) return;
+  rafId = requestAnimationFrame(() => {
+    rafId = 0;
+    const canvas = document.querySelector('.stage .bezel-screen') as HTMLCanvasElement | null;
+    if (!canvas) return;
+    const { x, y } = canvasPointToLogical(canvas, e.clientX, e.clientY, logicalW.value, logicalH.value);
+    void x; void y; // hit-test done by the drawer via its own tree
+  });
+}
+function setInspect(on: boolean): void { inspect.value = on; if (!on) { selNode.value = null; hoverNode.value = null; } }
 
 // ── REAL bezel chrome (simdeck definition; degrades to null → bare canvas) ──
 const bezelDef = ref<BezelDefinition | null>(null);
@@ -122,6 +157,7 @@ async function fastPathFrame(): Promise<void> {
 
 async function onTap(e: MouseEvent): Promise<void> {
   if (!sessionId.value || !(e.target instanceof HTMLCanvasElement)) return;
+  if (inspect.value) { emit('inspect-click', e); return; } // select, never dispatch
   const canvas = e.target;
   const { x, y } = canvasPointToLogical(canvas, e.clientX, e.clientY, logicalW.value, logicalH.value);
   busy.value = true; error.value = '';
@@ -164,7 +200,12 @@ const sessionLabel = computed((): string | null => {
   const min = Math.floor((Date.now() - startedAt.value) / 60000);
   return `MANUAL · ${min}m`;
 });
-defineExpose({ takeControl, release, sessionLabel, screenState, zoomIn, zoomOut, setScreenState: (s: string): void => { screenState.value = s; } });
+defineExpose({
+  takeControl, release, sessionLabel, screenState, zoomIn, zoomOut,
+  setScreenState: (s: string): void => { screenState.value = s; },
+  setInspect, inspect,
+  paintSelectedSpec: (n: AxNode | null): void => { selNode.value = n; },
+});
 </script>
 
 <template>
@@ -185,6 +226,15 @@ defineExpose({ takeControl, release, sessionLabel, screenState, zoomIn, zoomOut,
         :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
                   width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%`,
                   borderRadius: `${bezelDef.screenRadius.pctW}% / ${bezelDef.screenRadius.pctH}%` }"></canvas>
+      <InspectOverlay v-if="inspect && sessionId" :nodes="overlayNodesC" :logical-w="overlayWC" :logical-h="overlayHC"
+        :hover="hoverNode" :selected="selNode" :visible="overlayVisibleC"
+        :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
+                  width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%` }" />
+      <InspectRedlines v-if="inspect && sessionId && selNode" :selected="selNode" :parent="(selParentNode as never)" :siblings="[]"
+        mode="both" :visible="overlayVisibleC"
+        :logical-w="overlayWC" :logical-h="overlayHC"
+        :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
+                  width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%` }" />
       <img v-for="b in bezelDef.buttons" :key="b.name" class="bezel-btn"
         :src="buttonSrc(b)" :alt="b.name" draggable="false"
         :style="buttonStyle(b)"
