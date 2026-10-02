@@ -50,18 +50,7 @@ async function loadDevices(): Promise<void> {
     if (devices.value.length > 0 && !devices.value.some((d) => d.udid === activeUdid.value)) activeUdid.value = devices.value[0]!.udid;
   } catch { devices.value = []; }
 }
-onMounted(async () => {
-  try {
-    const res = await fetch('/api/devices');
-    const body = await res.json() as { devices?: Array<{ udid: string; name: string | null; state: string | null }> };
-    devices.value = (body.devices ?? []).filter((d) => (d.state ?? '').toLowerCase() === 'booted').map((d) => ({
-      udid: d.udid, name: d.name ?? d.udid.slice(0, 12), sub: 'idle', live: false,
-    }));
-    if (devices.value.length > 0) activeUdid.value = devices.value[0]!.udid;
-    const want = String(route.query.device ?? '');
-    if (want && devices.value.some((d) => d.udid === want)) activeUdid.value = want;
-  } catch { devices.value = []; }
-});
+onMounted(async () => { await loadDevices(); });
 
 const activeName = computed((): string => devices.value.find((d) => d.udid === activeUdid.value)?.name ?? '—');
 

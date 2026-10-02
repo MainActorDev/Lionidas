@@ -57,6 +57,15 @@ async function probe(): Promise<boolean> {
 export function ensureSimdeck(): Promise<number> {
   if (ensureOverride) return ensureOverride();
   touch();
+  // A cached 'ready' may be STALE: an adopted child (spawned by an earlier
+  // server process) has no exit hook here, so its death never clears the
+  // promise — every later resolve returns instantly and the proxy's upstream
+  // dials get ECONNREFUSED forever (found live: kill the child mid-session
+  // and streams flap with instant 1005s that never recover).
+  if (ready && proc === null) {
+    // adopted (not spawned by us): re-verify before trusting the cache
+    ready = null;
+  }
   if (ready) return ready;
   if (!existsSync(BIN)) {
     return Promise.reject(new Error(`simdeck binary not found: ${BIN} (build the sibling project, or set CRUCIBLE_SIMDECK_BIN)`));

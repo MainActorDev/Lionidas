@@ -166,4 +166,20 @@ describe('simdeck gated proxy', () => {
     expect(ws.readyState).not.toBe(WebSocket.OPEN); // closed by the proxy
     expect(__simdeckLegs().find((l) => l.udid === 'UDID-D')).toBeUndefined();
   });
+
+  it('last-viewer-wins: a new stream leg for a udid closes existing legs', async () => {
+    const ws1 = await clientWs(app, '/simdeck/simulators/AAA/stream?format=avcc&version=v2');
+    await new Promise((r) => setTimeout(r, 100));
+    expect(__simdeckLegs().filter((l) => l.udid === 'AAA')).toHaveLength(1);
+
+    // second viewer of the SAME udid — the first (zombie) leg must be replaced
+    const ws2 = await clientWs(app, '/simdeck/simulators/AAA/stream?format=avcc&version=v2');
+    await new Promise((r) => setTimeout(r, 150));
+    const legs = __simdeckLegs().filter((l) => l.udid === 'AAA');
+    expect(legs).toHaveLength(1); // replaced, not duplicated
+
+    // the first socket is closed by the proxy (zombie eviction)
+    expect(ws1.readyState).not.toBe(WebSocket.OPEN);
+    ws2.close();
+  });
 });

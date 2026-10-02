@@ -175,6 +175,22 @@ export function registerSimdeckProxy(app: FastifyInstance, deps: SimdeckProxyDep
     const upPath = path.split('/simulators/').length > 1 ? path : path; // already child-shaped
     const upstream = new WsMod(`ws://${u.host}${upPath}`, { headers: upHeaders });
 
+    // LAST-VIEWER-WINS: a new stream leg for this udid replaces existing
+    // legs. Found live: a page reload can orphan a leg (the vite ws proxy
+    // doesn't always propagate the browser's close downstream), and the
+    // zombie holds the child's single stream slot — every fresh connect is
+    // then instantly killed by the child's single-viewer enforcement (client
+    // sees close 1005, retries every 1.5s = the endless loading/not-loading
+    // flap). The newest viewer is the operator's intent; close the stale one.
+    for (const existing of Array.from(legs)) {
+      if (existing.udid === udid && !existing.closed) {
+        existing.closed = true;
+        legs.delete(existing);
+        try { existing.client.close(); } catch { /* gone */ }
+        try { existing.upstream.close(); } catch { /* gone */ }
+      }
+    }
+
     const leg: Leg = { udid, client, upstream, mode, closed: false };
     legs.add(leg);
 
