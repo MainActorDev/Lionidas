@@ -220,13 +220,13 @@ defineExpose({
         <button type="button" :disabled="zoomIdx === ZOOM_STEPS.length - 1" title="zoom in (+)" @click="zoomIn">+</button>
       </div>
       <button v-if="!sessionId" class="session-btn primary" :disabled="busy" @click="takeControl">take control</button>
-      <button v-else class="session-btn" :disabled="busy" @click="release">release</button>
+      <button v-else class="session-btn danger" :disabled="busy" @click="release">release</button>
     </div>
 
     <!-- the REAL bezel: PNG body + % screen rect + hardware buttons -->
     <div v-if="bezelDef" ref="bezelWrapEl" class="bezel-wrap">
       <img class="bezel-img" :src="bezelDef.bezel.url" :width="bezelDef.bezel.width" :height="bezelDef.bezel.height" alt="" draggable="false" />
-      <canvas v-show="stream.state.value !== 'idle'" :ref="stream.setCanvas" class="bezel-screen" tabindex="0" @click="onTap"
+      <canvas v-show="stream.state.value !== 'idle'" :ref="stream.setCanvas" class="bezel-screen" :class="{ 'no-session': !sessionId, inspecting: inspect }" tabindex="0" @click="onTap"
         :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
                   width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%`,
                   borderRadius: `${bezelDef.screenRadius.pctW}% / ${bezelDef.screenRadius.pctH}%` }"></canvas>
@@ -280,6 +280,8 @@ defineExpose({
 .session-btn { font-family: inherit; background: none; border: 1px solid var(--color-iron); color: var(--color-fog); padding: 4px 10px; cursor: pointer; font-size: var(--text-caption); border-radius: var(--r); }
 .session-btn:hover:not(:disabled) { border-color: var(--color-slate); color: var(--color-paper); }
 .session-btn.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: var(--weight-bold); }
+.session-btn.danger { background: #c8342c; border-color: #c8342c; color: #fff; font-weight: var(--weight-bold); }
+.session-btn.danger:hover:not(:disabled) { background: #b02a23; border-color: #b02a23; color: #fff; }
 .session-btn:disabled { opacity: .5; cursor: default; }
 .zoombar button { font-family: inherit; width: 22px; height: 22px; line-height: 1; background: none; border: 1px solid var(--color-iron); color: var(--color-fog); border-radius: var(--r); cursor: pointer; font-size: 14px; display: grid; place-items: center; }
 .zoombar button:hover:not(:disabled) { border-color: var(--color-ember); color: var(--color-ember); }
@@ -290,7 +292,9 @@ defineExpose({
  * fills it; canvas + buttons ride % rects — aligned by construction */
 .bezel-wrap { position: relative; flex: 0 0 auto; font-size: 0; }
 .bezel-img { display: block; height: 100%; width: auto; pointer-events: none; user-select: none; -webkit-user-drag: none; }
-.bezel-screen { position: absolute; display: block; cursor: crosshair; background: var(--color-void); outline: none; }
+.bezel-screen { position: absolute; display: block; cursor: pointer; background: var(--color-void); outline: none; }
+.bezel-screen.no-session { cursor: default; }
+.bezel-screen.inspecting { cursor: default; }
 .bezel-btn { position: absolute; z-index: 0; pointer-events: none; user-select: none; -webkit-user-drag: none; }
 .bezel-btn.on-top { z-index: 2; }
 .bezel-btn.armed { pointer-events: auto; cursor: pointer; }
