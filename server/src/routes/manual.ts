@@ -438,8 +438,29 @@ export function registerManualRoutes(
   // ── template playback ──
   app.post('/api/templates/:id/play', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const b = req.body as { udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string>; variant?: string } | null;
+    const b = req.body as { udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string>; variant?: string; udids?: string[]; allBooted?: boolean } | null;
     try {
+      // ── multi-device fan-out (plan R4): loop the base single-play path per
+      // target udid. Worlds/variant selectors stay single-device (out of
+      // scope for fan-out); each device plays the case's default lane.
+      const fanoutTargets = b?.allBooted
+        ? (db.prepare(`SELECT udid FROM devices WHERE state = 'Booted'`).all() as Array<{ udid: string }>).map((r) => r.udid)
+        : b?.udids ?? null;
+      if (fanoutTargets) {
+        if (b?.allBooted && fanoutTargets.length === 0) return reply.code(400).send({ error: 'no booted devices' });
+        if (b?.udid || b?.variant) return reply.code(400).send({ error: 'fan-out plays the base case: udid/variant cannot combine with udids/allBooted' });
+        const pbDeps0 = { db, bus: deps.bus, dispatchDeps: deps.dispatchDeps, artifactsDir: deps.artifactsDir, forgeState: deps.forgeState, ...(process.env['VITEST'] ? { awaitStreamLive: null } : {}) };
+        const per: Array<{ udid: string; runId?: string; error?: string }> = [];
+        for (const u of fanoutTargets) {
+          try {
+            const { runId } = await runTemplatePlayback(pbDeps0, id, { udid: u, ...(req.user?.name !== undefined ? { triggeredBy: req.user.name } : (b?.triggeredBy !== undefined ? { triggeredBy: b.triggeredBy } : {})), ...(b?.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}), ...(b?.env !== undefined ? { env: b.env } : {}) });
+            per.push({ udid: u, runId });
+          } catch (err) {
+            per.push({ udid: u, error: err instanceof Error ? err.message : String(err) });
+          }
+        }
+        return { fanOut: true, count: per.length, runs: per };
+      }
       // Phase C: variants expand HERE (single-play entry point). A variants
       // case runs ONCE PER VARIANT, sequentially (declaration order — proxy
       // state is device-global). `variant: 'id'` runs exactly one.

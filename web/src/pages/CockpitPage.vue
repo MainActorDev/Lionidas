@@ -224,11 +224,19 @@ async function bootSelected(): Promise<void> {
 const playPick = ref<Array<{ id: string; name: string }>>([]);
 const playOpen = ref(false);
 const playBusy = ref(false);
+const playAllBooted = ref(false);
+const bootedCount = ref(0);
 async function pickPlayCase(): Promise<void> {
   try {
     const r = await fetch('/api/templates');
     const b = (await r.json()) as { templates?: Array<{ id: string; name: string }> };
     playPick.value = (b.templates ?? []).slice(0, 30);
+    try {
+      const rd = await fetch('/api/devices');
+      const bd = (await rd.json()) as { devices?: Array<{ state: string | null }> };
+      bootedCount.value = (bd.devices ?? []).filter((x) => (x.state ?? '').toLowerCase() === 'booted').length;
+    } catch { bootedCount.value = devices.value.length; }
+    playAllBooted.value = false;
     playOpen.value = true;
   } catch { flash('case list failed'); }
 }
@@ -237,10 +245,15 @@ async function playCase(id: string): Promise<void> {
   try {
     const r = await fetch(`/api/templates/${encodeURIComponent(id)}/play`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ udid: activeUdid.value }),
+      body: JSON.stringify(playAllBooted.value ? { allBooted: true } : { udid: activeUdid.value }),
     });
-    const b = (await r.json()) as { runId?: string; error?: string };
-    if (b.runId) { playOpen.value = false; flash(`run started · ${String(b.runId).slice(0, 14)}`); railTab.value = 'watch'; }
+    const b = (await r.json()) as { runId?: string; fanOut?: boolean; count?: number; runs?: Array<{ runId?: string; error?: string }>; error?: string };
+    if (b.fanOut) {
+      playOpen.value = false;
+      const ok = (b.runs ?? []).filter((x) => x.runId).length;
+      flash(`queued on ${ok}/${b.count ?? '?'} devices`);
+      railTab.value = 'watch';
+    } else if (b.runId) { playOpen.value = false; flash(`run started · ${String(b.runId).slice(0, 14)}`); railTab.value = 'watch'; }
     else flash(b.error ?? 'play failed');
   } catch { flash('play request failed'); }
   finally { playBusy.value = false; }
@@ -374,6 +387,7 @@ void live;
     <div v-if="playOpen" class="modal-scrim" @click.self="playOpen = false">
       <div class="modal">
         <h3>play case on {{ activeName }}</h3>
+        <label class="fanout-row"><input v-model="playAllBooted" type="checkbox" /> run on all booted devices ({{ bootedCount }})</label>
         <div v-if="!playPick.length" class="k">no templates found</div>
         <div v-for="t in playPick" :key="t.id" class="pick-row" :class="{ busy: playBusy }" @click="playCase(t.id)">
           <span>{{ t.name }}</span><span class="k">{{ t.id.slice(0, 10) }}…</span>
@@ -429,6 +443,8 @@ void live;
 .pick-row { display: flex; justify-content: space-between; padding: 6px 8px; border-radius: var(--r); cursor: pointer; color: var(--color-fog); font-size: var(--text-caption); }
 .pick-row:hover { background: var(--color-iron); color: var(--color-paper); }
 .pick-row.busy { opacity: .5; cursor: wait; }
+.fanout-row { display: flex; align-items: center; gap: 8px; font-size: var(--text-caption); color: var(--color-fog); margin-bottom: 10px; cursor: pointer; }
+.fanout-row input { accent-color: var(--color-ember); }
 .modal.wide { min-width: 460px; }
 .app-row { border: 1px solid var(--color-iron); border-radius: var(--r); padding: 8px; margin-bottom: 6px; }
 .app-row.picked { border-color: var(--color-ember); }

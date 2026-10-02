@@ -22,15 +22,27 @@ interface RunRow {
 
 export function registerRunRoutes(app: FastifyInstance, db: Database.Database, bus?: TypedEventBus<AppEvents>): void {
   app.post('/api/runs', { preHandler: requireRole('operator') }, async (req, reply) => {
-    const body = req.body as Partial<QueueSpec> & { priority?: 'manual' | 'scheduled' | 'agent'; scenarioId?: string };
+    const body = req.body as Partial<QueueSpec> & {
+      priority?: 'manual' | 'scheduled' | 'agent';
+      scenarioId?: string;
+      /** fan-out (plan R4): queue the same spec on several devices at once */
+      udids?: string[];
+      allBooted?: boolean;
+    };
     // disk quota: pause new runs at 100% (PLAN §11)
     const disk = diskState(process.env['CRUCIBLE_ARTIFACTS_DIR'] ?? './artifacts');
     if (disk.paused) {
       return reply.code(507).send({ error: `evidence quota exhausted (${Math.round(disk.usageBytes / 1e9)}GB ≥ limit) — run GC or raise CRUCIBLE_QUOTA_BYTES` });
     }
-    // pre-flight: everything validated BEFORE enqueue (invalid never queues)
-    const required: Array<keyof QueueSpec> = ['ticketKey', 'flowsDir', 'udid', 'app', 'artifactPath', 'triggeredBy'];
+    // pre-flight: everything validated BEFORE enqueue (invalid never queues).
+    // Device targeting: exactly one of `udid` (single) / `udids` / `allBooted`.
+    const fanout = body.udids ?? null;
+    const fieldCount = [body.udid, fanout, body.allBooted].filter(Boolean).length;
+    if (fieldCount > 1) return reply.code(400).send({ error: 'pick one of udid / udids / allBooted' });
+    const required: Array<keyof QueueSpec> = ['ticketKey', 'flowsDir', 'app', 'artifactPath', 'triggeredBy'];
+    if (!body.udid && !fanout && !body.allBooted) required.push('udid');
     for (const k of required) {
+      if (k === 'udid' && (fanout || body.allBooted)) continue;
       if (!body[k]) return reply.code(400).send({ error: `missing field: ${k}` });
     }
     if (!existsSync(body.flowsDir!)) return reply.code(400).send({ error: `flowsDir not found: ${body.flowsDir}` });
@@ -38,25 +50,46 @@ export function registerRunRoutes(app: FastifyInstance, db: Database.Database, b
     if (set.duplicateAcError) return reply.code(400).send({ error: `pre-flight: ${set.duplicateAcError}` });
     if (set.flows.length === 0) return reply.code(400).send({ error: 'no flows in flowsDir' });
     if (!existsSync(body.artifactPath!)) return reply.code(400).send({ error: `artifactPath not found: ${body.artifactPath}` });
-    const dev = db.prepare('SELECT udid FROM devices WHERE udid = ?').get(body.udid!);
-    if (!dev) return reply.code(400).send({ error: `unknown device: ${body.udid} (is the poller running?)` });
+
+    // resolve the target list
+    let targets: string[];
+    if (body.allBooted) {
+      targets = (db.prepare(`SELECT udid FROM devices WHERE state = 'Booted'`).all() as Array<{ udid: string }>).map((r) => r.udid);
+      if (targets.length === 0) return reply.code(400).send({ error: 'no booted devices' });
+    } else if (fanout) {
+      targets = fanout;
+    } else {
+      targets = [body.udid!];
+    }
+    // per-device existence check (names the offender)
+    for (const u of targets) {
+      const dev = db.prepare('SELECT udid FROM devices WHERE udid = ?').get(u);
+      if (!dev) return reply.code(400).send({ error: `unknown device: ${u} (is the poller running?)` });
+    }
+
     const prio = body.priority === 'agent' ? 2 : body.priority === 'scheduled' ? 1 : 0;
-    const spec: QueueSpec = {
-      ticketKey: body.ticketKey!,
-      flowsDir: body.flowsDir!,
-      udid: body.udid!,
-      app: body.app!,
-      artifactPath: body.artifactPath!,
-      ...(body.srcPath !== undefined ? { srcPath: body.srcPath } : {}),
-      ...(body.launchArgs !== undefined ? { launchArgs: body.launchArgs } : {}),
-      triggeredBy: body.triggeredBy!,
-      ...(body.triage !== undefined ? { triage: body.triage } : {}),
-      ...(body.kind !== undefined ? { kind: body.kind } : {}),
-      ...(body.parentRunId !== undefined ? { parentRunId: body.parentRunId } : {}),
-    };
-    const queueId = enqueue(db, spec, req.user?.name ?? body.triggeredBy!, prio); // session wins
-    bus?.emit('queue.changed', { queueId, state: 'waiting' });
-    return reply.code(202).send({ queueId });
+    const queueIds: string[] = [];
+    for (const u of targets) {
+      const spec: QueueSpec = {
+        ticketKey: body.ticketKey!,
+        flowsDir: body.flowsDir!,
+        udid: u,
+        app: body.app!,
+        artifactPath: body.artifactPath!,
+        ...(body.srcPath !== undefined ? { srcPath: body.srcPath } : {}),
+        ...(body.launchArgs !== undefined ? { launchArgs: body.launchArgs } : {}),
+        triggeredBy: body.triggeredBy!,
+        ...(body.triage !== undefined ? { triage: body.triage } : {}),
+        ...(body.kind !== undefined ? { kind: body.kind } : {}),
+        ...(body.parentRunId !== undefined ? { parentRunId: body.parentRunId } : {}),
+      };
+      const queueId = enqueue(db, spec, req.user?.name ?? body.triggeredBy!, prio); // session wins
+      bus?.emit('queue.changed', { queueId, state: 'waiting' });
+      queueIds.push(queueId);
+    }
+    // single-device response shape unchanged; fan-out returns the list
+    if (queueIds.length === 1 && !fanout && !body.allBooted) return reply.code(202).send({ queueId: queueIds[0] });
+    return reply.code(202).send({ queueIds });
   });
 
   app.get('/api/queue', async () => {
