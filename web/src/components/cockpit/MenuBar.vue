@@ -18,6 +18,8 @@ const MENUS: Array<{ id: string; label: string; items: MenuItem[] }> = [
     { label: 'new manual session', accel: '⌘N', event: 'new-session' },
     { label: 'screenshot', accel: '⌘1', event: 'screenshot' },
     { label: 'open captures…', event: 'open-captures' },
+    { label: '', separator: true },
+    { label: 'exit to console…', accel: '⌘E', event: 'exit-console' },
   ] },
   { id: 'device', label: 'device', items: [
     { label: 'boot device…', accel: '⌘⇧D', event: 'boot-device' },

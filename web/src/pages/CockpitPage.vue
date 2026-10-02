@@ -4,7 +4,7 @@
  *  (watch|chat) + env drawer. Round 1 chassis: menubar/switcher/stage wired;
  *  rail + chat land in S3/S4. */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import MenuBar from '../components/cockpit/MenuBar.vue';
 import DeviceSwitcher, { type SwitcherDevice } from '../components/cockpit/DeviceSwitcher.vue';
 import StageBezel from '../components/cockpit/StageBezel.vue';
@@ -17,6 +17,8 @@ import SideDrawer from '../components/shared/SideDrawer.vue';
 import { useLiveEvents } from '../stores/live.ts';
 
 const devices = ref<SwitcherDevice[]>([]);
+const route = useRoute();
+const router = useRouter();
 const activeUdid = ref('');
 const sessionOn = ref<string | null>(null);
 const dims = ref<{ w: number | null; h: number | null }>({ w: null, h: null });
@@ -35,12 +37,15 @@ onMounted(async () => {
       udid: d.udid, name: d.name ?? d.udid.slice(0, 12), sub: 'idle', live: false,
     }));
     if (devices.value.length > 0) activeUdid.value = devices.value[0]!.udid;
+    const want = String(route.query.device ?? '');
+    if (want && devices.value.some((d) => d.udid === want)) activeUdid.value = want;
   } catch { devices.value = []; }
 });
 
 const activeName = computed((): string => devices.value.find((d) => d.udid === activeUdid.value)?.name ?? '—');
 
 function onMenuEvent(event: string): void {
+  if (event === 'exit-console') { void router.push('/'); return; }
   if (event === 'env-scenario' || event === 'env-location' || event === 'env-vars') { envOpen.value = true; return; }
   if (event === 'new-session') void stage.value?.takeControl();
   if (event === 'screenshot') void 0; // S3: capture strip
@@ -89,7 +94,7 @@ void live;
 </template>
 
 <style scoped>
-.cockpit { display: flex; flex-direction: column; height: 100%; position: relative; }
+.cockpit { display: flex; flex-direction: column; height: 100vh; position: relative; background: var(--color-void); }
 .frame { flex: 1; display: grid; grid-template-columns: 1fr 320px; min-height: 0; position: relative; }
 .empty { display: grid; place-items: center; color: var(--color-steel); font-size: var(--text-caption); }
 .pane { display: flex; flex-direction: column; min-height: 0; }
