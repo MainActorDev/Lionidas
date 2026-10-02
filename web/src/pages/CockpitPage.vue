@@ -27,6 +27,7 @@ const envOpen = ref(false);
 const railOpen = ref(true);
 const activeScenario = ref<string | null>(null);
 const screenState = ref('—');
+const menuSessionLabel = ref<string | null>(null);
 const railTab = ref('watch');
 const toolsOpen = ref(false);
 const overlayData = ref<{ nodes: Array<Record<string, unknown>>; w: number | null; h: number | null; visible: boolean; sel: Record<string, unknown> | null }>({ nodes: [], w: null, h: null, visible: false, sel: null });
@@ -209,7 +210,11 @@ let ovTimer = setInterval(() => {
   if (t?.tree) overlayData.value = { nodes: t.tree.nodes.value, w: t.tree.logicalW.value, h: t.tree.logicalH.value, visible: t.tree.state.value === 'aligned', sel: (t.selection ?? null) as Record<string, unknown> | null };
 }, 500);
 onBeforeUnmount(() => clearInterval(ovTimer));
-let ssTimer = setInterval(() => { const st = stage.value as unknown as { screenState?: { value: string } } | null; if (st?.screenState) screenState.value = st.screenState.value; }, 1000);
+let ssTimer = setInterval(() => {
+  const st = stage.value as unknown as { screenState?: { value: string }; sessionLabel?: { value: string | null } } | null;
+  if (st?.screenState) screenState.value = st.screenState.value;
+  if (st?.sessionLabel) menuSessionLabel.value = st.sessionLabel.value;
+}, 1000);
 onBeforeUnmount(() => clearInterval(ssTimer));
 
 function onSwitch(udid: string): void {
@@ -228,7 +233,7 @@ function onSessionState(s: { sessionId: string | null; dims?: { w: number | null
 }
 
 const status = computed(() => ({
-  sessionLabel: sessionOn.value ? 'MANUAL' : null,
+  sessionLabel: menuSessionLabel.value,
   deviceName: activeName.value,
   liveCount: devices.value.length,
 }));

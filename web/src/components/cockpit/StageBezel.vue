@@ -197,7 +197,10 @@ function buttonSrc(b: BezelDefinition['buttons'][number]): string {
   return buttonState(b) === 'pressed' ? b.pressedImageUrl : b.imageUrl;
 }
 
+const nowTick = ref(Date.now());
+setInterval(() => { nowTick.value = Date.now(); }, 10_000);
 const sessionLabel = computed((): string | null => {
+  void nowTick.value;
   if (!sessionId.value || !startedAt.value) return null;
   const min = Math.floor((Date.now() - startedAt.value) / 60000);
   return `MANUAL · ${min}m`;
@@ -250,7 +253,6 @@ defineExpose({
         @pointerdown.prevent="pressedBtn = b.name; pressBtn(b)"
         @pointerup.prevent="pressedBtn = ''; hoverBtn = ''"
         @pointercancel.prevent="pressedBtn = ''" />
-      <div v-if="sessionLabel" class="session-chip">{{ sessionLabel }}</div>
       <div v-if="stream.state.value === 'failed'" class="failbox">
         <span>{{ stream.failure.value || 'stream failed' }}</span>
         <button v-if="stream.retryable.value" type="button" @click="stream.retry()">retry</button>
@@ -260,8 +262,7 @@ defineExpose({
     <!-- fallback: no chrome bundle for this model — bare canvas -->
     <div v-else class="bezel-bare">
       <div class="screen">
-        <div v-if="sessionLabel" class="session-chip">{{ sessionLabel }}</div>
-        <canvas v-show="stream.state.value !== 'idle'" :ref="stream.setCanvas" @click="onTap" />
+          <canvas v-show="stream.state.value !== 'idle'" :ref="stream.setCanvas" @click="onTap" />
         <div v-if="stream.state.value === 'failed'" class="failbox">
           <span>{{ stream.failure.value || 'stream failed' }}</span>
           <button v-if="stream.retryable.value" type="button" @click="stream.retry()">retry</button>
@@ -302,7 +303,6 @@ defineExpose({
 .bezel-btn { position: absolute; z-index: 0; pointer-events: none; user-select: none; -webkit-user-drag: none; }
 .bezel-btn.on-top { z-index: 2; }
 .bezel-btn.armed { pointer-events: auto; cursor: pointer; }
-.session-chip { position: absolute; top: 10px; right: 10px; z-index: 3; border: 1px solid var(--color-ember); color: var(--color-ember); background: rgba(0, 0, 0, .72); font-size: 10px; padding: 1px 6px; }
 .bezel-wrap .failbox { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; color: var(--color-paper); font-size: var(--text-caption); background: rgba(0, 0, 0, .6); }
 .failbox button { background: none; border: 1px solid var(--color-iron); color: var(--color-fog); padding: 2px 10px; border-radius: var(--r); cursor: pointer; font-family: inherit; font-size: var(--text-caption); }
 
