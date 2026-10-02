@@ -60,21 +60,28 @@ const rampPct = computed((): string => `${Math.round(ramp.value * 100)}%`);
   opacity: calc(var(--ramp, 100%) * 0.18);
   animation: wander2 17s ease-in-out infinite; }
 
-/* a slow curved stroll: three waypoints + return, ease-in-out on every leg
- * so motion never stops dead — the light wanders around the screen */
+/* TRUE wander: a closed ORBIT through 6 spread waypoints — the light
+ * circuits the screen area continuously (counter-clockwise cool,
+ * clockwise warm), never retracing, never pausing at an 'end'. The
+ * loop closes only across the last→first leg, which is a short step
+ * (not a big return sweep), so there is no ping-pong read. */
 @keyframes wander1 {
-  0%   { transform: translate(0, 0) rotate(-6deg) scale(1); }
-  25%  { transform: translate(calc(26% * var(--ramp, 1)), calc(12% * var(--ramp, 1))) rotate(2deg) scale(1.12); }
-  50%  { transform: translate(calc(10% * var(--ramp, 1)), calc(34% * var(--ramp, 1))) rotate(7deg) scale(0.96); }
-  75%  { transform: translate(calc(-18% * var(--ramp, 1)), calc(16% * var(--ramp, 1))) rotate(1deg) scale(1.08); }
-  100% { transform: translate(0, 0) rotate(-6deg) scale(1); }
+  0%   { transform: translate(calc(0% * var(--ramp, 1)),   calc(0% * var(--ramp, 1)))   rotate(-5deg) scale(1); }
+  16%  { transform: translate(calc(18% * var(--ramp, 1)),  calc(6% * var(--ramp, 1)))   rotate(0deg)  scale(1.1); }
+  33%  { transform: translate(calc(22% * var(--ramp, 1)),  calc(22% * var(--ramp, 1)))  rotate(5deg)  scale(0.95); }
+  50%  { transform: translate(calc(6% * var(--ramp, 1)),   calc(34% * var(--ramp, 1)))  rotate(9deg)  scale(1.06); }
+  66%  { transform: translate(calc(-16% * var(--ramp, 1)), calc(26% * var(--ramp, 1)))  rotate(4deg)  scale(1.12); }
+  83%  { transform: translate(calc(-20% * var(--ramp, 1)), calc(8% * var(--ramp, 1)))   rotate(-2deg) scale(1.02); }
+  100% { transform: translate(0, 0) rotate(-5deg) scale(1); }
 }
 @keyframes wander2 {
-  0%   { transform: translate(0, 0) rotate(8deg) scale(1.05); }
-  25%  { transform: translate(calc(-22% * var(--ramp, 1)), calc(-14% * var(--ramp, 1))) rotate(-3deg) scale(0.94); }
-  50%  { transform: translate(calc(-8% * var(--ramp, 1)), calc(-30% * var(--ramp, 1))) rotate(-8deg) scale(1.14); }
-  75%  { transform: translate(calc(16% * var(--ramp, 1)), calc(-12% * var(--ramp, 1))) rotate(2deg) scale(1); }
-  100% { transform: translate(0, 0) rotate(8deg) scale(1.05); }
+  0%   { transform: translate(0, 0) rotate(6deg) scale(1.04); }
+  16%  { transform: translate(calc(-14% * var(--ramp, 1)), calc(-6% * var(--ramp, 1)))  rotate(2deg)  scale(0.94); }
+  33%  { transform: translate(calc(-20% * var(--ramp, 1)), calc(-22% * var(--ramp, 1))) rotate(-4deg) scale(1.1); }
+  50%  { transform: translate(calc(-4% * var(--ramp, 1)),  calc(-32% * var(--ramp, 1))) rotate(-8deg) scale(1.16); }
+  66%  { transform: translate(calc(14% * var(--ramp, 1)),  calc(-20% * var(--ramp, 1))) rotate(-2deg) scale(1); }
+  83%  { transform: translate(calc(18% * var(--ramp, 1)),  calc(-6% * var(--ramp, 1)))  rotate(3deg)  scale(1.08); }
+  100% { transform: translate(0, 0) rotate(6deg) scale(1.04); }
 }
 
 /* fine scanlines — a hint of signal */
