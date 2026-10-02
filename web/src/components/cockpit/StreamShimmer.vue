@@ -1,22 +1,20 @@
 <script setup lang="ts">
-/** StreamShimmer — variant B "aurora veil" from sketch 023: two soft light
- *  veils drifting behind a scanline veil while the device stream connects.
- *  The two veils WANDER — long 13s/17s multi-waypoint loops (curved stroll,
- *  ease-in-out legs, never synchronous) so the light roams around the
- *  screen smoothly. REACTIVE: a --ramp var eases in over the first 1.5s
- *  (quick connects stay subtle) and scales both opacity and travel; frozen
- *  under prefers-reduced-motion. No caption — the motion is the message. */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+/** StreamShimmer — AURORA loading: curtains of light flowing continuously
+ *  across the screen while the device stream connects. Three skewed,
+ *  heavily-blurred ribbons drift one-directionally (linear timing, wrap
+ *  offscreen — never a ping-pong), each undulating vertically on its own
+ *  slow phase, blending with screen mode. REACTIVE: a --ramp var eases in
+ *  over the first 1.5s (quick connects stay subtle) and scales opacity +
+ *  travel; frozen under prefers-reduced-motion. No caption — motion is the
+ *  message. */
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
 const props = defineProps<{ state: string }>();
 
 const visible = computed((): boolean => props.state === 'connecting' || props.state === 'reconnecting');
 
-
-
-// ramp: 0 → 1 over the first 1.5s visible (ease-out). Applied as a CSS var
-// multiplying veil opacity + drift distance — quick connects stay subtle,
-// long connects reach full presence.
+// ramp: 0 → 1 over the first 1.5s visible (ease-out). Scales curtain opacity
+// and drift distance — quick connects stay subtle, long connects bloom.
 const ramp = ref(0);
 let startedAt = 0;
 let rampTimer = 0 as unknown as ReturnType<typeof setInterval>;
@@ -36,61 +34,83 @@ watch(visible, (on) => {
   }
 }, { immediate: true });
 onBeforeUnmount(() => { if (rampTimer) clearInterval(rampTimer); });
-onMounted(() => { void 0; });
 const rampPct = computed((): string => `${Math.round(ramp.value * 100)}%`);
 </script>
 
 <template>
   <div v-if="visible" class="shimmer" :style="{ '--ramp': rampPct }">
-    <div class="veil cool"></div>
-    <div class="veil warm"></div>
-    <div class="scan"></div>
+    <div class="aurora">
+      <div class="rib r1"><div class="glow g1"></div></div>
+      <div class="rib r2"><div class="glow g2"></div></div>
+      <div class="rib r3"><div class="glow g3"></div></div>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .shimmer { position: absolute; inset: 0; overflow: hidden; background: var(--color-void); z-index: 1; }
 
-/* aurora veils — opacity scales with the reactive ramp */
-.veil { position: absolute; width: 150%; height: 75%; filter: blur(42px); border-radius: 50%; will-change: transform; }
-.veil.cool { top: -20%; left: -35%; background: radial-gradient(closest-side, var(--color-paper), transparent 70%);
-  opacity: calc(var(--ramp, 100%) * 0.22);
-  animation: wander1 13s ease-in-out infinite; }
-.veil.warm { bottom: -24%; right: -36%; background: radial-gradient(closest-side, var(--color-ember), transparent 72%);
-  opacity: calc(var(--ramp, 100%) * 0.18);
-  animation: wander2 17s ease-in-out infinite; }
+.aurora { position: absolute; inset: 0; filter: blur(26px) saturate(1.2); }
 
-/* TRUE wander: a closed ORBIT through 6 spread waypoints — the light
- * circuits the screen area continuously (counter-clockwise cool,
- * clockwise warm), never retracing, never pausing at an 'end'. The
- * loop closes only across the last→first leg, which is a short step
- * (not a big return sweep), so there is no ping-pong read. */
-@keyframes wander1 {
-  0%   { transform: translate(calc(0% * var(--ramp, 1)),   calc(0% * var(--ramp, 1)))   rotate(-5deg) scale(1); }
-  16%  { transform: translate(calc(18% * var(--ramp, 1)),  calc(6% * var(--ramp, 1)))   rotate(0deg)  scale(1.1); }
-  33%  { transform: translate(calc(22% * var(--ramp, 1)),  calc(22% * var(--ramp, 1)))  rotate(5deg)  scale(0.95); }
-  50%  { transform: translate(calc(6% * var(--ramp, 1)),   calc(34% * var(--ramp, 1)))  rotate(9deg)  scale(1.06); }
-  66%  { transform: translate(calc(-16% * var(--ramp, 1)), calc(26% * var(--ramp, 1)))  rotate(4deg)  scale(1.12); }
-  83%  { transform: translate(calc(-20% * var(--ramp, 1)), calc(8% * var(--ramp, 1)))   rotate(-2deg) scale(1.02); }
-  100% { transform: translate(0, 0) rotate(-5deg) scale(1); }
+/* ribbons: the curtain arms. Each .rib is a tall skewed track that drifts
+ * one-directionally (linear timing, wraps offscreen — a continuous stream,
+ * never a return sweep); its inner .glow is the visible light bar, which
+ * undulates (translateY + slight rotate) on its own slow phase — curtains
+ * waving as they cross, like aurora in a magnetic field. */
+.rib { position: absolute; left: -60%; width: 220%; height: 46%; will-change: transform; }
+.r1 { top: 2%;  animation: drift-a 9s linear infinite; }
+.r2 { top: 26%; animation: drift-b 13s linear infinite; }
+.r3 { top: 52%; animation: drift-a 17s linear infinite reverse; }
+
+@keyframes drift-a {
+  from { transform: translateX(calc(-55% * var(--ramp, 1))) skewX(-14deg); }
+  to   { transform: translateX(calc(15% * var(--ramp, 1))) skewX(-14deg); }
 }
-@keyframes wander2 {
-  0%   { transform: translate(0, 0) rotate(6deg) scale(1.04); }
-  16%  { transform: translate(calc(-14% * var(--ramp, 1)), calc(-6% * var(--ramp, 1)))  rotate(2deg)  scale(0.94); }
-  33%  { transform: translate(calc(-20% * var(--ramp, 1)), calc(-22% * var(--ramp, 1))) rotate(-4deg) scale(1.1); }
-  50%  { transform: translate(calc(-4% * var(--ramp, 1)),  calc(-32% * var(--ramp, 1))) rotate(-8deg) scale(1.16); }
-  66%  { transform: translate(calc(14% * var(--ramp, 1)),  calc(-20% * var(--ramp, 1))) rotate(-2deg) scale(1); }
-  83%  { transform: translate(calc(18% * var(--ramp, 1)),  calc(-6% * var(--ramp, 1)))  rotate(3deg)  scale(1.08); }
-  100% { transform: translate(0, 0) rotate(6deg) scale(1.04); }
+@keyframes drift-b {
+  from { transform: translateX(calc(10% * var(--ramp, 1))) skewX(-7deg); }
+  to   { transform: translateX(calc(-50% * var(--ramp, 1))) skewX(-7deg); }
 }
 
-/* fine scanlines — a hint of signal */
-.scan { position: absolute; inset: 0;
-  background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(0, 0, 0, .22) 3px 4px);
-  pointer-events: none; }
+/* the visible light: soft bars, screen-blended so overlapping curtains
+ * brighten each other; each undulates on its own slow phase */
+.glow { position: absolute; inset: 0; border-radius: 50%; mix-blend-mode: screen; }
+.g1 {
+  background: linear-gradient(90deg,
+    transparent 0%, transparent 22%,
+    rgba(238, 238, 238, 0.95) 50%,
+    transparent 78%, transparent 100%);
+  opacity: calc(var(--ramp, 100%) * 0.5);
+  animation: wave1 5.4s ease-in-out infinite;
+}
+.g2 {
+  background: linear-gradient(90deg,
+    transparent 0%, transparent 28%,
+    rgba(218, 92, 44, 0.95) 54%,
+    transparent 82%, transparent 100%);
+  opacity: calc(var(--ramp, 100%) * 0.45);
+  animation: wave2 6.8s ease-in-out infinite;
+}
+.g3 {
+  background: linear-gradient(90deg,
+    transparent 0%, transparent 26%,
+    rgba(238, 238, 238, 0.6) 46%,
+    rgba(218, 92, 44, 0.5) 60%,
+    transparent 86%, transparent 100%);
+  opacity: calc(var(--ramp, 100%) * 0.4);
+  animation: wave1 8.2s ease-in-out infinite reverse;
+}
 
-/* reduced motion: veils still */
+@keyframes wave1 {
+  0%, 100% { transform: translateY(calc(4% * var(--ramp, 1))) rotate(1.2deg) scaleY(1); }
+  50%      { transform: translateY(calc(-4% * var(--ramp, 1))) rotate(-1.2deg) scaleY(1.14); }
+}
+@keyframes wave2 {
+  0%, 100% { transform: translateY(calc(-3% * var(--ramp, 1))) rotate(-1deg) scaleY(1.08); }
+  50%      { transform: translateY(calc(5% * var(--ramp, 1))) rotate(1.6deg) scaleY(0.92); }
+}
+
+/* reduced motion: curtains still, faint glow remains */
 @media (prefers-reduced-motion: reduce) {
-  .veil { animation: none; }
+  .rib, .glow { animation: none; }
 }
 </style>

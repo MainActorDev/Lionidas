@@ -19,7 +19,7 @@ describe('StreamShimmer (variant B)', () => {
 
     await w.setProps({ state: 'reconnecting' });
     expect(w.find('.shimmer').exists()).toBe(true);
-    expect(w.find('.veil').exists()).toBe(true);
+    expect(w.find('.aurora').exists()).toBe(true);
 
     await w.setProps({ state: 'failed' });
     expect(w.find('.shimmer').exists()).toBe(false);
