@@ -8,7 +8,7 @@ import { computed, ref, watch } from 'vue';
 import { useDeviceStream, canvasPointToLogical } from '../../composables/deviceStream.ts';
 
 const props = defineProps<{ udid: string }>();
-const emit = defineEmits<{ (e: 'session-state', s: { sessionId: string | null }): void }>();
+const emit = defineEmits<{ (e: 'session-state', s: { sessionId: string | null; dims?: { w: number | null; h: number | null } }): void }>();
 
 const stream = useDeviceStream();
 const sessionId = ref<string | null>(null);
@@ -48,7 +48,7 @@ async function takeControl(): Promise<void> {
       logicalW.value = body.logicalW ?? null;
       logicalH.value = body.logicalH ?? null;
       startedAt.value = Date.now();
-      emit('session-state', { sessionId: body.sessionId });
+      emit('session-state', { sessionId: body.sessionId, dims: { w: logicalW.value, h: logicalH.value } });
       if (!stream.state.value || stream.state.value === 'idle') stream.start(props.udid);
     } else error.value = body.error ?? 'failed to start';
   } finally { busy.value = false; }
@@ -64,7 +64,7 @@ async function release(): Promise<void> {
 function endSession(): void {
   sessionId.value = null; startedAt.value = null;
   lost.value = true;
-  emit('session-state', { sessionId: null });
+  emit('session-state', { sessionId: null, dims: { w: null, h: null } });
 }
 
 async function fastPathFrame(): Promise<void> {

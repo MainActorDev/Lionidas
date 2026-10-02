@@ -9,12 +9,15 @@ import DeviceSwitcher, { type SwitcherDevice } from '../components/cockpit/Devic
 import StageBezel from '../components/cockpit/StageBezel.vue';
 import WatcherPanel from '../components/shared/WatcherPanel.vue';
 import WatcherSection from '../components/shared/WatcherSection.vue';
+import WatchPane from '../components/cockpit/WatchPane.vue';
+import EnvDrawer from '../components/cockpit/EnvDrawer.vue';
 import SideDrawer from '../components/shared/SideDrawer.vue';
 import { useLiveEvents } from '../stores/live.ts';
 
 const devices = ref<SwitcherDevice[]>([]);
 const activeUdid = ref('');
 const sessionOn = ref<string | null>(null);
+const dims = ref<{ w: number | null; h: number | null }>({ w: null, h: null });
 const envOpen = ref(false);
 const railTab = ref('watch');
 const stage = ref<InstanceType<typeof StageBezel> | null>(null);
@@ -46,7 +49,10 @@ function onSwitch(udid: string): void {
   sessionOn.value = null;
 }
 
-function onSessionState(s: { sessionId: string | null }): void { sessionOn.value = s.sessionId; }
+function onSessionState(s: { sessionId: string | null; dims?: { w: number | null; h: number | null } }): void {
+  sessionOn.value = s.sessionId;
+  if (s.dims) dims.value = s.dims;
+}
 
 const status = computed(() => ({
   sessionLabel: sessionOn.value ? 'MANUAL' : null,
@@ -64,17 +70,12 @@ void live;
       <StageBezel v-if="activeUdid" ref="stage" :udid="activeUdid" @session-state="onSessionState" />
       <div v-else class="empty">no booted devices — boot one from the device menu</div>
       <WatcherPanel :tabs="[{ id: 'watch', label: 'watch' }, { id: 'chat', label: 'chat' }]" :active="railTab" @switch="railTab = $event">
-        <div v-show="railTab === 'watch'" class="pane">
-          <WatcherSection title="session" :meta="sessionOn ? 'live' : 'idle'">
-            <div class="row"><span class="k">lease</span><span class="v">{{ sessionOn ?? '—' }}</span></div>
-          </WatcherSection>
-          <WatcherSection title="run watch" meta="S3"><div class="k">lands in step 3</div></WatcherSection>
-        </div>
+        <WatchPane v-show="railTab === 'watch'" :udid="activeUdid" :session-id="sessionOn" :dims="dims" />
         <div v-show="railTab === 'chat'" class="pane"><div class="k">lands in step 4</div></div>
       </WatcherPanel>
     </div>
     <SideDrawer :open="envOpen" title="environment" @close="envOpen = false">
-      <div class="k">scenario + location land in step 3</div>
+      <EnvDrawer />
     </SideDrawer>
   </div>
 </template>
