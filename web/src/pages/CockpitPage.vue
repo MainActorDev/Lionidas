@@ -111,8 +111,12 @@ async function power(action: 'boot' | 'shutdown' | 'restart', udid: string = act
 }
 
 /** boot picker: shutdown devices → boot one (the switcher only lists booted) */
-const bootPick = ref<Array<{ udid: string; name: string }>>([]);
+interface BootDevice { udid: string; name: string; os: string; res: string; state: string }
+const bootPick = ref<BootDevice[]>([]);
 const bootOpen = ref(false);
+const bootSel = ref('');
+const bootBusy = ref(false);
+const bootErr = ref('');
 
 // ── install modal (file menu) ──
 const installOpen = ref(false);
@@ -170,12 +174,32 @@ async function runInstall(): Promise<void> {
   finally { installBusy.value = false; }
 }
 async function pickBootDevice(): Promise<void> {
+  bootErr.value = ''; bootSel.value = '';
   try {
     const r = await fetch('/api/devices');
-    const b = (await r.json()) as { devices?: Array<{ udid: string; name: string | null; state: string | null }> };
-    bootPick.value = (b.devices ?? []).filter((x) => (x.state ?? '') !== 'Booted').map((x) => ({ udid: x.udid, name: x.name ?? x.udid.slice(0, 12) }));
+    const b = (await r.json()) as { devices?: Array<{ udid: string; name: string | null; state: string | null; os_version: string | null; resolution: string | null }> };
+    bootPick.value = (b.devices ?? [])
+      .filter((x) => (x.state ?? '') !== 'Booted')
+      .map((x) => ({ udid: x.udid, name: x.name ?? x.udid.slice(0, 12), os: x.os_version ?? '', res: x.resolution ?? '', state: x.state ?? '' }))
+      .sort((a, b2) => a.name.localeCompare(b2.name));
     bootOpen.value = true;
   } catch { flash('device list failed'); }
+}
+async function bootSelected(): Promise<void> {
+  if (!bootSel.value || bootBusy.value) return;
+  bootBusy.value = true; bootErr.value = '';
+  try {
+    const r = await fetch(`/api/devices/${encodeURIComponent(bootSel.value)}/power`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'boot' }),
+    });
+    const b = (await r.json()) as { ok?: boolean; error?: string };
+    if (b.ok) {
+      bootOpen.value = false;
+      flash('booting — the device appears in the switcher shortly');
+      setTimeout(() => void loadDevices(), 6000);
+    } else bootErr.value = b.error ?? 'boot failed';
+  } catch { bootErr.value = 'boot request failed'; }
+  finally { bootBusy.value = false; }
 }
 
 /** play a case on this device: newest templates → prompt-free picker */
@@ -262,13 +286,25 @@ void live;
     </SideDrawer>
 
     <!-- boot picker -->
+    <!-- boot modal (install pattern) -->
     <div v-if="bootOpen" class="modal-scrim" @click.self="bootOpen = false">
-      <div class="modal">
+      <div class="modal wide">
         <h3>boot device</h3>
-        <div v-if="!bootPick.length" class="k">every known device is already booted</div>
-        <div v-for="d in bootPick" :key="d.udid" class="pick-row" @click="bootOpen = false; power('boot', d.udid)">
-          <span>{{ d.name }}</span><span class="k">{{ d.udid.slice(0, 8) }}…</span>
+        <div class="modal-body">
+          <div v-if="!bootPick.length" class="k">every known device is already booted</div>
+          <div v-for="d in bootPick" :key="d.udid" class="dev-row" :class="{ picked: bootSel === d.udid }" @click="bootSel = d.udid">
+            <div class="dev-main">
+              <span class="dev-name">{{ d.name }}</span>
+              <span class="dev-meta">{{ [d.os, d.res].filter(Boolean).join(' · ') || d.udid.slice(0, 8) }}</span>
+            </div>
+            <span class="dev-state">{{ d.state.toLowerCase() }}</span>
+          </div>
         </div>
+        <div class="modal-actions">
+          <button class="m-btn" @click="bootOpen = false">cancel</button>
+          <button class="m-btn primary" :disabled="!bootSel || bootBusy" @click="bootSelected">{{ bootBusy ? 'booting…' : 'boot' }}</button>
+        </div>
+        <div v-if="bootErr" class="hint-err">{{ bootErr }}</div>
       </div>
     </div>
 
@@ -344,4 +380,11 @@ void live;
 .m-btn:disabled { opacity: .5; cursor: default; }
 .hint-ok { color: var(--color-paper); font-size: var(--text-caption); margin-top: 8px; }
 .hint-err { color: var(--color-paper); font-size: var(--text-caption); margin-top: 8px; border-left: 2px solid var(--color-ember); padding-left: 8px; }
+.dev-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; border: 1px solid var(--color-iron); border-radius: var(--r); padding: 8px 10px; margin-bottom: 6px; cursor: pointer; }
+.dev-row:hover { border-color: var(--color-slate); }
+.dev-row.picked { border-color: var(--color-ember); }
+.dev-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dev-name { color: var(--color-paper); font-size: var(--text-caption); }
+.dev-meta { color: var(--color-steel); font-size: 10px; }
+.dev-state { color: var(--color-steel); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; border: 1px solid var(--color-iron); padding: 1px 7px; border-radius: var(--r); }
 </style>
