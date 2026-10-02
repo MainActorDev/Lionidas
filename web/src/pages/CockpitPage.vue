@@ -389,7 +389,7 @@ void live;
 
 <style scoped>
 .cockpit { display: flex; flex-direction: column; height: 100vh; position: relative; background: var(--color-void); }
-.frame { flex: 1; display: grid; grid-template-columns: 1fr 320px; min-height: 0; position: relative; }
+.frame { flex: 1; display: grid; grid-template-columns: 1fr 320px; min-height: 0; position: relative; background: var(--color-carbon); border-top: 1px solid var(--color-iron); }
 .empty { display: grid; place-items: center; color: var(--color-steel); font-size: var(--text-caption); }
 .pane { display: flex; flex-direction: column; min-height: 0; }
 .k { color: var(--color-fog); font-size: var(--text-caption); }
