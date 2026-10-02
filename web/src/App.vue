@@ -42,7 +42,6 @@ watch(() => route.fullPath, () => void loadMe());
         <RouterLink to="/" class="nav-item" :class="{ active: isActive('overview') }">overview</RouterLink>
         <RouterLink to="/suites" class="nav-item" :class="{ active: isActive('suites') }">suites</RouterLink>
         <RouterLink to="/devices" class="nav-item" :class="{ active: isActive('wall') }">devices</RouterLink>
-        <RouterLink to="/cockpit" class="nav-item" :class="{ active: isActive('cockpit') }">cockpit</RouterLink>
         <RouterLink to="/runs" class="nav-item" :class="{ active: isActive('runs') || isActive('runDetail') }">runs</RouterLink>
       </div>
       <div class="nav-group">
