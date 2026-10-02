@@ -6,6 +6,7 @@ import RunDetailPage from './pages/RunDetailPage.vue';
 import MatrixPage from './pages/MatrixPage.vue';
 import BaselinesPage from './pages/BaselinesPage.vue';
 import DrivePage from './pages/DrivePage.vue';
+import CockpitPage from './pages/CockpitPage.vue';
 import FlakesPage from './pages/FlakesPage.vue';
 import ForgePage from './pages/ForgePage.vue';
 import TestCasesPage from './pages/TestCasesPage.vue';
@@ -28,6 +29,7 @@ export const router = createRouter({
     { path: '/tickets/:key', name: 'matrix', component: MatrixPage, meta: { title: 'acceptance criteria' } },
     { path: '/baselines', name: 'baselines', component: BaselinesPage, meta: { title: 'approvals' } },
     { path: '/drive', name: 'drive', component: DrivePage, meta: { title: 'manual control' } },
+    { path: '/cockpit', name: 'cockpit', component: CockpitPage, meta: { title: 'cockpit' } },
     { path: '/flakes', name: 'flakes', component: FlakesPage, meta: { title: 'flaky tests' } },
     { path: '/forge', name: 'forge', component: ForgePage, meta: { title: 'network' } },
     { path: '/templates', name: 'templates', component: TestCasesPage, meta: { title: 'test cases' } },
