@@ -159,7 +159,7 @@ function folderPathStr(db: Database.Database, folderId: string | null): string |
   return parts.length > 0 ? parts.join('/') : null;
 }
 
-function renderTemplateYaml(db: Database.Database, row: TemplateRow): string {
+export function renderTemplateYaml(db: Database.Database, row: TemplateRow): string {
     const steps = JSON.parse(row.steps_json) as Array<Record<string, unknown>>;
     // resolve templateId → name for runFlow display
     const id2name = new Map<string, string>();
@@ -207,7 +207,7 @@ function renderTemplateYaml(db: Database.Database, row: TemplateRow): string {
  *  states must be declared. Shared by PUT /:id/yaml and the import route —
  *  one bar, no drift. Returns an error message naming the problem, or null
  *  when clean. MUTATES steps in place (runFlow name → id). */
-function resolveCaseRefs(db: Database.Database, c: { name: string; app?: string | null; setup?: unknown[]; steps: unknown[]; variants?: unknown[]; swaps?: unknown[]; worlds?: unknown[]; entry?: { screen: string } | null }, fallbackApp: string | null): string | null {
+export function resolveCaseRefs(db: Database.Database, c: { name: string; app?: string | null; setup?: unknown[]; steps: unknown[]; variants?: unknown[]; swaps?: unknown[]; worlds?: unknown[]; entry?: { screen: string } | null }, fallbackApp: string | null): string | null {
   const allSteps = [...(c.setup ?? []), ...c.steps] as Array<Record<string, unknown>>;
   for (const s of allSteps) {
     if (s['action'] !== 'runFlow') continue;
