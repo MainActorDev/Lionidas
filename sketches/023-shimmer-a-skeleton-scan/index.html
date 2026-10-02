@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>shimmer A — skeleton scan</title>
+<link rel="stylesheet" href="../tokens/tokens.css" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--color-void); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-label); min-height: 100vh; display: grid; place-items: center; }
+  .wrap { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+
+  /* phone bezel stand-in (matches cockpit proportions) */
+  .phone { position: relative; width: 268px; height: 550px; background: var(--color-carbon); border: 1px solid var(--color-slate); border-radius: 22px; padding: 10px; }
+  .screen { position: relative; width: 100%; height: 100%; background: var(--color-void); border-radius: 12px; overflow: hidden; }
+
+  /* ── VARIANT A: skeleton scan ──
+   * App-shaped placeholder blocks (nav bar, hero card, rows, tab bar) that
+   * exist in the dark, with a single light band sweeping across them — the
+   * classic skeleton-screen, tuned to the palette. Reads as "content is
+   * coming", not just "spinner". */
+  .sk { position: absolute; background: var(--color-graphite); border-radius: 6px; }
+  .sk-nav    { top: 14px;  left: 16px; right: 16px; height: 44px; }
+  .sk-hero   { top: 70px;  left: 16px; right: 16px; height: 96px; }
+  .sk-row1   { top: 178px; left: 16px; right: 96px; height: 14px; }
+  .sk-row2   { top: 200px; left: 16px; right: 60px; height: 14px; }
+  .sk-card1  { top: 236px; left: 16px; width: 108px; height: 128px; }
+  .sk-card2  { top: 236px; left: 136px; width: 108px; height: 128px; }
+  .sk-card3  { top: 376px; left: 16px; width: 108px; height: 128px; }
+  .sk-card4  { top: 376px; left: 136px; width: 108px; height: 128px; }
+  .sk-tab    { bottom: 14px; left: 16px; right: 16px; height: 52px; }
+
+  /* the sweep: one diagonal band traversing all blocks at once */
+  .screen::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(105deg,
+      transparent 0%, transparent 38%,
+      rgba(238, 238, 238, 0.05) 46%,
+      rgba(238, 238, 238, 0.12) 50%,
+      rgba(238, 238, 238, 0.05) 54%,
+      transparent 62%, transparent 100%);
+    background-size: 220% 100%;
+    animation: sweep 1.8s ease-in-out infinite;
+  }
+  @keyframes sweep {
+    0%   { background-position: 160% 0; }
+    100% { background-position: -60% 0; }
+  }
+
+  /* state row */
+  .ctrl { display: flex; gap: 8px; }
+  button { font-family: inherit; background: none; border: 1px solid var(--color-iron); color: var(--color-fog); padding: 5px 14px; cursor: pointer; font-size: var(--text-caption); border-radius: var(--r); }
+  button:hover { border-color: var(--color-slate); color: var(--color-paper); }
+  button.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: var(--weight-bold); }
+  .label { color: var(--color-steel); font-size: var(--text-caption); letter-spacing: .12em; text-transform: uppercase; }
+  /* live state = shimmer hidden, a frame shown */
+  .screen.live::after { display: none; }
+  .screen.live .sk { display: none; }
+  .screen.live .frame { display: block; }
+  .frame { display: none; width: 100%; height: 100%; border-radius: 12px;
+    background:
+      radial-gradient(circle at 30% 20%, #2b3a55 0%, transparent 55%),
+      radial-gradient(circle at 75% 70%, #3d2b46 0%, transparent 50%),
+      var(--color-graphite); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="label">A · skeleton scan</div>
+    <div class="phone"><div class="screen" id="screen">
+      <div class="sk sk-nav"></div><div class="sk sk-hero"></div>
+      <div class="sk sk-row1"></div><div class="sk sk-row2"></div>
+      <div class="sk sk-card1"></div><div class="sk sk-card2"></div>
+      <div class="sk sk-card3"></div><div class="sk sk-card4"></div>
+      <div class="sk sk-tab"></div>
+      <div class="frame"></div>
+    </div></div>
+    <div class="ctrl">
+      <button class="primary" onclick="document.getElementById('screen').classList.remove('live')">loading</button>
+      <button onclick="document.getElementById('screen').classList.add('live')">live</button>
+    </div>
+  </div>
+</body>
+</html>
