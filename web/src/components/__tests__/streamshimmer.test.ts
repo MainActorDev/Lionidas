@@ -3,8 +3,8 @@ import { mount, flushPromises } from '@vue/test-utils';
 import StreamShimmer from '../cockpit/StreamShimmer.vue';
 
 /** Variant B (aurora veil) — reactive contract:
- *  - visible ONLY while connecting/reconnecting
- *  - caption tracks the state word
+ *  - visible ONLY while connecting/reconnecting (no caption — motion is the message)
+ *  - veils wander on long multi-waypoint loops
  *  --ramp ramps 0% → 100% over ~1.5s (ease-out), resets on hide/show */
 
 vi.useFakeTimers();
@@ -19,7 +19,7 @@ describe('StreamShimmer (variant B)', () => {
 
     await w.setProps({ state: 'reconnecting' });
     expect(w.find('.shimmer').exists()).toBe(true);
-    expect(w.find('.status em').text()).toBe('reconnecting');
+    expect(w.find('.veil').exists()).toBe(true);
 
     await w.setProps({ state: 'failed' });
     expect(w.find('.shimmer').exists()).toBe(false);

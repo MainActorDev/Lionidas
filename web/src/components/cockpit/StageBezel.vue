@@ -310,8 +310,9 @@ defineExpose({
 .failbox button { background: none; border: 1px solid var(--color-iron); color: var(--color-fog); padding: 2px 10px; border-radius: var(--r); cursor: pointer; font-family: inherit; font-size: var(--text-caption); }
 
 /* bare fallback (no chrome bundle) */
-.bezel-bare { position: relative; width: min(340px, 44vh); aspect-ratio: 340 / 700; max-height: calc(100% - 56px); background: var(--color-graphite); border: 1px solid var(--color-slate); border-radius: 16px; padding: 10px; }
-.bezel-bare .screen { position: relative; width: 100%; height: 100%; background: var(--color-void); border-radius: 4px; overflow: hidden; display: grid; place-items: center; }
+.bezel-bare { position: relative; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; min-height: 60vh; max-height: calc(100% - 40px); aspect-ratio: 340 / 700; }
+.bezel-bare { background: none; border: none; padding: 0; border-radius: 0; }
+.bezel-bare canvas { height: 100%; width: auto; max-width: 100%; border-radius: 6px; }
 .bezel-bare .screen canvas { display: block; height: 100%; width: auto; max-width: 100%; }
 .placeholder { color: var(--color-steel); font-size: var(--text-caption); }
 
