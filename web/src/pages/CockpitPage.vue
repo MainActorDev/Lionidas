@@ -3,7 +3,7 @@
  *  T1 menubar + device switcher (ONE spacious device) + reusable rail
  *  (watch|chat) + env drawer. Round 1 chassis: menubar/switcher/stage wired;
  *  rail + chat land in S3/S4. */
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import MenuBar from '../components/cockpit/MenuBar.vue';
 import DeviceSwitcher, { type SwitcherDevice } from '../components/cockpit/DeviceSwitcher.vue';
 import StageBezel from '../components/cockpit/StageBezel.vue';
@@ -11,6 +11,7 @@ import WatcherPanel from '../components/shared/WatcherPanel.vue';
 import WatcherSection from '../components/shared/WatcherSection.vue';
 import WatchPane from '../components/cockpit/WatchPane.vue';
 import EnvDrawer from '../components/cockpit/EnvDrawer.vue';
+import ChatPane from '../components/cockpit/ChatPane.vue';
 import SideDrawer from '../components/shared/SideDrawer.vue';
 import { useLiveEvents } from '../stores/live.ts';
 
@@ -19,6 +20,8 @@ const activeUdid = ref('');
 const sessionOn = ref<string | null>(null);
 const dims = ref<{ w: number | null; h: number | null }>({ w: null, h: null });
 const envOpen = ref(false);
+const activeScenario = ref<string | null>(null);
+const screenState = ref('—');
 const railTab = ref('watch');
 const stage = ref<InstanceType<typeof StageBezel> | null>(null);
 
@@ -43,6 +46,10 @@ function onMenuEvent(event: string): void {
   if (event === 'boot-device') void 0; // S3: boot picker
   // restart/shutdown/install/launch/play-case land with S3 drawer + run menu wiring
 }
+
+watch(stage, (s) => { if (s) s.setScreenState; }); // placeholder no-op — screenState flows via expose polling below
+let ssTimer = setInterval(() => { const st = stage.value as unknown as { screenState?: { value: string } } | null; if (st?.screenState) screenState.value = st.screenState.value; }, 1000);
+onBeforeUnmount(() => clearInterval(ssTimer));
 
 function onSwitch(udid: string): void {
   activeUdid.value = udid;
@@ -71,11 +78,11 @@ void live;
       <div v-else class="empty">no booted devices — boot one from the device menu</div>
       <WatcherPanel :tabs="[{ id: 'watch', label: 'watch' }, { id: 'chat', label: 'chat' }]" :active="railTab" @switch="railTab = $event">
         <WatchPane v-show="railTab === 'watch'" :udid="activeUdid" :session-id="sessionOn" :dims="dims" />
-        <div v-show="railTab === 'chat'" class="pane"><div class="k">lands in step 4</div></div>
+        <ChatPane v-show="railTab === 'chat'" :udid="activeUdid" :device-name="activeName" :screen-state="screenState" :scenario="activeScenario" />
       </WatcherPanel>
     </div>
     <SideDrawer :open="envOpen" title="environment" @close="envOpen = false">
-      <EnvDrawer />
+      <EnvDrawer @scenario="activeScenario = $event" />
     </SideDrawer>
   </div>
 </template>

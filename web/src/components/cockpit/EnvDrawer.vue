@@ -6,6 +6,7 @@ import { onMounted, ref } from 'vue';
 const scenarios = ref<Array<{ id: string; name: string; active: boolean }>>([]);
 const location = ref('—');
 const envCount = ref<number | null>(null);
+const emit = defineEmits<{ (e: 'scenario', name: string | null): void }>();
 const busy = ref(false);
 const error = ref('');
 
@@ -23,7 +24,7 @@ async function activate(id: string): Promise<void> {
   try {
     const r = await fetch(`/api/forge/scenarios/${encodeURIComponent(id)}/activate`, { method: 'POST' });
     if (!r.ok) error.value = `activate failed (${r.status})`;
-    else scenarios.value.forEach((s) => { s.active = s.id === id; });
+    else { scenarios.value.forEach((s) => { s.active = s.id === id; }); emit('scenario', scenarios.value.find((s) => s.id === id)?.name ?? id); }
   } finally { busy.value = false; }
 }
 async function clearAll(): Promise<void> {
@@ -31,7 +32,7 @@ async function clearAll(): Promise<void> {
   try {
     const r = await fetch('/api/forge/network-condition', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ udid: null, profile: null }) });
     if (!r.ok) error.value = `clear failed (${r.status})`;
-    else scenarios.value.forEach((s) => { s.active = false; });
+    else { scenarios.value.forEach((s) => { s.active = false; }); emit('scenario', null); }
   } finally { busy.value = false; }
 }
 </script>
