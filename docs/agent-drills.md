@@ -92,3 +92,20 @@ LIONIDAS_PAT=lion_… bash src/agent/mcp-stdio.sh   # stdio MCP for Hermes
 - **Instructions smoke:** MCP initialize carries the config-author
   section (4,145 chars; probes: Config authoring / single-app /
   IMMUTABLE / case.draft.revise / Humans do the rest — all present).
+
+## 2026-10-02 — Tool-surface completion drill (plan 20261002T035712Z, condition 6)
+
+- **Surface:** conversation API, PAT; live glm-5.3-flash; **40 tools** (was 28).
+- **Instructions smoke:** 5,231 chars — Failure triage flow, screens FULL-list
+  rule, recipes.get, case.validate all present (output in session log).
+- **Drill (6 hops, 36,316 in / 1,605 out, ~59 s):** "why did my last failed run
+  fail + show its screenshot + validate this yaml without saving".
+  - `runs.history {status:'failed'}` → `run_4bc66910` (tpl_tnc_li)
+  - `run.triage.get`: step 0 `ensure login` failed — 'submitted but the screen
+    state "session_on" never held'; ~42s wait; later steps SKIPPED-not-reached
+  - `evidence.get`: honest "no screenshot captured at the failure point"
+  - `flakes.list` consulted (flakiness check)
+  - **Judgment (model's own):** "login/environment failure, not a flow
+    failure" — exactly the triage split the tool tier was built to support
+  - `case.validate` on the drill yaml → ok; **0 'Drill Check' rows saved**
+    (count pinned before/after — the dry-run saves nothing)

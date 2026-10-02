@@ -26,12 +26,12 @@ ride future turns' system prompt.
 
 - **read** — `cases.list`, `case.yaml.get`, `runs.history`, `run.steps`,
   `screens.registry`, `folders.tree` (kind: cases|scenarios|presets),
-  `sources.search`, `notes.read`, `suites.list/get`,
+  `sources.search`, `notes.read`, `suites.list/get`, `evidence.get`, `run.triage.get`, `case.versions`, `flakes.list`, `cases.search`, `recipes.get`,
   `scenarios.list/get`, `presets.list`
 - **draft** — `case.draft.save`, `case.draft.edit` (drafts only),
   `case.draft.revise` (active → new draft copy), `case.deprecate`,
   `suite.draft.save/edit`, `scenario.draft.save/edit`,
-  `scenario.members.set`, `scenario.duplicate`, `preset.draft.save/edit`, `preset.body.write`, `note.save`,
+  `scenario.members.set`, `scenario.duplicate`, `preset.draft.save/edit`, `preset.body.write`, `folder.create/rename`, `case.move`, `case.duplicate`, `case.validate`, `screens.draft.save`, `note.save`,
   `sources.ingest`
 - **act (registered, refused + invisible)** — `case.play`, `run.abort`,
   `device.power`; scenario activation and ALL deletes are not tools at
