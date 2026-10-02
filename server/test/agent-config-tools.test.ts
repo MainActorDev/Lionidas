@@ -388,5 +388,77 @@ describe.skipIf(!hasButler)('config tools (read + write, route-faithful)', () =>
     expect(Array.isArray(empty)).toBe(true);
   });
 
+  // ── Tool-surface Step 2: organization tools ──────────────────────────────
+
+  it('folder.create/rename: cases kind app-scoped verbatim; global kinds work', async () => {
+    // cases: missing appBundleId → verbatim
+    expect(await exec('folder.create', { kind: 'cases', name: 'X' }, DRAFT)).toBe('INVALID: appBundleId and name required');
+    // cases: happy
+    const cf = JSON.parse(await exec('folder.create', { kind: 'cases', appBundleId: 'com.test.app', name: 'Agent Folder' }, DRAFT)) as { id: string };
+    expect(cf.id).toMatch(/^fld_/);
+    // cases: sibling duplicate → verbatim
+    expect(await exec('folder.create', { kind: 'cases', appBundleId: 'com.test.app', name: 'Agent Folder' }, DRAFT)).toBe('INVALID: a folder named "Agent Folder" already exists here');
+    // cases: parent belongs to other app → verbatim
+    const of = JSON.parse(await exec('folder.create', { kind: 'cases', appBundleId: 'com.other.app', name: 'Other' }, DRAFT)) as { id: string };
+    expect(await exec('folder.create', { kind: 'cases', appBundleId: 'com.test.app', parentId: of.id, name: 'Nested' }, DRAFT)).toBe(`INVALID: parent folder belongs to com.other.app — folders are app-scoped`);
+    // scenarios: global, no app
+    const sf = JSON.parse(await exec('folder.create', { kind: 'scenarios', name: 'Agent Scen Folder' }, DRAFT)) as { id: string };
+    expect(sf.id).toMatch(/^sfld_|^fld_/);
+    // rename (global kind)
+    const rn = await exec('folder.rename', { kind: 'scenarios', id: sf.id, name: 'Renamed' }, DRAFT);
+    expect(JSON.parse(rn) as object).toBeTruthy();
+    // rename missing folder
+    expect(await exec('folder.rename', { kind: 'scenarios', id: 'nope', name: 'X' }, DRAFT)).toMatch(/^error: no folder/);
+  });
+
+  it('case.move: mixed-app verbatim + no partial move', async () => {
+    const cf = JSON.parse(await exec('folder.create', { kind: 'cases', appBundleId: 'com.test.app', name: 'MoveTarget' }, DRAFT)) as { id: string };
+    const before = (db.prepare('SELECT COUNT(*) n FROM templates WHERE folder_id IS NOT NULL').get() as { n: number }).n;
+    // tpl_other belongs to com.other.app → verbatim 400, nothing moved
+    const out = await exec('case.move', { templateIds: ['tpl_c1', 'tpl_other'], folderId: cf.id }, DRAFT);
+    expect(out).toBe('INVALID: case tpl_other belongs to com.other.app — folders are app-scoped');
+    const after = (db.prepare('SELECT COUNT(*) n FROM templates WHERE folder_id IS NOT NULL').get() as { n: number }).n;
+    expect(after).toBe(before);
+    // happy: same-app move
+    const ok = JSON.parse(await exec('case.move', { templateIds: ['tpl_c1'], folderId: cf.id }, DRAFT)) as { moved: number };
+    expect(ok.moved).toBe(1);
+    expect((db.prepare('SELECT folder_id FROM templates WHERE id = ?').get('tpl_c1') as { folder_id: string }).folder_id).toBe(cf.id);
+  });
+
+  it('case.duplicate: collision-loop name, draft status, original untouched', async () => {
+    db.prepare(`UPDATE templates SET status = 'active' WHERE id = 'tpl_c2'`).run();
+    const first = JSON.parse(await exec('case.duplicate', { idOrName: 'Case Two' }, DRAFT)) as { templateId: string; name: string; status: string };
+    expect(first.name).toBe('Case Two (copy)');
+    expect(first.status).toBe('draft');
+    const second = JSON.parse(await exec('case.duplicate', { idOrName: 'Case Two' }, DRAFT)) as { name: string };
+    expect(second.name).toBe('Case Two (copy 2)'); // collision loop
+    expect((db.prepare('SELECT status FROM templates WHERE id = ?').get('tpl_c2') as { status: string }).status).toBe('active'); // original untouched
+  });
+
+  it('cases.search: tag/app/status filters; empty → []', async () => {
+    db.prepare(`UPDATE templates SET tags_json = ? WHERE id = 'tpl_c1'`).run(JSON.stringify(['checkout', 'regression']));
+    const byTag = JSON.parse(await exec('cases.search', { tags: 'checkout' })) as Array<Record<string, unknown>>;
+    expect(byTag.some((r) => r['id'] === 'tpl_c1')).toBe(true);
+    const byApp = JSON.parse(await exec('cases.search', { app: 'com.other.app' })) as Array<Record<string, unknown>>;
+    expect(byApp.every((r) => r['app_bundle_id'] === 'com.other.app')).toBe(true);
+    const drafts = JSON.parse(await exec('cases.search', { status: 'draft' })) as Array<Record<string, unknown>>;
+    expect(drafts.length).toBeGreaterThan(0);
+    expect(drafts.every((r) => r['status'] === 'draft')).toBe(true);
+    expect(JSON.parse(await exec('cases.search', { app: 'no.such.app' })) as unknown[]).toEqual([]);
+  });
+
+  it('case.validate: dry-run ok saves NOTHING; invalid verbatim', async () => {
+    const before = (db.prepare('SELECT COUNT(*) n FROM templates').get() as { n: number }).n;
+    const ok = await exec('case.validate', { yaml: 'name: Validate Probe\napp: com.test.app\nsteps:\n  - expect screen: scr-one.default\n' }, DRAFT);
+    expect(JSON.parse(ok)).toEqual({ ok: true });
+    const after = (db.prepare('SELECT COUNT(*) n FROM templates').get() as { n: number }).n;
+    expect(after).toBe(before); // NOTHING saved
+    const bad = await exec('case.validate', { yaml: 'name: Bad\napp: com.test.app\nsteps:\n  - expect screen: no-such-screen.x\n' }, DRAFT);
+    expect(bad).toMatch(/^INVALID:/);
+    expect(bad).toContain('no-such-screen');
+    const stillAfter = (db.prepare('SELECT COUNT(*) n FROM templates').get() as { n: number }).n;
+    expect(stillAfter).toBe(before);
+  });
+
   afterAll(() => { rmSync(dir, { recursive: true, force: true }); });
 });

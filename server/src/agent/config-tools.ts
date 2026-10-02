@@ -547,6 +547,188 @@ export function registerConfigTools(deps: ConfigToolDeps): void {
     },
   });
 
+
+  // ── organization tools (tool-surface steps_002; F4: mirror the right route per kind) ──
+
+  const FOLDER_TABLES = { cases: 'folders', scenarios: 'scenario_folders', presets: 'preset_folders' } as const;
+  type FolderKind = keyof typeof FOLDER_TABLES;
+  const folderTable = (kind: string): { table: string } | string => {
+    if (kind !== 'cases' && kind !== 'scenarios' && kind !== 'presets') return `error: unknown kind "${kind}" — cases | scenarios | presets`;
+    return { table: FOLDER_TABLES[kind as FolderKind] };
+  };
+
+  registry.register({
+    name: 'folder.create',
+    description: 'create a folder. kind=cases: app-scoped (appBundleId + name required, parent must share the app, depth cap). kind=scenarios|presets: GLOBAL tree (name only). Errors verbatim.',
+    permission: 'draft',
+    parameters: {
+      type: 'object',
+      properties: { kind: { type: 'string', enum: ['cases', 'scenarios', 'presets'] }, name: { type: 'string' }, appBundleId: { type: 'string' }, parentId: { type: 'string' } },
+      required: ['kind', 'name'],
+    },
+    async execute(args) {
+      const kind = String(args['kind'] ?? '');
+      const t = folderTable(kind);
+      if (typeof t === 'string') return t;
+      const name = String(args['name'] ?? '').trim();
+      const now = Date.now();
+      let parent: string | null = null;
+      if (kind === 'cases') {
+        const app = typeof args['appBundleId'] === 'string' ? args['appBundleId'] : '';
+        if (!app || !name) return 'INVALID: appBundleId and name required';
+        if (args['parentId']) {
+          const p = db.prepare('SELECT id, app_bundle_id FROM folders WHERE id = ?').get(args['parentId'] as string) as { id: string; app_bundle_id: string } | undefined;
+          if (!p) return `INVALID: parent folder "${String(args['parentId'])}" not found`;
+          if (p.app_bundle_id !== app) return `INVALID: parent folder belongs to ${p.app_bundle_id} — folders are app-scoped`;
+        }
+        parent = (args['parentId'] as string | undefined) ?? null;
+        const id = `fld_${randomUUID().slice(0, 8)}`;
+        try {
+          db.prepare('INSERT INTO folders(id, app_bundle_id, parent_id, name, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, app, parent, name, 'agent', now, now);
+        } catch {
+          return `INVALID: a folder named "${name}" already exists here`;
+        }
+        return JSON.stringify({ id, appBundleId: app, parentId: parent, name });
+      }
+      // global kinds (factory semantics: sibling-unique via UNIQUE index, depth cap 8)
+      if (!name) return 'INVALID: name required';
+      if (args['parentId']) {
+        const p = db.prepare(`SELECT id FROM ${t.table} WHERE id = ?`).get(args['parentId'] as string) as { id: string } | undefined;
+        if (!p) return `INVALID: parent folder "${String(args['parentId'])}" not found`;
+      }
+      parent = (args['parentId'] as string | undefined) ?? null;
+      const prefix = kind === 'scenarios' ? 'sfld_' : 'pfld_';
+      const id = `${prefix}${randomUUID().slice(0, 8)}`;
+      try {
+        db.prepare(`INSERT INTO ${t.table}(id, parent_id, name, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`).run(id, parent, name, 'agent', now, now);
+      } catch {
+        return `INVALID: a folder named "${name}" already exists here`;
+      }
+      return JSON.stringify({ id, parentId: parent, name });
+    },
+  });
+
+  registry.register({
+    name: 'folder.rename',
+    description: 'rename a folder (any kind). Errors verbatim.',
+    permission: 'draft',
+    parameters: { type: 'object', properties: { kind: { type: 'string', enum: ['cases', 'scenarios', 'presets'] }, id: { type: 'string' }, name: { type: 'string' } }, required: ['kind', 'id', 'name'] },
+    async execute(args) {
+      const kind = String(args['kind'] ?? '');
+      const t = folderTable(kind);
+      if (typeof t === 'string') return t;
+      const id = String(args['id'] ?? '');
+      const name = String(args['name'] ?? '').trim();
+      if (!name) return 'INVALID: name required';
+      const row = db.prepare(`SELECT id FROM ${t.table} WHERE id = ?`).get(id) as { id: string } | undefined;
+      if (!row) return `error: no folder "${id}"`;
+      try {
+        db.prepare(`UPDATE ${t.table} SET name = ?, updated_at = ? WHERE id = ?`).run(name, Date.now(), id);
+      } catch {
+        return `INVALID: a folder named "${name}" already exists here`;
+      }
+      return JSON.stringify({ id, name });
+    },
+  });
+
+  registry.register({
+    name: 'case.move',
+    description: 'move CASES into a folder (or to root with folderId:null). Folder must share the cases app. Mirrors POST /api/folders/move; errors verbatim, nothing partially moved.',
+    permission: 'draft',
+    parameters: { type: 'object', properties: { templateIds: { type: 'array', items: { type: 'string' } }, folderId: { type: 'string' } }, required: ['templateIds'] },
+    async execute(args) {
+      const ids = Array.isArray(args['templateIds']) ? (args['templateIds'] as unknown[]).filter((x): x is string => typeof x === 'string' && x.length > 0) : [];
+      if (ids.length === 0) return 'INVALID: templateIds required';
+      let folder: { id: string; app_bundle_id: string } | null = null;
+      if (typeof args['folderId'] === 'string' && args['folderId']) {
+        folder = db.prepare('SELECT id, app_bundle_id FROM folders WHERE id = ?').get(args['folderId']) as { id: string; app_bundle_id: string } | undefined ?? null;
+        if (!folder) return `INVALID: folder "${String(args['folderId'])}" not found`;
+      }
+      const tx = db.transaction(() => {
+        for (const tid of ids) {
+          const tpl = db.prepare('SELECT id, app_bundle_id FROM templates WHERE id = ?').get(tid) as { id: string; app_bundle_id: string | null } | undefined;
+          if (!tpl) throw new Error(`unknown template: ${tid}`);
+          if (folder && tpl.app_bundle_id !== folder.app_bundle_id) throw new Error(`case ${tid} belongs to ${tpl.app_bundle_id ?? '(no app)'} — folders are app-scoped`);
+          db.prepare('UPDATE templates SET folder_id = ?, updated_at = ? WHERE id = ?').run(folder ? folder.id : null, Date.now(), tid);
+        }
+      });
+      try { tx(); } catch (e) {
+        return `INVALID: ${e instanceof Error ? e.message : String(e)}`;
+      }
+      return JSON.stringify({ moved: ids.length, folderId: folder ? folder.id : null });
+    },
+  });
+
+  registry.register({
+    name: 'case.duplicate',
+    description: 'duplicate a case: full copy, fresh id, "(copy)" collision-loop name, status draft. Original untouched.',
+    permission: 'draft',
+    parameters: { type: 'object', properties: { idOrName: { type: 'string' } }, required: ['idOrName'] },
+    async execute(args) {
+      const key = String(args['idOrName'] ?? '');
+      const row = (db.prepare('SELECT * FROM templates WHERE id = ?').get(key) ?? db.prepare('SELECT * FROM templates WHERE name = ?').get(key)) as Record<string, unknown> | undefined;
+      if (!row) return `error: no case "${key}"`;
+      const now = Date.now();
+      const newId = `tpl_${randomUUID().slice(0, 8)}`;
+      const origName = String(row['name']);
+      const tx = db.transaction(() => {
+        let name = `${origName} (copy)`;
+        let n = 2;
+        while (db.prepare('SELECT 1 FROM templates WHERE name = ?').get(name)) {
+          name = `${origName} (copy ${n})`; n += 1;
+        }
+        db.prepare(
+          `INSERT INTO templates(id, name, description, ticket_key, udid, logical_w, logical_h, steps_json, app_bundle_id, app_name, app_version, tags_json, setup_json, alerts_policy, variants_json, entry_json, default_preset_id, status, folder_id, created_by, created_at, updated_at)
+           SELECT ?, ?, description, ticket_key, udid, logical_w, logical_h, steps_json, app_bundle_id, app_name, app_version, tags_json, setup_json, alerts_policy, variants_json, entry_json, default_preset_id, 'draft', folder_id, 'agent', ?, ? FROM templates WHERE id = ?`,
+        ).run(newId, name, now, now, row['id'] as string);
+        return name;
+      });
+      const name = tx() as string;
+      return JSON.stringify({ templateId: newId, name, status: 'draft' });
+    },
+  });
+
+  registry.register({
+    name: 'cases.search',
+    description: 'search cases by tag substring, exact app bundle, or exact status (draft|active|deprecated). Returns id/name/status/app.',
+    permission: 'read',
+    parameters: { type: 'object', properties: { tags: { type: 'string' }, app: { type: 'string' }, status: { type: 'string', enum: ['draft', 'active', 'deprecated'] } } },
+    async execute(args) {
+      const rows = db.prepare('SELECT id, name, status, app_bundle_id, tags_json FROM templates ORDER BY name LIMIT 200').all() as Array<{ id: string; name: string; status: string | null; app_bundle_id: string | null; tags_json: string | null }>;
+      let out = rows;
+      if (typeof args['app'] === 'string') out = out.filter((r) => r.app_bundle_id === args['app']);
+      if (typeof args['status'] === 'string') out = out.filter((r) => (r.status ?? 'active') === args['status']);
+      if (typeof args['tags'] === 'string') out = out.filter((r) => (r.tags_json ?? '').includes(args['tags'] as string));
+      return JSON.stringify(out.map(({ id, name, status, app_bundle_id }) => ({ id, name, status, app_bundle_id })));
+    },
+  });
+
+  registry.register({
+    name: 'case.validate',
+    description: 'DRY-RUN validation of case yaml (parser + refs + registry gates) — saves NOTHING. Returns {ok:true} or INVALID with verbatim errors. Use before case.draft.save for non-trivial drafts.',
+    permission: 'draft',
+    parameters: { type: 'object', properties: { yaml: { type: 'string' } }, required: ['yaml'] },
+    async execute(args) {
+      const yaml = String(args['yaml'] ?? '');
+      const { parseCaseYaml } = await import('@crucible/shared/case-yaml');
+      const { resolveCaseRefs } = await import('../routes/templates.ts');
+      const hasLoginRecipe = (bundle: string | null | undefined): boolean => !bundle ? false : !!db.prepare('SELECT 1 FROM app_login WHERE bundle_id = ?').get(bundle);
+      const hasLogoutRecipe = (bundle: string | null | undefined): boolean => !bundle ? false : !!db.prepare('SELECT 1 FROM app_logout WHERE bundle_id = ?').get(bundle);
+      const r = parseCaseYaml(yaml, {
+        hasLogoutRecipe: (bundle) => (bundle === null || bundle === undefined ? true : hasLogoutRecipe(bundle)),
+        hasLoginRecipe: (bundle) => (bundle === null || bundle === undefined ? true : hasLoginRecipe(bundle)),
+      });
+      if (!r.ok || !r.case) {
+        const errs = (r.errors ?? []).map((e) => (typeof e === 'string' ? e : `line ${e.line}: ${e.message}`)).join('; ');
+        return `INVALID: ${errs}`;
+      }
+      const c = r.case as { name: string; app?: string | null };
+      const refErr = resolveCaseRefs(db, c as never, c.app ?? null);
+      if (refErr) return `INVALID: ${refErr}`;
+      return JSON.stringify({ ok: true });
+    },
+  });
+
   // ── suite writes (steps_002; F4: mirror the route's tx-catch exactly) ────
 
   const validateMembers = (raw: unknown, bundle: string | null): Array<{ templateId: string; variantIds: string[] | null }> | string => {
