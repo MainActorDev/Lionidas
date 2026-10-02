@@ -13,6 +13,7 @@ import WatcherSection from '../components/shared/WatcherSection.vue';
 import WatchPane from '../components/cockpit/WatchPane.vue';
 import EnvDrawer from '../components/cockpit/EnvDrawer.vue';
 import ChatPane from '../components/cockpit/ChatPane.vue';
+import { useDeviceSessions, type DeviceSession } from '../composables/deviceSessions.ts';
 import ToolsDrawer from '../components/cockpit/ToolsDrawer.vue';
 import SideDrawer from '../components/shared/SideDrawer.vue';
 import { useLiveEvents } from '../stores/live.ts';
@@ -21,7 +22,7 @@ const devices = ref<SwitcherDevice[]>([]);
 const route = useRoute();
 const router = useRouter();
 const activeUdid = ref('');
-const sessionOn = ref<string | null>(null);
+const sessionOn = ref<string | null>(null); // per-ACTIVE-device mirror; source of truth = deviceSessions map
 const dims = ref<{ w: number | null; h: number | null }>({ w: null, h: null });
 const envOpen = ref(false);
 const railOpen = ref(true);
@@ -33,6 +34,10 @@ const toolsOpen = ref(false);
 const overlayData = ref<{ nodes: Array<Record<string, unknown>>; w: number | null; h: number | null; visible: boolean; sel: Record<string, unknown> | null }>({ nodes: [], w: null, h: null, visible: false, sel: null });
 const toast = ref('');
 const stage = ref<InstanceType<typeof StageBezel> | null>(null);
+const deviceSessions = useDeviceSessions();
+const activeSession = computed((): DeviceSession | null => deviceSessions.sessions.get(activeUdid.value) ?? null);
+onMounted(() => deviceSessions.start());
+onBeforeUnmount(() => deviceSessions.stop());
 
 const live = useLiveEvents();
 let preselectApplied = false;
@@ -260,6 +265,7 @@ async function onTabClose(udid: string): Promise<void> {
   closingUdid.value = udid;
   try {
     // 1. release any open manual session on that device (finish is idempotent server-side)
+    deviceSessions.set(udid, null);
     if (sessionOn.value && udid === activeUdid.value) {
       try { await fetch(`/api/manual/${encodeURIComponent(sessionOn.value)}/finish`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ note: 'manual:cockpit:tab-close' }) }); } catch { /* idempotent */ }
       sessionOn.value = null;
@@ -300,6 +306,13 @@ function onInspectClick(ev: MouseEvent): void {
 }
 const toolsRef = ref<InstanceType<typeof ToolsDrawer> | null>(null);
 
+function onSessionAcquired(s: { sessionId: string; startedAt: number }): void {
+  deviceSessions.set(activeUdid.value, { sessionId: s.sessionId, startedAt: s.startedAt, dims: { w: null, h: null } });
+}
+function onSessionDropped(): void {
+  deviceSessions.set(activeUdid.value, null);
+}
+
 function onSessionState(s: { sessionId: string | null; dims?: { w: number | null; h: number | null } }): void {
   sessionOn.value = s.sessionId;
   if (s.dims) dims.value = s.dims;
@@ -318,9 +331,10 @@ void live;
     <MenuBar :status="status" @menu-event="onMenuEvent" />
     <DeviceSwitcher :devices="devices" :active-udid="activeUdid" :closing-udid="closingUdid" @switch="onSwitch" @close="onTabClose" />
     <div class="frame">
-      <StageBezel v-if="activeUdid" ref="stage" :udid="activeUdid"
+      <StageBezel v-if="activeUdid" :key="activeUdid" ref="stage" :udid="activeUdid" :session="activeSession"
         :overlay-nodes="overlayData.nodes" :overlay-w="overlayData.w" :overlay-h="overlayData.h" :overlay-visible="overlayData.visible" :sel-parent-node="overlayData.sel" :selected-node="overlayData.sel"
-        @session-state="onSessionState" @inspect-click="onInspectClick" />
+        @session-state="onSessionState" @inspect-click="onInspectClick"
+        @session-acquired="onSessionAcquired" @session-dropped="onSessionDropped" />
       <div v-else class="empty">no booted devices — boot one from the device menu</div>
       <WatcherPanel v-show="railOpen" :tabs="[{ id: 'watch', label: 'watch' }, { id: 'chat', label: 'chat' }]" :active="railTab" @switch="railTab = $event">
         <WatchPane v-show="railTab === 'watch'" :udid="activeUdid" :session-id="sessionOn" :dims="dims" />

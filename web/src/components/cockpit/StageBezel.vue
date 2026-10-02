@@ -16,6 +16,9 @@ import { hitTestNodeAt, type AxNode } from '@crucible/shared/ax-tree';
 
 const props = defineProps<{
   udid: string;
+  /** durable per-device session handle from the page's map — a returning tab
+   *  adopts this instead of showing idle (plan F6/:key remount shape) */
+  session?: { sessionId: string; startedAt: number } | null;
   overlayNodes?: Array<Record<string, unknown>>;
   overlayW?: number | null;
   overlayH?: number | null;
@@ -30,6 +33,8 @@ const selNodeC = computed((): Record<string, unknown> | null => props.selParentN
 const emit = defineEmits<{
   (e: 'session-state', s: { sessionId: string | null; dims?: { w: number | null; h: number | null } }): void;
   (e: 'inspect-click', ev: MouseEvent): void;
+  (e: 'session-acquired', s: { sessionId: string; startedAt: number }): void;
+  (e: 'session-dropped'): void;
 }>();
 
 const stream = useDeviceStream();
@@ -64,9 +69,11 @@ function onCanvasLeave(): void { hoverNode.value = null; }
 // ── REAL bezel chrome (simdeck definition; degrades to null → bare canvas) ──
 const bezelDef = ref<BezelDefinition | null>(null);
 watch(() => props.udid, async (u) => {
-  // switching devices: release nothing server-side (lease is per-device; the
-  // active lease stays), just detach the stream + local session view
-  sessionId.value = null;
+  // per-mount (page remounts via :key): adopt the page map's handle if the
+  // device still holds a live session — returning to a tab resumes control
+  const adopt = props.session ?? null;
+  sessionId.value = adopt?.sessionId ?? null;
+  startedAt.value = adopt?.startedAt ?? null;
   logicalW.value = null;
   lost.value = false;
   screenState.value = '—';
@@ -126,6 +133,7 @@ async function takeControl(): Promise<void> {
       logicalW.value = body.logicalW ?? null;
       logicalH.value = body.logicalH ?? null;
       startedAt.value = Date.now();
+      emit('session-acquired', { sessionId: body.sessionId, startedAt: startedAt.value });
       emit('session-state', { sessionId: body.sessionId, dims: { w: logicalW.value, h: logicalH.value } });
       if (!stream.state.value || stream.state.value === 'idle') stream.start(props.udid);
     } else error.value = body.error ?? 'failed to start';
@@ -135,6 +143,7 @@ async function takeControl(): Promise<void> {
 async function release(): Promise<void> {
   const id = sessionId.value;
   sessionId.value = null; startedAt.value = null;
+  emit('session-dropped');
   emit('session-state', { sessionId: null });
   if (id) { try { await api(`${id}/finish`, { note: 'manual:cockpit' }); } catch { /* idempotent server-side */ } }
 }
@@ -142,6 +151,7 @@ async function release(): Promise<void> {
 function endSession(): void {
   sessionId.value = null; startedAt.value = null;
   lost.value = true;
+  emit('session-dropped');
   emit('session-state', { sessionId: null, dims: { w: null, h: null } });
 }
 

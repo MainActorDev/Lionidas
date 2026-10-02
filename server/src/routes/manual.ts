@@ -388,6 +388,15 @@ export function registerManualRoutes(
     }
   });
 
+  // open manual sessions — the cockpit hydrates its per-device control map and
+  // detects watchdog-reaped sessions on tab activation (plan F4)
+  app.get('/api/manual/sessions', { preHandler: requireRole('operator') }, async () => {
+    const rows = db
+      .prepare('SELECT id, udid, operator, started_at, last_activity FROM manual_sessions WHERE finished_at IS NULL ORDER BY started_at DESC')
+      .all() as Array<{ id: string; udid: string; operator: string; started_at: number; last_activity: number }>;
+    return { sessions: rows.map((r) => ({ id: r.id, udid: r.udid, operator: r.operator, startedAt: r.started_at, lastActivity: r.last_activity })) };
+  });
+
   app.get('/api/manual/:id/record', async (req, reply) => {
     const { id } = req.params as { id: string };
     try {
