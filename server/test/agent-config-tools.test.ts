@@ -316,5 +316,77 @@ describe.skipIf(!hasButler)('config tools (read + write, route-faithful)', () =>
     expect(names.some((n) => /activate|delete/i.test(n))).toBe(false);
   });
 
+  // ── Tool-surface Step 1: failure-knowledge tools (F1 evidence modes, F2 full columns) ──
+
+  it('evidence.get: by id AND by run+step; inline base64; honest missing-file', async () => {
+    const { writeFileSync } = await import('node:fs');
+    const shotPath = join(dir, 'shot.png');
+    writeFileSync(shotPath, Buffer.from('fake-png-bytes'));
+    db.prepare(`INSERT INTO evidence(id, bundle_id, type, path, sha256, bytes, created_at) VALUES ('ev_shot','run_agg','screenshot',?, 's1', 15, ?)`).run(shotPath, Date.now());
+    const vidPath = join(dir, 'v.mp4');
+    writeFileSync(vidPath, Buffer.alloc(99));
+    db.prepare(`INSERT INTO evidence(id, bundle_id, type, path, sha256, bytes, created_at) VALUES ('ev_vid','run_agg','video',?, 's2', 99, ?)`).run(vidPath, Date.now());
+    db.prepare(`INSERT INTO evidence(id, bundle_id, type, path, sha256, bytes, created_at) VALUES ('ev_gone','run_agg','screenshot','/nonexistent/gone.png', 's3', 10, ?)`).run(Date.now());
+    // a failed run + step with both evidence attached
+    db.prepare(`INSERT INTO runs(id, template_id, ticket_key, kind, status, triggered_by, device_udid, freshness, launch_args_json, started_at, finished_at) VALUES ('run_ev','tpl_c1','-','automated','failed','t','d','unchecked','{}',?,?)`).run(Date.now(), Date.now());
+    db.prepare(`INSERT INTO run_steps(run_id, idx, flow_name, kind, name, status, reason, evidence_ids_json, started_at, duration_ms) VALUES ('run_ev', 0, 'f', 'step', 'tap', 'fail', 'not found', ?, ?, 5)`).run(JSON.stringify(['ev_shot', 'ev_vid']), Date.now());
+    // by id, no inline
+    const byId = JSON.parse(await exec('evidence.get', { evidenceId: 'ev_shot' })) as Record<string, unknown>;
+    expect(byId['type']).toBe('screenshot');
+    expect(byId['path']).toBe(shotPath);
+    expect(byId['base64']).toBeUndefined();
+    // by run+step → both rows
+    const byStep = JSON.parse(await exec('evidence.get', { runId: 'run_ev', stepIdx: 0 })) as Array<Record<string, unknown>>;
+    expect(byStep.map((e) => e['id']).sort()).toEqual(['ev_shot', 'ev_vid']);
+    // inline: screenshot inlines, video skipped with note
+    const inl = JSON.parse(await exec('evidence.get', { evidenceId: 'ev_shot', inline: true })) as Record<string, unknown>;
+    expect(inl['base64']).toBe(Buffer.from('fake-png-bytes').toString('base64'));
+    const vid = JSON.parse(await exec('evidence.get', { evidenceId: 'ev_vid', inline: true })) as Record<string, unknown>;
+    expect(vid['base64']).toBeUndefined();
+    expect(String(vid['note'])).toMatch(/inline skipped/);
+    // missing file (a row whose file is gone)
+    const miss = await exec('evidence.get', { evidenceId: 'ev_gone' });
+    expect(miss).toMatch(/^error: evidence file missing at/);
+    // no keys
+    expect(await exec('evidence.get', {})).toMatch(/^error: evidenceId or runId\+stepIdx required/);
+  });
+
+  it('run.triage.get: failed step w/ evidence + timing; passing note; bad idx', async () => {
+    db.prepare(`INSERT INTO runs(id, template_id, ticket_key, kind, status, triggered_by, device_udid, freshness, launch_args_json, started_at) VALUES ('run_tr','tpl_c1','-','automated','passed','t','d','unchecked','{}',?)`).run(Date.now());
+    db.prepare(`INSERT INTO run_steps(run_id, idx, flow_name, kind, name, status, reason, evidence_ids_json, evaluated_json, started_at, duration_ms) VALUES ('run_tr', 0, 'f', 'step', 'ok step', 'pass', NULL, '[]', '{"waitMs":100,"workMs":50}', ?, 150)`).run(Date.now());
+    const failed = JSON.parse(await exec('run.triage.get', { runId: 'run_ev', stepIdx: 0 })) as Record<string, unknown>;
+    expect(failed['reason']).toBe('not found');
+    expect((failed['evidence'] as Array<unknown>).length).toBe(2);
+    const passed = JSON.parse(await exec('run.triage.get', { runId: 'run_tr', stepIdx: 0 })) as Record<string, unknown>;
+    expect(passed['timing']).toEqual({ waitMs: 100, workMs: 50 });
+    expect(passed['note']).toBe('no failure');
+    expect(await exec('run.triage.get', { runId: 'run_tr', stepIdx: 9 })).toMatch(/^error: step not found/);
+  });
+
+  it('case.versions: FULL route columns, revision DESC (F2)', async () => {
+    db.prepare(`INSERT INTO case_versions(id, template_id, revision, steps_sha256, yaml_canonical, scenario_id, scenario_snapshot_json, source, created_by, created_at) VALUES ('cv1','tpl_c1',1,'h1','yaml-1',NULL,NULL,'run','qa',?)`).run(1);
+    db.prepare(`INSERT INTO case_versions(id, template_id, revision, steps_sha256, yaml_canonical, scenario_id, scenario_snapshot_json, source, created_by, created_at) VALUES ('cv2','tpl_c1',2,'h2','yaml-2','s_one','{"snap":1}','run','qa',?)`).run(2);
+    const rows = JSON.parse(await exec('case.versions', { idOrName: 'Case One' })) as Array<Record<string, unknown>>;
+    expect(rows.map((r) => r['revision'])).toEqual([2, 1]);
+    const r2 = rows[0]!;
+    for (const col of ['id', 'revision', 'steps_sha256', 'yaml_canonical', 'scenario_id', 'scenario_snapshot_json', 'source', 'created_by', 'created_at']) {
+      expect(r2[col]).toBeDefined();
+    }
+    expect(r2['yaml_canonical']).toBe('yaml-2');
+    expect(r2['scenario_id']).toBe('s_one');
+  });
+
+  it('flakes.list: score + quarantine; empty → []', async () => {
+    db.prepare(`INSERT INTO flow_quarantine(flow_key, reason, by, at, released_at) VALUES ('f', 'flaky selector', 'qa', ?, NULL)`).run(Date.now());
+    const rows = JSON.parse(await exec('flakes.list', {})) as Array<Record<string, unknown>>;
+    const f = rows.find((r) => r['flow'] === 'f');
+    expect(f).toBeTruthy();
+    expect(typeof f!['score']).toBe('number');
+    expect((f!['quarantine'] as Record<string, unknown>)['reason']).toBe('flaky selector');
+    db.prepare('DELETE FROM run_steps WHERE flow_name = ?').run('nonexistent-flow'); // no-op hygiene
+    const empty = JSON.parse(await exec('flakes.list', {})) as Array<unknown>;
+    expect(Array.isArray(empty)).toBe(true);
+  });
+
   afterAll(() => { rmSync(dir, { recursive: true, force: true }); });
 });

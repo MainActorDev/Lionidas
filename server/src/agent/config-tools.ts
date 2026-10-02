@@ -4,6 +4,7 @@
  *  members join. Writes land in steps 2-3. */
 import type Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
+import { flowHistory, flakeScore } from '../domain/flake.ts';
 import type { ToolRegistry } from '@mainactordev/butler';
 
 export interface ConfigToolDeps {
@@ -437,6 +438,112 @@ export function registerConfigTools(deps: ConfigToolDeps): void {
       db.prepare(`UPDATE presets SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
       deps.syncPresets?.();
       return JSON.stringify({ presetId: id });
+    },
+  });
+
+
+  // ── failure-knowledge tools (tool-surface steps_001; F1 evidence modes, F2 columns) ──
+
+  registry.register({
+    name: 'evidence.get',
+    description: 'evidence for a run failure: by evidenceId, or by runId+stepIdx (all evidence attached to that step). Descriptor + absolute path; inline:true returns base64 for screenshots <=1MB.',
+    permission: 'read',
+    parameters: {
+      type: 'object',
+      properties: { evidenceId: { type: 'string' }, runId: { type: 'string' }, stepIdx: { type: 'number' }, inline: { type: 'boolean' } },
+    },
+    async execute(args) {
+      const inline = args['inline'] === true;
+      const { existsSync, readFileSync } = await import('node:fs');
+      const desc = (row: { id: string; bundle_id: string; type: string; path: string; sha256: string; bytes: number; created_at: number }): Record<string, unknown> => {
+        const out: Record<string, unknown> = { ...row };
+        if (!existsSync(row.path)) {
+          out['error'] = `evidence file missing at ${row.path}`;
+          return out;
+        }
+        if (inline) {
+          if (row.type === 'screenshot' && row.bytes <= 1_048_576) out['base64'] = readFileSync(row.path).toString('base64');
+          else out['note'] = 'inline skipped (type/size)';
+        }
+        return out;
+      };
+      const EV_COLS = 'id, bundle_id, type, path, sha256, bytes, created_at';
+      if (typeof args['evidenceId'] === 'string') {
+        const row = db.prepare(`SELECT ${EV_COLS} FROM evidence WHERE id = ?`).get(args['evidenceId']) as Record<string, string | number> | undefined;
+        if (!row) return `error: no evidence "${String(args['evidenceId'])}"`;
+        if (!existsSync(String(row['path']))) return `error: evidence file missing at ${String(row['path'])}`;
+        return JSON.stringify(desc(row as never));
+      }
+      if (typeof args['runId'] === 'string' && typeof args['stepIdx'] === 'number') {
+        const step = db.prepare('SELECT evidence_ids_json FROM run_steps WHERE run_id = ? AND idx = ?').get(args['runId'], args['stepIdx']) as { evidence_ids_json: string } | undefined;
+        if (!step) return `error: step not found`;
+        const ids = JSON.parse(step.evidence_ids_json) as string[];
+        if (ids.length === 0) return JSON.stringify([]);
+        const ph = ids.map(() => '?').join(',');
+        const rows = db.prepare(`SELECT ${EV_COLS} FROM evidence WHERE id IN (${ph})`).all(...ids) as Array<Record<string, string | number>>;
+        return JSON.stringify(rows.map((r) => desc(r as never)));
+      }
+      return 'error: evidenceId or runId+stepIdx required';
+    },
+  });
+
+  registry.register({
+    name: 'run.triage.get',
+    description: 'triage view of one run step: status, reason, wait/work timing split, and attached evidence rows. Mirrors GET /api/runs/:id/steps/:idx/triage.',
+    permission: 'read',
+    parameters: { type: 'object', properties: { runId: { type: 'string' }, stepIdx: { type: 'number' } }, required: ['runId', 'stepIdx'] },
+    async execute(args) {
+      const runId = String(args['runId'] ?? '');
+      const idx = Number(args['stepIdx']);
+      const step = db.prepare('SELECT idx, flow_name, kind, name, status, reason, evidence_ids_json, evaluated_json, duration_ms FROM run_steps WHERE run_id = ? AND idx = ?').get(runId, idx) as
+        | { idx: number; flow_name: string; kind: string; name: string; status: string; reason: string | null; evidence_ids_json: string; evaluated_json: string | null; duration_ms: number }
+        | undefined;
+      if (!step) return 'error: step not found';
+      const timing = (() => { try { const j = JSON.parse(step.evaluated_json ?? '{}') as { waitMs?: number; workMs?: number }; return { waitMs: j.waitMs ?? null, workMs: j.workMs ?? null }; } catch { return { waitMs: null, workMs: null }; } })();
+      const evIds = JSON.parse(step.evidence_ids_json) as string[];
+      const evidence = evIds.length
+        ? (db.prepare(`SELECT id, type, path, sha256, bytes FROM evidence WHERE id IN (${evIds.map(() => '?').join(',')})`).all(...evIds) as Array<Record<string, unknown>>)
+        : [];
+      const out: Record<string, unknown> = { idx: step.idx, flow: step.flow_name, kind: step.kind, name: step.name, status: step.status, reason: step.reason, timing, durationMs: step.duration_ms, evidence };
+      if (step.status !== 'fail') out['note'] = 'no failure';
+      return JSON.stringify(out);
+    },
+  });
+
+  registry.register({
+    name: 'case.versions',
+    description: 'revision history of a case (full route columns incl. yaml_canonical and scenario pin per revision), newest first.',
+    permission: 'read',
+    parameters: { type: 'object', properties: { idOrName: { type: 'string' } }, required: ['idOrName'] },
+    async execute(args) {
+      const key = String(args['idOrName'] ?? '');
+      const tpl = (db.prepare('SELECT id FROM templates WHERE id = ?').get(key) ?? db.prepare('SELECT id FROM templates WHERE name = ?').get(key)) as { id: string } | undefined;
+      if (!tpl) return `error: no case "${key}"`;
+      const rows = db.prepare(
+        'SELECT id, revision, steps_sha256, yaml_canonical, scenario_id, scenario_snapshot_json, source, created_by, created_at FROM case_versions WHERE template_id = ? ORDER BY revision DESC',
+      ).all(tpl.id);
+      return JSON.stringify(rows);
+    },
+  });
+
+  registry.register({
+    name: 'flakes.list',
+    description: 'flaky-flow ledger: per flow — recent statuses, flake score, active quarantine (reason/by). Mirrors GET /api/flakes.',
+    permission: 'read',
+    parameters: { type: 'object', properties: {} },
+    async execute() {
+      const flows = db.prepare('SELECT DISTINCT flow_name FROM run_steps ORDER BY flow_name').all() as Array<{ flow_name: string }>;
+      const out = flows.map(({ flow_name }) => {
+        const hist = flowHistory(deps.db, flow_name);
+        const q = deps.db.prepare('SELECT reason, by, at FROM flow_quarantine WHERE flow_key = ? AND released_at IS NULL').get(flow_name) as { reason: string; by: string; at: number } | undefined;
+        return {
+          flow: flow_name,
+          score: Math.round(flakeScore(hist) * 100) / 100,
+          recent: hist.slice(0, 10).map((h) => h.status),
+          ...(q ? { quarantine: q } : {}),
+        };
+      });
+      return JSON.stringify(out);
     },
   });
 
