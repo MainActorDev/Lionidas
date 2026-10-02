@@ -25,6 +25,7 @@ const overlayNodesC = computed((): never => (props.overlayNodes ?? []) as never)
 const overlayWC = computed((): number | null => props.overlayW ?? null);
 const overlayHC = computed((): number | null => props.overlayH ?? null);
 const overlayVisibleC = computed((): boolean => props.overlayVisible ?? false);
+const selNodeC = computed((): Record<string, unknown> | null => props.selParentNode ?? null);
 const emit = defineEmits<{
   (e: 'session-state', s: { sessionId: string | null; dims?: { w: number | null; h: number | null } }): void;
   (e: 'inspect-click', ev: MouseEvent): void;
@@ -53,10 +54,11 @@ function onCanvasMove(e: MouseEvent): void {
     const canvas = document.querySelector('.stage .bezel-screen') as HTMLCanvasElement | null;
     if (!canvas) return;
     const { x, y } = canvasPointToLogical(canvas, e.clientX, e.clientY, logicalW.value, logicalH.value);
-    void x; void y; // hit-test done by the drawer via its own tree
+    hoverNode.value = hitTestNodeAt(overlayNodesC.value as never, x, y);
   });
 }
 function setInspect(on: boolean): void { inspect.value = on; if (!on) { selNode.value = null; hoverNode.value = null; } }
+function onCanvasLeave(): void { hoverNode.value = null; }
 
 // ── REAL bezel chrome (simdeck definition; degrades to null → bare canvas) ──
 const bezelDef = ref<BezelDefinition | null>(null);
@@ -221,20 +223,21 @@ defineExpose({
       </div>
       <button v-if="!sessionId" class="session-btn primary" :disabled="busy" @click="takeControl">take control</button>
       <button v-else class="session-btn danger" :disabled="busy" @click="release">release</button>
+      <div v-if="stream.state.value === 'live'" class="fps-chip">{{ stream.fps.value > 0 ? `live · ${stream.fps.value}fps` : 'live · idle (screen unchanged)' }}</div>
     </div>
 
     <!-- the REAL bezel: PNG body + % screen rect + hardware buttons -->
     <div v-if="bezelDef" ref="bezelWrapEl" class="bezel-wrap">
       <img class="bezel-img" :src="bezelDef.bezel.url" :width="bezelDef.bezel.width" :height="bezelDef.bezel.height" alt="" draggable="false" />
-      <canvas v-show="stream.state.value !== 'idle'" :ref="stream.setCanvas" class="bezel-screen" :class="{ 'no-session': !sessionId, inspecting: inspect }" tabindex="0" @click="onTap"
+      <canvas v-show="stream.state.value !== 'idle'" :ref="stream.setCanvas" class="bezel-screen" :class="{ 'no-session': !sessionId, inspecting: inspect }" tabindex="0" @click="onTap" @mousemove="onCanvasMove" @mouseleave="onCanvasLeave"
         :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
                   width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%`,
                   borderRadius: `${bezelDef.screenRadius.pctW}% / ${bezelDef.screenRadius.pctH}%` }"></canvas>
       <InspectOverlay v-if="inspect && sessionId" :nodes="overlayNodesC" :logical-w="overlayWC" :logical-h="overlayHC"
-        :hover="hoverNode" :selected="selNode" :visible="overlayVisibleC"
+        :hover="hoverNode" :selected="(selNodeC as never)" :visible="overlayVisibleC"
         :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
                   width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%` }" />
-      <InspectRedlines v-if="inspect && sessionId && selNode" :selected="selNode" :parent="(selParentNode as never)" :siblings="[]"
+      <InspectRedlines v-if="inspect && sessionId && selNodeC" :selected="(selNodeC as never)" :parent="null" :siblings="[]"
         mode="both" :visible="overlayVisibleC"
         :logical-w="overlayWC" :logical-h="overlayHC"
         :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
@@ -283,6 +286,7 @@ defineExpose({
 .session-btn.danger { background: #c8342c; border-color: #c8342c; color: #fff; font-weight: var(--weight-bold); }
 .session-btn.danger:hover:not(:disabled) { background: #b02a23; border-color: #b02a23; color: #fff; }
 .session-btn:disabled { opacity: .5; cursor: default; }
+.fps-chip { text-align: center; font-size: 9px; letter-spacing: .06em; color: var(--color-fog); background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r); padding: 1px 6px; }
 .zoombar button { font-family: inherit; width: 22px; height: 22px; line-height: 1; background: none; border: 1px solid var(--color-iron); color: var(--color-fog); border-radius: var(--r); cursor: pointer; font-size: 14px; display: grid; place-items: center; }
 .zoombar button:hover:not(:disabled) { border-color: var(--color-ember); color: var(--color-ember); }
 .zoombar button:disabled { opacity: .35; cursor: default; }

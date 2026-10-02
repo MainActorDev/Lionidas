@@ -29,8 +29,7 @@ const activeScenario = ref<string | null>(null);
 const screenState = ref('—');
 const railTab = ref('watch');
 const toolsOpen = ref(false);
-const toolsTab = ref<'inspect' | 'record' | 'install'>('inspect');
-const overlayData = ref<{ nodes: Array<Record<string, unknown>>; w: number | null; h: number | null; visible: boolean }>({ nodes: [], w: null, h: null, visible: false });
+const overlayData = ref<{ nodes: Array<Record<string, unknown>>; w: number | null; h: number | null; visible: boolean; sel: Record<string, unknown> | null }>({ nodes: [], w: null, h: null, visible: false, sel: null });
 const toast = ref('');
 const stage = ref<InstanceType<typeof StageBezel> | null>(null);
 
@@ -72,8 +71,8 @@ function onMenuEvent(event: string): void {
   if (event === 'boot-device') void pickBootDevice();
   if (event === 'restart') void power('restart');
   if (event === 'shutdown') void power('shutdown');
-  if (event === 'install') { toolsOpen.value = true; toolsTab.value = 'install'; }
-  if (event === 'toggle-inspect') { toolsOpen.value = true; toolsTab.value = 'inspect'; }
+  if (event === 'install') void openInstall();
+  if (event === 'toggle-inspect') { toolsOpen.value = !toolsOpen.value; }
   if (event === 'open-chat') railTab.value = 'chat';
   if (event === 'toggle-rail') railOpen.value = !railOpen.value;
   if (event === 'play-case') void pickPlayCase();
@@ -113,6 +112,62 @@ async function power(action: 'boot' | 'shutdown' | 'restart', udid: string = act
 /** boot picker: shutdown devices → boot one (the switcher only lists booted) */
 const bootPick = ref<Array<{ udid: string; name: string }>>([]);
 const bootOpen = ref(false);
+
+// ── install modal (file menu) ──
+const installOpen = ref(false);
+interface ArtifactFlat { path: string; bundleId: string; version: string | null; mtimeMs: number; source: string }
+const installApps = ref<Array<{ key: string; name: string; bundleId: string; version: string | null; mtimeMs: number; source: string; builds: ArtifactFlat[] }>>([]);
+const installLoaded = ref(false);
+const installPick = ref('');
+const installBusy = ref(false);
+const installMsg = ref('');
+const installErr = ref('');
+const installExpanded = ref<string | null>(null);
+async function openInstall(): Promise<void> {
+  installOpen.value = true; installMsg.value = ''; installErr.value = '';
+  if (!installLoaded.value) {
+    try {
+      const r = await fetch(`/api/devices/${encodeURIComponent(activeUdid.value)}/artifacts`);
+      const b = (await r.json()) as { artifacts?: ArtifactFlat[] };
+      // group flat artifacts by bundle (sidebar parity: human name, newest first)
+      const list = b.artifacts ?? [];
+      const byBundle = new Map<string, ArtifactFlat[]>();
+      for (const a of list) {
+        const k = a.bundleId || a.path;
+        byBundle.set(k, [...(byBundle.get(k) ?? []), a]);
+      }
+      const storeName = /^[a-z][a-z0-9]*(\.[a-z0-9-]+)+-\d+(\.\d+)*-\d+$/;
+      installApps.value = [...byBundle.values()].map((builds) => {
+        const sorted = [...builds].sort((x, y) => y.mtimeMs - x.mtimeMs);
+        const head = sorted[0]!;
+        const humanName = sorted.map((x) => x.path.split('/').pop()?.replace(/\.app$/, '') ?? '')
+          .find((n) => n && !storeName.test(n));
+        return { key: head.bundleId || head.path, name: humanName ?? head.bundleId ?? 'app', bundleId: head.bundleId, version: head.version, mtimeMs: head.mtimeMs, source: head.source, builds: sorted };
+      }).sort((a, b2) => b2.mtimeMs - a.mtimeMs);
+      installLoaded.value = true;
+    } catch { installErr.value = 'artifact discovery failed'; }
+  }
+}
+function ageOf(ms: number): string {
+  const h = Math.floor((Date.now() - ms) / 3600_000);
+  if (h < 1) return `${Math.max(1, Math.floor((Date.now() - ms) / 60_000))}m ago`;
+  if (h < 48) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+async function runInstall(): Promise<void> {
+  if (!installPick.value || installBusy.value) return;
+  installBusy.value = true; installMsg.value = ''; installErr.value = '';
+  try {
+    const r = await fetch(`/api/devices/${encodeURIComponent(activeUdid.value)}/install`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ appPath: installPick.value }),
+    });
+    const b = (await r.json()) as { ok?: boolean; version?: string; error?: string };
+    if (b.ok) { installMsg.value = `installed${b.version ? ` · ${b.version}` : ''}`; flash('app installed'); }
+    else installErr.value = b.error ?? 'install failed';
+  } catch { installErr.value = 'install request failed'; }
+  finally { installBusy.value = false; }
+}
 async function pickBootDevice(): Promise<void> {
   try {
     const r = await fetch('/api/devices');
@@ -150,8 +205,8 @@ async function playCase(id: string): Promise<void> {
 
 watch(stage, (s) => { if (s) s.setScreenState; }); // placeholder no-op — screenState flows via expose polling below
 let ovTimer = setInterval(() => {
-  const t = toolsRef.value as unknown as { tree?: { state: { value: string }; nodes: { value: Array<Record<string, unknown>> }; logicalW: { value: number | null }; logicalH: { value: number | null } } } | null;
-  if (t?.tree) overlayData.value = { nodes: t.tree.nodes.value, w: t.tree.logicalW.value, h: t.tree.logicalH.value, visible: t.tree.state.value === 'aligned' };
+  const t = toolsRef.value as unknown as { tree?: { state: { value: string }; nodes: { value: Array<Record<string, unknown>> }; logicalW: { value: number | null }; logicalH: { value: number | null } }; selection?: Record<string, unknown> | null } | null;
+  if (t?.tree) overlayData.value = { nodes: t.tree.nodes.value, w: t.tree.logicalW.value, h: t.tree.logicalH.value, visible: t.tree.state.value === 'aligned', sel: (t.selection ?? null) as Record<string, unknown> | null };
 }, 500);
 onBeforeUnmount(() => clearInterval(ovTimer));
 let ssTimer = setInterval(() => { const st = stage.value as unknown as { screenState?: { value: string } } | null; if (st?.screenState) screenState.value = st.screenState.value; }, 1000);
@@ -162,11 +217,6 @@ function onSwitch(udid: string): void {
   sessionOn.value = null;
 }
 
-function onToolsTab(tab: 'inspect' | 'record' | 'install'): void {
-  toolsTab.value = tab;
-  // leaving inspect turns it off (sidebar contract)
-  if (tab !== 'inspect') stage.value?.setInspect(false);
-}
 function onInspectClick(ev: MouseEvent): void {
   toolsRef.value?.stageClick(ev);
 }
@@ -191,7 +241,7 @@ void live;
     <DeviceSwitcher :devices="devices" :active-udid="activeUdid" @switch="onSwitch" />
     <div class="frame">
       <StageBezel v-if="activeUdid" ref="stage" :udid="activeUdid"
-        :overlay-nodes="overlayData.nodes" :overlay-w="overlayData.w" :overlay-h="overlayData.h" :overlay-visible="overlayData.visible"
+        :overlay-nodes="overlayData.nodes" :overlay-w="overlayData.w" :overlay-h="overlayData.h" :overlay-visible="overlayData.visible" :sel-parent-node="overlayData.sel" :selected-node="overlayData.sel"
         @session-state="onSessionState" @inspect-click="onInspectClick" />
       <div v-else class="empty">no booted devices — boot one from the device menu</div>
       <WatcherPanel v-show="railOpen" :tabs="[{ id: 'watch', label: 'watch' }, { id: 'chat', label: 'chat' }]" :active="railTab" @switch="railTab = $event">
@@ -199,10 +249,9 @@ void live;
         <ChatPane v-show="railTab === 'chat'" :udid="activeUdid" :device-name="activeName" :screen-state="screenState" :scenario="activeScenario" />
       </WatcherPanel>
     </div>
-    <ToolsDrawer ref="toolsRef" v-model:tab="toolsTab" :open="toolsOpen" :udid="activeUdid" :session-id="sessionOn"
+    <ToolsDrawer ref="toolsRef" :open="toolsOpen" :udid="activeUdid" :session-id="sessionOn"
       @close="toolsOpen = false"
-      @inspect-enabled="(on) => { stage?.setInspect(on); }"
-      @update:tab="onToolsTab" />
+      @inspect-enabled="(on) => { stage?.setInspect(on); }" />
     <SideDrawer :open="envOpen" title="environment" @close="envOpen = false">
       <EnvDrawer @scenario="activeScenario = $event" />
     </SideDrawer>
@@ -229,6 +278,34 @@ void live;
       </div>
     </div>
 
+    <!-- install modal -->
+    <div v-if="installOpen" class="modal-scrim" @click.self="installOpen = false">
+      <div class="modal wide">
+        <h3>install app on {{ activeName }}</h3>
+        <div class="modal-body">
+        <div v-if="!installLoaded && !installErr" class="k">discovering artifacts…</div>
+        <div v-for="a in installApps" :key="a.key" class="app-row" :class="{ picked: installPick && a.builds.some((b) => b.path === installPick) }">
+          <div class="app-head" @click="installExpanded = installExpanded === a.key ? null : a.key">
+            <span class="app-name">{{ a.name }}</span>
+            <span class="k">{{ a.version ?? '—' }} · {{ ageOf(a.mtimeMs) }} · {{ a.builds.length > 1 ? a.builds.length + ' builds' : a.source }}</span>
+          </div>
+          <div v-if="installExpanded === a.key" class="app-builds">
+            <div v-for="b in a.builds" :key="b.path" class="pick-row" :class="{ picked: installPick === b.path }" @click="installPick = b.path">
+              <span>{{ b.path.split('/').pop() }}</span>
+              <span class="k">{{ ageOf(b.mtimeMs) }} · {{ b.source }}</span>
+            </div>
+          </div>
+        </div>
+        </div>
+        <div class="modal-actions">
+          <button class="m-btn" @click="installOpen = false">cancel</button>
+          <button class="m-btn primary" :disabled="!installPick || installBusy" @click="runInstall">{{ installBusy ? 'installing… (≈12s)' : 'install' }}</button>
+        </div>
+        <div v-if="installMsg" class="hint-ok">{{ installMsg }}</div>
+        <div v-if="installErr" class="hint-err">{{ installErr }}</div>
+      </div>
+    </div>
+
     <div v-if="toast" class="toast">{{ toast }}</div>
   </div>
 </template>
@@ -243,9 +320,23 @@ void live;
 .v { color: var(--color-paper); }
 .toast { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--color-carbon); border: 1px solid var(--color-slate); color: var(--color-paper); font-size: var(--text-caption); padding: 6px 14px; border-radius: var(--r); z-index: 60; }
 .modal-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 50; }
-.modal { background: var(--color-carbon); border: 1px solid var(--color-slate); border-radius: var(--r); padding: 16px; min-width: 320px; max-height: 60vh; overflow-y: auto; }
+.modal { background: var(--color-carbon); border: 1px solid var(--color-slate); border-radius: var(--r); padding: 16px; min-width: 320px; max-height: 60vh; display: flex; flex-direction: column; }
+.modal-body { flex: 1; min-height: 0; overflow-y: auto; }
 .modal h3 { font-size: var(--text-caption); color: var(--color-paper); margin: 0 0 10px; text-transform: uppercase; letter-spacing: .1em; }
 .pick-row { display: flex; justify-content: space-between; padding: 6px 8px; border-radius: var(--r); cursor: pointer; color: var(--color-fog); font-size: var(--text-caption); }
 .pick-row:hover { background: var(--color-iron); color: var(--color-paper); }
 .pick-row.busy { opacity: .5; cursor: wait; }
+.modal.wide { min-width: 460px; }
+.app-row { border: 1px solid var(--color-iron); border-radius: var(--r); padding: 8px; margin-bottom: 6px; }
+.app-row.picked { border-color: var(--color-ember); }
+.app-head { display: flex; justify-content: space-between; gap: 10px; cursor: pointer; }
+.app-name { color: var(--color-paper); font-size: var(--text-caption); }
+.app-builds { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.m-btn { font-family: inherit; background: none; border: 1px solid var(--color-iron); color: var(--color-fog); padding: 4px 14px; cursor: pointer; font-size: var(--text-caption); border-radius: var(--r); }
+.m-btn:hover:not(:disabled) { border-color: var(--color-slate); color: var(--color-paper); }
+.m-btn.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: var(--weight-bold); }
+.m-btn:disabled { opacity: .5; cursor: default; }
+.hint-ok { color: var(--color-paper); font-size: var(--text-caption); margin-top: 8px; }
+.hint-err { color: var(--color-paper); font-size: var(--text-caption); margin-top: 8px; border-left: 2px solid var(--color-ember); padding-left: 8px; }
 </style>

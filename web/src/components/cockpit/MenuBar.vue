@@ -18,6 +18,7 @@ const MENUS: Array<{ id: string; label: string; items: MenuItem[] }> = [
     { label: 'new manual session', accel: '⌘N', event: 'new-session' },
     { label: 'screenshot', accel: '⌘1', event: 'screenshot' },
     { label: 'open captures…', event: 'open-captures' },
+    { label: 'install app…', event: 'install' },
     { label: '', separator: true },
     { label: 'exit to console…', accel: '⌘E', event: 'exit-console' },
   ] },
@@ -25,9 +26,6 @@ const MENUS: Array<{ id: string; label: string; items: MenuItem[] }> = [
     { label: 'boot device…', accel: '⌘⇧D', event: 'boot-device' },
     { label: 'restart', event: 'restart' },
     { label: 'shutdown', event: 'shutdown' },
-  ] },
-  { id: 'app', label: 'app', items: [
-    { label: 'install…', event: 'install' },
   ] },
   { id: 'environment', label: 'environment', items: [
     { label: 'scenario…', event: 'env-scenario' },

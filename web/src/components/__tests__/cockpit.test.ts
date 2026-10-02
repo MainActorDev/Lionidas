@@ -7,13 +7,13 @@ describe('MenuBar (T1)', () => {
   const status = { sessionLabel: 'MANUAL', deviceName: 'iPhone 15 Pro', liveCount: 3 };
   it('opens one menu, lists items, closes on item pick + emits event', async () => {
     const w = mount(MenuBar, { props: { status } });
-    expect(w.findAll('.menu')).toHaveLength(6);
-    await w.findAll('.menu')[3]!.find('button').trigger('click'); // environment
-    expect(w.findAll('.menu')[3]!.classes()).toContain('open');
+    expect(w.findAll('.menu')).toHaveLength(5);
+    await w.findAll('.menu')[2]!.find('button').trigger('click'); // environment
+    expect(w.findAll('.menu')[2]!.classes()).toContain('open');
     const items = w.findAll('.item');
     expect(items.length).toBeGreaterThan(10); // items across menus (only open one visible via CSS class; DOM has all)
-    await w.findAll('.menu')[3]!.findAll('.item')[0]!.trigger('click');
-    expect(w.findAll('.menu')[3]!.classes()).not.toContain('open');
+    await w.findAll('.menu')[2]!.findAll('.item')[0]!.trigger('click');
+    expect(w.findAll('.menu')[2]!.classes()).not.toContain('open');
     expect(w.emitted('menu-event')![0]).toEqual(['env-scenario']);
   });
   it('closes on outside click', async () => {

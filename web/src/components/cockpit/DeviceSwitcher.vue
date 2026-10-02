@@ -18,7 +18,6 @@ const emit = defineEmits<{ (e: 'switch', udid: string): void }>();
       <span class="dot" />{{ d.name }} <span class="sub">{{ d.sub }}</span>
     </div>
     <span class="spacer" />
-    <span class="note">one device spacious · switching moves view + control</span>
   </div>
 </template>
 
