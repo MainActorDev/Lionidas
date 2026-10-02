@@ -2,7 +2,7 @@
 
 - Source: `brainstorm/20261002T035712Z-agent-tool-surface-completion.md` (Direction selected)
 - Decision log (operator, this session): "If we can have all those from the list. Do that. Except the 'activate/delete/play/device'" · "as proposed" (both design questions: screens = full-list-or-refuse Option A; evidence = descriptor+path default, `inline:true` ≤1MB base64)
-- Status: **Ready**
+- Status: **Ready (rev 2 — review F1–F4 applied)**
 - Baseline: `feat/butler-integration` @ `cf10692` (agent v1 + config-author; 1195/1195)
 
 ## Objective
@@ -11,9 +11,9 @@ Complete the agent tool surface per the brainstorm's three tiers — 14 new tool
 
 ## Completion conditions
 
-1. **Tier 1 — failure knowledge:** `evidence.get` (descriptor + absolute path; `inline:true` returns base64 when ≤1MB), `run.triage.get` (per failed step: reason, timing split, joined evidence rows — the route's shape), `case.versions` (revision, yaml_canonical, scenario pin per version), `flakes.list` (flow, score, recent statuses, quarantine state).
-2. **Tier 2 — organization:** `folder.create/rename/move` across the three trees (kind param: cases app-scoped; scenarios/presets global — sibling-name uniqueness + cycle/depth guards verbatim from the folder routes), `case.duplicate` (route mirror: full copy, fresh id, `(copy)` collision-loop name, status draft), `cases.search` (filter by tags/app/status; returns id/name/status/app), `case.validate` (dry-run: parseCaseYaml with app recipe hooks + resolveCaseRefs; saves NOTHING; returns `{ok}` or verbatim errors).
-3. **Tier 3 — unlocked gates:** `screens.draft.save` (Option A: requires `revision` echo + FULL screen list; `validateRegistry` through the shared validator; omitted-existing-screens → refusal naming the missing ids; 409 REGISTRY_STALE semantics verbatim; revisionless writes refused — the echo is mandatory), `recipes.get` (login/logout for a bundle; read-only).
+1. **Tier 1 — failure knowledge:** `evidence.get` (descriptor + absolute path; `inline:true` returns base64 when ≤1MB; lookup by `evidenceId` OR `runId`+`stepIdx` — the latter resolves run_steps.evidence_ids_json and returns all attached evidence, first screenshot when inline [F1]), `run.triage.get` (per failed step: reason, timing split, joined evidence rows — the route's shape), `case.versions` (FULL route column set verbatim — id, revision, steps_sha256, yaml_canonical, scenario_id, scenario_snapshot_json, source, created_by, created_at — ORDER BY revision DESC [F2]), `flakes.list` (flow, score, recent statuses, quarantine state).
+2. **Tier 2 — organization:** `folder.create/rename/move` across the three trees — cases mirror the BESPOKE routes/folders.ts semantics (app-scoped, POST /api/folders/move); scenarios/presets mirror folder-routes-factory semantics (global, depth cap 8, sibling-unique); cycle/move-into-descendant guard verbatim from whichever route serves that kind [F4]), `case.duplicate` (route mirror: full copy, fresh id, `(copy)` collision-loop name, status draft), `cases.search` (filter by tags/app/status; returns id/name/status/app), `case.validate` (dry-run: parseCaseYaml with app recipe hooks + resolveCaseRefs; saves NOTHING; returns `{ok}` or verbatim errors).
+3. **Tier 3 — unlocked gates:** `screens.draft.save` (Option A: requires `revision` echo + FULL screen list; `validateRegistry` through the shared validator; omitted-existing-screens → refusal naming the missing ids; 409 REGISTRY_STALE text verbatim INCLUDING current revision in the refusal so the model can echo-retry; revisionless writes refused — the echo is mandatory. Revision arithmetic per replaceRegistry: current = COALESCE(MAX(revision),1) (a NEW bundle reads 1, first write lands 2) [F3]), `recipes.get` (login/logout for a bundle; read-only).
 4. All tools: `permission` per class (reads = read; writes = draft), real JSON schemas in the registry, no partial writes, nothing silent.
 5. System prompt + MCP instructions updated (evidence/triage/versions/flakes awareness; screens full-list rule; validate-before-save nudge). Smoke: initialize instructions contain the new sections.
 6. Tests: per-tool TDD in `test/agent-config-tools.test.ts` (+ evidence inline test with a real temp file); full suite green; live drill through Hermes exercising at least evidence.get + case.validate + screens.draft.save, logged in `docs/agent-drills.md`.
