@@ -241,6 +241,42 @@ let ssTimer = setInterval(() => {
 }, 1000);
 onBeforeUnmount(() => clearInterval(ssTimer));
 
+const closingUdid = ref('');
+async function onTabClose(udid: string): Promise<void> {
+  if (closingUdid.value) return;
+  closingUdid.value = udid;
+  try {
+    // 1. release any open manual session on that device (finish is idempotent server-side)
+    if (sessionOn.value && udid === activeUdid.value) {
+      try { await fetch(`/api/manual/${encodeURIComponent(sessionOn.value)}/finish`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ note: 'manual:cockpit:tab-close' }) }); } catch { /* idempotent */ }
+      sessionOn.value = null;
+    } else {
+      // a session on a NON-active tab: the stage only holds the active one —
+      // find + finish any open session for that udid directly
+      try {
+        const r = await fetch('/api/devices');
+        void r;
+        // (manual sessions are per-device; a background device has no stage session)
+      } catch { /* noop */ }
+    }
+    // 2. shutdown the device
+    const r = await fetch(`/api/devices/${encodeURIComponent(udid)}/power`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'shutdown' }),
+    });
+    const b = (await r.json()) as { ok?: boolean; error?: string };
+    if (b.ok) {
+      flash('device released + shutting down');
+      // move off the dying tab before the list refresh removes it
+      if (udid === activeUdid.value) {
+        const next = devices.value.find((x) => x.udid !== udid);
+        activeUdid.value = next?.udid ?? '';
+      }
+      setTimeout(() => void loadDevices(), 4000);
+    } else flash(b.error ?? 'shutdown failed');
+  } catch { flash('close failed'); }
+  finally { closingUdid.value = ''; }
+}
+
 function onSwitch(udid: string): void {
   activeUdid.value = udid;
   sessionOn.value = null;
@@ -267,7 +303,7 @@ void live;
 <template>
   <div class="cockpit">
     <MenuBar :status="status" @menu-event="onMenuEvent" />
-    <DeviceSwitcher :devices="devices" :active-udid="activeUdid" @switch="onSwitch" />
+    <DeviceSwitcher :devices="devices" :active-udid="activeUdid" :closing-udid="closingUdid" @switch="onSwitch" @close="onTabClose" />
     <div class="frame">
       <StageBezel v-if="activeUdid" ref="stage" :udid="activeUdid"
         :overlay-nodes="overlayData.nodes" :overlay-w="overlayData.w" :overlay-h="overlayData.h" :overlay-visible="overlayData.visible" :sel-parent-node="overlayData.sel" :selected-node="overlayData.sel"
