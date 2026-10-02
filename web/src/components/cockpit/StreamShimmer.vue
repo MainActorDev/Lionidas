@@ -1,19 +1,14 @@
 <script setup lang="ts">
-/** StreamShimmer — AURORA loading, rebuilt around how auroras actually MOVE:
- *  the light does not travel across the screen — it hangs like a curtain
- *  from the top and SHIMMERS. Composition (mirrors a real aurora curtain):
- *    sky    — soft vertical light field (paper + ember), strongest up top,
- *             fading toward the bottom (light hangs from the sky)
- *    rays   — fine vertical striations leaning ~10°, marching exactly one
- *             stripe-period per loop (seamless eternal drift, no jump, no
- *             return sweep), masked to fade at top and bottom — the
- *             classic auroral rays rippling through the curtain
- *    pulse  — two glow regions that brighten/dim IN PLACE on offset
- *             phases — the light dancing within the curtain
- *    sway   — the whole curtain sways ±2° from its top attachment, like
- *             fabric in slow wind
- *  REACTIVE: --ramp eases in over 1.5s and scales opacity + sway + pulse
- *  amplitude. Frozen under prefers-reduced-motion. No caption. */
+/** StreamShimmer — aurora loading, ported from the operator's reference
+ *  (attachments/aurora.html): three wide gradient bands (transparent →
+ *  bright teal/green → violet/pink → transparent) that each run TWO
+ *  concurrent animations — a wave (translateY + skewY + scaleY + rotate,
+ *  3-stop keyframes so the band ripples like fabric) and a slow
+ *  horizontal drift (alternate) — screen-blended behind a heavy blur +
+ *  saturate, with a soft radial glow core pulsing over them. The screen's
+ *  background is the night-sky radial from the reference. REACTIVE:
+ *  --ramp eases in over the first 1.5s and scales band opacity; frozen
+ *  under prefers-reduced-motion. No caption — motion is the message. */
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
 const props = defineProps<{ state: string }>();
@@ -21,7 +16,7 @@ const props = defineProps<{ state: string }>();
 const visible = computed((): boolean => props.state === 'connecting' || props.state === 'reconnecting');
 
 // ramp: 0 → 1 over the first 1.5s visible (ease-out) — quick connects stay
-// subtle, long connects bloom. Scales opacities and motion amplitudes.
+// subtle, long connects bloom to full presence.
 const ramp = ref(0);
 let startedAt = 0;
 let rampTimer = 0 as unknown as ReturnType<typeof setInterval>;
@@ -46,138 +41,121 @@ const rampPct = computed((): string => `${Math.round(ramp.value * 100)}%`);
 
 <template>
   <div v-if="visible" class="shimmer" :style="{ '--ramp': rampPct }">
-    <div class="curtain">
-      <div class="sky"></div>
-      <div class="hem"></div>
-      <div class="rays"></div>
-      <div class="rays2"></div>
-      <div class="pulse p1"></div>
-      <div class="pulse p2"></div>
+    <div class="aurora">
+      <div class="aurora__band b1"></div>
+      <div class="aurora__band b2"></div>
+      <div class="aurora__band b3"></div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.shimmer { position: absolute; inset: 0; overflow: hidden; background: var(--color-void); z-index: 1; }
-
-/* the curtain hangs from the top edge and sways around that attachment */
-.curtain {
-  position: absolute; inset: 0;
-  transform-origin: 50% 0%;
-  animation: sway 11s ease-in-out infinite alternate;
-}
-@keyframes sway {
-  from { transform: rotate(calc(-1.6deg * var(--ramp, 1))) translateX(calc(-2% * var(--ramp, 1))); }
-  to   { transform: rotate(calc(1.8deg * var(--ramp, 1))) translateX(calc(2% * var(--ramp, 1))); }
+/* scene: the device screen is the night sky (reference's radial) */
+.shimmer {
+  position: absolute; inset: 0; overflow: hidden; z-index: 1;
+  background: radial-gradient(circle at 50% 100%, #12203a 0%, #070b16 45%, #02040a 100%);
 }
 
-/* sky: the soft light field — strongest in the upper third, fading down
- * (auroras hang from the sky), paper tinted with ember */
-.sky {
-  position: absolute; inset: 0;
-  background: linear-gradient(180deg,
-    rgba(238, 238, 238, 0.30) 0%,
-    rgba(238, 238, 238, 0.22) 16%,
-    rgba(218, 92, 44, 0.30) 38%,
-    rgba(238, 238, 238, 0.12) 60%,
-    transparent 82%);
-  filter: blur(18px);
-}
-/* the curtain's lower edge: a WAVY glowing hem the light drapes to —
- * folded-sheet boundary, animated slowly so the sheet undulates */
-.hem {
-  position: absolute; left: -12%; right: -12%; top: 40%; height: 26%;
-  background:
-    repeating-linear-gradient(90deg,
-      rgba(238, 238, 238, 0.55) 0px, rgba(218, 92, 44, 0.45) 10px,
-      rgba(238, 238, 238, 0.30) 20px, transparent 34px, transparent 56px);
-  filter: blur(9px);
-  -webkit-mask-image: linear-gradient(180deg, #000 0%, rgba(0,0,0,.55) 45%, transparent 85%);
-  mask-image: linear-gradient(180deg, #000 0%, rgba(0,0,0,.55) 45%, transparent 85%);
-  border-radius: 0;
-  transform-origin: 50% 0%;
-  animation: hemwave 8s ease-in-out infinite;
-}
-@keyframes hemwave {
-  0%, 100% { transform: skewX(4deg) scaleY(1) translateY(0) rotate(0.5deg); }
-  33%      { transform: skewX(-5deg) scaleY(1.18) translateY(4%) rotate(-0.8deg); }
-  66%      { transform: skewX(3deg) scaleY(0.9) translateY(-3%) rotate(0.6deg); }
-}
+.aurora { position: absolute; inset: 0; filter: blur(26px) saturate(140%); }
 
-/* rays: fine vertical striations leaning like auroral rays. They march
- * horizontally EXACTLY one repeat-period per loop (44px) — a seamless
- * eternal drift with no jump and no return sweep. */
-.rays {
-  position: absolute; inset: -10% -15%;
-  background:
-    repeating-linear-gradient(90deg,
-      transparent 0px, transparent 7px,
-      rgba(238, 238, 238, 0.30) 9px,
-      rgba(238, 238, 238, 0.08) 14px,
-      transparent 18px, transparent 22px),
-    repeating-linear-gradient(90deg,
-      transparent 0px, transparent 15px,
-      rgba(218, 92, 44, 0.14) 18px,
-      transparent 26px, transparent 37px);
-  transform: skewX(-10deg);
-  filter: blur(2.5px);
-  -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 22%, #000 55%, transparent 88%);
-  mask-image: linear-gradient(180deg, transparent 0%, #000 22%, #000 55%, transparent 88%);
-  opacity: calc(var(--ramp, 100%) * 0.9);
-  animation: raymarch 9s linear infinite;
-}
-@keyframes raymarch {
-  from { translate: 0 0; }
-  to   { translate: 22px 0; }   /* exactly one fine-ray period — seamless */
-}
-
-.rays2 {
-  position: absolute; inset: -10% -15%;
-  background: repeating-linear-gradient(90deg,
-    transparent 0px, transparent 21px,
-    rgba(238, 238, 238, 0.10) 25px,
-    transparent 31px, transparent 52px);
-  transform: skewX(-14deg);
-  filter: blur(9px);
-  -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 30%, #000 60%, transparent 90%);
-  mask-image: linear-gradient(180deg, transparent 0%, #000 30%, #000 60%, transparent 90%);
-  opacity: calc(var(--ramp, 100%) * 0.7);
-  animation: raymarch2 14s linear infinite;
-}
-@keyframes raymarch2 {
-  from { translate: 0 0; }
-  to   { translate: 52px 0; }   /* one period of the deep layer — seamless */
-}
-
-/* pulses: regions that brighten and dim IN PLACE — the light dancing
- * within the curtain, not moving across it */
-.pulse {
-  position: absolute; width: 85%; height: 38%;
+/* bands: wide gradient ribbons, screen-blended; each runs wave + drift
+ * concurrently (the reference's dual-animation signature — the wave makes
+ * the ribbon ripple while the drift moves it, and the composite never
+ * reads as a flat sweep) */
+.aurora__band {
+  position: absolute;
+  width: 140%; height: 38%;
+  left: -20%;
   border-radius: 50%;
-  filter: blur(30px);
   mix-blend-mode: screen;
-}
-.p1 {
-  top: 4%; left: -12%;
-  background: radial-gradient(closest-side, rgba(238, 238, 238, 0.65), transparent 70%);
-  animation: breathe1 4.6s ease-in-out infinite;
-}
-.p2 {
-  top: 26%; right: -16%;
-  background: radial-gradient(closest-side, rgba(218, 92, 44, 0.7), transparent 70%);
-  animation: breathe2 6.4s ease-in-out infinite;
-}
-@keyframes breathe1 {
-  0%, 100% { opacity: calc(var(--ramp, 100%) * 0.30); transform: scale(1); }
-  50%      { opacity: calc(var(--ramp, 100%) * 0.85); transform: scale(calc(1 + 0.25 * var(--ramp, 1))); }
-}
-@keyframes breathe2 {
-  0%, 100% { opacity: calc(var(--ramp, 100%) * 0.85); transform: scale(calc(1 + 0.18 * var(--ramp, 1))); }
-  50%      { opacity: calc(var(--ramp, 100%) * 0.25); transform: scale(0.9); }
+  transform-origin: center;
 }
 
-/* reduced motion: everything stills; the sky + rays pattern remains */
+.b1 {
+  top: 8%;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(0, 255, 170, 0.15) 20%,
+    rgba(0, 255, 200, 0.85) 40%,
+    rgba(90, 255, 220, 0.7) 58%,
+    rgba(90, 140, 255, 0.45) 75%,
+    transparent 100%);
+  opacity: calc(var(--ramp, 100%) * 0.75);
+  animation:
+    wave-one 7.5s ease-in-out infinite alternate,
+    drift-one 15s ease-in-out infinite alternate;
+}
+
+.b2 {
+  top: 25%;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(80, 120, 255, 0.15) 18%,
+    rgba(120, 110, 255, 0.7) 38%,
+    rgba(180, 90, 255, 0.65) 58%,
+    rgba(255, 100, 210, 0.28) 78%,
+    transparent 100%);
+  opacity: calc(var(--ramp, 100%) * 0.6);
+  animation:
+    wave-two 9.5s ease-in-out infinite alternate,
+    drift-two 17s ease-in-out infinite alternate;
+}
+
+.b3 {
+  top: 42%;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(0, 255, 180, 0.08) 20%,
+    rgba(0, 255, 170, 0.45) 40%,
+    rgba(70, 255, 230, 0.7) 60%,
+    rgba(70, 130, 255, 0.3) 78%,
+    transparent 100%);
+  opacity: calc(var(--ramp, 100%) * 0.5);
+  animation:
+    wave-three 7s ease-in-out infinite alternate,
+    drift-three 14s ease-in-out infinite alternate;
+}
+
+/* the glow core pulsing over the bands (reference ::after) */
+.aurora::after {
+  content: "";
+  position: absolute;
+  width: 80%; height: 45%;
+  left: 10%; top: 15%;
+  background: radial-gradient(ellipse, rgba(0, 255, 190, 0.18), transparent 70%);
+  filter: blur(36px);
+  opacity: calc(var(--ramp, 100%) * 0.5);
+  animation: glow 6s ease-in-out infinite alternate;
+}
+
+/* waves: 3-stop transforms — the bands ripple like hanging fabric */
+@keyframes wave-one {
+  0%   { transform: translateY(0) skewY(-6deg) scaleY(0.85) rotate(-3deg); }
+  50%  { transform: translateY(18px) skewY(8deg) scaleY(1.2) rotate(2deg); }
+  100% { transform: translateY(-6px) skewY(-3deg) scaleY(0.95) rotate(-5deg); }
+}
+@keyframes wave-two {
+  0%   { transform: translateY(12px) skewY(6deg) scaleY(1.1) rotate(4deg); }
+  50%  { transform: translateY(-14px) skewY(-9deg) scaleY(0.75) rotate(-2deg); }
+  100% { transform: translateY(10px) skewY(4deg) scaleY(1.15) rotate(3deg); }
+}
+@keyframes wave-three {
+  0%   { transform: translateY(-8px) skewY(-5deg) scaleY(0.8); }
+  50%  { transform: translateY(14px) skewY(7deg) scaleY(1.08); }
+  100% { transform: translateY(-3px) skewY(-2deg) scaleY(0.9); }
+}
+
+/* drifts: slow horizontal wander */
+@keyframes drift-one   { from { left: -22%; } to { left: 2%; } }
+@keyframes drift-two   { from { left: -10%; } to { left: -24%; } }
+@keyframes drift-three { from { left: -18%; } to { left: 4%; } }
+
+@keyframes glow {
+  from { opacity: calc(var(--ramp, 100%) * 0.3); transform: scale(0.9); }
+  to   { opacity: calc(var(--ramp, 100%) * 0.75); transform: scale(1.2); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .curtain, .rays, .pulse { animation: none; }
+  .aurora__band, .aurora::after { animation: none; }
 }
 </style>
