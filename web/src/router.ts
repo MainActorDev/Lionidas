@@ -27,7 +27,7 @@ export const router = createRouter({
     { path: '/runs/:id', name: 'runDetail', component: RunDetailPage, meta: { title: 'run' } },
     { path: '/tickets/:key', name: 'matrix', component: MatrixPage, meta: { title: 'acceptance criteria' } },
     { path: '/baselines', name: 'baselines', component: BaselinesPage, meta: { title: 'approvals' } },
-    { path: '/cockpit', name: 'cockpit', component: CockpitPage, meta: { title: 'cockpit', public: true, fullscreen: true } },
+    { path: '/cockpit', name: 'cockpit', component: CockpitPage, meta: { title: 'cockpit', fullscreen: true } },
     { path: '/flakes', name: 'flakes', component: FlakesPage, meta: { title: 'flaky tests' } },
     { path: '/forge', name: 'forge', component: ForgePage, meta: { title: 'network' } },
     { path: '/templates', name: 'templates', component: TestCasesPage, meta: { title: 'test cases' } },
