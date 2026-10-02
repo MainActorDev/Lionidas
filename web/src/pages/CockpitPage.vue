@@ -4,6 +4,7 @@
  *  (watch|chat) + env drawer. Round 1 chassis: menubar/switcher/stage wired;
  *  rail + chat land in S3/S4. */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import MenuBar from '../components/cockpit/MenuBar.vue';
 import DeviceSwitcher, { type SwitcherDevice } from '../components/cockpit/DeviceSwitcher.vue';
 import StageBezel from '../components/cockpit/StageBezel.vue';

@@ -4,6 +4,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import DeviceSidebar, { type SidebarDevice } from '../components/DeviceSidebar.vue';
 import DeviceMiniPreview from '../components/DeviceMiniPreview.vue';
 import { useLiveEvents } from '../stores/live.ts';
+import { useRouter } from 'vue-router';
 
 interface DeviceRow { udid: string; name: string | null; state: string | null; platform: string | null; kind: string | null; os_version: string | null; resolution: string | null; lease_holder: string | null; lease_engine: string | null; lease_display?: string | null; pinned?: boolean; lastUsed?: number | null; memoryRss?: number | null }
 interface QueueRow { id: string; state: string; priority: number; requested_by: string }
@@ -12,6 +13,7 @@ interface RunRow { id: string; ticket_key: string; status: string; kind: string 
 const live = useLiveEvents();
 const devices = ref<DeviceRow[]>([]);
 const queue = ref<QueueRow[]>([]);
+const router = useRouter();
 const lastRuns = ref<Record<string, RunRow>>({});
 let poll: ReturnType<typeof setInterval> | null = null;
 
@@ -242,7 +244,7 @@ onUnmounted(() => {
                 <span v-else style="color: var(--color-steel);">—</span>
               </td>
               <td style="text-align: right; white-space: nowrap;" @click.stop>
-                <button class="btn btn-sm" @click="openSidebar(d)">drive</button>
+                <button class="btn btn-sm" @click="router.push(`/cockpit?device=${d.udid}`)">drive</button>
                 <button class="btn btn-sm" style="margin-left: 6px;" :disabled="isPending(d.udid) !== undefined" @click="power(d.udid, 'restart')">{{ isPending(d.udid) === 'restart' ? 'restarting…' : 'restart' }}</button>
                 <button class="btn btn-sm btn-danger" style="margin-left: 6px;" :disabled="isPending(d.udid) !== undefined" @click="power(d.udid, 'shutdown')">{{ isPending(d.udid) === 'shutdown' ? 'shutting down…' : 'shut down' }}</button>
               </td>
