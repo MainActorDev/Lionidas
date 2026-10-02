@@ -35,6 +35,7 @@ const toast = ref('');
 const stage = ref<InstanceType<typeof StageBezel> | null>(null);
 
 const live = useLiveEvents();
+let preselectApplied = false;
 async function loadDevices(): Promise<void> {
   try {
     const res = await fetch('/api/devices');
@@ -42,9 +43,11 @@ async function loadDevices(): Promise<void> {
     devices.value = (body.devices ?? []).filter((d) => (d.state ?? '').toLowerCase() === 'booted').map((d) => ({
       udid: d.udid, name: d.name ?? d.udid.slice(0, 12), sub: 'idle', live: false,
     }));
-    if (devices.value.length > 0 && !devices.value.some((d) => d.udid === activeUdid.value)) activeUdid.value = devices.value[0]!.udid;
+    // ?device= preselect applies ONCE (first successful load); later reloads
+    // must not fight the boot auto-switch or manual tab changes
     const want = String(route.query.device ?? '');
-    if (want && devices.value.some((d) => d.udid === want)) activeUdid.value = want;
+    if (!preselectApplied && want && devices.value.some((d) => d.udid === want)) { activeUdid.value = want; preselectApplied = true; }
+    if (devices.value.length > 0 && !devices.value.some((d) => d.udid === activeUdid.value)) activeUdid.value = devices.value[0]!.udid;
   } catch { devices.value = []; }
 }
 onMounted(async () => {
@@ -195,8 +198,29 @@ async function bootSelected(): Promise<void> {
     const b = (await r.json()) as { ok?: boolean; error?: string };
     if (b.ok) {
       bootOpen.value = false;
-      flash('booting — the device appears in the switcher shortly');
-      setTimeout(() => void loadDevices(), 6000);
+      flash('booting — switching when ready');
+      const bootedUdid = bootSel.value;
+      // poll until the boot lands (sim boot takes seconds), then switch to it
+      const deadline = Date.now() + 20000;
+      const waitBoot = async (): Promise<void> => {
+        for (;;) {
+          await new Promise((res) => setTimeout(res, 2000));
+          try {
+            const r = await fetch('/api/devices');
+            const b2 = (await r.json()) as { devices?: Array<{ udid: string; state: string | null }> };
+            const row = (b2.devices ?? []).find((x) => x.udid === bootedUdid);
+            if (row && (row.state ?? '').toLowerCase() === 'booted') {
+              preselectApplied = true;          // later loads never override
+              await loadDevices();
+              activeUdid.value = bootedUdid;    // auto-switch to the new tab
+              flash(`switched to ${devices.value.find((x) => x.udid === bootedUdid)?.name ?? 'new device'}`);
+              return;
+            }
+          } catch { /* keep waiting */ }
+          if (Date.now() > deadline) { flash('boot is slow — check the devices page'); return; }
+        }
+      };
+      void waitBoot();
     } else bootErr.value = b.error ?? 'boot failed';
   } catch { bootErr.value = 'boot request failed'; }
   finally { bootBusy.value = false; }
@@ -333,7 +357,6 @@ void live;
               <span class="dev-name">{{ d.name }}</span>
               <span class="dev-meta">{{ [d.os, d.res].filter(Boolean).join(' · ') || d.udid.slice(0, 8) }}</span>
             </div>
-            <span class="dev-state">{{ d.state.toLowerCase() }}</span>
           </div>
         </div>
         <div class="modal-actions">
@@ -422,5 +445,4 @@ void live;
 .dev-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .dev-name { color: var(--color-paper); font-size: var(--text-caption); }
 .dev-meta { color: var(--color-steel); font-size: 10px; }
-.dev-state { color: var(--color-steel); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; border: 1px solid var(--color-iron); padding: 1px 7px; border-radius: var(--r); }
 </style>
