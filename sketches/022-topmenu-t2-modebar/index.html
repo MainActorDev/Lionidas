@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>022-T2 — Top menu concept · Mode bar + context strip</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--color-void); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-label); }
+  button { font-family: inherit; background: none; border: 1px solid var(--color-iron); color: var(--color-fog); padding: var(--s-1) var(--s-2); cursor: pointer; font-size: var(--text-caption); border-radius: var(--r); }
+  button:hover { border-color: var(--color-slate); color: var(--color-paper); }
+  button.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: var(--weight-bold); }
+
+  /* T2: two rows. Row 1 = MODE (what you're doing). Row 2 = CONTEXT (state of that mode). */
+  .modebar { display: flex; align-items: center; gap: 2px; height: 38px; padding: 0 var(--s-3); border-bottom: 1px solid var(--color-iron); background: var(--color-carbon); }
+  .mode { padding: 4px 14px; color: var(--color-ash); font-size: var(--text-caption); cursor: pointer; border-bottom: 2px solid transparent; }
+  .mode:hover { color: var(--color-paper); }
+  .mode.active { color: var(--color-paper); border-bottom-color: var(--color-ember); }
+  .modebar .act { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+
+  .ctxstrip { display: flex; align-items: center; gap: var(--s-2); padding: 6px var(--s-3); border-bottom: 1px solid var(--color-iron); background: var(--color-graphite); font-size: var(--text-caption); }
+  .ctxstrip .seg { display: flex; align-items: center; gap: 6px; padding-right: 10px; margin-right: 4px; border-right: 1px solid var(--color-iron); }
+  .ctxstrip .seg:last-child { border-right: none; }
+  .ctxstrip .lbl { color: var(--color-steel); text-transform: uppercase; letter-spacing: .06em; font-size: 10px; }
+  .ctxstrip .val { color: var(--color-paper); }
+  .ctxstrip .val em { color: var(--color-ember); font-style: normal; }
+
+  /* mode-specific context (drives the second row's content) */
+  .ctx { display: none; }
+  .ctx.show { display: flex; }
+
+  .stage { height: calc(100vh - 38px - 33px); display: grid; place-items: center; }
+  .ghost-bezel { width: 300px; height: 560px; border: 1px dashed var(--color-pewter); border-radius: 14px; display: grid; place-items: center; color: var(--color-steel); font-size: var(--text-caption); }
+  .hint { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); color: var(--color-steel); font-size: 10px; }
+</style>
+</head>
+<body>
+  <div class="modebar">
+    <div class="mode active" data-mode="drive">drive</div>
+    <div class="mode" data-mode="device">device</div>
+    <div class="mode" data-mode="environment">environment</div>
+    <div class="mode" data-mode="captures">captures</div>
+    <div class="act">
+      <button class="primary">take control</button>
+      <button>inspect</button>
+    </div>
+  </div>
+
+  <!-- context strip changes per mode -->
+  <div class="ctxstrip">
+    <div class="ctx show" data-ctx="drive">
+      <div class="seg"><span class="lbl">session</span><span class="val"><em>held · 42m</em></span></div>
+      <div class="seg"><span class="lbl">dims</span><span class="val">428 × 926</span></div>
+      <div class="seg"><span class="lbl">watchdog</span><span class="val">3m 12s</span></div>
+    </div>
+    <div class="ctx" data-ctx="device">
+      <div class="seg"><span class="lbl">device</span><span class="val">iPhone 15 Pro · <em>booted</em></span></div>
+      <div class="seg"><button>restart</button><button>shutdown</button><button>erase…</button></div>
+      <div class="seg"><span class="lbl">runtime</span><span class="val">iOS 17.4</span></div>
+    </div>
+    <div class="ctx" data-ctx="environment">
+      <div class="seg"><span class="lbl">scenario</span><span class="val"><em>countries-sg</em> ▾</span></div>
+      <div class="seg"><span class="lbl">location</span><span class="val">Jakarta</span></div>
+      <div class="seg"><span class="lbl">env</span><span class="val">3 overrides</span></div>
+      <div class="seg"><button>clear scenario</button></div>
+    </div>
+    <div class="ctx" data-ctx="captures">
+      <div class="seg"><span class="lbl">gallery</span><span class="val">12 shots · 2 clips</span></div>
+      <div class="seg"><button>screenshot</button><button>record</button><button>open gallery</button></div>
+    </div>
+  </div>
+
+  <div class="stage"><div class="ghost-bezel">device stream (unchanged)</div></div>
+  <div class="hint">T2 · modes own the context strip — controls appear only for the active concern</div>
+
+<script>
+  document.querySelectorAll('.mode').forEach(m => m.onclick = () => {
+    document.querySelectorAll('.mode').forEach(x => x.classList.remove('active'));
+    m.classList.add('active');
+    document.querySelectorAll('.ctx').forEach(c => c.classList.toggle('show', c.dataset.ctx === m.dataset.mode));
+  });
+</script>
+</body>
+</html>

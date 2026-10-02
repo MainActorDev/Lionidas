@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>022-T3 — Top menu concept · Status strip + inline popovers</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--color-void); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-label); }
+  button { font-family: inherit; background: none; border: 1px solid var(--color-iron); color: var(--color-fog); padding: var(--s-1) var(--s-2); cursor: pointer; font-size: var(--text-caption); border-radius: var(--r); }
+  button:hover { border-color: var(--color-slate); color: var(--color-paper); }
+  button.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: var(--weight-bold); }
+
+  /* T3: ONE slim strip. Left = primary action. Middle = LIVE STATE as clickable pills (each opens a popover). Right = device. No grouping labels — the pills ARE the state. */
+  .strip { display: flex; align-items: center; gap: var(--s-2); height: 40px; padding: 0 var(--s-3); border-bottom: 1px solid var(--color-iron); background: var(--color-carbon); position: relative; z-index: 10; }
+  .pill { position: relative; display: flex; align-items: center; gap: 6px; padding: 2px 10px; border: 1px solid var(--color-iron); border-radius: var(--r); font-size: var(--text-caption); color: var(--color-fog); cursor: pointer; }
+  .pill:hover { border-color: var(--color-slate); color: var(--color-paper); }
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-steel); }
+  .pill.hot { border-color: var(--color-ember); color: var(--color-ember); }
+  .pill.hot .dot { background: var(--color-ember); }
+  .pop { display: none; position: absolute; top: calc(100% + 6px); left: 0; width: 250px; background: var(--color-graphite); border: 1px solid var(--color-slate); border-radius: var(--r); padding: 6px; z-index: 20; }
+  .pill.open .pop { display: block; }
+  .pop .item { display: flex; justify-content: space-between; padding: 5px 8px; font-size: var(--text-caption); color: var(--color-fog); cursor: pointer; border-radius: var(--r); }
+  .pop .item:hover { background: var(--color-iron); color: var(--color-paper); }
+  .pop .item.act { color: var(--color-ember); }
+  .pop hr { border: none; border-top: 1px solid var(--color-iron); margin: 4px 0; }
+  .pop .hdr { padding: 4px 8px; color: var(--color-steel); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+  .right { margin-left: auto; display: flex; gap: var(--s-2); align-items: center; font-size: var(--text-caption); color: var(--color-ash); }
+  .right b { color: var(--color-paper); }
+
+  .stage { height: calc(100vh - 40px); display: grid; place-items: center; }
+  .ghost-bezel { width: 300px; height: 560px; border: 1px dashed var(--color-pewter); border-radius: 14px; display: grid; place-items: center; color: var(--color-steel); font-size: var(--text-caption); }
+  .hint { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); color: var(--color-steel); font-size: 10px; }
+</style>
+</head>
+<body>
+  <div class="strip">
+    <button class="primary">take control</button>
+    <button>inspect</button>
+
+    <!-- state pills: live status, click to act -->
+    <div class="pill hot" data-pill><span class="dot"></span> session 42m
+      <div class="pop">
+        <div class="hdr">manual session</div>
+        <div class="item">lease manual:ms_9f2</div>
+        <div class="item">dims 428 × 926</div>
+        <div class="item">idle watchdog 3m 12s</div>
+        <hr>
+        <div class="item">release session</div>
+      </div>
+    </div>
+    <div class="pill hot" data-pill><span class="dot"></span> countries-sg
+      <div class="pop">
+        <div class="hdr">network scenario</div>
+        <div class="item act">✓ countries-sg · batam</div>
+        <div class="item">countries-my · johor</div>
+        <div class="item">countries-empty</div>
+        <hr>
+        <div class="item">clear scenario</div>
+      </div>
+    </div>
+    <div class="pill" data-pill><span class="dot"></span> Jakarta
+      <div class="pop">
+        <div class="hdr">location</div>
+        <div class="item">Jakarta (current)</div>
+        <div class="item">Batam</div>
+        <div class="item">Medan</div>
+        <div class="item">custom…</div>
+      </div>
+    </div>
+    <div class="pill" data-pill><span class="dot"></span> run · 4/7
+      <div class="pop">
+        <div class="hdr">run watch</div>
+        <div class="item">countries-sg smoke · step 4</div>
+        <div class="item">open run detail</div>
+        <div class="item">abort run (human)</div>
+      </div>
+    </div>
+
+    <div class="right">
+      <span>captures · 12</span>
+      <b>iPhone 15 Pro</b>
+      <span style="color:var(--color-ember)">◆ streaming</span>
+    </div>
+  </div>
+
+  <div class="stage"><div class="ghost-bezel">device stream (unchanged)</div></div>
+  <div class="hint">T3 · state itself is the menu — pills glow when active, click to act</div>
+
+<script>
+  const pills = [...document.querySelectorAll('[data-pill]')];
+  pills.forEach(p => p.onclick = (e) => {
+    const was = p.classList.contains('open');
+    pills.forEach(x => x.classList.remove('open'));
+    if (!was) p.classList.add('open');
+    e.stopPropagation();
+  });
+  document.addEventListener('click', () => pills.forEach(p => p.classList.remove('open')));
+</script>
+</body>
+</html>

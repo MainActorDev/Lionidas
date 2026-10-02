@@ -1,0 +1,108 @@
+/* ═══ Crucible Design Tokens — Axiom system (per user directive: follow hermes-colony UI) ═══
+   Terminal-grade dark interface. Pure black canvas, monospaced typography,
+   one Ember accent. No gradients, no shadows beyond hairlines, 2px corners. */
+
+:root {
+  /* ─── Surfaces (layered dark neutrals) ─── */
+  --color-void:     #000000;   /* Page background, nav, terminal canvas */
+  --color-carbon:   #111111;   /* Primary surface, cards, hero */
+  --color-graphite: #191919;   /* Elevated cards, modals, inset blocks */
+  --color-iron:     #202020;   /* Hairline borders, dividers */
+  --color-slate:    #3a3a3a;   /* Muted borders, icon strokes */
+  --color-pewter:   #505050;   /* Subtle dividers, decorative rules */
+
+  /* ─── Text ─── */
+  --color-steel:    #606060;   /* Tertiary text, inactive labels */
+  --color-ash:      #7e7e7e;   /* Muted helper text */
+  --color-fog:      #b4b4b4;   /* Secondary text, labels */
+  --color-chalk:    #d9d9d9;   /* Light borders, icon detail */
+  --color-paper:    #eeeeee;   /* Primary text, headings, button text */
+
+  /* ─── Accent (Ember — used SPARINGLY) ─── */
+  --color-ember:    #da5c2c;   /* Primary CTA fill, active marks, left borders */
+  --color-ember-dim: #a04521;  /* Hover/active states on ember */
+
+  /* Status is communicated through symbols + borders, NOT color fills.
+     Chart/evidence semantics may use restrained fills where data needs it. */
+  --color-ok:      #da5c2c;
+  --color-warn:    #b4b4b4;
+  --color-err:     #eeeeee;
+
+  /* ─── Typography ─── */
+  --font-mono: 'JetBrains Mono', 'BerkeleyMono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  /* Type scale */
+  --text-caption:  12px;
+  --text-body:     14px;
+  --text-label:    13px;
+  --text-heading-sm: 18px;
+  --text-heading:  20px;
+  --text-heading-lg: 24px;
+  --text-display:  32px;
+  --text-kpi:      40px;
+
+  /* Line heights */
+  --leading-tight:  1.2;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.71;
+
+  /* Weights */
+  --weight-regular: 400;
+  --weight-bold:    700;
+
+  /* ─── Spacing (8px base) ─── */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 64px;
+
+  /* ─── Radius (sharp geometry) ─── */
+  --r-sm: 2px;
+  --r:    2px;
+  --r-full: 9999px;
+
+  /* ─── Transitions ─── */
+  --t: 120ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ─── Layout ─── */
+  --page-max: 1200px;
+  --sidebar-w: 220px;
+  --topbar-h: 48px;
+}
+
+/* ─── Reset ─── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+button { background: none; border: none; color: inherit; font: inherit; cursor: pointer; }
+html { font-size: var(--text-body); }
+body {
+  font-family: var(--font-mono);
+  background: var(--color-void);
+  color: var(--color-paper);
+  -webkit-font-smoothing: antialiased;
+  line-height: var(--leading-normal);
+  font-size: var(--text-body);
+}
+
+/* ─── Scrollbar (terminal-style) ─── */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--color-void); }
+::-webkit-scrollbar-thumb { background: var(--color-iron); border-radius: 0; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-slate); }
+
+/* ─── Selection ─── */
+::selection { background: var(--color-ember); color: var(--color-paper); }
+
+/* ─── Code ─── */
+code, .mono { font-family: var(--font-mono); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
