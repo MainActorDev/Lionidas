@@ -3,7 +3,7 @@
 - Source: `brainstorm/20261002T044758Z-device-cockpit-page.md` + `brainstorm/20261002T055939Z-device-cockpit-round2.md` (both closed: DESIGN LOCKED)
 - Spec (1:1, verbatim): `sketches/022-cockpit-final2-single-switch/` (+ its README) — picked through the sketch chain A/B/C → A+B hybrid → T1 top-menu concepts → final composition → operator revision (one spacious device + switcher)
 - Decision log (operator, verbatim): "I like the combination of A and B" · "not everything should have side panel" · "Side panel container should be reusable" · "I prefer top menu t1" · "split view… only the active tab is getting controlled" → revised: "only show a device so it's spacious. But we can switch" · "AI chat feature (while device booted and everything)" · "device run logs" · "the design locked"
-- Status: **Ready**
+- Status: **Ready (rev 2 — review F1–F6 applied)**
 - Baseline: `feat/device-cockpit` @ `8f2a77b` (main post-PR#14 merged + brainstorm/sketch commits)
 
 ## Objective
@@ -15,11 +15,12 @@ Build `/cockpit` — the flagship device-control page per the locked sketch: T1 
 1. **Reusable components first** (operator: "side panel container should be reusable"): `WatcherPanel.vue` (tabbed rail container: sections w/ collapse, step rows ✓/◆/◌, meter, log-tail block) and `SideDrawer.vue` (left slide-over, reduced-motion honored) land as standalone components with storybook-style usage tests (mount with fixtures, assert renders) — the cockpit is their first consumer, runs page can mount them later.
 2. **T1 menu bar**: file/device/app/environment/run/view word-menus (dropdowns, click-outside close, accelerators displayed), right status cluster (session chip, active device name, live count). Menu contents per the locked sketch verbatim (incl. `run → play case on this device…`).
 3. **Switcher strip**: one tab per booted device, ember dot = live activity (session/run), sublabel from live state (`session · <screen>` / `run n/m` / `idle`); active tab outlined; switching rebinds EVERYTHING (status bar, stage stream, rail data, chat context footer). Single manual-lease model respected: control follows the active tab.
-4. **Stage**: single bezel, live stream canvas (existing WS), session chip, screen-state chip (from screens registry vs live AX), take-control/inspect/screenshot actions reachable (file/view menus + the drive affordances the sketch shows), tap mapping chain preserved exactly (CSS→canvas→logical via live dims), session-lost 410 honesty (banner + re-take; the idle-watchdog auto-finish path).
-5. **Rail — watch tab**: session section (lease/dims/watchdog), run-watch section (steps live via bus events, meter), logs section (compact tail: the run_steps narrate/reason stream + forge traffic hits available today — NO new server log-streaming in round 1), traffic section (collapsed default).
+4. **Stage**: single bezel, live stream canvas (existing WS), session chip, screen-state chip with the fallback ladder (F5): (1) active run's arrival screen, (2) manual-session inspect data when flowing, (3) '—' — never fabricated, take-control/inspect/screenshot actions reachable (file/view menus + the drive affordances the sketch shows), tap mapping chain preserved exactly (CSS→canvas→logical via live dims), session-lost 410 honesty (banner + re-take; the idle-watchdog auto-finish path).
+5. **Rail — watch tab**: session section (lease/dims/watchdog), run-watch section (steps live via bus events, meter), run-activity section labeled honestly (run_steps narrate/reason + forge traffic hits — NOT device logs; device-log streaming is the parked server work, out of scope round 1), traffic section (collapsed default).
 6. **Rail — chat tab**: agent conversation UI (transcript, tool-call chips, device-context footer, composer) wired to the EXISTING `/api/agent/sessions*` API; turn events on the bus (`agent.turn`) drive live updates; PAT/session auth via the existing authed fetch layer. Read-only agent semantics preserved (it can see, not play).
+  - F3 (operator: "with your recommendation"): the composer AUTO-PREPENDS a context line to the first message of a conversation — `[context] device: <name> · screen: <state> · scenario: <id>` — making the footer claim true without server changes.
 7. **Env drawer** (SideDrawer): network scenario (activate/clear via forge routes), location, env-var overrides pointer — the locked sketch's drawer verbatim.
-8. **Deletion + routing**: `/drive` route and `DrivePage.vue` removed; DeviceSidebar drive affordances removed from wherever it mounts (wall page keeps its non-drive parts); router gains `/cockpit` titled `cockpit`; nav label updates.
+8. **Deletion + routing**: `/drive` route and `DrivePage.vue` removed; DeviceSidebar SURVIVES (WallPage/DeviceRail keep it — removal is a future arc); router gains `/cockpit` titled `cockpit`.
 9. **Gates**: `pnpm build` (web) clean; server suite untouched-green; visual verification vs the locked sketch (DOM measurement + screenshot at 1280×800, states: no-session / session-live / chat-tab / env-drawer / session-lost) recorded in the PR.
 
 ## Out of scope (round 1)
@@ -34,11 +35,14 @@ AX tree browser, capture gallery viewer (rail shows counts only per sketch), dev
 
 ## Stages
 
-- **S1 Reusable containers** (WatcherPanel + SideDrawer + usage tests) → condition 1
+- **S1 Reusable containers + test infra** (WatcherPanel + SideDrawer + usage tests) → condition 1
+  - F1 (operator: "with your recommendation"): FIRST commit adds `vitest` + `@vue/test-utils` to web devDeps + a `test` script; WatcherPanel/SideDrawer get mount tests (fixtures in, rendered assertions out); `pnpm -C web test` is a standing gate alongside build.
 - **S2 CockpitPage chassis** (T1 menubar + switcher + stage with real stream + session/inspect actions; states honest) → 2, 3, 4
 - **S3 Rail watch tab + env drawer** (sections wired to live data; drawer via SideDrawer) → 5, 7
 - **S4 Chat tab** (conversation UI on the agent API, bus-driven) → 6
-- **S5 Deletion + routing + visual verification** (drive surfaces removed; spec-vs-build screenshots recorded) → 8, 9
+- **S5 Deletion + routing + visual verification** → 8, 9
+  - F2 split: round 1 deletes `/drive` + `DrivePage.vue` ONLY. **DeviceSidebar SURVIVES round 1** — WallPage.vue:305 and DeviceRail still mount it; its removal is its own future arc. WallPage gets, at most, a link to `/cockpit?udid=` (optional, one line).
+  - F6: router — remove `/drive`, add `/cockpit` with `meta: { title: 'cockpit' }`, no redirect (internal tool).
 
 TDD where testable (components mount tests, switcher rebinding, menu behaviors); visual gates per the crucible skill (DOM measurement, never innerText alone).
 

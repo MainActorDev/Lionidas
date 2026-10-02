@@ -2,7 +2,8 @@
 
 - Plan reviewed: `plans/20261002T061158Z-device-cockpit-plan.md` (Ready, commit `6b2b8e4`)
 - Evidence: plan + both closed brainstorms + the locked spec (`sketches/022-cockpit-final2-single-switch/` incl. README) + sources read 2026-10-02: `web/src/router.ts`, mounts of DeviceSidebar (WallPage.vue:305, DeviceRail.vue:4, DrivePage.vue), `web/package.json` (scripts; NO vitest in web devDeps), `server/src/routes/manual.ts` route inventory, crucible skill web-UI conventions + drive-panel references (session-lost class, tap-mapping chain, both-drive-surfaces rule).
-- **Verdict: Needs revision** — one High (F1: unbuildable test strategy), one High-adjacent scope ambiguity (F2: WallPage shares the component being deleted). Both fixable in plan text; the spec, stages, and reuse-first architecture are sound.
+- **Verdict: Ready for implementation (rev 2)** — F1–F6 all applied (operator took both recommendations: vitest+@vue/test-utils added in S1; chat context auto-prepends). F2's split landed: round 1 deletes only /drive+DrivePage, DeviceSidebar survives for WallPage. Original findings retained below for traceability.
+- *(Original verdict, superseded: Needs revision — F1 unbuildable test strategy, F2 sidebar blast radius.)*
 
 ## Traceability
 
