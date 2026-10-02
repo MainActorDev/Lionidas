@@ -32,9 +32,7 @@ const MENUS: Array<{ id: string; label: string; items: MenuItem[] }> = [
     { label: 'terminate', event: 'terminate-app' },
   ] },
   { id: 'environment', label: 'environment', items: [
-    { label: 'countries-sg', act: true, check: true, event: 'env-scenario' },
-    { label: 'countries-my', check: true, event: 'env-scenario' },
-    { label: 'countries-empty', check: true, event: 'env-scenario' },
+    { label: 'scenario…', event: 'env-scenario' },
     { label: '', separator: true },
     { label: 'set location…', event: 'env-location' },
     { label: 'env vars…', event: 'env-vars' },
