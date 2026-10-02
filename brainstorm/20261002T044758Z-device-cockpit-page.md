@@ -2,7 +2,7 @@
 
 - Source prompt: "I want to create a full page device control and watcher page that will be replacing the 'drive' side panel. And later we will do many things from there. If you check baguette's, it's kinda already have this kind of page. Or think of the simulator app in macOS that have all those controls. The device is centered on the full-page screen. And this new UI will need the sketches brainstorm"
 - Created: 20261002T044758Z
-- Status: Questions open
+- Status: **Direction selected — DESIGN LOCKED** (via rounds: A+B hybrid → T1 top + round-2 expansion → Final2 spec)
 
 ## Goal and context
 

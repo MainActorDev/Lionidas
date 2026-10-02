@@ -2,7 +2,7 @@
 
 - Source prompt: "WE're still brainstorming. I prefer top menu t1. I also want a split view, for example to watch/control two or three (probably MAX) devices simultaneously. But only the active tab is getting controlled. Also, this page is one of the pages where we will implementing the AI chat feature (while device booted and everything). I also want to see the device run logs. And so on and so on. You should think of more possibilities of what we can do in this newly screen."
 - Created: 20261002T055939Z
-- Status: Direction selected (T1) · Questions open (scope of round-1 build vs later)
+- Status: **Direction selected — DESIGN LOCKED** (spec = `sketches/022-cockpit-final2-single-switch/`, 2026-10-02)
 
 ## Goal and context
 
@@ -50,7 +50,13 @@ Round 2 of the cockpit brainstorm. The operator picked the **T1 menu bar** as th
 - Chat + watchers sharing the rail could crowd; tabs inside the rail are the pressure valve.
 - Log streaming is a new long-lived process per device — lifecycle/cleanup needs care (idle watchdog pattern applies).
 
-## Open questions
+## Locked spec (operator: "the design locked", 2026-10-02)
+
+- Sketch `022-cockpit-final2-single-switch/` is the 1:1 spec.
+- Resolved by the lock: chat placement = **rail tab** (watch|chat); multi-device = **switcher tabs, one spacious device** (NOT split); logs = **rail section** (compact tail).
+- Round-1 build = chassis (T1 menubar + switcher + single device stage) + reusable rail (WatcherPanel: session/run-watch/logs/traffic) + chat tab (agent conversation API) + env drawer (SideDrawer) + session-lost honesty. Possibilities list (#1-#8) stays PARKED for later rounds, except what the spec depicts: quick-play menu item (run menu), screen-state chip, captures count in status. Log STREAMING server work stays out of round 1 unless the plan review says otherwise — the rail section ships with the run-log rows already available.
+
+## Open questions (superseded — kept for provenance)
 
 1. **Round-1 scope**: is the first build chassis + T1 + split(2-3) + logs-section + chat-tab (the confirmed set), with the "possibilities" list parked for later rounds? Or does something from the proposal list belong in round 1 (my suggestion if any: AX tree browser — it's inspect-mode data already flowing)?
 2. **Chat placement**: rail tab (shares the panel with watchers) vs right drawer (chat gets full height on demand)?
