@@ -1,11 +1,15 @@
 <script setup lang="ts">
 /** StreamShimmer — the operator's reference aurora
- *  (attachments/aurora.html), with one performance fix: the reference
- *  animates `left` (layout — reflows every frame) alongside the transform
- *  wave; in the stream overlay that shows as stutter. The horizontal drift
- *  is folded into the wave keyframes as translateX (same distances,
- *  converted to element-width %) so each band runs ONE compositor-only
- *  transform animation. Everything else is the reference verbatim. The only
+ *  (attachments/aurora.html), restructured for smoothness WITHOUT changing
+ *  the motion: the reference ran TWO animations per band — a wave
+ *  (transform) and a drift (left, a layout property; reflow every frame =
+ *  the stutter). Folding the drift into the wave keyframes fixed layout but
+ *  coupled the horizontal travel to the wave period — a
+ *  "goes-back-to-start" ping-pong. The correct structure: each band is
+ *  WRAPPED — the outer element carries the drift (translateX only, its own
+ *  long period), the inner carries the wave (its own transform). Two
+ *  independent compositor-only animations = the reference's timing, zero
+ *  layout, no coupling. Everything else is the reference verbatim. The only
  *  integration is visibility (connecting/reconnecting). */
 import { computed } from 'vue';
 
@@ -18,9 +22,9 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
   <div v-if="visible" class="shimmer">
     <div class="scene">
       <div class="aurora">
-        <div class="aurora__band"></div>
-        <div class="aurora__band"></div>
-        <div class="aurora__band"></div>
+        <div class="band-wrap w1"><div class="aurora__band b1"></div></div>
+        <div class="band-wrap w2"><div class="aurora__band b2"></div></div>
+        <div class="band-wrap w3"><div class="aurora__band b3"></div></div>
       </div>
     </div>
   </div>
@@ -48,20 +52,31 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
   filter: blur(50px) saturate(140%);
 }
 
-.aurora__band {
+/* the wrapper: carries ONLY the slow horizontal drift (translateX —
+ * compositor-only). Periods are the reference's drift durations. */
+.band-wrap {
   position: absolute;
   width: 140%;
   height: 38%;
   left: -20%;
+  will-change: transform;
+}
+.w1 { top: 8%;  animation: drift-one 15s ease-in-out infinite alternate; }
+.w2 { top: 25%; animation: drift-two 17s ease-in-out infinite alternate; }
+.w3 { top: 42%; animation: drift-three 14s ease-in-out infinite alternate; }
+
+/* the band: carries ONLY the wave (transform), durations per reference */
+.aurora__band {
+  position: absolute;
+  inset: 0;
   border-radius: 50%;
   mix-blend-mode: screen;
   opacity: 0.75;
   transform-origin: center;
+  will-change: transform;
 }
 
-.aurora__band:nth-child(1) {
-  top: 8%;
-  /* drift folded into the wave keyframes (compositor-only; see note below) */
+.b1 {
   background: linear-gradient(
     90deg,
     transparent 0%,
@@ -75,8 +90,7 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
   animation: wave-one 7.5s ease-in-out infinite alternate;
 }
 
-.aurora__band:nth-child(2) {
-  top: 25%;
+.b2 {
   background: linear-gradient(
     90deg,
     transparent 0%,
@@ -92,8 +106,7 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
   animation: wave-two 9.5s ease-in-out infinite alternate;
 }
 
-.aurora__band:nth-child(3) {
-  top: 42%;
+.b3 {
   background: linear-gradient(
     90deg,
     transparent 0%,
@@ -128,16 +141,10 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
   animation: glow 6s ease-in-out infinite alternate;
 }
 
-/* waves now carry the horizontal drift too (translateX) — ONE transform
- * animation per band, compositor-only. The reference animated `left`
- * (a layout property) alongside the transform wave; in the smaller
- * stream overlay that reflow-every-frame shows as stutter. Distances are
- * the reference's drift spans converted from containing-block % to the
- * element's own width. */
+/* waves: the reference's transforms verbatim (no translateX drift term) */
 @keyframes wave-one {
   0% {
     transform:
-      translateX(-8.57%)
       translateY(0)
       skewY(-6deg)
       scaleY(0.85)
@@ -146,7 +153,6 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
 
   50% {
     transform:
-      translateX(0%)
       translateY(45px)
       skewY(8deg)
       scaleY(1.2)
@@ -155,7 +161,6 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
 
   100% {
     transform:
-      translateX(8.57%)
       translateY(-10px)
       skewY(-3deg)
       scaleY(0.95)
@@ -166,7 +171,6 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
 @keyframes wave-two {
   0% {
     transform:
-      translateX(5%)
       translateY(25px)
       skewY(6deg)
       scaleY(1.1)
@@ -175,7 +179,6 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
 
   50% {
     transform:
-      translateX(0%)
       translateY(-30px)
       skewY(-9deg)
       scaleY(0.75)
@@ -184,7 +187,6 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
 
   100% {
     transform:
-      translateX(-5%)
       translateY(20px)
       skewY(4deg)
       scaleY(1.15)
@@ -195,7 +197,6 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
 @keyframes wave-three {
   0% {
     transform:
-      translateX(-7.86%)
       translateY(-15px)
       skewY(-5deg)
       scaleY(0.8);
@@ -203,7 +204,6 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
 
   50% {
     transform:
-      translateX(0%)
       translateY(30px)
       skewY(7deg)
       scaleY(1.08);
@@ -211,11 +211,26 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
 
   100% {
     transform:
-      translateX(7.86%)
       translateY(-5px)
       skewY(-2deg)
       scaleY(0.9);
   }
+}
+
+/* drifts: the reference's spans, expressed as translateX of the band's own
+ * width (converted from the containing-block % the reference's `left`
+ * used — same visual distance, no layout) */
+@keyframes drift-one {
+  from { transform: translateX(-8.57%); }
+  to   { transform: translateX(8.57%); }
+}
+@keyframes drift-two {
+  from { transform: translateX(5%); }
+  to   { transform: translateX(-5%); }
+}
+@keyframes drift-three {
+  from { transform: translateX(-7.86%); }
+  to   { transform: translateX(7.86%); }
 }
 
 @keyframes glow {
@@ -231,6 +246,7 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .band-wrap,
   .aurora__band,
   .aurora::after {
     animation: none;
