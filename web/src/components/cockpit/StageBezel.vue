@@ -212,11 +212,15 @@ defineExpose({
   <div class="stage">
     <div v-if="lost" class="lost">session lost — take control again</div>
 
-    <!-- magnifiers: zoom out / label / zoom in -->
-    <div class="zoombar">
-      <button type="button" :disabled="zoomIdx === 0" title="zoom out (−)" @click="zoomOut">−</button>
-      <span class="zlabel">{{ zoomLabel }}</span>
-      <button type="button" :disabled="zoomIdx === ZOOM_STEPS.length - 1" title="zoom in (+)" @click="zoomIn">+</button>
+    <!-- control cluster: zoom on top, session button below -->
+    <div class="ctrlcol">
+      <div class="zoombar">
+        <button type="button" :disabled="zoomIdx === 0" title="zoom out (−)" @click="zoomOut">−</button>
+        <span class="zlabel">{{ zoomLabel }}</span>
+        <button type="button" :disabled="zoomIdx === ZOOM_STEPS.length - 1" title="zoom in (+)" @click="zoomIn">+</button>
+      </div>
+      <button v-if="!sessionId" class="session-btn primary" :disabled="busy" @click="takeControl">take control</button>
+      <button v-else class="session-btn" :disabled="busy" @click="release">release</button>
     </div>
 
     <!-- the REAL bezel: PNG body + % screen rect + hardware buttons -->
@@ -264,18 +268,19 @@ defineExpose({
     </div>
 
     <div class="statechip">screen · {{ screenState }}</div>
-    <div class="drivebar">
-      <button v-if="!sessionId" class="primary" :disabled="busy" @click="takeControl">take control</button>
-      <button v-else :disabled="busy" @click="release">release</button>
-      <span v-if="error" class="err">{{ error }}</span>
-    </div>
+    <div v-if="error" class="err">{{ error }}</div>
   </div>
 </template>
 
 <style scoped>
 .stage { position: relative; display: grid; place-items: center; overflow: auto; grid-template-rows: 1fr auto; width: 100%; height: 100%; }
 .lost { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 6; background: var(--color-carbon); border: 1px solid var(--color-paper); color: var(--color-paper); font-size: 11px; padding: 6px 10px; }
-.zoombar { position: absolute; top: 12px; right: 12px; z-index: 6; display: flex; align-items: center; gap: 6px; background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r); padding: 3px 6px; }
+.ctrlcol { position: absolute; top: 12px; right: 12px; z-index: 6; display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+.zoombar { display: flex; align-items: center; justify-content: center; gap: 6px; background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r); padding: 3px 6px; }
+.session-btn { font-family: inherit; background: none; border: 1px solid var(--color-iron); color: var(--color-fog); padding: 4px 10px; cursor: pointer; font-size: var(--text-caption); border-radius: var(--r); }
+.session-btn:hover:not(:disabled) { border-color: var(--color-slate); color: var(--color-paper); }
+.session-btn.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: var(--weight-bold); }
+.session-btn:disabled { opacity: .5; cursor: default; }
 .zoombar button { font-family: inherit; width: 22px; height: 22px; line-height: 1; background: none; border: 1px solid var(--color-iron); color: var(--color-fog); border-radius: var(--r); cursor: pointer; font-size: 14px; display: grid; place-items: center; }
 .zoombar button:hover:not(:disabled) { border-color: var(--color-ember); color: var(--color-ember); }
 .zoombar button:disabled { opacity: .35; cursor: default; }
@@ -300,10 +305,5 @@ defineExpose({
 .placeholder { color: var(--color-steel); font-size: var(--text-caption); }
 
 .statechip { margin-top: 8px; font-size: 10px; color: var(--color-fog); border: 1px solid var(--color-iron); background: rgba(0, 0, 0, .72); padding: 1px 8px; white-space: nowrap; }
-.drivebar { display: flex; gap: 10px; align-items: center; padding: 10px 0; }
-.drivebar button { font-family: inherit; background: none; border: 1px solid var(--color-iron); color: var(--color-fog); padding: var(--s-1) var(--s-2); cursor: pointer; font-size: var(--text-caption); border-radius: var(--r); }
-.drivebar button:hover:not(:disabled) { border-color: var(--color-slate); color: var(--color-paper); }
-.drivebar button.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: var(--weight-bold); }
-.drivebar button:disabled { opacity: .5; cursor: default; }
 .err { color: var(--color-paper); font-size: var(--text-caption); }
 </style>
