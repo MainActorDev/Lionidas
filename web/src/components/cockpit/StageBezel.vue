@@ -10,6 +10,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useDeviceStream, canvasPointToLogical } from '../../composables/deviceStream.ts';
 import { loadBezelDefinition, type BezelDefinition } from '../../composables/simdeckChrome.ts';
 import InspectOverlay from '../InspectOverlay.vue';
+import StreamShimmer from './StreamShimmer.vue';
 import InspectRedlines from '../InspectRedlines.vue';
 import { hitTestNodeAt, type AxNode } from '@crucible/shared/ax-tree';
 
@@ -236,6 +237,7 @@ defineExpose({
         :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
                   width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%`,
                   borderRadius: `${bezelDef.screenRadius.pctW}% / ${bezelDef.screenRadius.pctH}%` }"></canvas>
+      <StreamShimmer :state="stream.state.value" :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`, width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%`, borderRadius: `${bezelDef.screenRadius.pctW}% / ${bezelDef.screenRadius.pctH}%` }" />
       <InspectOverlay v-if="inspect && sessionId" :nodes="overlayNodesC" :logical-w="overlayWC" :logical-h="overlayHC"
         :hover="hoverNode" :selected="(selNodeC as never)" :visible="overlayVisibleC"
         :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
@@ -263,6 +265,7 @@ defineExpose({
     <div v-else class="bezel-bare">
       <div class="screen">
           <canvas v-show="stream.state.value !== 'idle'" :ref="stream.setCanvas" @click="onTap" />
+        <StreamShimmer :state="stream.state.value" />
         <div v-if="stream.state.value === 'failed'" class="failbox">
           <span>{{ stream.failure.value || 'stream failed' }}</span>
           <button v-if="stream.retryable.value" type="button" @click="stream.retry()">retry</button>
