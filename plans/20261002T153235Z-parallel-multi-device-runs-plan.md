@@ -2,7 +2,7 @@
 
 - Source: `brainstorm/20261002T153235Z-parallel-multi-device-runs.md` (Direction selected, `54fac6a`)
 - Created: 2026-10-02T16:45:00Z
-- Status: Ready
+- Status: Ready (rev 2 — review `reviews/20261002T153235Z-parallel-multi-device-runs-plan-review.md` applied: F1 drop prune code-change, F2 route fix, F3 per-device template guard, F4 sessions API, F5 heartbeat decision, F6 :key-remount shape)
 
 ## Decision log
 
@@ -37,7 +37,9 @@ Measurable: two booted sims — take control on A, switch to B, take control on 
 
 ## Requirements
 
-### R1 — Per-device control state (cockpit)
+### R1 — Per-device control state (cockpit) + sessions API (review F4/F5/F6)
+- Server: `GET /api/manual/sessions` (operator-gated) → `{ sessions: [{ id, udid, operator, startedAt, lastActivity }] }`; cockpit hydrates the map on mount + device refresh; revisited tab whose session was watchdog-reaped shows the session-lost state (probe from this list — no per-switch ping).
+- Heartbeat (F5 decision): page-level loop pings `/api/manual/:id/heartbeat` every 30s for ALL map entries while the cockpit is open — background sessions stay alive (the "control persists" semantic); closing a device's tab releases its entry.
 - `StageBezel` stops owning one `sessionId`; the page holds `Map<udid, {sessionId, startedAt, dims}>` (a `useDeviceSessions` composable).
 - Switching tabs rebinds the stage to that map entry: session chip, heartbeat, tap routing, release button all read the active entry.
 - Take-control on a device with an existing live entry reuses/refreshes it (supersede, not duplicate).
@@ -45,35 +47,36 @@ Measurable: two booted sims — take control on A, switch to B, take control on 
 - Switcher dot marks tabs holding a live session (live dot exists; extend to session state).
 - Watchdog honesty: if a background session expires (5-min idle), the tab shows "session expired — take control again" when revisited (probe on activation, not on every switch — one `/record`-style lightweight check or reuse heartbeat state).
 
-### R2 — Same-ticket evidence isolation
-- `prunePreviousRunArtifacts` currently keys on ticketKey only (`alloy/runner.ts:89`): running ticket T on devices A and B concurrently lets B's prune delete A's in-flight artifacts.
-- Change the prune to skip runs that are `queued/running` (only prune finished runs' artifacts), which is the minimal correct fix and also protects re-runs. Verify no test depends on pruning active runs.
+### R2 — Same-ticket evidence isolation (NO code change needed — review F1)
+- Review grounding: `evidence/retention.ts:29-31` already prunes only FINISHED runs (`finished_at IS NOT NULL`), and `evidence-retention.test.ts:60` pins "never prunes a still-running previous run". Same-ticket parallel runs are evidence-safe today. The parallel-runs drill (R3) must assert both runs' evidence survives, as the regression net.
 
 ### R3 — Parallel runs verified
 - Drill (manual, then automated test): queue the same smoke case on two booted devices; assert both rows reach `running` with overlapping timestamps and both finish `passed`/`failed` honestly.
 - Regression test at the dispatcher level: two specs, different udids → both dispatch without waiting (fake runner clock).
 
-### R4 — Fan-out UX
-- `POST /api/queue` accepts `udids: string[]` (or `allBooted: true`) → one queue entry per device, same spec otherwise.
-- Console/cockpit: a "run on all booted devices" action in the run-case picker (cockpit) — creates N queue entries and toasts "queued on N devices".
-- Wall/runs view already renders per-device rows; no change needed there.
+### R4 — Fan-out UX (route corrected per review F2/F3)
+- `POST /api/runs` (the real enqueue route, `routes/runs.ts:24`, operator-gated) accepts `udids: string[]` or `allBooted: true` → pre-flight validation once, device-existence per udid, one `enqueue` per device; response `{ queueIds: [...] }` (202). Single-`udid` body keeps working unchanged.
+- Same-template guard becomes per-device: `manual/playback.ts:423` adds `AND device_udid = ?` — different devices may run the same template concurrently (that is the feature); check its test's intent and update the test.
+- Cockpit play-case picker gains "all booted devices" — calls the fan-out and toasts "queued on N devices".
 
 ## Architecture / touch points
 
 | Area | Files | Change |
 |---|---|---|
-| Session map | `web/src/composables/deviceSessions.ts` (new), `CockpitPage.vue`, `StageBezel.vue` | page owns map; stage becomes stateless rebinder (props: session entry + emit) |
+| Session map | `web/src/composables/deviceSessions.ts` (new), `CockpitPage.vue`, `StageBezel.vue` | page owns durable map + heartbeat loop; stage remounts per udid via `:key` (F6) |
+| Sessions API | `server/src/routes/manual.ts` | `GET /api/manual/sessions` (operator-gated) |
+| Template guard | `server/src/manual/playback.ts:423` | per-device scope |
+| Fan-out route | `server/src/routes/runs.ts` | `udids[]` / `allBooted` → N enqueues |
 | Prune guard | `server/src/alloy/runner.ts` | prune only runs not in `queued/running` |
 | Queue fan-out | `server/src/routes/runs.ts` (`/api/queue`), queue store | accept `udids[]`/`allBooted`; loop existing insert |
 | Cockpit picker | `CockpitPage.vue` play-case modal | multi-select devices or "all booted" toggle |
 | Tests | `server/test/queue*.test.ts`, new `web deviceSessions` unit, runner prune test | per R2/R3 |
 
-## Stages
+## Stages (rev 2 — R2 dropped as code work, session map promoted to Stage 1)
 
-1. **R2 prune guard + test** (small, unblocks R3 same-ticket drill).
-2. **R1 cockpit session map** (the operator's immediate pain) + unit tests + live two-tab drill.
-3. **R3 parallel-runs drill** (two devices, overlapping runs) + dispatcher regression test.
-4. **R4 fan-out API + cockpit action** + tests.
+1. **R1 cockpit session map + sessions API + heartbeat** (the operator's immediate pain) + unit tests + live two-tab drill. Implementation shape (F6): the page owns the durable `Map<udid, session>`; StageBezel may keep local per-mount state, remounted via `:key="activeUdid"` — switching tabs reconstructs stage-local state while the map holds the handles. Acceptance stays behavior-level.
+2. **R3 parallel-runs drill** (two devices, overlapping runs; assert BOTH runs' evidence intact = R2 net) + dispatcher regression test.
+3. **R4 fan-out** — `POST /api/runs` multi-device + per-device template guard + cockpit picker action + tests.
 Each stage lands independently green (tests + build); commit per stage.
 
 ## Failure cases
