@@ -17,6 +17,10 @@ export interface ConfigToolDeps {
 interface SuiteRow { id: string; name: string; description: string | null; app_bundle_id: string | null; created_by: string; created_at: number; updated_at: number }
 interface MemberRow { suite_id: string; template_id: string; variant_ids_json: string | null; position: number }
 
+function safeParse(json: string): unknown {
+  try { return JSON.parse(json); } catch { return null; }
+}
+
 function suiteOutLite(db: Database.Database, r: SuiteRow): Record<string, unknown> {
   const members = (db.prepare('SELECT * FROM suite_members WHERE suite_id = ? ORDER BY position').all(r.id) as MemberRow[]).map((m) => {
     const t = db.prepare('SELECT id, name, app_bundle_id FROM templates WHERE id = ?').get(m.template_id) as { id: string; name: string; app_bundle_id: string | null } | undefined;
@@ -726,6 +730,76 @@ export function registerConfigTools(deps: ConfigToolDeps): void {
       const refErr = resolveCaseRefs(db, c as never, c.app ?? null);
       if (refErr) return `INVALID: ${refErr}`;
       return JSON.stringify({ ok: true });
+    },
+  });
+
+
+  // ── unlocked gates (tool-surface steps_003; F3: Option A full-list + revision echo) ──
+
+  registry.register({
+    name: 'screens.draft.save',
+    description: 'write an app screen registry: requires the FULL screen list and the CURRENT revision echo (fetch screens.registry first). Refuses to DROP existing screens; stale revisions get the current one back for retry. Login recipes are app-level and never touched.',
+    permission: 'draft',
+    parameters: {
+      type: 'object',
+      properties: {
+        appBundle: { type: 'string' },
+        revision: { type: 'number', description: 'the CURRENT registry revision you fetched (REGISTRY_STALE refusal returns the live one)' },
+        screens: { type: 'array', items: { type: 'object' }, description: 'FULL list: [{id, entry:{navigate:[steps]}, states:{name:{all:[sel]}}}]' },
+      },
+      required: ['appBundle', 'screens'],
+    },
+    async execute(args) {
+      const bundle = String(args['appBundle'] ?? '');
+      if (!bundle) return 'INVALID: appBundle required';
+      if (typeof args['revision'] !== 'number') return 'INVALID: revision is required (echo the current registry revision — fetch with screens.registry)';
+      const screens = args['screens'];
+      const { validateRegistry } = await import('@crucible/shared/app-screens');
+      const errors = validateRegistry(screens);
+      if (errors.length > 0) return `INVALID: ${errors.join('; ')}`;
+      // Option A full-list rule: never silently DROP screens
+      const currentIds = new Set((db.prepare('SELECT screen_id FROM app_screens WHERE app_bundle_id = ?').all(bundle) as Array<{ screen_id: string }>).map((r) => r.screen_id));
+      const submittedIds = new Set((screens as Array<{ id: string }>).map((s) => s.id));
+      const dropped = [...currentIds].filter((id) => !submittedIds.has(id));
+      if (dropped.length > 0) return `INVALID: refused — this write would DROP screens: ${dropped.join(', ')}. Submit the FULL list (fetch with screens.registry, edit, resubmit).`;
+      // stale check (F3): COALESCE(MAX(revision),1)
+      const cur = (db.prepare('SELECT COALESCE(MAX(revision), 1) AS r FROM app_screens WHERE app_bundle_id = ?').get(bundle) as { r: number }).r;
+      if (args['revision'] !== cur) {
+        return `INVALID: registry changed while you were editing (REGISTRY_STALE) — current revision is ${cur}; fetch screens.registry and resubmit`;
+      }
+      // replaceRegistry mirror: delete-then-insert at cur+1, one transaction
+      const now = Date.now();
+      const next = cur + 1;
+      const tx = db.transaction(() => {
+        db.prepare('DELETE FROM app_screens WHERE app_bundle_id = ?').run(bundle);
+        const ins = db.prepare('INSERT INTO app_screens(app_bundle_id, screen_id, entry_json, refresh_json, states_json, updated_at, revision) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        for (const s of screens as Array<{ id: string; entry: unknown; refresh?: unknown; states: unknown }>) {
+          ins.run(bundle, s.id, JSON.stringify(s.entry ?? { navigate: [] }), s.refresh ? JSON.stringify(s.refresh) : null, JSON.stringify(s.states ?? {}), now, next);
+        }
+      });
+      tx();
+      return JSON.stringify({ appBundle: bundle, revision: next, count: (screens as unknown[]).length });
+    },
+  });
+
+  registry.register({
+    name: 'recipes.get',
+    description: 'read an app login/logout recipes (app-level, revisioned). Route shape: {login: <recipe|null>, revision}; absent → null, not an error.',
+    permission: 'read',
+    parameters: { type: 'object', properties: { appBundle: { type: 'string' }, kind: { type: 'string', enum: ['login', 'logout'] } }, required: ['appBundle'] },
+    async execute(args) {
+      const bundle = String(args['appBundle'] ?? '');
+      const kind = args['kind'] === 'login' || args['kind'] === 'logout' ? args['kind'] : null;
+      const out: Record<string, unknown> = {};
+      if (kind !== 'logout') {
+        const row = db.prepare('SELECT login_json, revision FROM app_login WHERE bundle_id = ?').get(bundle) as { login_json: string; revision: number } | undefined;
+        out['login'] = row ? { login: safeParse(row.login_json), revision: row.revision } : { login: null, revision: 1 };
+      }
+      if (kind !== 'login') {
+        const row = db.prepare('SELECT logout_json, revision FROM app_logout WHERE bundle_id = ?').get(bundle) as { logout_json: string; revision: number } | undefined;
+        out['logout'] = row ? { logout: safeParse(row.logout_json), revision: row.revision } : { logout: null, revision: 1 };
+      }
+      return JSON.stringify(out);
     },
   });
 

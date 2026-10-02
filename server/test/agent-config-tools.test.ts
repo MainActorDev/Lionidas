@@ -460,5 +460,51 @@ describe.skipIf(!hasButler)('config tools (read + write, route-faithful)', () =>
     expect(stillAfter).toBe(before);
   });
 
+  // ── Tool-surface Step 3: screens registry write + recipes (F3 revision arithmetic) ──
+
+  const SCR = (id: string): Record<string, unknown> => ({ id, entry: { navigate: [{ on: `${id}_root` }] }, states: { default: { all: [{ identifier: `${id}_view` }] } } });
+
+  it('screens.draft.save: fresh bundle lands revision 2; registry shows screens', async () => {
+    const out = JSON.parse(await exec('screens.draft.save', { appBundle: 'com.fresh.app', revision: 1, screens: [SCR('alpha'), SCR('beta')] }, DRAFT)) as Record<string, unknown>;
+    expect(out['revision']).toBe(2); // F3: current read 1 (COALESCE), first write lands 2
+    expect(out['count']).toBe(2);
+    const reg = JSON.parse(await exec('screens.registry', { appBundle: 'com.fresh.app' })) as Array<Record<string, unknown>>;
+    expect(reg.map((r) => r['screen_id']).sort()).toEqual(['alpha', 'beta']);
+  });
+
+  it('omission refusal: dropping an existing screen is refused, rows unchanged', async () => {
+    const before = db.prepare('SELECT COUNT(*) n FROM app_screens WHERE app_bundle_id = ?').get('com.fresh.app') as { n: number };
+    const out = await exec('screens.draft.save', { appBundle: 'com.fresh.app', revision: 2, screens: [SCR('alpha')] }, DRAFT);
+    expect(out).toMatch(/^INVALID: refused — this write would DROP screens/);
+    expect(out).toContain('beta');
+    const after = db.prepare('SELECT COUNT(*) n FROM app_screens WHERE app_bundle_id = ?').get('com.fresh.app') as { n: number };
+    expect(after.n).toBe(before.n);
+  });
+
+  it('stale revision → verbatim REGISTRY_STALE with current revision; echo-retry succeeds', async () => {
+    const stale = await exec('screens.draft.save', { appBundle: 'com.fresh.app', revision: 1, screens: [SCR('alpha'), SCR('beta')] }, DRAFT);
+    expect(stale).toBe('INVALID: registry changed while you were editing (REGISTRY_STALE) — current revision is 2; fetch screens.registry and resubmit');
+    const retry = JSON.parse(await exec('screens.draft.save', { appBundle: 'com.fresh.app', revision: 2, screens: [SCR('alpha'), SCR('beta'), SCR('gamma')] }, DRAFT)) as Record<string, unknown>;
+    expect(retry['revision']).toBe(3);
+    expect(retry['count']).toBe(3);
+  });
+
+  it('missing revision + invalid screen → verbatim', async () => {
+    expect(await exec('screens.draft.save', { appBundle: 'com.fresh.app', screens: [SCR('alpha')] }, DRAFT)).toBe('INVALID: revision is required (echo the current registry revision — fetch with screens.registry)');
+    const bad = await exec('screens.draft.save', { appBundle: 'com.fresh.app', revision: 3, screens: [{ id: 'x', bogus: true }] }, DRAFT);
+    expect(bad).toMatch(/^INVALID: /);
+    expect(bad).toMatch(/unknown key|screen 1/);
+  });
+
+  it('recipes.get: seeded login returned; absent → honest null (route shape)', async () => {
+    db.prepare(`INSERT INTO app_login(bundle_id, login_json, revision, updated_at) VALUES ('com.fresh.app', ?, 3, ?)`).run(JSON.stringify({ steps: [{ tap: { on: 'login_button' } }] }), Date.now());
+    const got = JSON.parse(await exec('recipes.get', { appBundle: 'com.fresh.app' })) as Record<string, unknown>;
+    expect((got['login'] as Record<string, unknown>)['revision']).toBe(3);
+    expect((got['logout'] as Record<string, unknown>)['logout']).toBeNull();
+    // kind filter
+    const only = JSON.parse(await exec('recipes.get', { appBundle: 'com.fresh.app', kind: 'login' })) as Record<string, unknown>;
+    expect(only['logout']).toBeUndefined();
+  });
+
   afterAll(() => { rmSync(dir, { recursive: true, force: true }); });
 });
