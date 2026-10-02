@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>022-C — Device Cockpit · Command-halo stance</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--color-void); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-label); overflow-x: hidden; }
+  button { font-family: inherit; background: none; border: 1px solid var(--color-iron); color: var(--color-fog); padding: var(--s-1) var(--s-2); cursor: pointer; font-size: var(--text-caption); border-radius: var(--r); transition: var(--t); }
+  button:hover { border-color: var(--color-slate); color: var(--color-paper); }
+  button.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: var(--weight-bold); }
+  button.on { border-color: var(--color-ember); color: var(--color-ember); }
+
+  .crumb { position: fixed; top: 12px; left: 16px; color: var(--color-ash); font-size: var(--text-caption); z-index: 10; }
+  .crumb b { color: var(--color-paper); }
+  .devswitch { position: fixed; top: 12px; right: 16px; z-index: 10; display: flex; gap: 6px; }
+  .devswitch .dot { width: 8px; height: 8px; border: 1px solid var(--color-slate); border-radius: 50%; }
+  .devswitch .dot.on { background: var(--color-ember); border-color: var(--color-ember); }
+
+  /* centered device, floating halo of quick actions around the bezel */
+  .stage { position: relative; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 48px 0 20px; }
+  .midzone { position: relative; flex: 1; display: grid; place-items: center; width: 100%; }
+  .bezel { position: relative; width: 330px; height: 620px; margin: 10px 0; background: var(--color-graphite); border: 1px solid var(--color-slate); border-radius: 14px; padding: 10px; z-index: 2; }
+  .screen { width: 310px; height: 598px; background: #0b0f14; border-radius: 4px; overflow: hidden; position: relative; }
+  .app-ui { width:100%; height:100%; background: linear-gradient(180deg,#0d1520,#0a0e14); }
+  .app-ui .bar { height: 42px; border-bottom:1px solid #1d2a38; display:flex; align-items:center; padding:0 14px; color:#7d93ab; font-size:11px; }
+  .app-ui .hero { padding: 20px 14px; color:#cfe0f0; }
+  .app-ui .hero .big { font-size: 20px; font-weight: 700; }
+  .app-ui .hero .sub { color:#7d93ab; margin-top:4px; font-size:12px; }
+  .app-ui .cta { margin: 16px auto 0; width: 124px; height: 36px; background:#e8590c; color:#fff; border-radius:4px; display:grid; place-items:center; font-size:13px; }
+  .chip { position:absolute; top:8px; right:8px; border:1px solid var(--color-ember); color:var(--color-ember); background:rgba(0,0,0,.72); font-size:10px; padding:1px 6px; }
+
+  /* halo clusters: absolutely placed around the bezel */
+  .halo { position: absolute; display: flex; flex-direction: column; gap: 6px; z-index: 3; }
+  .halo.left  { position: absolute; right: calc(50% + 165px + 24px); top: 50%; transform: translateY(-50%); align-items: flex-end; }
+  .halo.right { position: absolute; left: calc(50% + 165px + 24px); top: 50%; transform: translateY(-50%); }
+  .halo.top { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); flex-direction: row; }
+  .halo.bottom{ left: 50%; bottom: 26px; transform: translateX(-50%); flex-direction: row; }
+  .hb { display:flex; flex-direction:column; gap:2px; background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r); padding: 6px 10px; cursor: pointer; transition: var(--t); min-width: 120px; }
+  .hb:hover { border-color: var(--color-slate); }
+  .hb .t { font-size: 11px; color: var(--color-paper); }
+  .hb .s { font-size: 10px; color: var(--color-ash); }
+  .hb .s em { color: var(--color-ember); font-style: normal; }
+  .hb.active { border-color: var(--color-ember); }
+
+  /* docked watcher cards at bottom */
+  .dock { display: flex; gap: 10px; z-index: 4; margin-top: 8px; }
+  .card { width: 280px; background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r); font-size: 11px; }
+  .card h4 { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--color-ash); padding: 8px 10px; border-bottom: 1px solid var(--color-iron); display:flex; justify-content:space-between; }
+  .card .bd { padding: 8px 10px; }
+  .srow { display:flex; gap:6px; padding:1px 0; color: var(--color-ash); }
+  .srow.done { color: var(--color-fog); } .srow.done::before{content:"✓";color:var(--color-paper);}
+  .srow.live { color: var(--color-ember); } .srow.live::before{content:"◆";}
+  .srow.todo::before{content:"◌";}
+  .cmd { display: flex; gap: 6px; z-index: 4; margin-bottom: 8px; }
+  .cmd input { background: var(--color-carbon); border: 1px solid var(--color-slate); color: var(--color-paper); font-family: inherit; font-size: 12px; padding: 6px 10px; width: 430px; border-radius: var(--r); outline: none; }
+  .hintline { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); color: var(--color-steel); font-size: 10px; }
+</style>
+</head>
+<body>
+  <span class="crumb">lionidas / <b>cockpit</b></span>
+  <span class="hintline">minimal chrome · actions float near the device · watchers dock below</span>
+  <div class="devswitch"><span class="dot on" title="iPhone 15 Pro"></span><span class="dot" title="iPhone 15 intl"></span><span class="dot" title="iPad Pro"></span></div>
+
+  <div class="stage">
+    <div class="cmd">
+      <input placeholder="⌘ play case · set location · activate scenario …" id="cmd">
+      <button class="primary" id="takeBtn">take control</button>
+    </div>
+
+    <div class="midzone">
+    <div class="halo left">
+      <div class="hb" title="device lifecycle"><span class="t">device</span><span class="s">iPhone 15 Pro · <em>booted</em></span></div>
+      <div class="hb" title="app install/launch"><span class="t">app</span><span class="s">LP Consumer 2.14.1</span></div>
+      <div class="hb" title="network scenario"><span class="t">network</span><span class="s"><em>countries-sg</em> · batam</span></div>
+      <div class="hb" title="location + env"><span class="t">location</span><span class="s">Jakarta · 3 env</span></div>
+    </div>
+
+    <div class="bezel"><div class="screen">
+      <div class="chip">MANUAL · 42m</div>
+      <div class="app-ui">
+        <div class="bar">9:41 ○○○ ⌁ Lion Parcel</div>
+        <div class="hero"><div class="big">Kirim paket</div><div class="sub">Dari lokasi kamu</div></div>
+        <div class="cta">Bayar Sekarang</div>
+      </div>
+    </div></div>
+
+    <div class="halo right">
+      <div class="hb" title="session state"><span class="t">session</span><span class="s"><em>manual:ms_9f2</em> · 428×926</span></div>
+      <div class="hb" title="watchdog"><span class="t">idle</span><span class="s">watchdog 3m 12s</span></div>
+      <div class="hb" title="captures"><span class="t">captures</span><span class="s">12 shots · 2 clips</span></div>
+      <div class="hb" title="recent failures"><span class="t">last failure</span><span class="s">ensure login · 2d ago</span></div>
+    </div>
+
+    </div><!-- /midzone -->
+
+    <div class="dock">
+      <div class="card"><h4>run watch · countries-sg smoke <span>4/7</span></h4><div class="bd">
+        <div class="srow done">arrive home</div>
+        <div class="srow done">tap check tariff</div>
+        <div class="srow live">expect list · 2 entries</div>
+        <div class="srow todo">tap first result</div>
+      </div></div>
+      <div class="card"><h4>traffic · forge <span>live</span></h4><div class="bd">
+        <div class="srow live">GET /destination-recommendation → 200</div>
+        <div class="srow done">POST /login → 204</div>
+      </div></div>
+    </div>
+  </div>
+
+<script>
+  document.querySelectorAll('.hb').forEach(b => b.onclick = () => { document.querySelectorAll('.hb').forEach(x => x.classList.remove('active')); b.classList.add('active'); });
+  document.querySelector('#inspect').onclick = (e) => e.target.classList.toggle('on');
+  document.querySelector('#takeBtn').onclick = (e) => { e.target.classList.toggle('primary'); e.target.textContent = e.target.textContent === 'take control' ? 'release' : 'take control'; };
+  document.querySelector('#cmd').onkeydown = (e) => { if (e.key === 'Enter') { e.target.value = ''; e.target.blur(); } };
+</script>
+</body>
+</html>
