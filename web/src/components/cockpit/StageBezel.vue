@@ -252,6 +252,34 @@ async function onTap(e: MouseEvent): Promise<void> {
   } finally { busy.value = false; }
 }
 
+// ── wheel scroll → the SIM owns it (operator directive 2026-10-03) ──
+// Inside the device screen the wheel must never scroll the PAGE (the stage
+// scrolls when zoomed past fit — that stays available OUTSIDE the bezel).
+// Pixel deltas go straight to the session's scroll-delta (finer than the
+// old direction scroll); threshold + single-flight keep one gesture = one
+// dispatch, mirroring the old DrivePage accumulator.
+let wheelAccum = 0;
+let wheelBusy = false;
+async function onWheel(e: WheelEvent): Promise<void> {
+  if (!(e.target instanceof HTMLCanvasElement)) return;
+  // the sim owns the wheel inside the screen — the page must not scroll,
+  // even with no live session yet (nothing to send, still swallowed)
+  e.preventDefault();
+  if (!sessionId.value) return;
+  wheelAccum += e.deltaY;
+  if (wheelBusy || Math.abs(wheelAccum) < 40) return;
+  const dy = Math.round(wheelAccum);
+  wheelAccum = 0;
+  wheelBusy = true;
+  try {
+    const r = await api(`${sessionId.value}/scroll-delta`, { deltaX: 0, deltaY: dy });
+    if (r['error']) {
+      error.value = String(r['error']);
+      if (String(r['code']) === 'LEASE_LOST' || String(r['code']) === 'SESSION_NOT_FOUND') endSession();
+    } else await fastPathFrame();
+  } finally { wheelBusy = false; }
+}
+
 // ── bezel hardware buttons: hover pop-out + press dispatch (as DeviceSidebar) ──
 const hoverBtn = ref('');
 const pressedBtn = ref('');
@@ -312,7 +340,8 @@ defineExpose({
     <!-- the REAL bezel: PNG body + % screen rect + hardware buttons -->
     <div v-if="bezelDef" ref="bezelWrapEl" class="bezel-wrap" :class="{ ready: chromeReady }">
       <img class="bezel-img" :src="bezelDef.bezel.url" :width="bezelDef.bezel.width" :height="bezelDef.bezel.height" alt="" draggable="false" />
-      <canvas v-show="stream.state.value !== 'idle'" :ref="stream.setCanvas" class="bezel-screen" :class="{ 'no-session': !sessionId, inspecting: inspect }" tabindex="0" @click="onTap" @mousemove="onCanvasMove" @mouseleave="onCanvasLeave"
+      <canvas v-show="stream.state.value !== 'idle'" :ref="stream.setCanvas" class="bezel-screen"
+        @wheel="onWheel" :class="{ 'no-session': !sessionId, inspecting: inspect }" tabindex="0" @click="onTap" @mousemove="onCanvasMove" @mouseleave="onCanvasLeave"
         :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
                   width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%`,
                   borderRadius: `${bezelDef.screenRadius.pctW}% / ${bezelDef.screenRadius.pctH}%` }"></canvas>

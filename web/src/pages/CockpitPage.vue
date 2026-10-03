@@ -113,7 +113,7 @@ const bootErr = ref('');
 
 // ── run-app modal (app menu) — installed apps of the ACTIVE simulator ──
 const runAppOpen = ref(false);
-interface InstalledApp { bundleId: string; name: string; version: string | null; running: boolean }
+interface InstalledApp { bundleId: string; name: string; version: string | null; running: boolean; userFacing?: boolean }
 const runAppApps = ref<InstalledApp[]>([]);
 const runAppLoaded = ref(false);
 const runAppPick = ref('');
@@ -128,7 +128,10 @@ async function openRunApp(): Promise<void> {
     const b = (await r.json()) as { apps?: InstalledApp[]; error?: string };
     if (!r.ok || b.error) { runAppErr.value = b.error ?? 'app catalog failed'; return; }
     // the catalog includes Apple system apps; user apps first, system after
-    const list = b.apps ?? [];
+    // server classifies user-facing apps (wallpaper engines, accessibility
+    // daemons, SpringBoard plumbing are NOT openable in any visible sense);
+    // user apps first, then real system apps (Safari, Settings…)
+    const list = (b.apps ?? []).filter((a) => a.userFacing !== false);
     const user = list.filter((a) => !a.bundleId.startsWith('com.apple.'));
     const sys = list.filter((a) => a.bundleId.startsWith('com.apple.'));
     runAppApps.value = [...user, ...sys];

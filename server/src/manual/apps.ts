@@ -19,6 +19,12 @@ export interface AppInfo {
   path: string;
   iconPath: string | null;
   running: boolean;
+  /** True for apps a human can meaningfully OPEN (user apps + real system
+   *  apps like Safari/Settings). False for wallpaper/poster engines,
+   *  accessibility daemons, and system plumbing (SpringBoard, bridges,
+   *  previews) — they appear in simctl listapps but 'running' one does
+   *  nothing visible. The cockpit run-app modal filters on this. */
+  userFacing: boolean;
 }
 
 interface RawApp {
@@ -64,9 +70,35 @@ export async function listSimulatorApps(udid: string): Promise<AppInfo[]> {
       path: a.Path,
       iconPath: findIcon(a.Path, a.CFBundleIconFiles),
       running: foreground.has(bundleId),
+      userFacing: isUserFacing(bundleId, a.Path),
     });
   }
   return apps.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** User-facing classifier for the run-app modal: bundles that are real apps
+ *  vs system machinery that merely appears in the catalog. Poster/wallpaper
+ *  engines and accessibility/UI daemons are identifiable by bundle id; for
+ *  anything else, the bundle's own Info.plist is authoritative
+ *  (LSUIAgent/LSBackgroundOnly = agent, not an app). Plist read failures
+ *  default to user-facing (better one odd entry than a hidden real app). */
+const NON_USER_FACING_BUNDLE_PATTERNS = [
+  /^com\.apple\.Posters\./,        // lock-screen poster engines (Kaleidoscope, Unity, Weather…)
+  /Poster(App)?$/i,                  // EmojiPoster, GradientPoster, PridePoster…
+  /AegirProxyApp$/,                  // Astronomy proxy
+  /^com\.apple\.(assistivetouchd|fullkeyboardaccess|commandandcontrol|VoiceOverTouch|livetranscriptionui|EscrowSecurityAlert|SystemIntents|ShortcutsActions|CarPlayApp|Bridge|webapp|PreviewShell|springboard|GradientPoster)$/i,
+];
+
+export function isUserFacing(bundleId: string, appPath: string | undefined): boolean {
+  if (!bundleId.startsWith('com.apple.')) return true; // user apps are always real
+  for (const re of NON_USER_FACING_BUNDLE_PATTERNS) if (re.test(bundleId)) return false;
+  if (!appPath) return true;
+  try {
+    const json = execFileSync('plutil', ['-convert', 'json', '-o', '-', join(appPath, 'Info.plist')], { maxBuffer: 1024 * 1024 }).toString();
+    const p = JSON.parse(json) as { LSUIAgent?: unknown; LSBackgroundOnly?: unknown };
+    if (p.LSUIAgent === true || p.LSBackgroundOnly === true) return false;
+  } catch { /* unreadable plist — default user-facing */ }
+  return true;
 }
 
 /** CFBundleShortVersionString from an app bundle's Info.plist ('' on failure). */
