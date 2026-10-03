@@ -24,11 +24,16 @@ const emit = defineEmits<{ (e: 'switch', id: string): void }>();
     <div class="railbody">
       <slot />
     </div>
+    <!-- supplementary overlay (OverlayPanel/ToolsDrawer): covers the WHOLE
+         rail INCLUDING the tab strip — operator directive after the locked
+         sketch ('they should cover also the watch and chat tabbed menu').
+         The overlay owns dismissal; tabs return when it closes. -->
+    <slot name="overlay" />
   </div>
 </template>
 
 <style scoped>
-.rail { background: var(--color-carbon); border-left: 1px solid var(--color-iron); display: flex; flex-direction: column; min-height: 0; }
+.rail { position: relative; background: var(--color-carbon); border-left: 1px solid var(--color-iron); display: flex; flex-direction: column; min-height: 0; }
 .railtabs { display: flex; border-bottom: 1px solid var(--color-iron); }
 .rtab { flex: 1; padding: 8px 0; text-align: center; font-size: var(--text-caption); color: var(--color-ash); cursor: pointer; border-bottom: 2px solid transparent; text-transform: uppercase; letter-spacing: .08em; }
 .rtab:hover { color: var(--color-paper); }

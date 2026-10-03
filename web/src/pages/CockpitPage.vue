@@ -344,16 +344,19 @@ void live;
         @session-state="onSessionState" @inspect-click="onInspectClick"
         @session-acquired="onSessionAcquired" @session-dropped="onSessionDropped" />
       <div v-else class="empty">no booted devices — boot one from the device menu</div>
-      <WatcherPanel :tabs="[{ id: 'watch', label: 'watch' }, { id: 'chat', label: 'chat' }]" :active="railTab" :class="{ dimmed: !!overlay }" @switch="railTab = $event">
+      <WatcherPanel :tabs="[{ id: 'watch', label: 'watch' }, { id: 'chat', label: 'chat' }]" :active="railTab" @switch="railTab = $event">
         <WatchPane v-show="railTab === 'watch'" :udid="activeUdid" :session-id="sessionOn" :dims="dims" />
         <ChatPane v-show="railTab === 'chat'" :udid="activeUdid" :device-name="activeName" :screen-state="screenState" :scenario="activeScenario" />
-        <!-- supplementary overlays — ONE at a time, covering the rail content -->
-        <OverlayPanel v-if="overlay === 'env'" title="environment" icon="◔" :badge="activeScenario ? '1 active' : '· none'" @close="overlay = null">
-          <EnvPanelContent @scenario="activeScenario = $event" />
-        </OverlayPanel>
-        <ToolsDrawer v-if="overlay === 'inspect'" ref="toolsRef" :open="overlay === 'inspect'" :udid="activeUdid" :session-id="sessionOn"
-          @close="overlay = null; toolsOpen = false"
-          @inspect-enabled="(on) => { stage?.setInspect(on); }" />
+        <template #overlay>
+          <!-- supplementary overlays — ONE at a time, covering the ENTIRE rail
+               (tabs included) per operator directive -->
+          <OverlayPanel v-if="overlay === 'env'" title="environment" icon="◔" :badge="activeScenario ? '1 active' : '· none'" @close="overlay = null">
+            <EnvPanelContent @scenario="activeScenario = $event" />
+          </OverlayPanel>
+          <ToolsDrawer v-if="overlay === 'inspect'" ref="toolsRef" :open="overlay === 'inspect'" :udid="activeUdid" :session-id="sessionOn"
+            @close="overlay = null; toolsOpen = false"
+            @inspect-enabled="(on) => { stage?.setInspect(on); }" />
+        </template>
       </WatcherPanel>
     </div>
 
@@ -425,7 +428,6 @@ void live;
 
 <style scoped>
 .cockpit { display: flex; flex-direction: column; height: 100vh; position: relative; background: var(--color-void); }
-.rail.dimmed :deep(.railtabs) { opacity: .35; pointer-events: none; }
 .frame { flex: 1; display: grid; grid-template-columns: 1fr 320px; min-height: 0; position: relative; background: var(--color-carbon); border-top: 1px solid var(--color-iron); }
 .empty { display: grid; place-items: center; color: var(--color-steel); font-size: var(--text-caption); }
 .pane { display: flex; flex-direction: column; min-height: 0; }
