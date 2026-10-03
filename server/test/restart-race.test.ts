@@ -10,10 +10,11 @@ import { registerDeviceRoutes } from '../src/routes/devices.ts';
 
 function makeDb(withDevice = true): Database.Database {
   const db = new Database(':memory:');
-  db.exec(`CREATE TABLE devices (udid TEXT PRIMARY KEY, name TEXT, kind TEXT, state TEXT, os_version TEXT, last_seen INTEGER);
+  db.exec(`CREATE TABLE devices (udid TEXT PRIMARY KEY, name TEXT, kind TEXT, state TEXT, platform TEXT, os_version TEXT, resolution TEXT, lease_holder TEXT, lease_engine TEXT, last_seen INTEGER);
+           CREATE TABLE device_pins (user_id TEXT, udid TEXT, pinned_at INTEGER);
            CREATE TABLE runs (id TEXT PRIMARY KEY, ticket_key TEXT, kind TEXT, status TEXT, triggered_by TEXT, device_udid TEXT, started_at INTEGER, finished_at INTEGER, note TEXT);
            CREATE TABLE manual_sessions (id TEXT PRIMARY KEY, run_id TEXT, udid TEXT, operator TEXT, logical_w INTEGER, logical_h INTEGER, started_at INTEGER, last_activity INTEGER, finished_at INTEGER, app_bundle_id TEXT, recording_json TEXT);`);
-  if (withDevice) db.prepare(`INSERT INTO devices (udid, name, kind, state, os_version, last_seen) VALUES ('SIM-R', 'iPhone R', 'simulator', 'Booted', '26.4', ?)`).run(Date.now());
+  if (withDevice) db.prepare(`INSERT INTO devices (udid, name, kind, state, platform, os_version, last_seen) VALUES ('SIM-R', 'iPhone R', 'simulator', 'Booted', 'ios', '26.4', ?)`).run(Date.now());
   return db;
 }
 
@@ -69,6 +70,22 @@ describe('POST /api/devices/:udid/power restart', () => {
     expect(state.state).toBe('Booted');
     await app.close(); db.close(); __setAlloyForTest(null);
   }, 30_000);
+
+  it('GET /api/devices flags restarting:true while the cycle runs', async () => {
+    calls.length = 0;
+    const { app, db, __setAlloyForTest } = await build({ neverFlip: true, holdCycle: true });
+    // fire the restart but don't await — the cycle is held open (neverFlip)
+    const inflight = app.inject({ method: 'POST', url: '/api/devices/SIM-R/power', payload: { action: 'restart' } });
+    await new Promise((r) => setTimeout(r, 300));
+    const list = await app.inject({ method: 'GET', url: '/api/devices' });
+    const row = ((list.json() as { devices: Array<{ udid: string; restarting: boolean }> }).devices ?? []).find((x) => x.udid === 'SIM-R');
+    expect(row?.restarting).toBe(true);
+    await inflight; // completes with 502 (never reached Shutdown)
+    const list2 = await app.inject({ method: 'GET', url: '/api/devices' });
+    const row2 = ((list2.json() as { devices: Array<{ udid: string; restarting: boolean }> }).devices ?? []).find((x) => x.udid === 'SIM-R');
+    expect(row2?.restarting).toBe(false);
+    await app.close(); db.close(); __setAlloyForTest(null);
+  }, 60_000);
 
   it('502 when the device never reaches Shutdown (no silent dead device)', async () => {
     calls.length = 0;

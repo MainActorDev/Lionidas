@@ -46,14 +46,21 @@ let preselectApplied = false;
 // with sub:'restarting' until the cycle completes server-side.
 const restarting = ref(new Set<string>());
 const restartingStartedAt = new Map<string, number>();
+const restartingLocal = new Set<string>();
 const restartingWentDown = new Set<string>();
 function isRestarting(udid: string): boolean { return restarting.value.has(udid); }
 
 async function loadDevices(): Promise<void> {
   try {
     const res = await fetch('/api/devices');
-    const body = await res.json() as { devices?: Array<{ udid: string; name: string | null; state: string | null }> };
+    const body = await res.json() as { devices?: Array<{ udid: string; name: string | null; state: string | null; restarting?: boolean }> };
     const rows = body.devices ?? [];
+    // server-truth restarting (power route holds the whole cycle): ANY page,
+    // ANY session, even after a reload mid-restart sees the state
+    for (const r of rows) {
+      if (r.restarting) { if (!restarting.value.has(r.udid) && !restartingStartedAt.has(r.udid)) restartingStartedAt.set(r.udid, Date.now()); restarting.value = new Set([...restarting.value, r.udid]); }
+      else if (restartingStartedAt.has(r.udid) && !restartingLocal.has(r.udid)) { restarting.value.delete(r.udid); restarting.value = new Set(restarting.value); restartingStartedAt.delete(r.udid); restartingWentDown.delete(r.udid); }
+    }
     const booted = rows.filter((d) => (d.state ?? '').toLowerCase() === 'booted');
     const kept: Array<{ udid: string; name: string; sub: string; live: boolean }> = booted.map((d) => ({
       udid: d.udid, name: d.name ?? d.udid.slice(0, 12),
@@ -74,6 +81,7 @@ async function loadDevices(): Promise<void> {
       const cycleTimedOut = Date.now() - startedAt > 20_000;
       if (bootedAgain && (restartingWentDown.has(udid) || cycleTimedOut)) {
         restartingStartedAt.delete(udid);
+        restartingLocal.delete(udid);
         restarting.value.delete(udid); restartingWentDown.delete(udid);
         continue; // it's in `booted` already with sub flipping to 'idle'
       }
@@ -94,7 +102,14 @@ async function loadDevices(): Promise<void> {
     if (devices.value.length > 0 && !devices.value.some((d) => d.udid === activeUdid.value)) activeUdid.value = devices.value[0]!.udid;
   } catch { devices.value = []; }
 }
-onMounted(async () => { await loadDevices(); });
+onMounted(async () => {
+  await loadDevices();
+  // steady refresh: devices booted elsewhere appear; a mount-time auth race
+  // (first load 401 → empty) heals instead of stranding the page empty
+  devicesTimer = setInterval(() => void loadDevices(), 5_000);
+});
+let devicesTimer: ReturnType<typeof setInterval> | undefined;
+onBeforeUnmount(() => { if (devicesTimer) clearInterval(devicesTimer); });
 
 const activeName = computed((): string => devices.value.find((d) => d.udid === activeUdid.value)?.name ?? '—');
 
@@ -142,6 +157,7 @@ async function power(action: 'boot' | 'shutdown' | 'restart', udid: string = act
         // hold the tab + poll fast through the whole down-and-back cycle
         restarting.value = new Set([...restarting.value, udid]);
         restartingStartedAt.set(udid, Date.now());
+        restartingLocal.add(udid);
         restartingWentDown.delete(udid);
         flash('restarting — the device returns when it\u2019s back');
         void loadDevices();

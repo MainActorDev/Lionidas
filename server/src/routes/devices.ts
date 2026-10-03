@@ -39,6 +39,12 @@ function memoryByUdid(sweep: PsSweep): Map<string, number> {
  *  asynchronously AFTER simctl commands return — the mirror alone is too
  *  stale to sequence restart's shutdown→boot transition. False on timeout —
  *  callers surface, never guess. */
+/** udids with a restart in flight (the power route holds the whole cycle).
+ *  Exposed on GET /api/devices so ANY page can show the restarting state —
+ *  not just the one that clicked the button (found live: cockpit reload
+ *  mid-restart showed nothing; the client-only set lost the state). */
+const restartingInFlight = new Set<string>();
+
 /** test seam: replace the state source (unit tests inject a fake udid→state map) */
 export let __deviceStateSource: ((udid: string, cb: (state: string | null) => void) => void) | null = null;
 export function __setDeviceStateSourceForTest(fn: typeof __deviceStateSource): void { __deviceStateSource = fn; }
@@ -98,6 +104,7 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
       pinned: pinnedSet.has(r.udid as string),
       lastUsed: (r.last_used as number | null) ?? null,
       memoryRss: r.state === 'Booted' ? mem.get(r.udid as string) ?? 0 : null,
+      restarting: restartingInFlight.has(r.udid as string),
     }));
     return { devices };
   });
@@ -160,6 +167,8 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
       return r;
     };
     let r = b.action === 'restart' ? await withLeaseRetry('shutdown') : await withLeaseRetry(b.action as 'boot' | 'shutdown');
+    if (b.action === 'restart') restartingInFlight.add(udid);
+    try {
     if (r.ok && b.action === 'restart') {
       // Restart races TWO async layers (found live 2026-10-03, twice):
       //  1. simctl shutdown returns BEFORE CoreSimulator flips state — the
@@ -190,8 +199,9 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
       const up = await waitForDeviceState(udid, (s) => s === 'Booted', 45_000);
       if (!up) return reply.code(502).send({ error: 'boot failed: device did not reach Booted (45s)' });
     }
-    if (!r.ok) return reply.code(502).send({ error: `${b.action} failed: ${r.error.message}` });
+    if (!r.ok) { if (b.action === 'restart') restartingInFlight.delete(udid); return reply.code(502).send({ error: `${b.action} failed: ${r.error.message}` }); }
     return { ok: true };
+    } finally { if (b.action === 'restart') restartingInFlight.delete(udid); }
   });
 
   // Watch pulse: one screenshot on demand (read-only; never takes a lease).
