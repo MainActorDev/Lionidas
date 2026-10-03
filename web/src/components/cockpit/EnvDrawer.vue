@@ -4,8 +4,6 @@
 import { onMounted, ref } from 'vue';
 
 const scenarios = ref<Array<{ id: string; name: string; active: boolean }>>([]);
-const location = ref('—');
-const envCount = ref<number | null>(null);
 const emit = defineEmits<{ (e: 'scenario', name: string | null): void }>();
 const busy = ref(false);
 const error = ref('');
@@ -43,8 +41,6 @@ async function clearAll(): Promise<void> {
       <span><span class="chk">{{ s.active ? '✓' : '' }}</span>{{ s.name }}</span>
     </div>
     <div class="actions"><button type="button" :disabled="busy" @click="clearAll">clear scenario</button></div>
-    <div class="row"><span class="k">location</span><span class="v">{{ location }}</span></div>
-    <div class="row"><span class="k">env vars</span><span class="v">see env page</span></div>
     <div v-if="error" class="err">{{ error }}</div>
   </div>
 </template>

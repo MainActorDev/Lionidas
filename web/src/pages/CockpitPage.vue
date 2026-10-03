@@ -62,7 +62,7 @@ function flash(msg: string): void { toast.value = msg; setTimeout(() => { if (to
 
 function onMenuEvent(event: string): void {
   if (event === 'exit-console') { void router.push('/'); return; }
-  if (event === 'env-scenario' || event === 'env-vars') { envOpen.value = true; return; }
+  if (event === 'env-scenario') { envOpen.value = true; return; }
   if (event === 'screenshot') void captureScreenshot();
   if (event === 'boot-device') void pickBootDevice();
   if (event === 'restart') void power('restart');

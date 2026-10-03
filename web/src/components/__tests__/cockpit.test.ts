@@ -7,9 +7,9 @@ describe('MenuBar (T1)', () => {
   const status = { sessionLabel: 'MANUAL', deviceName: 'iPhone 15 Pro', liveCount: 3 };
   it('opens one menu, lists items, closes on item pick + emits event', async () => {
     const w = mount(MenuBar, { props: { status } });
-    expect(w.findAll('.menu')).toHaveLength(5);
-    await w.findAll('.menu')[2]!.find('button').trigger('click'); // environment
-    expect(w.findAll('.menu')[2]!.classes()).toContain('open');
+    expect(w.findAll('.menu')).toHaveLength(4);
+    await w.findAll('.menu')[1]!.find('button').trigger('click'); // device
+    expect(w.findAll('.menu')[1]!.classes()).toContain('open');
     // operator trim (2026-10-03): file keeps install+exit; screenshot lives
     // in device as 'take screenshot'; run = 'test case…' only; view = inspect
     // only; no checkmarks anywhere
@@ -18,19 +18,20 @@ describe('MenuBar (T1)', () => {
     expect(fileItems.some((t) => t.includes('open captures'))).toBe(false);
     const deviceItems = [...w.findAll('.menu')[1]!.element.querySelectorAll('.item')].map((e) => e.textContent ?? '');
     expect(deviceItems.some((t) => t.includes('take screenshot'))).toBe(true);
-    const runItems = [...w.findAll('.menu')[3]!.element.querySelectorAll('.item')].map((e) => e.textContent ?? '');
+    expect(deviceItems.some((t) => t.includes('environment'))).toBe(true);
+    const runItems = [...w.findAll('.menu')[2]!.element.querySelectorAll('.item')].map((e) => e.textContent ?? '');
     expect(runItems.some((t) => t.includes('test case'))).toBe(true);
     expect(runItems.some((t) => t.includes('watch active run'))).toBe(false);
-    const viewItems = [...w.findAll('.menu')[4]!.element.querySelectorAll('.item')].map((e) => e.textContent ?? '');
+    const viewItems = [...w.findAll('.menu')[3]!.element.querySelectorAll('.item')].map((e) => e.textContent ?? '');
     expect(viewItems.some((t) => t.includes('chat panel'))).toBe(false);
     expect(viewItems.some((t) => t.includes('watcher rail'))).toBe(false);
     expect(w.find('.chk').exists()).toBe(false);
     expect(w.find('.brand-logo').exists()).toBe(true);
     const items = w.findAll('.item');
-    expect(items.length).toBeGreaterThanOrEqual(8); // trimmed menus (2026-10-03): file 2, device 4, environment 2, run 1, view 1 (+separators not .item)
+    expect(items.length).toBeGreaterThanOrEqual(9); // trimmed menus (2026-10-03b): file 2, device 5, run 1, view 1 (+separators not .item)
     await w.findAll('.menu')[2]!.findAll('.item')[0]!.trigger('click');
     expect(w.findAll('.menu')[2]!.classes()).not.toContain('open');
-    expect(w.emitted('menu-event')![0]).toEqual(['env-scenario']);
+    expect(w.emitted('menu-event')![0]).toEqual(['play-case']); // menu[2]=run now
   });
   it('closes on outside click', async () => {
     const w = mount(MenuBar, { props: { status } });

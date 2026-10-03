@@ -22,14 +22,10 @@ const MENUS: Array<{ id: string; label: string; items: MenuItem[] }> = [
   { id: 'device', label: 'device', items: [
     { label: 'boot device…', accel: '⌘⇧D', event: 'boot-device' },
     { label: 'take screenshot', accel: '⌘1', event: 'screenshot' },
+    { label: 'environment…', event: 'env-scenario' },
     { label: '', separator: true },
     { label: 'restart', event: 'restart' },
     { label: 'shutdown', event: 'shutdown' },
-  ] },
-  { id: 'environment', label: 'environment', items: [
-    { label: 'scenario…', event: 'env-scenario' },
-    { label: '', separator: true },
-    { label: 'env vars…', event: 'env-vars' },
   ] },
   { id: 'run', label: 'run', items: [
     { label: 'test case', accel: '⌘P', event: 'play-case' },
