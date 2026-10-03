@@ -10,10 +10,13 @@ describe('MenuBar (T1)', () => {
     expect(w.findAll('.menu')).toHaveLength(4);
     await w.findAll('.menu')[1]!.find('button').trigger('click'); // device
     expect(w.findAll('.menu')[1]!.classes()).toContain('open');
-    // operator trim (2026-10-03): file keeps install+exit; screenshot lives
-    // in device as 'take screenshot'; run = 'test case…' only; view = inspect
-    // only; no checkmarks anywhere
+    // operator trim (2026-10-03): file→APP menu with run app + install;
+    // screenshot lives in device as 'take screenshot'; view = inspect only;
+    // no checkmarks anywhere
+    expect(w.findAll('.menu')[0]!.find('button').text()).toBe('app');
     const fileItems = [...w.findAll('.menu')[0]!.element.querySelectorAll('.item')].map((e) => e.textContent ?? '');
+    expect(fileItems.some((t) => t.includes('run app'))).toBe(true);
+    expect(fileItems.some((t) => t.includes('install app'))).toBe(true);
     expect(fileItems.some((t) => t.includes('new manual session'))).toBe(false);
     expect(fileItems.some((t) => t.includes('open captures'))).toBe(false);
     const deviceItems = [...w.findAll('.menu')[1]!.element.querySelectorAll('.item')].map((e) => e.textContent ?? '');

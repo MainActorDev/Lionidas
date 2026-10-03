@@ -8,7 +8,7 @@ import { promisify } from 'node:util';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-const execFileAsync = promisify(execFile);
+export const execFileAsync = promisify(execFile);
 
 export interface AppInfo {
   bundleId: string;

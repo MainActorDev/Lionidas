@@ -14,7 +14,8 @@ const emit = defineEmits<{ (e: 'menu-event', event: string): void }>();
 const open = ref<string | null>(null);
 
 const MENUS: Array<{ id: string; label: string; items: MenuItem[] }> = [
-  { id: 'file', label: 'file', items: [
+  { id: 'app', label: 'app', items: [
+    { label: 'run app…', event: 'run-app' },
     { label: 'install app…', event: 'install' },
     { label: '', separator: true },
     { label: 'exit to console…', accel: '⌘E', event: 'exit-console' },

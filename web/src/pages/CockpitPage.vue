@@ -68,6 +68,7 @@ function onMenuEvent(event: string): void {
   if (event === 'restart') void power('restart');
   if (event === 'shutdown') void power('shutdown');
   if (event === 'install') void openInstall();
+  if (event === 'run-app') void openRunApp();
   if (event === 'toggle-inspect') { overlay.value = overlay.value === 'inspect' ? null : 'inspect'; toolsOpen.value = overlay.value === 'inspect'; }
   if (event === 'play-case') void pickPlayCase();
 }
@@ -109,6 +110,42 @@ const bootOpen = ref(false);
 const bootSel = ref('');
 const bootBusy = ref(false);
 const bootErr = ref('');
+
+// ── run-app modal (app menu) — installed apps of the ACTIVE simulator ──
+const runAppOpen = ref(false);
+interface InstalledApp { bundleId: string; name: string; version: string | null; running: boolean }
+const runAppApps = ref<InstalledApp[]>([]);
+const runAppLoaded = ref(false);
+const runAppPick = ref('');
+const runAppBusy = ref(false);
+const runAppErr = ref('');
+const runAppMsg = ref('');
+async function openRunApp(): Promise<void> {
+  runAppOpen.value = true; runAppErr.value = ''; runAppMsg.value = '';
+  runAppLoaded.value = false;
+  try {
+    const r = await fetch(`/api/devices/${encodeURIComponent(activeUdid.value)}/apps`);
+    const b = (await r.json()) as { apps?: InstalledApp[]; error?: string };
+    if (!r.ok || b.error) { runAppErr.value = b.error ?? 'app catalog failed'; return; }
+    // the catalog includes Apple system apps; user apps first, system after
+    const list = b.apps ?? [];
+    const user = list.filter((a) => !a.bundleId.startsWith('com.apple.'));
+    const sys = list.filter((a) => a.bundleId.startsWith('com.apple.'));
+    runAppApps.value = [...user, ...sys];
+    runAppLoaded.value = true;
+  } catch { runAppErr.value = 'app catalog failed'; }
+}
+async function launchApp(): Promise<void> {
+  if (!runAppPick.value || runAppBusy.value) return;
+  runAppBusy.value = true; runAppErr.value = ''; runAppMsg.value = '';
+  try {
+    const r = await fetch(`/api/devices/${encodeURIComponent(activeUdid.value)}/apps/${encodeURIComponent(runAppPick.value)}/launch`, { method: 'POST' });
+    const b = (await r.json()) as { ok?: boolean; error?: string };
+    if (b.ok) { runAppMsg.value = 'launched'; flash(`running ${runAppApps.value.find((a) => a.bundleId === runAppPick.value)?.name ?? runAppPick.value}`); setTimeout(() => { runAppOpen.value = false; }, 500); }
+    else runAppErr.value = b.error ?? 'launch failed';
+  } catch { runAppErr.value = 'launch request failed'; }
+  finally { runAppBusy.value = false; }
+}
 
 // ── install modal (file menu) ──
 const installOpen = ref(false);
@@ -422,6 +459,30 @@ void live;
       </div>
     </div>
 
+    <!-- run app modal (installed apps of this simulator) -->
+    <div v-if="runAppOpen" class="modal-scrim" @click.self="runAppOpen = false">
+      <div class="modal wide">
+        <h3>run app on {{ activeName }}</h3>
+        <div class="modal-body">
+          <div v-if="!runAppLoaded && !runAppErr" class="k">reading installed apps…</div>
+          <div v-for="a in runAppApps" :key="a.bundleId" class="pick-row" :class="{ picked: runAppPick === a.bundleId }" @click="runAppPick = a.bundleId">
+            <span>
+              <img v-if="!a.bundleId.startsWith('com.apple.')" class="runapp-icon" :src="`/api/devices/${encodeURIComponent(activeUdid)}/apps/${encodeURIComponent(a.bundleId)}/icon`" alt="" width="18" height="18" @error="(e: Event) => ((e.target as HTMLImageElement).style.display = 'none')" />
+              {{ a.name }}
+              <span v-if="a.running" class="running-dot" title="running">●</span>
+            </span>
+            <span class="k">{{ a.version ?? '—' }}<template v-if="a.bundleId.startsWith('com.apple.')"> · system</template></span>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="m-btn" @click="runAppOpen = false">cancel</button>
+          <button class="m-btn primary" :disabled="!runAppPick || runAppBusy" @click="launchApp">{{ runAppBusy ? 'launching…' : 'run' }}</button>
+        </div>
+        <div v-if="runAppMsg" class="hint-ok">{{ runAppMsg }}</div>
+        <div v-if="runAppErr" class="hint-err">{{ runAppErr }}</div>
+      </div>
+    </div>
+
     <div v-if="toast" class="toast">{{ toast }}</div>
   </div>
 </template>
@@ -438,6 +499,8 @@ void live;
 .modal-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 50; }
 .modal { background: var(--color-carbon); border: 1px solid var(--color-slate); border-radius: var(--r); padding: 16px; min-width: 320px; max-height: 60vh; display: flex; flex-direction: column; }
 .modal-body { flex: 1; min-height: 0; overflow-y: auto; }
+.runapp-icon { vertical-align: -4px; margin-right: 7px; border-radius: 4px; }
+.running-dot { color: var(--color-ember); font-size: 9px; margin-left: 5px; }
 .modal h3 { font-size: var(--text-caption); color: var(--color-paper); margin: 0 0 10px; text-transform: uppercase; letter-spacing: .1em; }
 .pick-row { display: flex; justify-content: space-between; padding: 6px 8px; border-radius: var(--r); cursor: pointer; color: var(--color-fog); font-size: var(--text-caption); }
 .pick-row:hover { background: var(--color-iron); color: var(--color-paper); }

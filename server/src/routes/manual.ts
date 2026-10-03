@@ -14,6 +14,8 @@ import { fetchProbeViewtree, probeArmed, ProbeError } from '../manual/viewtree-p
 import { listSimulatorApps } from '../manual/apps.ts';
 import { installApp } from '../manual/app-install.ts';
 import { findArtifacts, importArtifact, appsStoreDir } from '../manual/artifacts.ts';
+import { execFileAsync } from '../manual/apps.ts';
+import { dispatchWithHeal } from '../alloy/heal.ts';
 import { existsSync } from 'node:fs';
 import { runTemplatePlayback, PlaybackError } from '../manual/playback.ts';
 import type { ForgeState } from '../forge/proxy.ts';
@@ -609,6 +611,23 @@ export function registerManualRoutes(
       return reply.header('content-type', 'image/png').send(createReadStream(app.iconPath));
     } catch (err) {
       return reply.code(502).send({ error: err instanceof Error ? err.message : 'icon read failed' });
+    }
+  });
+
+  // ── run app: open an installed app on the device (cockpit 'app → run app…').
+  // Same alloy_apps open the playback path uses; terminate-first mirrors the
+  // playback readiness contract (fresh app state, best-effort when not running).
+  app.post('/api/devices/:udid/apps/:bundleId/launch', async (req, reply) => {
+    const { udid, bundleId } = req.params as { udid: string; bundleId: string };
+    try {
+      try { await execFileAsync('xcrun', ['simctl', 'terminate', udid, decodeURIComponent(bundleId)]); } catch { /* not running — fine */ }
+      const r = (await dispatchWithHeal('alloy_apps', { action: 'open', app: decodeURIComponent(bundleId), udid, hold: false }, deps.dispatchDeps)) as
+        | { ok: true }
+        | { ok: false; error?: { message?: string } };
+      if (!r.ok) return reply.code(502).send({ error: r.error?.message ?? 'open failed' });
+      return { ok: true };
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : 'launch failed' });
     }
   });
 
