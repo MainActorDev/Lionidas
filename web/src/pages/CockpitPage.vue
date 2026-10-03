@@ -327,6 +327,7 @@ async function bootSelected(): Promise<void> {
 
 /** play a case on this device: newest templates → prompt-free picker */
 const playPick = ref<Array<{ id: string; name: string }>>([]);
+const playPickId = ref('');
 const playOpen = ref(false);
 const playBusy = ref(false);
 const playAllBooted = ref(false);
@@ -342,6 +343,7 @@ async function pickPlayCase(): Promise<void> {
       bootedCount.value = (bd.devices ?? []).filter((x) => (x.state ?? '').toLowerCase() === 'booted').length;
     } catch { bootedCount.value = devices.value.length; }
     playAllBooted.value = false;
+    playPickId.value = '';
     playOpen.value = true;
   } catch { flash('case list failed'); }
 }
@@ -494,12 +496,18 @@ void live;
 
     <!-- play-case picker -->
     <div v-if="playOpen" class="modal-scrim" @click.self="playOpen = false">
-      <div class="modal">
-        <h3>play case on {{ activeName }}</h3>
-        <label class="fanout-row"><input v-model="playAllBooted" type="checkbox" /> run on all booted devices ({{ bootedCount }})</label>
-        <div v-if="!playPick.length" class="k">no templates found</div>
-        <div v-for="t in playPick" :key="t.id" class="pick-row" :class="{ busy: playBusy }" @click="playCase(t.id)">
-          <span>{{ t.name }}</span><span class="k">{{ t.id.slice(0, 10) }}…</span>
+      <div class="modal wide">
+        <h3>test case on {{ activeName }}</h3>
+        <div class="modal-body">
+          <label class="fanout-row"><input v-model="playAllBooted" type="checkbox" /> run on all booted devices ({{ bootedCount }})</label>
+          <div v-if="!playPick.length" class="k">no cases found</div>
+          <div v-for="t in playPick" :key="t.id" class="pick-row" :class="{ picked: playPickId === t.id, busy: playBusy }" @click="playPickId = t.id">
+            <span>{{ t.name }}</span><span class="k">{{ t.id.slice(0, 10) }}…</span>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="m-btn" :disabled="playBusy" @click="playOpen = false">cancel</button>
+          <button class="m-btn primary" :disabled="!playPickId || playBusy" @click="playCase(playPickId!)">{{ playBusy ? 'running…' : 'run' }}</button>
         </div>
       </div>
     </div>
@@ -578,6 +586,8 @@ void live;
 .pick-row { display: flex; justify-content: space-between; padding: 6px 8px; border-radius: var(--r); cursor: pointer; color: var(--color-fog); font-size: var(--text-caption); }
 .pick-row:hover { background: var(--color-iron); color: var(--color-paper); }
 .pick-row.busy { opacity: .5; cursor: wait; }
+.pick-row.picked { border: 1px solid var(--color-ember); background: rgba(218, 92, 44, .08); color: var(--color-paper); }
+.pick-row.picked .k { color: var(--color-ember); }
 .fanout-row { display: flex; align-items: center; gap: 8px; font-size: var(--text-caption); color: var(--color-fog); margin-bottom: 10px; cursor: pointer; }
 .fanout-row input { accent-color: var(--color-ember); }
 .modal.wide { min-width: 460px; }
