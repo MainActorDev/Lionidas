@@ -16,6 +16,9 @@ import { hitTestNodeAt, type AxNode } from '@crucible/shared/ax-tree';
 
 const props = defineProps<{
   udid: string;
+  /** device mid power-restart: the bezel STAYS with a restarting veil —
+   *  the stream dies with the device, but the chrome must not vanish */
+  restarting?: boolean;
   /** durable per-device session handle from the page's map — a returning tab
    *  adopts this instead of showing idle (plan F6/:key remount shape) */
   session?: { sessionId: string; startedAt: number } | null;
@@ -345,6 +348,9 @@ defineExpose({
         :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
                   width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%`,
                   borderRadius: `${bezelDef.screenRadius.pctW}% / ${bezelDef.screenRadius.pctH}%` }"></canvas>
+      <div v-if="restarting" class="restarting-veil" :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`, width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%`, borderRadius: `${bezelDef.screenRadius.pctW}% / ${bezelDef.screenRadius.pctH}%` }">
+        <span class="restarting-dot" />restarting
+      </div>
       <StreamShimmer :state="stream.state.value" :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`, width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%`, borderRadius: `${bezelDef.screenRadius.pctW}% / ${bezelDef.screenRadius.pctH}%` }" />
       <InspectOverlay v-if="inspect && sessionId" :nodes="overlayNodesC" :logical-w="overlayWC" :logical-h="overlayHC"
         :hover="hoverNode" :selected="(selNodeC as never)" :visible="overlayVisibleC"
@@ -406,6 +412,10 @@ defineExpose({
 
 /* the REAL bezel: wrap sized explicitly (WebKit aspect-ratio guard), image
  * fills it; canvas + buttons ride % rects — aligned by construction */
+.restarting-veil { position: absolute; z-index: 6; display: flex; align-items: center; justify-content: center; gap: 7px; background: rgba(0,0,0,.72); color: var(--color-ember); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; border: 1px solid var(--color-iron); }
+.restarting-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-ember); animation: restarting-pulse 1.1s infinite; }
+@keyframes restarting-pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .restarting-dot { animation: none; } }
 .bezel-wrap {
   opacity: .5;
   transition: opacity .2s ease;

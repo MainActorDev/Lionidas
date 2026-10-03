@@ -40,17 +40,57 @@ onBeforeUnmount(() => deviceSessions.stop());
 
 const live = useLiveEvents();
 let preselectApplied = false;
+// udids mid power-restart: the API list drops them the moment the device
+// leaves Booted — the cockpit must NOT (the tab would vanish + auto-switch
+// away mid-restart, exactly when the operator is watching). Kept in `devices`
+// with sub:'restarting' until the cycle completes server-side.
+const restarting = ref(new Set<string>());
+const restartingStartedAt = new Map<string, number>();
+const restartingWentDown = new Set<string>();
+function isRestarting(udid: string): boolean { return restarting.value.has(udid); }
+
 async function loadDevices(): Promise<void> {
   try {
     const res = await fetch('/api/devices');
     const body = await res.json() as { devices?: Array<{ udid: string; name: string | null; state: string | null }> };
-    devices.value = (body.devices ?? []).filter((d) => (d.state ?? '').toLowerCase() === 'booted').map((d) => ({
-      udid: d.udid, name: d.name ?? d.udid.slice(0, 12), sub: 'idle', live: false,
+    const rows = body.devices ?? [];
+    const booted = rows.filter((d) => (d.state ?? '').toLowerCase() === 'booted');
+    const kept: Array<{ udid: string; name: string; sub: string; live: boolean }> = booted.map((d) => ({
+      udid: d.udid, name: d.name ?? d.udid.slice(0, 12),
+      sub: restarting.value.has(d.udid) ? 'restarting' : 'idle', live: false,
     }));
+    // restarting devices stay as tabs until the cycle ends:
+    //  - confirmed BACK (booted again, after having gone down) → drop from restarting
+    //  - still booted (shutdown not landed yet) → keep, marked restarting
+    for (const udid of Array.from(restarting.value)) {
+      const row = rows.find((r) => r.udid === udid);
+      const bootedAgain = (row?.state ?? '').toLowerCase() === 'booted';
+      const wentDown = (row?.state ?? '').toLowerCase() !== 'booted';
+      if (wentDown) restartingWentDown.add(udid);
+      // the server holds the restart open until the device is back (it waits
+      // out the shutdown internally), so the client's 1.5s polls may only
+      // ever see Booted → after 20s, a Booted device counts as completed
+      const startedAt = restartingStartedAt.get(udid) ?? 0;
+      const cycleTimedOut = Date.now() - startedAt > 20_000;
+      if (bootedAgain && (restartingWentDown.has(udid) || cycleTimedOut)) {
+        restartingStartedAt.delete(udid);
+        restarting.value.delete(udid); restartingWentDown.delete(udid);
+        continue; // it's in `booted` already with sub flipping to 'idle'
+      }
+      if (!kept.some((k) => k.udid === udid)) {
+        kept.push({ udid, name: row?.name ?? udid.slice(0, 12), sub: 'restarting', live: false });
+      }
+    }
+    devices.value = kept;
+    // clear stale restarting entries (device never came back after timeout — surfaced by the power call itself)
+    if (restarting.value.size === 0) restartingWentDown.clear();
     // ?device= preselect applies ONCE (first successful load); later reloads
     // must not fight the boot auto-switch or manual tab changes
     const want = String(route.query.device ?? '');
     if (!preselectApplied && want && devices.value.some((d) => d.udid === want)) { activeUdid.value = want; preselectApplied = true; }
+    // auto-switch only when the ACTIVE device truly left (shutdown/closed) —
+    // a RESTARTING device stays in devices (kept above), so the tab and the
+    // stage never bounce mid-restart
     if (devices.value.length > 0 && !devices.value.some((d) => d.udid === activeUdid.value)) activeUdid.value = devices.value[0]!.udid;
   } catch { devices.value = []; }
 }
@@ -97,7 +137,21 @@ async function power(action: 'boot' | 'shutdown' | 'restart', udid: string = act
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action }),
     });
     const b = (await r.json()) as { ok?: boolean; error?: string };
-    if (b.ok) { flash(`${action} sent — devices refresh shortly`); setTimeout(() => void loadDevices(), 4000); }
+    if (b.ok) {
+      if (action === 'restart') {
+        // hold the tab + poll fast through the whole down-and-back cycle
+        restarting.value = new Set([...restarting.value, udid]);
+        restartingStartedAt.set(udid, Date.now());
+        restartingWentDown.delete(udid);
+        flash('restarting — the device returns when it\u2019s back');
+        void loadDevices();
+        const poll = setInterval(() => { void loadDevices(); if (!restarting.value.has(udid)) clearInterval(poll); }, 1500);
+        setTimeout(() => clearInterval(poll), 180_000);
+      } else {
+        flash(`${action} sent — devices refresh shortly`);
+        setTimeout(() => void loadDevices(), 4000);
+      }
+    }
     else flash(b.error ?? `${action} failed`);
   } catch { flash(`${action} request failed`); }
   finally { powerBusy.value = false; }
@@ -379,7 +433,7 @@ void live;
     <MenuBar :status="status" @menu-event="onMenuEvent" />
     <DeviceSwitcher :devices="devices" :active-udid="activeUdid" :closing-udid="closingUdid" @switch="onSwitch" @close="onTabClose" />
     <div class="frame">
-      <StageBezel v-if="activeUdid" :key="activeUdid" ref="stage" :udid="activeUdid" :session="activeSession"
+      <StageBezel v-if="activeUdid" :key="activeUdid" ref="stage" :udid="activeUdid" :restarting="isRestarting(activeUdid)" :session="activeSession"
         :overlay-nodes="overlayData.nodes" :overlay-w="overlayData.w" :overlay-h="overlayData.h" :overlay-visible="overlayData.visible" :sel-parent-node="overlayData.sel" :selected-node="overlayData.sel"
         @session-state="onSessionState" @inspect-click="onInspectClick"
         @session-acquired="onSessionAcquired" @session-dropped="onSessionDropped" />
