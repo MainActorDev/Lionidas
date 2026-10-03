@@ -32,7 +32,7 @@ const MENUS: Array<{ id: string; label: string; items: MenuItem[] }> = [
     { label: 'env vars…', event: 'env-vars' },
   ] },
   { id: 'run', label: 'run', items: [
-    { label: 'test case…', accel: '⌘P', event: 'play-case' },
+    { label: 'test case', accel: '⌘P', event: 'play-case' },
   ] },
   { id: 'view', label: 'view', items: [
     { label: 'inspect elements', accel: '⌘I', event: 'toggle-inspect' },
