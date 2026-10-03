@@ -10,8 +10,24 @@ describe('MenuBar (T1)', () => {
     expect(w.findAll('.menu')).toHaveLength(5);
     await w.findAll('.menu')[2]!.find('button').trigger('click'); // environment
     expect(w.findAll('.menu')[2]!.classes()).toContain('open');
+    // operator trim (2026-10-03): file keeps install+exit; screenshot lives
+    // in device as 'take screenshot'; run = 'test case…' only; view = inspect
+    // only; no checkmarks anywhere
+    const fileItems = [...w.findAll('.menu')[0]!.element.querySelectorAll('.item')].map((e) => e.textContent ?? '');
+    expect(fileItems.some((t) => t.includes('new manual session'))).toBe(false);
+    expect(fileItems.some((t) => t.includes('open captures'))).toBe(false);
+    const deviceItems = [...w.findAll('.menu')[1]!.element.querySelectorAll('.item')].map((e) => e.textContent ?? '');
+    expect(deviceItems.some((t) => t.includes('take screenshot'))).toBe(true);
+    const runItems = [...w.findAll('.menu')[3]!.element.querySelectorAll('.item')].map((e) => e.textContent ?? '');
+    expect(runItems.some((t) => t.includes('test case'))).toBe(true);
+    expect(runItems.some((t) => t.includes('watch active run'))).toBe(false);
+    const viewItems = [...w.findAll('.menu')[4]!.element.querySelectorAll('.item')].map((e) => e.textContent ?? '');
+    expect(viewItems.some((t) => t.includes('chat panel'))).toBe(false);
+    expect(viewItems.some((t) => t.includes('watcher rail'))).toBe(false);
+    expect(w.find('.chk').exists()).toBe(false);
+    expect(w.find('.brand-logo').exists()).toBe(true);
     const items = w.findAll('.item');
-    expect(items.length).toBeGreaterThan(10); // items across menus (only open one visible via CSS class; DOM has all)
+    expect(items.length).toBeGreaterThanOrEqual(8); // trimmed menus (2026-10-03): file 2, device 4, environment 2, run 1, view 1 (+separators not .item)
     await w.findAll('.menu')[2]!.findAll('.item')[0]!.trigger('click');
     expect(w.findAll('.menu')[2]!.classes()).not.toContain('open');
     expect(w.emitted('menu-event')![0]).toEqual(['env-scenario']);

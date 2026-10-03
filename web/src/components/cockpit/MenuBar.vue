@@ -4,7 +4,7 @@
  *  menu at a time; accelerators right-aligned; act items ember. */
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 
-export interface MenuItem { label: string; accel?: string; act?: boolean; check?: boolean; event?: string; separator?: boolean }
+export interface MenuItem { label: string; accel?: string; act?: boolean; event?: string; separator?: boolean }
 
 const props = defineProps<{
   status: { sessionLabel: string | null; deviceName: string; liveCount: number };
@@ -15,15 +15,14 @@ const open = ref<string | null>(null);
 
 const MENUS: Array<{ id: string; label: string; items: MenuItem[] }> = [
   { id: 'file', label: 'file', items: [
-    { label: 'new manual session', accel: '⌘N', event: 'new-session' },
-    { label: 'screenshot', accel: '⌘1', event: 'screenshot' },
-    { label: 'open captures…', event: 'open-captures' },
     { label: 'install app…', event: 'install' },
     { label: '', separator: true },
     { label: 'exit to console…', accel: '⌘E', event: 'exit-console' },
   ] },
   { id: 'device', label: 'device', items: [
     { label: 'boot device…', accel: '⌘⇧D', event: 'boot-device' },
+    { label: 'take screenshot', accel: '⌘1', event: 'screenshot' },
+    { label: '', separator: true },
     { label: 'restart', event: 'restart' },
     { label: 'shutdown', event: 'shutdown' },
   ] },
@@ -33,13 +32,10 @@ const MENUS: Array<{ id: string; label: string; items: MenuItem[] }> = [
     { label: 'env vars…', event: 'env-vars' },
   ] },
   { id: 'run', label: 'run', items: [
-    { label: 'play case on this device…', accel: '⌘P', event: 'play-case' },
-    { label: 'watch active run', event: 'watch-run' },
+    { label: 'test case…', accel: '⌘P', event: 'play-case' },
   ] },
   { id: 'view', label: 'view', items: [
-    { label: 'inspect elements', accel: '⌘I', check: true, event: 'toggle-inspect' },
-    { label: 'watcher rail', accel: '⌘\\', check: true, event: 'toggle-rail' },
-    { label: 'chat panel', act: true, event: 'open-chat' },
+    { label: 'inspect elements', accel: '⌘I', event: 'toggle-inspect' },
   ] },
 ];
 
@@ -57,14 +53,14 @@ void props;
 
 <template>
   <div class="menubar">
-    <span class="brand">◇</span>
+    <img class="brand-logo" src="/icons/lionidas-app-128.png" alt="lionidas" width="18" height="18" />
     <div v-for="m in MENUS" :key="m.id" class="menu" :class="{ open: open === m.id }">
       <button type="button" @click.stop="toggle(m.id)">{{ m.label }}</button>
       <div class="dropdown" @click.stop>
         <template v-for="(item, i) in m.items" :key="i">
           <hr v-if="item.separator" />
           <div v-else class="item" :class="{ act: item.act }" @click="pick(item)">
-            <span><span class="chk">{{ item.check ? '✓' : '' }}</span>{{ item.label }}</span>
+            <span>{{ item.label }}</span>
             <span v-if="item.accel" class="accel">{{ item.accel }}</span>
           </div>
         </template>
@@ -80,6 +76,7 @@ void props;
 
 <style scoped>
 .menubar { display: flex; align-items: center; gap: 2px; height: 36px; padding: 0 var(--s-3); border-bottom: 1px solid var(--color-iron); background: var(--color-carbon); position: relative; z-index: 30; }
+.brand-logo { display: block; width: 18px; height: 18px; margin-right: 2px; flex: none; }
 .brand { color: var(--color-ember); font-weight: var(--weight-bold); padding: 0 var(--s-2) 0 2px; }
 .menu { position: relative; }
 .menu > button { font-family: inherit; background: none; border: none; color: var(--color-fog); padding: 4px 10px; cursor: pointer; font-size: var(--text-caption); border-radius: var(--r); }
@@ -90,7 +87,6 @@ void props;
 .item:hover { background: var(--color-iron); color: var(--color-paper); }
 .item.act { color: var(--color-ember); }
 .item .accel { color: var(--color-steel); }
-.item .chk { width: 12px; display: inline-block; }
 hr { border: none; border-top: 1px solid var(--color-iron); margin: 4px 0; }
 .status { margin-left: auto; display: flex; align-items: center; gap: var(--s-3); font-size: var(--text-caption); color: var(--color-ash); }
 .status b { color: var(--color-paper); font-weight: var(--weight-bold); }

@@ -25,7 +25,6 @@ const activeUdid = ref('');
 const sessionOn = ref<string | null>(null); // per-ACTIVE-device mirror; source of truth = deviceSessions map
 const dims = ref<{ w: number | null; h: number | null }>({ w: null, h: null });
 const envOpen = ref(false);
-const railOpen = ref(true);
 const activeScenario = ref<string | null>(null);
 const screenState = ref('—');
 const menuSessionLabel = ref<string | null>(null);
@@ -64,17 +63,13 @@ function flash(msg: string): void { toast.value = msg; setTimeout(() => { if (to
 function onMenuEvent(event: string): void {
   if (event === 'exit-console') { void router.push('/'); return; }
   if (event === 'env-scenario' || event === 'env-vars') { envOpen.value = true; return; }
-  if (event === 'new-session') void stage.value?.takeControl();
   if (event === 'screenshot') void captureScreenshot();
   if (event === 'boot-device') void pickBootDevice();
   if (event === 'restart') void power('restart');
   if (event === 'shutdown') void power('shutdown');
   if (event === 'install') void openInstall();
   if (event === 'toggle-inspect') { toolsOpen.value = !toolsOpen.value; }
-  if (event === 'open-chat') railTab.value = 'chat';
-  if (event === 'toggle-rail') railOpen.value = !railOpen.value;
   if (event === 'play-case') void pickPlayCase();
-  if (event === 'watch-run') railTab.value = 'watch';
 }
 
 /** screenshot: canvas → PNG download (same as the sidebar's camera tool) */
@@ -349,7 +344,7 @@ void live;
         @session-state="onSessionState" @inspect-click="onInspectClick"
         @session-acquired="onSessionAcquired" @session-dropped="onSessionDropped" />
       <div v-else class="empty">no booted devices — boot one from the device menu</div>
-      <WatcherPanel v-show="railOpen" :tabs="[{ id: 'watch', label: 'watch' }, { id: 'chat', label: 'chat' }]" :active="railTab" @switch="railTab = $event">
+      <WatcherPanel :tabs="[{ id: 'watch', label: 'watch' }, { id: 'chat', label: 'chat' }]" :active="railTab" @switch="railTab = $event">
         <WatchPane v-show="railTab === 'watch'" :udid="activeUdid" :session-id="sessionOn" :dims="dims" />
         <ChatPane v-show="railTab === 'chat'" :udid="activeUdid" :device-name="activeName" :screen-state="screenState" :scenario="activeScenario" />
       </WatcherPanel>
