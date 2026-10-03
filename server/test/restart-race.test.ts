@@ -73,7 +73,7 @@ describe('POST /api/devices/:udid/power restart', () => {
 
   it('GET /api/devices flags restarting:true while the cycle runs', async () => {
     calls.length = 0;
-    const { app, db, __setAlloyForTest } = await build({ neverFlip: true, holdCycle: true });
+    const { app, db, __setAlloyForTest } = await build({ neverFlip: true });
     // fire the restart but don't await — the cycle is held open (neverFlip)
     const inflight = app.inject({ method: 'POST', url: '/api/devices/SIM-R/power', payload: { action: 'restart' } });
     await new Promise((r) => setTimeout(r, 300));

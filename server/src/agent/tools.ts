@@ -82,8 +82,8 @@ export function buildToolRegistry(deps: ToolDeps): ToolRegistry {
     async execute(args) {
       const bundle = typeof args['appBundle'] === 'string' ? args['appBundle'] : null;
       const rows = bundle
-        ? db.prepare('SELECT app_bundle_id, screen_id, entry_json, states_json FROM app_screens WHERE app_bundle_id = ? ORDER BY screen_id').all(bundle)
-        : db.prepare('SELECT app_bundle_id, screen_id, entry_json, states_json FROM app_screens ORDER BY app_bundle_id, screen_id').all();
+        ? db.prepare('SELECT app_bundle_id, screen_id, entry_json, refresh_json, states_json FROM app_screens WHERE app_bundle_id = ? ORDER BY screen_id').all(bundle)
+        : db.prepare('SELECT app_bundle_id, screen_id, entry_json, refresh_json, states_json FROM app_screens ORDER BY app_bundle_id, screen_id').all();
       return JSON.stringify(rows);
     },
   });

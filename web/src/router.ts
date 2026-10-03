@@ -4,9 +4,7 @@ import OverviewPage from './pages/OverviewPage.vue';
 import RunsPage from './pages/RunsPage.vue';
 import RunDetailPage from './pages/RunDetailPage.vue';
 import MatrixPage from './pages/MatrixPage.vue';
-import BaselinesPage from './pages/BaselinesPage.vue';
 import CockpitPage from './pages/CockpitPage.vue';
-import FlakesPage from './pages/FlakesPage.vue';
 import ForgePage from './pages/ForgePage.vue';
 import TestCasesPage from './pages/TestCasesPage.vue';
 import ScreensPage from './pages/ScreensPage.vue';
@@ -26,9 +24,7 @@ export const router = createRouter({
     { path: '/runs', name: 'runs', component: RunsPage, meta: { title: 'runs' } },
     { path: '/runs/:id', name: 'runDetail', component: RunDetailPage, meta: { title: 'run' } },
     { path: '/tickets/:key', name: 'matrix', component: MatrixPage, meta: { title: 'acceptance criteria' } },
-    { path: '/baselines', name: 'baselines', component: BaselinesPage, meta: { title: 'approvals' } },
     { path: '/cockpit', name: 'cockpit', component: CockpitPage, meta: { title: 'cockpit', fullscreen: true } },
-    { path: '/flakes', name: 'flakes', component: FlakesPage, meta: { title: 'flaky tests' } },
     { path: '/forge', name: 'forge', component: ForgePage, meta: { title: 'network' } },
     { path: '/templates', name: 'templates', component: TestCasesPage, meta: { title: 'test cases' } },
     { path: '/screens', name: 'screens', component: ScreensPage, meta: { title: 'screens' } },

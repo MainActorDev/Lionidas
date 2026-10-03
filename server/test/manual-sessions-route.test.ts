@@ -27,7 +27,7 @@ describe('GET /api/manual/sessions', () => {
     app = Fastify();
     // satisfy requireRole: an operator identity on every request (unit scope —
     // auth itself is covered by the auth suites)
-    app.addHook('onRequest', async (req) => { (req as unknown as { user: unknown }).user = { name: 'test-op', role: 'operator' }; });
+    app.addHook('onRequest', async (req: import('fastify').FastifyRequest) => { (req as unknown as { user: unknown }).user = { name: 'test-op', role: 'operator' }; });
     registerManualRoutes(app, db, {
       bus: { emit: () => undefined, on: () => () => undefined } as never,
       dispatchDeps: {},

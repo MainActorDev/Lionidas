@@ -89,7 +89,7 @@ const NON_USER_FACING_BUNDLE_PATTERNS = [
   /^com\.apple\.(assistivetouchd|fullkeyboardaccess|commandandcontrol|VoiceOverTouch|livetranscriptionui|EscrowSecurityAlert|SystemIntents|ShortcutsActions|CarPlayApp|Bridge|webapp|PreviewShell|springboard|GradientPoster)$/i,
 ];
 
-export function isUserFacing(bundleId: string, appPath: string | undefined): boolean {
+export function isUserFacing(bundleId: string, appPath?: string): boolean {
   if (!bundleId.startsWith('com.apple.')) return true; // user apps are always real
   for (const re of NON_USER_FACING_BUNDLE_PATTERNS) if (re.test(bundleId)) return false;
   if (!appPath) return true;

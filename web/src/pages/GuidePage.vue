@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue';
 import GuideSlices from '../components/GuideSlices.vue';
 
-type SectionId = 'yourday' | 'quickstart' | 'wall' | 'runs' | 'matrix' | 'triage' | 'baselines' | 'forge' | 'templates' | 'drive' | 'flakes' | 'status' | 'suites' | 'overview' | 'shortcuts';
+type SectionId = 'yourday' | 'quickstart' | 'wall' | 'runs' | 'matrix' | 'triage' | 'forge' | 'templates' | 'drive' | 'status' | 'suites' | 'overview' | 'shortcuts';
 
 const active = ref<SectionId>('quickstart');
 
@@ -16,8 +16,6 @@ const sections: Array<{ id: SectionId; label: string; group: string }> = [
   { id: 'overview', label: 'overview', group: 'verify' },
   { id: 'matrix', label: 'acceptance criteria', group: 'verify' },
   { id: 'triage', label: 'triage a failure', group: 'verify' },
-  { id: 'baselines', label: 'approvals', group: 'verify' },
-  { id: 'flakes', label: 'flaky tests', group: 'verify' },
   { id: 'forge', label: 'network control', group: 'control' },
   { id: 'templates', label: 'test cases', group: 'control' },
   { id: 'drive', label: 'manual control', group: 'control' },
@@ -356,42 +354,6 @@ const groups = computed(() => {
       </div>
 
       <!-- ═══ BASELINES ═══ -->
-      <div v-if="active === 'baselines'">
-        <div class="page-title">approvals</div>
-        <p style="color: var(--color-ash); margin: var(--s-2) 0;">When a visual AC's screenshot differs from its approved baseline, you decide: intentional change or regression?</p>
-
-        <div class="slice-demo"><GuideSlices show="baselines" /></div>
-
-        <div class="card">
-          <div class="meta-row"><span class="k">approve</span><b>the new screenshot becomes the baseline (re-runs the flow to capture it cleanly, records lineage)</b></div>
-          <div class="meta-row"><span class="k">reject</span><b>the regression stands — the AC stays red, your decision is recorded</b></div>
-          <div class="meta-row"><span class="k">effect</span><b>while pending, the AC shows ◆ amber — the ticket is neither green nor red until you decide</b></div>
-        </div>
-
-        <div class="card card-accent">
-          <p style="color: var(--color-fog); line-height: 1.6;">
-            Only <b>visual-category</b> ACs spawn approval rows. An interaction failure (button didn't work)
-            is plain red with evidence — no approval needed, no amber noise.
-          </p>
-        </div>
-      </div>
-
-      <!-- ═══ FLAKES ═══ -->
-      <div v-if="active === 'flakes'">
-        <div class="page-title">flaky tests</div>
-        <p style="color: var(--color-ash); margin: var(--s-2) 0;">A flaky flow passes and fails alternately — it makes the matrix lie. Lionidas detects and sidelines them.</p>
-
-        <div class="slice-demo"><GuideSlices show="flakes" /></div>
-
-        <div class="card">
-          <div class="meta-row"><span class="k">score</span><b>alternation rate over the last 10 runs (1.0 = flips every time)</b></div>
-          <div class="meta-row"><span class="k">auto-quarantine</span><b>≥3 alternations within 7 days → the flow goes gray, excluded from roll-up</b></div>
-          <div class="meta-row"><span class="k">release</span><b>YOU decide it's fixed — a reason is required (auditable decisions)</b></div>
-          <div class="meta-row"><span class="k">marks</span><b>✓ pass · ✕ fail · the strip shows the actual recent history</b></div>
-        </div>
-      </div>
-
-      <!-- ═══ FORGE ═══ -->
       <div v-if="active === 'forge'">
         <div class="page-title">network control</div>
         <p style="color: var(--color-ash); margin: var(--s-2) 0;">Forge controls what the app sees from the network — fake responses, failure injection, live inspection.</p>
