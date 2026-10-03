@@ -38,6 +38,34 @@ const emit = defineEmits<{
 }>();
 
 const stream = useDeviceStream();
+// fps-chip smoothing — rolling 2s PEAK. The instantaneous chip flickered
+// 20→8→20 during gesture pauses (scroll-settle keeps compositing light
+// frames, so fps never reaches 0 between swipes — a zero-guard hysteresis
+// missed it, found in the 2026-10-03 drill). Showing the peak over the
+// last 2s reads as the motion rate; after 2s true quiet the label drops
+// to idle. Display-only; the stream/meter/evidence are untouched.
+const fpsWindow = ref<{ t: number; fps: number }[]>([]);
+const fpsTick = ref(0);
+let fpsPruner: ReturnType<typeof setInterval> | undefined;
+watch(stream.fps, (fps) => {
+  if (fps > 0) fpsWindow.value.push({ t: Date.now(), fps });
+});
+const pushSample = () => { if (stream.fps.value > 0) fpsWindow.value.push({ t: Date.now(), fps: stream.fps.value }); };
+const fpsLabel = computed(() => {
+  void fpsTick.value; // recompute on the prune tick, not just on fps change
+  const cutoff = Date.now() - 2000;
+  const recent = fpsWindow.value.filter((s) => s.t >= cutoff);
+  if (recent.length === 0) return 'live · idle (screen unchanged)';
+  return `live · ${Math.max(...recent.map((s) => s.fps))}fps`;
+});
+onMounted(() => {
+  // tick feeds the window too: an UNCHANGED fps (>0) never fires the watch,
+  // so between swipes the window drained and the peak collapsed to the
+  // settle rate — the exact flicker this smoothing exists to hide.
+  fpsPruner = setInterval(() => { pushSample(); fpsTick.value++; }, 500);
+});
+onBeforeUnmount(() => { if (fpsPruner) clearInterval(fpsPruner); });
+
 const sessionId = ref<string | null>(null);
 const logicalW = ref<number | null>(null);
 const logicalH = ref<number | null>(null);
@@ -246,7 +274,7 @@ defineExpose({
       </div>
       <button v-if="!sessionId" class="session-btn primary" :disabled="busy" @click="takeControl">take control</button>
       <button v-else class="session-btn danger" :disabled="busy" @click="release">release</button>
-      <div v-if="stream.state.value === 'live'" class="fps-chip">{{ stream.fps.value > 0 ? `live · ${stream.fps.value}fps` : 'live · idle (screen unchanged)' }}</div>
+      <div v-if="stream.state.value === 'live'" class="fps-chip">{{ fpsLabel }}</div>
     </div>
 
     <!-- the REAL bezel: PNG body + % screen rect + hardware buttons -->

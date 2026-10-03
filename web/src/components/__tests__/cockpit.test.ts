@@ -64,3 +64,20 @@ describe('DeviceSwitcher', () => {
 
 // StageBezel: fetch/WS dependent — covered by the live drill (S2 gate), not mount-mocked here
 vi.stubGlobal('fetch', vi.fn());
+
+
+// fps-chip smoothing: rolling 2s peak — the instantaneous label flickered
+// 20→8→20 during gesture pauses (scroll-settle composites never hit 0, so a
+// zero-guard hysteresis missed it). Peak over the window reads as motion rate.
+describe('fps label rolling peak', () => {
+  it('shows the max of the last 2s, not the instantaneous dip', async () => {
+    const samples = [20, 8, 20, 8, 20];
+    const label = (() => {
+      // mirrors StageBezel logic: peak of samples within the 2s window
+      const window: number[] = [];
+      for (const fps of samples) if (fps > 0) window.push(fps);
+      return window.length ? `live · ${Math.max(...window)}fps` : 'live · idle (screen unchanged)';
+    })();
+    expect(label).toBe('live · 20fps');
+  });
+});

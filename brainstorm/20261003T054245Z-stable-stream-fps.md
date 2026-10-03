@@ -2,7 +2,7 @@
 
 - Source prompt: "is there a concrete way to make the FPS stable? Minimum at least at 20FPS. Is it something achievable?"
 - Created: 2026-10-03T05:42:45Z
-- Status: Direction selected
+- Status: Applied (2026-10-03) — set_fps 30 + rolling-peak chip + fps idle decay
 
 ## Goal and context
 
@@ -42,6 +42,13 @@ The 8↔20 cycle *reads* as stutter because the chip flashes. With (A), the hone
 
 1. Does any consumer need constant frames as a liveness heartbeat (e.g. flake detection), or is the state channel enough? (Determines whether B's 1fps keepalive has any value.)
 
-## Next step
+## Applied — outcome
+
+- `set_fps` 60→30 (deviceStream.ts) — measured motion floor is ~20; 30 caps the wire with headroom and halves decode cost.
+- fps chip: rolling 2s PEAK (StageBezel) — the instantaneous label flickered 20→8→20 between swipes; peak reads as the motion rate. Two iterations found live: (1) a zero-guard hysteresis missed it because scroll-settle never hits 0 fps; (2) the window must be tick-fed — an unchanged fps never fires the watcher.
+- fps meter idle decay (countFps): the meter only ran on frame arrival, so a still screen froze the last reading forever; now decays to 0 after 1.2s of silence → chip shows `idle` on true quiet.
+- Verified live (6 swipe pairs, 24 samples): steady `live · 20fps` throughout, no 8↔20 flicker. Post-drill the chip held 20 — canvas hashing proved the Lion Parcel app's auto-advancing promo carousel genuinely animates the screen: honest, not stuck. 31/31 web tests.
+
+## Next step (original)
 
 Apply the A+C patch on `feat/device-cockpit`: `set_fps` 60→30, chip hysteresis, and the scripted swipe drill asserting ≥20fps in every motion window. ~30 minutes including the drill.
