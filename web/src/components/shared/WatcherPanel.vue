@@ -34,5 +34,5 @@ const emit = defineEmits<{ (e: 'switch', id: string): void }>();
 .rtab:hover { color: var(--color-paper); }
 .rtab.active { color: var(--color-paper); border-bottom-color: var(--color-ember); }
 .rtab:focus-visible { outline: 1px solid var(--color-ember); outline-offset: -1px; }
-.railbody { flex: 1; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; }
+.railbody { position: relative; flex: 1; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; }
 </style>

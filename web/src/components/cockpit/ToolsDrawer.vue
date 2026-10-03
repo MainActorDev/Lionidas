@@ -158,8 +158,9 @@ function copySpec(): void {
   <div class="tools" v-if="open">
     <!-- header: one line — title, live state, close -->
     <header class="head">
+      <div class="ico">⌖</div>
       <span class="title">inspect</span>
-      <span class="state" :data-state="tree.state.value">{{ stateLabel }}</span>
+      <span class="badge">{{ tree.nodes.value.length ? `${tree.nodes.value.length} nodes` : `· ${stateLabel}` }}</span>
       <span class="spacer" />
       <button type="button" class="x" title="close" @click="emit('close')">✕</button>
     </header>
@@ -254,11 +255,15 @@ function copySpec(): void {
 </template>
 
 <style scoped>
-.tools { position: absolute; top: 40px; left: 0; bottom: 0; width: 340px; z-index: 25; background: var(--color-carbon); border-right: 1px solid var(--color-iron); display: flex; flex-direction: column; }
+.tools { position: absolute; inset: 0; z-index: 5; background: var(--color-void, #0d0d0d); display: flex; flex-direction: column; animation: rise .18s ease; }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .tools { animation: none; } }
 
 /* header */
-.head { display: flex; align-items: center; gap: 8px; padding: 0 12px; height: 38px; border-bottom: 1px solid var(--color-iron); flex: 0 0 auto; }
-.title { font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--color-paper); font-weight: var(--weight-bold); }
+.head { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-bottom: 1px solid var(--color-iron); flex: 0 0 auto; }
+.ico { width: 22px; height: 22px; border: 1px solid var(--color-slate); border-radius: var(--r); display: grid; place-items: center; font-size: 11px; color: var(--color-ember); flex: none; }
+.title { font-size: var(--text-caption); letter-spacing: .1em; text-transform: uppercase; color: var(--color-paper); }
+.badge { font-size: 10px; color: var(--color-ash); border: 1px solid var(--color-slate); padding: 1px 6px; border-radius: var(--r); }
 .state { font-size: 9px; letter-spacing: .08em; color: var(--color-fog); border: 1px solid var(--color-iron); padding: 1px 7px; border-radius: var(--r); }
 .state[data-state='aligned'] { border-color: var(--color-ember); color: var(--color-ember); }
 .state[data-state='failed'] { color: var(--color-paper); }
@@ -304,7 +309,7 @@ function copySpec(): void {
 .tag.dim { opacity: .6; }
 
 /* geometry grid */
-.kv-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--color-iron); border: 1px solid var(--color-iron); border-radius: var(--r); overflow: hidden; }
+.kv-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--color-iron); border: 1px solid var(--color-iron); border-radius: var(--r); overflow: hidden; }
 .kv { background: var(--color-carbon); padding: 6px 8px; display: flex; flex-direction: column; gap: 1px; }
 .kv .k { font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-ash); }
 .kv .v { font-size: var(--text-caption); color: var(--color-paper); font-family: ui-monospace, monospace; }

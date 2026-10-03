@@ -11,11 +11,11 @@ import StageBezel from '../components/cockpit/StageBezel.vue';
 import WatcherPanel from '../components/shared/WatcherPanel.vue';
 import WatcherSection from '../components/shared/WatcherSection.vue';
 import WatchPane from '../components/cockpit/WatchPane.vue';
-import EnvDrawer from '../components/cockpit/EnvDrawer.vue';
+import EnvPanelContent from '../components/cockpit/EnvPanelContent.vue';
+import OverlayPanel from '../components/shared/OverlayPanel.vue';
 import ChatPane from '../components/cockpit/ChatPane.vue';
 import { useDeviceSessions, type DeviceSession } from '../composables/deviceSessions.ts';
 import ToolsDrawer from '../components/cockpit/ToolsDrawer.vue';
-import SideDrawer from '../components/shared/SideDrawer.vue';
 import { useLiveEvents } from '../stores/live.ts';
 
 const devices = ref<SwitcherDevice[]>([]);
@@ -24,12 +24,12 @@ const router = useRouter();
 const activeUdid = ref('');
 const sessionOn = ref<string | null>(null); // per-ACTIVE-device mirror; source of truth = deviceSessions map
 const dims = ref<{ w: number | null; h: number | null }>({ w: null, h: null });
-const envOpen = ref(false);
 const activeScenario = ref<string | null>(null);
 const screenState = ref('—');
 const menuSessionLabel = ref<string | null>(null);
 const railTab = ref('watch');
-const toolsOpen = ref(false);
+const toolsOpen = ref(false); // inspect overlay (kept name: menu + refs)
+const overlay = ref<'env' | 'inspect' | null>(null); // ONE supplementary panel at a time
 const overlayData = ref<{ nodes: Array<Record<string, unknown>>; w: number | null; h: number | null; visible: boolean; sel: Record<string, unknown> | null }>({ nodes: [], w: null, h: null, visible: false, sel: null });
 const toast = ref('');
 const stage = ref<InstanceType<typeof StageBezel> | null>(null);
@@ -62,13 +62,13 @@ function flash(msg: string): void { toast.value = msg; setTimeout(() => { if (to
 
 function onMenuEvent(event: string): void {
   if (event === 'exit-console') { void router.push('/'); return; }
-  if (event === 'env-scenario') { envOpen.value = true; return; }
+  if (event === 'env-scenario') { overlay.value = 'env'; return; }
   if (event === 'screenshot') void captureScreenshot();
   if (event === 'boot-device') void pickBootDevice();
   if (event === 'restart') void power('restart');
   if (event === 'shutdown') void power('shutdown');
   if (event === 'install') void openInstall();
-  if (event === 'toggle-inspect') { toolsOpen.value = !toolsOpen.value; }
+  if (event === 'toggle-inspect') { overlay.value = overlay.value === 'inspect' ? null : 'inspect'; toolsOpen.value = overlay.value === 'inspect'; }
   if (event === 'play-case') void pickPlayCase();
 }
 
@@ -344,17 +344,18 @@ void live;
         @session-state="onSessionState" @inspect-click="onInspectClick"
         @session-acquired="onSessionAcquired" @session-dropped="onSessionDropped" />
       <div v-else class="empty">no booted devices — boot one from the device menu</div>
-      <WatcherPanel :tabs="[{ id: 'watch', label: 'watch' }, { id: 'chat', label: 'chat' }]" :active="railTab" @switch="railTab = $event">
+      <WatcherPanel :tabs="[{ id: 'watch', label: 'watch' }, { id: 'chat', label: 'chat' }]" :active="railTab" :class="{ dimmed: !!overlay }" @switch="railTab = $event">
         <WatchPane v-show="railTab === 'watch'" :udid="activeUdid" :session-id="sessionOn" :dims="dims" />
         <ChatPane v-show="railTab === 'chat'" :udid="activeUdid" :device-name="activeName" :screen-state="screenState" :scenario="activeScenario" />
+        <!-- supplementary overlays — ONE at a time, covering the rail content -->
+        <OverlayPanel v-if="overlay === 'env'" title="environment" icon="◔" :badge="activeScenario ? '1 active' : '· none'" @close="overlay = null">
+          <EnvPanelContent @scenario="activeScenario = $event" />
+        </OverlayPanel>
+        <ToolsDrawer v-if="overlay === 'inspect'" ref="toolsRef" :open="overlay === 'inspect'" :udid="activeUdid" :session-id="sessionOn"
+          @close="overlay = null; toolsOpen = false"
+          @inspect-enabled="(on) => { stage?.setInspect(on); }" />
       </WatcherPanel>
     </div>
-    <ToolsDrawer ref="toolsRef" :open="toolsOpen" :udid="activeUdid" :session-id="sessionOn"
-      @close="toolsOpen = false"
-      @inspect-enabled="(on) => { stage?.setInspect(on); }" />
-    <SideDrawer :open="envOpen" title="environment" @close="envOpen = false">
-      <EnvDrawer @scenario="activeScenario = $event" />
-    </SideDrawer>
 
     <!-- boot picker -->
     <!-- boot modal (install pattern) -->
@@ -424,6 +425,7 @@ void live;
 
 <style scoped>
 .cockpit { display: flex; flex-direction: column; height: 100vh; position: relative; background: var(--color-void); }
+.rail.dimmed :deep(.railtabs) { opacity: .35; pointer-events: none; }
 .frame { flex: 1; display: grid; grid-template-columns: 1fr 320px; min-height: 0; position: relative; background: var(--color-carbon); border-top: 1px solid var(--color-iron); }
 .empty { display: grid; place-items: center; color: var(--color-steel); font-size: var(--text-caption); }
 .pane { display: flex; flex-direction: column; min-height: 0; }
