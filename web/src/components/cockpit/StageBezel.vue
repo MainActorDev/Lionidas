@@ -8,7 +8,7 @@
  *  Session chip, screen-state chip (F5 ladder), session-lost banner. */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useDeviceStream, canvasPointToLogical } from '../../composables/deviceStream.ts';
-import { loadBezelDefinition, type BezelDefinition } from '../../composables/simdeckChrome.ts';
+import { loadBezelDefinition, peekBezelDefinition, type BezelDefinition } from '../../composables/simdeckChrome.ts';
 import InspectOverlay from '../InspectOverlay.vue';
 import StreamShimmer from './StreamShimmer.vue';
 import InspectRedlines from '../InspectRedlines.vue';
@@ -96,6 +96,13 @@ function onCanvasLeave(): void { hoverNode.value = null; }
 
 // ── REAL bezel chrome (simdeck definition; degrades to null → bare canvas) ──
 const bezelDef = ref<BezelDefinition | null>(null);
+// Chrome-ready gate: the bezel must appear WHOLE (definition + decoded PNG),
+// never half-in. Found live: img render raced PNG decode — first switch drew
+// a gap, return switches re-fetched everything. Cache (simdeckChrome) kills
+// the refetch; decode() gates the reveal; a 200ms opacity fade replaces the
+// pop-in. Screen content (canvas/shimmer) is NOT gated — only chrome.
+const chromeReady = ref(false);
+let chromeGen = 0;
 watch(() => props.udid, async (u) => {
   // per-mount (page remounts via :key): adopt the page map's handle if the
   // device still holds a live session — returning to a tab resumes control
@@ -107,11 +114,36 @@ watch(() => props.udid, async (u) => {
   screenState.value = '—';
   bezelDef.value = null;
   if (u) {
+    // warm switch: a cached def paints the wrap THIS frame (skeleton at
+    // half opacity) — kills the empty-stage gap between tab mounts. The
+    // full reveal still waits for PNG decode.
+    const warm = peekBezelDefinition(u);
+    if (warm) { bezelDef.value = warm; chromeReady.value = false; }
     // :key remount: let the outgoing instance's teardown (stream.stop) land
     // first — starting instantly raced it and double-connected per switch
     await new Promise((r) => setTimeout(r, 120));
     stream.start(u);
-    bezelDef.value = await loadBezelDefinition(u);
+    const def = await loadBezelDefinition(u);
+    bezelDef.value = def;
+    // chrome reveal gate: def cached hit is instant, but the PNG must be
+    // DECODED before we show it — an undecoded <img> paints a gap on first
+    // switch. Decode in parallel with the stream's first frames; reveal when
+    // both chrome + a rendered frame exist (or 600ms cap — never block the
+    // stage on a slow decode).
+    const gen = ++chromeGen;
+    chromeReady.value = false;
+    if (def) {
+      const img = new Image();
+      img.src = def.bezel.url;
+      const decoded = (img.decode?.() ?? Promise.resolve()).catch(() => undefined);
+      const frame = new Promise<void>((res) => {
+        if (stream.frames.value > 0) { res(); return; }
+        const un = watch(stream.frames, (n) => { if (n > 0) { un(); res(); } });
+      });
+      await Promise.race([Promise.all([decoded, frame]), new Promise((r) => setTimeout(r, 600))]);
+      if (gen !== chromeGen) return; // superseded by another switch
+    }
+    chromeReady.value = true;
   } else stream.stop();
 }, { immediate: true });
 
@@ -278,7 +310,7 @@ defineExpose({
     </div>
 
     <!-- the REAL bezel: PNG body + % screen rect + hardware buttons -->
-    <div v-if="bezelDef" ref="bezelWrapEl" class="bezel-wrap">
+    <div v-if="bezelDef" ref="bezelWrapEl" class="bezel-wrap" :class="{ ready: chromeReady }">
       <img class="bezel-img" :src="bezelDef.bezel.url" :width="bezelDef.bezel.width" :height="bezelDef.bezel.height" alt="" draggable="false" />
       <canvas v-show="stream.state.value !== 'idle'" :ref="stream.setCanvas" class="bezel-screen" :class="{ 'no-session': !sessionId, inspecting: inspect }" tabindex="0" @click="onTap" @mousemove="onCanvasMove" @mouseleave="onCanvasLeave"
         :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
@@ -345,6 +377,11 @@ defineExpose({
 
 /* the REAL bezel: wrap sized explicitly (WebKit aspect-ratio guard), image
  * fills it; canvas + buttons ride % rects — aligned by construction */
+.bezel-wrap {
+  opacity: .5;
+  transition: opacity .2s ease;
+}
+.bezel-wrap.ready { opacity: 1; }
 .bezel-wrap { position: relative; flex: 0 0 auto; font-size: 0; }
 .bezel-img { display: block; height: 100%; width: auto; pointer-events: none; user-select: none; -webkit-user-drag: none; }
 .bezel-screen { position: absolute; display: block; cursor: pointer; background: var(--color-void); outline: none; }

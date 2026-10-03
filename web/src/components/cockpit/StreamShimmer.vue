@@ -11,15 +11,24 @@
  *  independent compositor-only animations = the reference's timing, zero
  *  layout, no coupling. Everything else is the reference verbatim. The only
  *  integration is visibility (connecting/reconnecting). */
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 
 const props = defineProps<{ state: string }>();
 
-const visible = computed((): boolean => props.state === 'connecting' || props.state === 'reconnecting');
+// Fade-out instead of a hard cut: the shimmer used v-if to vanish the frame
+// the state flipped to live — the aurora→screen handoff read as a snap. Now
+// it stays mounted (pointer-events none) and fades 250ms; the stream's first
+// frames paint UNDER it during the fade = a crossfade.
+const showing = computed((): boolean => props.state === 'connecting' || props.state === 'reconnecting');
+const visible = ref(showing.value);
+watch(showing, (s) => {
+  if (s) visible.value = true;
+  else setTimeout(() => { visible.value = false; }, 250);
+});
 </script>
 
 <template>
-  <div v-if="visible" class="shimmer">
+  <div v-if="visible" class="shimmer" :class="{ out: !showing }">
     <div class="scene">
       <div class="aurora">
         <div class="band-wrap w1"><div class="aurora__band b1"></div></div>
@@ -31,7 +40,9 @@ const visible = computed((): boolean => props.state === 'connecting' || props.st
 </template>
 
 <style scoped>
-.shimmer { position: absolute; inset: 0; z-index: 1; overflow: hidden; }
+.shimmer { position: absolute; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; }
+.shimmer.out { animation: shimmer-out .25s ease forwards; }
+@keyframes shimmer-out { to { opacity: 0; } }
 
 .scene {
   position: relative;

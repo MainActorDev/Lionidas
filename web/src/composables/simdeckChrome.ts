@@ -79,11 +79,28 @@ export function adaptChromeDefinition(udid: string, c: ChildDefinition): BezelDe
 
 /** Fetch + adapt. Absent chrome (child down / no bundle for the model)
  *  degrades to null — the sidebar's bare-canvas branch, never an error. */
+// Bezel-definition cache — tab switches remount StageBezel (:key=udid) and
+// re-fetched the SAME definition + PNG every time: the bezel popped in late
+// on every switch ("bezel not there initially", operator report). Defs are
+// static per device; cache them so a RETURN switch is instant. PNG decode is
+// awaited separately in StageBezel (b ChromeDecodesBeforeShow) so the first
+// paint is whole.
+const bezelDefCache = new Map<string, BezelDefinition | null>();
+
+/** Sync peek for warm switches: StageBezel paints a cached def immediately
+ *  (skeleton bezel) instead of an empty stage while the async load runs. */
+export function peekBezelDefinition(udid: string): BezelDefinition | null | undefined {
+  return bezelDefCache.get(udid);
+}
+
 export async function loadBezelDefinition(udid: string): Promise<BezelDefinition | null> {
+  if (bezelDefCache.has(udid)) return bezelDefCache.get(udid) ?? null;
   try {
     const r = await fetch(`/simulators/${encodeURIComponent(udid)}/definition.json`);
-    if (!r.ok) return null;
-    return adaptChromeDefinition(udid, await r.json() as ChildDefinition);
+    if (!r.ok) { bezelDefCache.set(udid, null); return null; }
+    const def = adaptChromeDefinition(udid, await r.json() as ChildDefinition);
+    bezelDefCache.set(udid, def);
+    return def;
   } catch {
     return null;
   }
