@@ -395,15 +395,30 @@ const moveOpen = ref(false);
 const moveTarget = ref('');
 const folderBusy = ref('');
 
-async function loadListing(bundle: string): Promise<void> {
+async function loadListing(bundle: string, attempt = 0): Promise<void> {
   const folderId = folderNav.value[bundle] ?? null;
   const q = new URLSearchParams({ app: bundle });
   if (folderId) q.set('parentId', folderId);
   try {
     const r = await fetch(`/api/folders?${q}`);
-    listings.value = { ...listings.value, [bundle]: (await r.json()) as FolderListing };
-  } catch { /* keep stale */ }
+    if (!r.ok) throw new Error(`folders ${r.status}`);
+    const body = (await r.json()) as FolderListing;
+    if (!body || !Array.isArray(body.folders) || !Array.isArray(body.caseIds)) throw new Error('folders malformed');
+    listings.value = { ...listings.value, [bundle]: body };
+  } catch (err) {
+    // reload race found live: a dropped /api/folders fetch left whole app
+    // sections EMPTY while the group header (from /api/templates) still
+    // showed the count — silent "missing cases" on rapid reloads. Retry a
+    // few times, then surface; never keep a silently-empty listing when we
+    // have nothing stale to keep.
+    if (attempt < 3) {
+      await new Promise((res) => setTimeout(res, 300 * (attempt + 1)));
+      return loadListing(bundle, attempt + 1);
+    }
+    listingsError.value = `folders failed for ${bundle}: ${err instanceof Error ? err.message : String(err)}`;
+  }
 }
+const listingsError = ref('');
 async function loadAllListings(): Promise<void> {
   const bundles = [...new Set(templates.value.map((t) => t.appBundleId).filter((x): x is string => Boolean(x)))];
   await Promise.all(bundles.map((b) => loadListing(b)));
@@ -908,6 +923,7 @@ const suiteSummary = computed(() => {
         <button class="btn" :disabled="folderBusy === 'runsel'" @click="runSelected">{{ folderBusy === 'runsel' ? 'running…' : `run ${selection.size}` }}</button>
       </template>
     </div>
+    <div v-if="listingsError" class="a2-listings-err" role="alert">{{ listingsError }} <button class="btn btn-sm" @click="loadAllListings()">retry</button></div>
     <!-- ── case table: own scroll region, sticky header ── -->
     <div class="a2-table a2-list foldered">
       <div class="a2-thead">
@@ -938,6 +954,7 @@ const suiteSummary = computed(() => {
             <button class="btn btn-sm" :disabled="folderBusy === 'new'" @click="createFolderHere(g.label)">+ folder</button>
           </span>
         </div>
+        <div v-if="!listings[g.label]" class="a2-loading-folders">loading folders…</div>
         <div v-for="f in listings[g.label]?.folders ?? []" :key="f.id" class="a2-folder-row" @click="openFolder(g.label, f.id)" :title="`open ${f.name} — ${f.caseCount} case(s) in subtree`">
           <span class="f-spacer"><svg class="f-glyph" viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 4.5A1.5 1.5 0 014 3h3.6a1.5 1.5 0 011.1.5l1.1 1.2H16A1.5 1.5 0 0117.5 6.2v9.3A1.5 1.5 0 0116 17H4a1.5 1.5 0 01-1.5-1.5V4.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></span>
           <span class="f-name">{{ f.name }}</span>
@@ -1369,4 +1386,6 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
+.a2-listings-err { display: flex; align-items: center; gap: 10px; padding: 8px 14px; color: var(--color-paper); background: var(--color-carbon); border-left: 2px solid var(--color-ember); font-size: var(--text-caption); }
+.a2-loading-folders { padding: 6px 14px 6px 34px; color: var(--color-steel); font-size: var(--text-caption); }
 </style>
