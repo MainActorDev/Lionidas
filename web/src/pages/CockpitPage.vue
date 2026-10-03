@@ -597,8 +597,12 @@ void live;
 .pick-row.busy { opacity: .5; cursor: wait; }
 .pick-row.picked { border: 1px solid var(--color-ember); background: rgba(218, 92, 44, .08); color: var(--color-paper); }
 .pick-row.picked .k { color: var(--color-ember); }
-.fanout-row { display: flex; align-items: center; gap: 8px; font-size: var(--text-caption); color: var(--color-fog); margin-bottom: 10px; cursor: pointer; }
-.fanout-row input { accent-color: var(--color-ember); }
+.fanout-row { display: flex; align-items: center; gap: 8px; font-size: var(--text-caption); color: var(--color-fog); margin-bottom: 10px; cursor: pointer; user-select: none; }
+/* flex was STRETCHING the native checkbox to the row width (286px!) — the
+   box rendered far from its label. Fixed size + no grow keeps the classic
+   checkbox-next-to-text shape. */
+.fanout-row input { width: 13px; height: 13px; flex: 0 0 auto; margin: 0; accent-color: var(--color-ember); cursor: pointer; }
+.fanout-row:hover { color: var(--color-paper); }
 .modal.wide { min-width: 460px; }
 .app-row { border: 1px solid var(--color-iron); border-radius: var(--r); padding: 8px; margin-bottom: 6px; }
 .app-row.picked { border-color: var(--color-ember); }
