@@ -326,7 +326,7 @@ async function bootSelected(): Promise<void> {
 }
 
 /** play a case on this device: newest templates → prompt-free picker */
-const playPick = ref<Array<{ id: string; name: string }>>([]);
+const playPick = ref<Array<{ id: string; name: string; desc: string | null; ticket: string | null; steps: number }>>([]);
 const playPickId = ref('');
 const playOpen = ref(false);
 const playBusy = ref(false);
@@ -335,8 +335,13 @@ const bootedCount = ref(0);
 async function pickPlayCase(): Promise<void> {
   try {
     const r = await fetch('/api/templates');
-    const b = (await r.json()) as { templates?: Array<{ id: string; name: string }> };
-    playPick.value = (b.templates ?? []).slice(0, 30);
+    const b = (await r.json()) as { templates?: Array<{ id: string; name: string; description?: string | null; ticketKey?: string | null; steps?: unknown[] }> };
+    playPick.value = (b.templates ?? []).slice(0, 30).map((t) => ({
+      id: t.id, name: t.name,
+      desc: t.description ?? null,
+      ticket: t.ticketKey ?? null,
+      steps: Array.isArray(t.steps) ? t.steps.length : 0,
+    }));
     try {
       const rd = await fetch('/api/devices');
       const bd = (await rd.json()) as { devices?: Array<{ state: string | null }> };
@@ -501,8 +506,12 @@ void live;
         <div class="modal-body">
           <label class="fanout-row"><input v-model="playAllBooted" type="checkbox" /> run on all booted devices ({{ bootedCount }})</label>
           <div v-if="!playPick.length" class="k">no cases found</div>
-          <div v-for="t in playPick" :key="t.id" class="pick-row" :class="{ picked: playPickId === t.id, busy: playBusy }" @click="playPickId = t.id">
-            <span>{{ t.name }}</span><span class="k">{{ t.id.slice(0, 10) }}…</span>
+          <div v-for="t in playPick" :key="t.id" class="app-row case-row" :class="{ picked: playPickId === t.id, busy: playBusy }" @click="playPickId = t.id">
+            <div class="app-head">
+              <span class="app-name">{{ t.name }}</span>
+              <span class="k">{{ t.ticket ? t.ticket + ' · ' : '' }}{{ t.steps }} steps</span>
+            </div>
+            <div v-if="t.desc" class="case-desc">{{ t.desc }}</div>
           </div>
         </div>
         <div class="modal-actions">
@@ -593,6 +602,11 @@ void live;
 .modal.wide { min-width: 460px; }
 .app-row { border: 1px solid var(--color-iron); border-radius: var(--r); padding: 8px; margin-bottom: 6px; }
 .app-row.picked { border-color: var(--color-ember); }
+.case-row { cursor: pointer; }
+.case-row:hover { border-color: var(--color-slate); }
+.case-row.busy { opacity: .6; pointer-events: none; }
+.case-row.picked { background: rgba(218, 92, 44, .08); }
+.case-desc { font-size: 10.5px; color: var(--color-ash); margin-top: 4px; line-height: 1.45; }
 .app-head { display: flex; justify-content: space-between; gap: 10px; cursor: pointer; }
 .app-name { color: var(--color-paper); font-size: var(--text-caption); }
 .app-builds { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
