@@ -79,6 +79,9 @@ watch(() => props.udid, async (u) => {
   screenState.value = '—';
   bezelDef.value = null;
   if (u) {
+    // :key remount: let the outgoing instance's teardown (stream.stop) land
+    // first — starting instantly raced it and double-connected per switch
+    await new Promise((r) => setTimeout(r, 120));
     stream.start(u);
     bezelDef.value = await loadBezelDefinition(u);
   } else stream.stop();
@@ -113,7 +116,13 @@ onMounted(() => {
   wrapObs = new ResizeObserver(sizeBezelWrap);
   if (bezelWrapEl.value?.closest('.stage')) wrapObs.observe(bezelWrapEl.value.closest('.stage') as Element);
 });
-onBeforeUnmount(() => { wrapObs?.disconnect(); wrapObs = null; });
+onBeforeUnmount(() => {
+  wrapObs?.disconnect(); wrapObs = null;
+  // stage remounts per udid (:key): the outgoing instance MUST tear down its
+  // stream or the leaked WS's reconnect loop fights the new instance's leg
+  // (last-viewer-wins evictions = aurora/screen flapping found live)
+  stream.stop();
+});
 
 async function api(path: string, body?: unknown): Promise<Record<string, unknown>> {
   const res = await fetch(`/api/manual/${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) });

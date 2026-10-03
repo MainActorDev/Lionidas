@@ -167,19 +167,30 @@ describe('simdeck gated proxy', () => {
     expect(__simdeckLegs().find((l) => l.udid === 'UDID-D')).toBeUndefined();
   });
 
-  it('last-viewer-wins: a new stream leg for a udid closes existing legs', async () => {
-    const ws1 = await clientWs(app, '/simdeck/simulators/AAA/stream?format=avcc&version=v2');
-    await new Promise((r) => setTimeout(r, 100));
-    expect(__simdeckLegs().filter((l) => l.udid === 'AAA')).toHaveLength(1);
-
-    // second viewer of the SAME udid — the first (zombie) leg must be replaced
-    const ws2 = await clientWs(app, '/simdeck/simulators/AAA/stream?format=avcc&version=v2');
+  it('viewer rules: watch legs coexist; a drive leg evicts existing drive legs', async () => {
+    // two WATCH viewers of the same udid: both live (multi-viewer watching;
+    // input gating is per-leg). Previously last-viewer-wins made any two
+    // viewers evict each other in an endless loop.
+    const w1 = await clientWs(app, '/simdeck/simulators/AAA/stream?format=avcc&version=v2');
+    const w2 = await clientWs(app, '/simdeck/simulators/AAA/stream?format=avcc&version=v2');
     await new Promise((r) => setTimeout(r, 150));
-    const legs = __simdeckLegs().filter((l) => l.udid === 'AAA');
-    expect(legs).toHaveLength(1); // replaced, not duplicated
+    expect(__simdeckLegs().filter((l) => l.udid === 'AAA')).toHaveLength(2);
+    expect(w1.readyState).toBe(WebSocket.OPEN);
+    expect(w2.readyState).toBe(WebSocket.OPEN);
+    w1.close(); w2.close();
 
-    // the first socket is closed by the proxy (zombie eviction)
-    expect(ws1.readyState).not.toBe(WebSocket.OPEN);
-    ws2.close();
+    // DRIVE supersede: a manual session flips the next leg to drive —
+    // arriving drive evicts an existing DRIVE leg (one driver per udid)
+    driving.add('AAA');
+    const d1 = await clientWs(app, '/simdeck/simulators/AAA/stream?format=avcc&version=v2');
+    await new Promise((r) => setTimeout(r, 100));
+    expect(__simdeckLegs().filter((l) => l.udid === 'AAA' && l.mode === 'drive')).toHaveLength(1);
+    const d2 = await clientWs(app, '/simdeck/simulators/AAA/stream?format=avcc&version=v2');
+    await new Promise((r) => setTimeout(r, 150));
+    const driveLegs = __simdeckLegs().filter((l) => l.udid === 'AAA' && l.mode === 'drive');
+    expect(driveLegs).toHaveLength(1); // replaced, not duplicated
+    expect(d1.readyState).not.toBe(WebSocket.OPEN); // first driver evicted
+    driving.delete('AAA');
+    d2.close();
   });
 });
