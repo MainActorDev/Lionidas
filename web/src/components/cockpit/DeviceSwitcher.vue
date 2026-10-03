@@ -25,6 +25,7 @@ const emit = defineEmits<{
       <span class="sub">{{ d.sub }}</span>
       <button
         type="button" class="tabx" :title="`release + shut down ${d.name}`"
+        v-if="d.sub !== 'restarting'"
         :disabled="d.udid === closingUdid"
         @click.stop="emit('close', d.udid)"
         @keydown.enter.stop="emit('close', d.udid)"
