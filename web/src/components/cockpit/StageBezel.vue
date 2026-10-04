@@ -344,6 +344,7 @@ defineExpose({
       </div>
       <button v-if="!sessionId" class="session-btn primary" :disabled="busy" @click="takeControl">take control</button>
       <button v-else class="session-btn danger" :disabled="busy" @click="release">release</button>
+      <button v-if="inspect" type="button" class="inspect-chip" title="exit inspect (⌘I)" @click.stop="emit('exit-inspect')">⌖ inspecting · ⌘I to exit</button>
       <div v-if="stream.state.value === 'live'" class="fps-chip">{{ fpsLabel }}</div>
     </div>
 
@@ -355,7 +356,6 @@ defineExpose({
         :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
                   width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%`,
                   borderRadius: `${bezelDef.screenRadius.pctW}% / ${bezelDef.screenRadius.pctH}%` }"></canvas>
-      <button v-if="inspect" type="button" class="inspect-chip" title="exit inspect (⌘I)" :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%` }" @click.stop="emit('exit-inspect')">⌖ inspecting · ⌘I to exit</button>
       <div v-if="restarting" class="restarting-veil" :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`, width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%`, borderRadius: `${bezelDef.screenRadius.pctW}% / ${bezelDef.screenRadius.pctH}%` }">
         <span class="restarting-dot" />restarting
       </div>
@@ -420,7 +420,7 @@ defineExpose({
 
 /* the REAL bezel: wrap sized explicitly (WebKit aspect-ratio guard), image
  * fills it; canvas + buttons ride % rects — aligned by construction */
-.inspect-chip { position: absolute; z-index: 7; transform: translateY(6px); margin-left: 8px; background: var(--color-carbon); border: 1px solid var(--color-ember); color: var(--color-ember); font-family: inherit; font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; padding: 2px 8px; border-radius: var(--r); cursor: pointer; }
+.inspect-chip { background: var(--color-carbon); border: 1px solid var(--color-ember); color: var(--color-ember); font-family: inherit; font-size: 9px; letter-spacing: .06em; text-transform: uppercase; padding: 2px 6px; border-radius: var(--r); cursor: pointer; text-align: center; white-space: nowrap; }
 .inspect-chip:hover { background: var(--color-ember); color: var(--color-carbon); }
 .restarting-veil { position: absolute; z-index: 6; display: flex; align-items: center; justify-content: center; gap: 7px; background: rgba(0,0,0,.72); color: var(--color-ember); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; border: 1px solid var(--color-iron); }
 .restarting-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-ember); animation: restarting-pulse 1.1s infinite; }
