@@ -141,6 +141,7 @@ function onMenuEvent(event: string): void {
   if (event === 'run-app') void openRunApp();
   if (event === 'toggle-inspect') { overlay.value = overlay.value === 'inspect' ? null : 'inspect'; toolsOpen.value = overlay.value === 'inspect'; }
   if (event === 'play-case') void pickPlayCase();
+  if (event === 'play-suite') void openSuite();
 }
 
 /** screenshot: canvas → PNG download (same as the sidebar's camera tool) */
@@ -343,6 +344,52 @@ async function bootSelected(): Promise<void> {
 /** play a case on this device: newest templates → prompt-free picker */
 const playPick = ref<Array<{ id: string; name: string; desc: string | null; ticket: string | null; steps: number }>>([]);
 const playPickId = ref('');
+const playSearch = ref('');
+
+// ── suite modal (run → suite) — uniform with the test-case modal ──
+interface SuiteRowM { id: string; name: string; desc: string | null; members: number }
+const suiteOpen = ref(false);
+const suiteList = ref<SuiteRowM[]>([]);
+const suiteSearch = ref('');
+const suitePickId = ref('');
+const suiteBusy = ref(false);
+const suiteErr = ref('');
+const suiteFiltered = computed((): SuiteRowM[] => {
+  const q = suiteSearch.value.trim().toLowerCase();
+  if (!q) return suiteList.value;
+  return suiteList.value.filter((s) => s.name.toLowerCase().includes(q) || (s.desc ?? '').toLowerCase().includes(q));
+});
+async function openSuite(): Promise<void> {
+  suiteOpen.value = true; suiteErr.value = ''; suiteSearch.value = ''; suitePickId.value = '';
+  try {
+    const r = await fetch('/api/suites');
+    const b = (await r.json()) as { suites?: Array<{ id: string; name: string; description?: string | null; members?: unknown[] }> };
+    suiteList.value = (b.suites ?? []).map((s) => ({ id: s.id, name: s.name, desc: s.description ?? null, members: Array.isArray(s.members) ? s.members.length : 0 }));
+  } catch { suiteErr.value = 'suite list failed'; }
+}
+async function playSuite(): Promise<void> {
+  if (!suitePickId.value || suiteBusy.value) return;
+  suiteBusy.value = true; suiteErr.value = '';
+  try {
+    const r = await fetch(`/api/suites/${encodeURIComponent(suitePickId.value)}/play`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(playAllBooted.value ? {} : { udid: activeUdid.value }),
+    });
+    const b = (await r.json()) as { runIds?: string[]; count?: number; batchId?: string; error?: string };
+    if (b.runIds) {
+      suiteOpen.value = false;
+      flash(`suite · ${b.count ?? b.runIds.length} runs queued`);
+      railTab.value = 'watch';
+    }
+    else suiteErr.value = b.error ?? 'suite play failed';
+  } catch { suiteErr.value = 'suite request failed'; }
+  finally { suiteBusy.value = false; }
+}
+const playFiltered = computed((): Array<{ id: string; name: string; desc: string | null; ticket: string | null; steps: number }> => {
+  const q = playSearch.value.trim().toLowerCase();
+  if (!q) return playPick.value;
+  return playPick.value.filter((t) => t.name.toLowerCase().includes(q) || (t.desc ?? '').toLowerCase().includes(q) || (t.ticket ?? '').toLowerCase().includes(q));
+});
 const playOpen = ref(false);
 const playBusy = ref(false);
 const playAllBooted = ref(false);
@@ -364,6 +411,7 @@ async function pickPlayCase(): Promise<void> {
     } catch { bootedCount.value = devices.value.length; }
     playAllBooted.value = false;
     playPickId.value = '';
+    playSearch.value = '';
     playOpen.value = true;
   } catch { flash('case list failed'); }
 }
@@ -527,8 +575,9 @@ void live;
         <h3>test case on {{ activeName }}</h3>
         <div class="modal-body">
           <label class="fanout-row"><input v-model="playAllBooted" type="checkbox" /> run on all booted devices ({{ bootedCount }})</label>
-          <div v-if="!playPick.length" class="k">no cases found</div>
-          <div v-for="t in playPick" :key="t.id" class="app-row case-row" :class="{ picked: playPickId === t.id, busy: playBusy }" @click="playPickId = t.id">
+          <input v-model="playSearch" type="search" class="modal-search" placeholder="search cases…" />
+          <div v-if="!playFiltered.length" class="k">{{ playPick.length ? 'no case matches' : 'no cases found' }}</div>
+          <div v-for="t in playFiltered" :key="t.id" class="app-row case-row" :class="{ picked: playPickId === t.id, busy: playBusy }" @click="playPickId = t.id">
             <div class="app-head">
               <span class="app-name">{{ t.name }}</span>
               <span class="k">{{ t.ticket ? t.ticket + ' · ' : '' }}{{ t.steps }} steps</span>
@@ -540,6 +589,30 @@ void live;
           <button class="m-btn" :disabled="playBusy" @click="playOpen = false">cancel</button>
           <button class="m-btn primary" :disabled="!playPickId || playBusy" @click="playCase(playPickId!)">{{ playBusy ? 'running…' : 'run' }}</button>
         </div>
+      </div>
+    </div>
+
+    <!-- suite modal (uniform with test case) -->
+    <div v-if="suiteOpen" class="modal-scrim" @click.self="suiteOpen = false">
+      <div class="modal wide">
+        <h3>suite on {{ activeName }}</h3>
+        <div class="modal-body">
+          <label class="fanout-row"><input v-model="playAllBooted" type="checkbox" /> distribute across booted devices ({{ bootedCount }})</label>
+          <input v-model="suiteSearch" type="search" class="modal-search" placeholder="search suites…" />
+          <div v-if="!suiteFiltered.length" class="k">{{ suiteList.length ? 'no suite matches' : 'no suites found' }}</div>
+          <div v-for="s in suiteFiltered" :key="s.id" class="app-row case-row" :class="{ picked: suitePickId === s.id, busy: suiteBusy }" @click="suitePickId = s.id">
+            <div class="app-head">
+              <span class="app-name">{{ s.name }}</span>
+              <span class="k">{{ s.members }} case{{ s.members === 1 ? '' : 's' }}</span>
+            </div>
+            <div v-if="s.desc" class="case-desc">{{ s.desc }}</div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="m-btn" :disabled="suiteBusy" @click="suiteOpen = false">cancel</button>
+          <button class="m-btn primary" :disabled="!suitePickId || suiteBusy" @click="playSuite">{{ suiteBusy ? 'running…' : 'run suite' }}</button>
+        </div>
+        <div v-if="suiteErr" class="hint-err">{{ suiteErr }}</div>
       </div>
     </div>
 
@@ -628,6 +701,8 @@ void live;
 .modal.wide { min-width: 460px; }
 .app-row { border: 1px solid var(--color-iron); border-radius: var(--r); padding: 8px; margin-bottom: 6px; }
 .app-row.picked { border-color: var(--color-ember); }
+.modal-search { font-family: inherit; font-size: var(--text-caption); color: var(--color-paper); background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r); padding: 5px 8px; margin-bottom: 8px; width: 100%; outline: none; }
+.modal-search:focus { border-color: var(--color-slate); }
 .case-row { cursor: pointer; }
 .case-row:hover { border-color: var(--color-slate); }
 .case-row.busy { opacity: .6; pointer-events: none; }

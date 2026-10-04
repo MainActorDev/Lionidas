@@ -30,6 +30,7 @@ const MENUS: Array<{ id: string; label: string; items: MenuItem[] }> = [
   ] },
   { id: 'run', label: 'run', items: [
     { label: 'test case', accel: '⌘P', event: 'play-case' },
+    { label: 'suite', event: 'play-suite' },
   ] },
   { id: 'view', label: 'view', items: [
     { label: 'inspect elements', accel: '⌘I', event: 'toggle-inspect' },

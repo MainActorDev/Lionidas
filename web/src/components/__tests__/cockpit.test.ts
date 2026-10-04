@@ -24,6 +24,7 @@ describe('MenuBar (T1)', () => {
     expect(deviceItems.some((t) => t.includes('environment'))).toBe(true);
     const runItems = [...w.findAll('.menu')[2]!.element.querySelectorAll('.item')].map((e) => e.textContent ?? '');
     expect(runItems.some((t) => t.includes('test case'))).toBe(true);
+    expect(runItems.some((t) => t.includes('suite'))).toBe(true);
     expect(runItems.some((t) => t.includes('watch active run'))).toBe(false);
     const viewItems = [...w.findAll('.menu')[3]!.element.querySelectorAll('.item')].map((e) => e.textContent ?? '');
     expect(viewItems.some((t) => t.includes('chat panel'))).toBe(false);
