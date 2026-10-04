@@ -31,6 +31,7 @@ const railTab = ref('watch');
 const toolsOpen = ref(false); // inspect overlay (kept name: menu + refs)
 const overlay = ref<'env' | 'inspect' | null>(null); // ONE supplementary panel at a time
 watch(overlay, (o) => { if (o !== 'inspect') stage.value?.setInspect(false); })
+watch(activeUdid, () => { void pollCaseRunning(); })
 const overlayData = ref<{ nodes: Array<Record<string, unknown>>; w: number | null; h: number | null; visible: boolean; sel: Record<string, unknown> | null }>({ nodes: [], w: null, h: null, visible: false, sel: null });
 interface Toast { id: number; text: string; kind: 'ok' | 'err' }
 const toasts = ref<Toast[]>([]);
@@ -53,6 +54,18 @@ let preselectApplied = false;
 // leaves Booted — the cockpit must NOT (the tab would vanish + auto-switch
 // away mid-restart, exactly when the operator is watching). Kept in `devices`
 // with sub:'restarting' until the cycle completes server-side.
+// a testcase (template run) active on the ACTIVE device — take control
+// is disabled while one runs (driving mid-case poisons its steps)
+const caseRunningOnActive = ref(false);
+async function pollCaseRunning(): Promise<void> {
+  if (!activeUdid.value) { caseRunningOnActive.value = false; return; }
+  try {
+    const r = await fetch('/api/runs?limit=12');
+    const b = (await r.json()) as { runs?: Array<{ device_udid?: string; status?: string; template_id?: string | null; kind?: string }> };
+    caseRunningOnActive.value = (b.runs ?? []).some((x) => x.device_udid === activeUdid.value && (x.status === 'queued' || x.status === 'running') && x.template_id);
+  } catch { /* transient */ }
+}
+
 const restarting = ref(new Set<string>());
 const restartingStartedAt = new Map<string, number>();
 const restartingLocal = new Set<string>();
@@ -129,7 +142,7 @@ onMounted(async () => {
   await loadDevices();
   // steady refresh: devices booted elsewhere appear; a mount-time auth race
   // (first load 401 → empty) heals instead of stranding the page empty
-  devicesTimer = setInterval(() => void loadDevices(), 5_000);
+  devicesTimer = setInterval(() => { void loadDevices(); void pollCaseRunning(); }, 5_000);
 });
 let devicesTimer: ReturnType<typeof setInterval> | undefined;
 onBeforeUnmount(() => { if (devicesTimer) clearInterval(devicesTimer); window.removeEventListener('keydown', onGlobalKey); })
@@ -537,7 +550,7 @@ void live;
     <DeviceSwitcher :devices="devices" :active-udid="activeUdid" :closing-udid="closingUdid" @switch="onSwitch" @close="onTabClose" />
     <div class="frame">
       <div class="stage-col">
-      <StageBezel v-if="activeUdid" :key="activeUdid" ref="stage" :udid="activeUdid" :restarting="isRestarting(activeUdid)" :session="activeSession"
+      <StageBezel v-if="activeUdid" :key="activeUdid" ref="stage" :udid="activeUdid" :restarting="isRestarting(activeUdid)" :case-running="caseRunningOnActive" :session="activeSession"
         :overlay-nodes="overlayData.nodes" :overlay-w="overlayData.w" :overlay-h="overlayData.h" :overlay-visible="overlayData.visible" :sel-parent-node="overlayData.sel" :selected-node="overlayData.sel"
         @session-state="onSessionState" @inspect-click="onInspectClick"
         @session-acquired="onSessionAcquired" @session-dropped="onSessionDropped"

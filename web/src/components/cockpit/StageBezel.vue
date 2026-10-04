@@ -19,6 +19,9 @@ const props = defineProps<{
   /** device mid power-restart: the bezel STAYS with a restarting veil —
    *  the stream dies with the device, but the chrome must not vanish */
   restarting?: boolean;
+  /** a testcase is running on this device: take control is unavailable
+   *  (driving mid-case poisons the case's steps) */
+  caseRunning?: boolean;
   /** durable per-device session handle from the page's map — a returning tab
    *  adopts this instead of showing idle (plan F6/:key remount shape) */
   session?: { sessionId: string; startedAt: number } | null;
@@ -373,7 +376,7 @@ defineExpose({
         <span class="zlabel">{{ zoomLabel }}</span>
         <button type="button" :disabled="zoomIdx === ZOOM_STEPS.length - 1" title="zoom in (+)" @click="zoomIn">+</button>
       </div>
-      <button v-if="!sessionId" class="session-btn primary" :disabled="busy" @click="takeControl">take control</button>
+      <button v-if="!sessionId" class="session-btn primary" :disabled="busy || caseRunning" :title="caseRunning ? 'a test case is running on this device' : undefined" @click="takeControl">{{ caseRunning ? 'case running…' : 'take control' }}</button>
       <button v-else class="session-btn danger" :disabled="busy" @click="release">release</button>
       <button v-if="inspect" type="button" class="inspect-chip" title="exit inspect (⌘I)" @click.stop="emit('exit-inspect')">⌖ inspecting · ⌘I to exit</button>
       <div v-if="stream.state.value === 'live'" class="fps-chip">{{ fpsLabel }}</div>
