@@ -201,6 +201,7 @@ const bootErr = ref('');
 const runAppOpen = ref(false);
 interface InstalledApp { bundleId: string; name: string; version: string | null; running: boolean; userFacing?: boolean }
 const runAppApps = ref<InstalledApp[]>([]);
+const runAppIcons = ref(false); // all-or-nothing icon column
 const runAppLoaded = ref(false);
 const runAppPick = ref('');
 const runAppBusy = ref(false);
@@ -221,6 +222,11 @@ async function openRunApp(): Promise<void> {
     const user = list.filter((a) => !a.bundleId.startsWith('com.apple.'));
     const sys = list.filter((a) => a.bundleId.startsWith('com.apple.'));
     runAppApps.value = [...user, ...sys];
+    // icons are ALL-OR-NOTHING (operator: mixed rows look broken): probe
+    // every app's icon; only when they ALL resolve does the column show
+    runAppIcons.value = false;
+    const probes = runAppApps.value.map((a) => fetch(`/api/devices/${encodeURIComponent(activeUdid.value)}/apps/${encodeURIComponent(a.bundleId)}/icon`).then((r) => r.ok).catch(() => false));
+    if (probes.length > 0 && await Promise.all(probes).then((rs) => rs.every(Boolean))) runAppIcons.value = true;
     runAppLoaded.value = true;
   } catch { runAppErr.value = 'app catalog failed'; }
 }
@@ -230,7 +236,7 @@ async function launchApp(): Promise<void> {
   try {
     const r = await fetch(`/api/devices/${encodeURIComponent(activeUdid.value)}/apps/${encodeURIComponent(runAppPick.value)}/launch`, { method: 'POST' });
     const b = (await r.json()) as { ok?: boolean; error?: string };
-    if (b.ok) { runAppMsg.value = 'launched'; flash(`running ${runAppApps.value.find((a) => a.bundleId === runAppPick.value)?.name ?? runAppPick.value}`); setTimeout(() => { runAppOpen.value = false; }, 500); }
+    if (b.ok) { runAppOpen.value = false; flash(`running ${runAppApps.value.find((a) => a.bundleId === runAppPick.value)?.name ?? runAppPick.value}`); }
     else runAppErr.value = b.error ?? 'launch failed';
   } catch { runAppErr.value = 'launch request failed'; }
   finally { runAppBusy.value = false; }
@@ -243,11 +249,10 @@ const installApps = ref<Array<{ key: string; name: string; bundleId: string; ver
 const installLoaded = ref(false);
 const installPick = ref('');
 const installBusy = ref(false);
-const installMsg = ref('');
 const installErr = ref('');
 const installExpanded = ref<string | null>(null);
 async function openInstall(): Promise<void> {
-  installOpen.value = true; installMsg.value = ''; installErr.value = '';
+  installOpen.value = true; installErr.value = '';
   if (!installLoaded.value) {
     try {
       const r = await fetch(`/api/devices/${encodeURIComponent(activeUdid.value)}/artifacts`);
@@ -279,14 +284,14 @@ function ageOf(ms: number): string {
 }
 async function runInstall(): Promise<void> {
   if (!installPick.value || installBusy.value) return;
-  installBusy.value = true; installMsg.value = ''; installErr.value = '';
+  installBusy.value = true; installErr.value = '';
   try {
     const r = await fetch(`/api/devices/${encodeURIComponent(activeUdid.value)}/install`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ appPath: installPick.value }),
     });
     const b = (await r.json()) as { ok?: boolean; version?: string; error?: string };
-    if (b.ok) { installMsg.value = `installed${b.version ? ` · ${b.version}` : ''}`; flash('app installed'); }
+    if (b.ok) { installOpen.value = false; flash(`installed${b.version ? ` · ${b.version}` : ''}`); }
     else installErr.value = b.error ?? 'install failed';
   } catch { installErr.value = 'install request failed'; }
   finally { installBusy.value = false; }
@@ -639,7 +644,6 @@ void live;
           <button class="m-btn" @click="installOpen = false">cancel</button>
           <button class="m-btn primary" :disabled="!installPick || installBusy" @click="runInstall">{{ installBusy ? 'installing… (≈12s)' : 'install' }}</button>
         </div>
-        <div v-if="installMsg" class="hint-ok">{{ installMsg }}</div>
         <div v-if="installErr" class="hint-err">{{ installErr }}</div>
       </div>
     </div>
@@ -652,7 +656,7 @@ void live;
           <div v-if="!runAppLoaded && !runAppErr" class="k">reading installed apps…</div>
           <div v-for="a in runAppApps" :key="a.bundleId" class="pick-row" :class="{ picked: runAppPick === a.bundleId }" @click="runAppPick = a.bundleId">
             <span>
-              <img v-if="!a.bundleId.startsWith('com.apple.')" class="runapp-icon" :src="`/api/devices/${encodeURIComponent(activeUdid)}/apps/${encodeURIComponent(a.bundleId)}/icon`" alt="" width="18" height="18" @error="(e: Event) => ((e.target as HTMLImageElement).style.display = 'none')" />
+              <img v-if="runAppIcons" class="runapp-icon" :src="`/api/devices/${encodeURIComponent(activeUdid)}/apps/${encodeURIComponent(a.bundleId)}/icon`" alt="" width="18" height="18" />
               {{ a.name }}
               <span v-if="a.running" class="running-dot" title="running">●</span>
             </span>

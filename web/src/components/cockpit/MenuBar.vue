@@ -15,15 +15,15 @@ const open = ref<string | null>(null);
 
 const MENUS: Array<{ id: string; label: string; items: MenuItem[] }> = [
   { id: 'app', label: 'app', items: [
-    { label: 'run app…', event: 'run-app' },
-    { label: 'install app…', event: 'install' },
+    { label: 'run app', event: 'run-app' },
+    { label: 'install app', event: 'install' },
     { label: '', separator: true },
-    { label: 'exit to console…', accel: '⌘E', event: 'exit-console' },
+    { label: 'exit to console', accel: '⌘E', event: 'exit-console' },
   ] },
   { id: 'device', label: 'device', items: [
-    { label: 'boot device…', accel: '⌘⇧D', event: 'boot-device' },
+    { label: 'boot device', accel: '⌘⇧D', event: 'boot-device' },
     { label: 'take screenshot', accel: '⌘1', event: 'screenshot' },
-    { label: 'environment…', event: 'env-scenario' },
+    { label: 'environment', event: 'env-scenario' },
     { label: '', separator: true },
     { label: 'restart', event: 'restart' },
     { label: 'shutdown', event: 'shutdown' },
