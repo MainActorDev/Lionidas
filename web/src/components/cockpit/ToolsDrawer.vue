@@ -193,8 +193,11 @@ function copySpec(): void {
         <!-- detail card -->
         <section class="detail">
           <div v-if="!selNode" class="empty">
-            <div class="empty-mark">◇</div>
-            <p>click any element on the device screen<br />or pick one from the hierarchy</p>
+            <div class="empty-inner">
+              <div class="empty-mark">⌖</div>
+              <p class="empty-title">nothing selected</p>
+              <p class="empty-hint">click any element on the device screen<br />or pick one from the hierarchy</p>
+            </div>
           </div>
 
           <template v-else>
@@ -248,8 +251,11 @@ function copySpec(): void {
     </template>
 
     <div v-else class="empty full">
-      <div class="empty-mark">◇</div>
-      <p>take control first —<br />inspect needs a live session</p>
+      <div class="empty-inner">
+        <div class="empty-mark">⌖</div>
+        <p class="empty-title">no live session</p>
+        <p class="empty-hint">take control on the stage first —<br />inspect reads the tree of the device you're driving</p>
+      </div>
     </div>
   </div>
 </template>
@@ -292,11 +298,12 @@ function copySpec(): void {
 
 .detail { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 12px; display: flex; flex-direction: column; gap: 12px; }
 
-/* empty state */
-.empty { flex: 1; display: grid; place-items: center; text-align: center; color: var(--color-steel); font-size: var(--text-caption); line-height: 1.7; }
-.empty.full { padding: 24px; }
-.empty-mark { font-size: 20px; color: var(--color-pewter); margin-bottom: 8px; }
-.empty p { margin: 0; }
+/* empty state — one grouped, centered composition (icon + title + hint) */
+.empty { flex: 1; display: grid; place-items: center; padding: 18px 14px; }
+.empty-inner { display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; }
+.empty-mark { width: 30px; height: 30px; border: 1px solid var(--color-slate); border-radius: var(--r); display: grid; place-items: center; font-size: 14px; color: var(--color-ember); margin-bottom: 7px; }
+.empty-title { margin: 0; color: var(--color-fog); font-size: var(--text-caption); }
+.empty-hint { margin: 0; color: var(--color-steel); font-size: 10.5px; line-height: 1.6; }
 
 /* identity */
 .ident-main { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
