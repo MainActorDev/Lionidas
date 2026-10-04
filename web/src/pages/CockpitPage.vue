@@ -39,7 +39,7 @@ let toastSeq = 0;
 function flash(msg: string, kind: 'ok' | 'err' = 'ok'): void {
   const id = ++toastSeq;
   toasts.value = [...toasts.value.slice(-3), { id, text: msg, kind }];
-  setTimeout(() => { toasts.value = toasts.value.filter((t) => t.id !== id); }, 2600);
+  setTimeout(() => { toasts.value = toasts.value.filter((t) => t.id !== id); }, 5000);
 }
 function dropToast(id: number): void { toasts.value = toasts.value.filter((t) => t.id !== id); }
 const stage = ref<InstanceType<typeof StageBezel> | null>(null);
@@ -724,7 +724,7 @@ void live;
 .toast.err .t-ico { border: 1px solid var(--color-ember); color: var(--color-ember); }
 .toast .t-text { white-space: normal; overflow-wrap: anywhere; }
 .toast .t-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; }
-.toast .t-bar i { display: block; height: 2px; background: var(--color-ember); animation: toast-drain 2.6s linear forwards; }
+.toast .t-bar i { display: block; height: 2px; background: var(--color-ember); animation: toast-drain 5s linear forwards; }
 @keyframes toast-drain { from { width: 100%; } to { width: 0; } }
 @media (prefers-reduced-motion: reduce) { .toast .t-bar { display: none; } }
 .modal-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 50; }
