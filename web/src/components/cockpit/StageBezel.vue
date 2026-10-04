@@ -38,6 +38,8 @@ const emit = defineEmits<{
   (e: 'inspect-click', ev: MouseEvent): void;
   (e: 'session-acquired', s: { sessionId: string; startedAt: number }): void;
   (e: 'session-dropped'): void;
+
+  (e: 'exit-inspect'): void;
 }>();
 
 const stream = useDeviceStream();
@@ -112,6 +114,11 @@ watch(() => props.udid, async (u) => {
   const adopt = props.session ?? null;
   sessionId.value = adopt?.sessionId ?? null;
   startedAt.value = adopt?.startedAt ?? null;
+  // adoption must reach the page too: sessionOn drives ToolsDrawer (inspect)
+  // and tab-close cleanup. Without this emit, a session adopted at mount (e.g.
+  // page reload with a live session) was invisible to the page — inspect's
+  // tree never enabled (found live: badge stuck '· off', 0 /tree fetches).
+  if (adopt) emit('session-acquired', { sessionId: adopt.sessionId, startedAt: adopt.startedAt });
   logicalW.value = null;
   lost.value = false;
   screenState.value = '—';
@@ -348,6 +355,7 @@ defineExpose({
         :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
                   width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%`,
                   borderRadius: `${bezelDef.screenRadius.pctW}% / ${bezelDef.screenRadius.pctH}%` }"></canvas>
+      <button v-if="inspect" type="button" class="inspect-chip" title="exit inspect (⌘I)" :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%` }" @click.stop="emit('exit-inspect')">⌖ inspecting · ⌘I to exit</button>
       <div v-if="restarting" class="restarting-veil" :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`, width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%`, borderRadius: `${bezelDef.screenRadius.pctW}% / ${bezelDef.screenRadius.pctH}%` }">
         <span class="restarting-dot" />restarting
       </div>
@@ -412,6 +420,8 @@ defineExpose({
 
 /* the REAL bezel: wrap sized explicitly (WebKit aspect-ratio guard), image
  * fills it; canvas + buttons ride % rects — aligned by construction */
+.inspect-chip { position: absolute; z-index: 7; transform: translateY(6px); margin-left: 8px; background: var(--color-carbon); border: 1px solid var(--color-ember); color: var(--color-ember); font-family: inherit; font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; padding: 2px 8px; border-radius: var(--r); cursor: pointer; }
+.inspect-chip:hover { background: var(--color-ember); color: var(--color-carbon); }
 .restarting-veil { position: absolute; z-index: 6; display: flex; align-items: center; justify-content: center; gap: 7px; background: rgba(0,0,0,.72); color: var(--color-ember); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; border: 1px solid var(--color-iron); }
 .restarting-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-ember); animation: restarting-pulse 1.1s infinite; }
 @keyframes restarting-pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }

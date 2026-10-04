@@ -30,6 +30,7 @@ const menuSessionLabel = ref<string | null>(null);
 const railTab = ref('watch');
 const toolsOpen = ref(false); // inspect overlay (kept name: menu + refs)
 const overlay = ref<'env' | 'inspect' | null>(null); // ONE supplementary panel at a time
+watch(overlay, (o) => { if (o !== 'inspect') stage.value?.setInspect(false); })
 const overlayData = ref<{ nodes: Array<Record<string, unknown>>; w: number | null; h: number | null; visible: boolean; sel: Record<string, unknown> | null }>({ nodes: [], w: null, h: null, visible: false, sel: null });
 const toast = ref('');
 const stage = ref<InstanceType<typeof StageBezel> | null>(null);
@@ -102,6 +103,20 @@ async function loadDevices(): Promise<void> {
     if (devices.value.length > 0 && !devices.value.some((d) => d.udid === activeUdid.value)) activeUdid.value = devices.value[0]!.udid;
   } catch { devices.value = []; }
 }
+// ⌘I toggles inspect (the menu promises the accelerator); Esc dismisses the
+// inspect overlay — the mode dies with the panel, so this is a real exit.
+function onGlobalKey(e: KeyboardEvent): void {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'i') {
+    const target = e.target as HTMLElement | null;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+    e.preventDefault();
+    onMenuEvent('toggle-inspect');
+  } else if (e.key === 'Escape' && overlay.value === 'inspect') {
+    overlay.value = null; toolsOpen.value = false;
+  }
+}
+onMounted(() => { window.addEventListener('keydown', onGlobalKey); });
+
 onMounted(async () => {
   await loadDevices();
   // steady refresh: devices booted elsewhere appear; a mount-time auth race
@@ -109,7 +124,7 @@ onMounted(async () => {
   devicesTimer = setInterval(() => void loadDevices(), 5_000);
 });
 let devicesTimer: ReturnType<typeof setInterval> | undefined;
-onBeforeUnmount(() => { if (devicesTimer) clearInterval(devicesTimer); });
+onBeforeUnmount(() => { if (devicesTimer) clearInterval(devicesTimer); window.removeEventListener('keydown', onGlobalKey); })
 
 const activeName = computed((): string => devices.value.find((d) => d.udid === activeUdid.value)?.name ?? '—');
 
@@ -374,7 +389,12 @@ async function playCase(id: string): Promise<void> {
 watch(stage, (s) => { if (s) s.setScreenState; }); // placeholder no-op — screenState flows via expose polling below
 let ovTimer = setInterval(() => {
   const t = toolsRef.value as unknown as { tree?: { state: { value: string }; nodes: { value: Array<Record<string, unknown>> }; logicalW: { value: number | null }; logicalH: { value: number | null } }; selection?: Record<string, unknown> | null } | null;
-  if (t?.tree) overlayData.value = { nodes: t.tree.nodes.value, w: t.tree.logicalW.value, h: t.tree.logicalH.value, visible: t.tree.state.value === 'aligned', sel: (t.selection ?? null) as Record<string, unknown> | null };
+  if (t?.tree) {
+    overlayData.value = { nodes: t.tree.nodes.value, w: t.tree.logicalW.value, h: t.tree.logicalH.value, visible: t.tree.state.value === 'aligned', sel: (t.selection ?? null) as Record<string, unknown> | null };
+    // keep the stage's picking mode locked to the tree's live state — the
+    // child's emit can race setup flushes; this poll is the sync truth
+    stage.value?.setInspect(t.tree.state.value !== 'off');
+  }
 }, 500);
 onBeforeUnmount(() => clearInterval(ovTimer));
 let ssTimer = setInterval(() => {
@@ -459,7 +479,8 @@ void live;
       <StageBezel v-if="activeUdid" :key="activeUdid" ref="stage" :udid="activeUdid" :restarting="isRestarting(activeUdid)" :session="activeSession"
         :overlay-nodes="overlayData.nodes" :overlay-w="overlayData.w" :overlay-h="overlayData.h" :overlay-visible="overlayData.visible" :sel-parent-node="overlayData.sel" :selected-node="overlayData.sel"
         @session-state="onSessionState" @inspect-click="onInspectClick"
-        @session-acquired="onSessionAcquired" @session-dropped="onSessionDropped" />
+        @session-acquired="onSessionAcquired" @session-dropped="onSessionDropped"
+        @exit-inspect="overlay = null; toolsOpen = false" />
       <div v-else class="empty">no booted devices — boot one from the device menu</div>
       <WatcherPanel :tabs="[{ id: 'watch', label: 'watch' }, { id: 'chat', label: 'chat' }]" :active="railTab" @switch="railTab = $event">
         <WatchPane v-show="railTab === 'watch'" :udid="activeUdid" :session-id="sessionOn" :dims="dims" />
@@ -472,6 +493,7 @@ void live;
           </OverlayPanel>
           <ToolsDrawer v-if="overlay === 'inspect'" ref="toolsRef" :open="overlay === 'inspect'" :udid="activeUdid" :session-id="sessionOn"
             @close="overlay = null; toolsOpen = false"
+            @exit-inspect="overlay = null; toolsOpen = false"
             @inspect-enabled="(on) => { stage?.setInspect(on); }" />
         </template>
       </WatcherPanel>

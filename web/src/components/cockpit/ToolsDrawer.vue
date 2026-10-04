@@ -45,7 +45,7 @@ watch(() => [props.open, props.sessionId] as const, ([open, sid]) => {
   if (open && sid) { if (!inspect.value) tree.enable(sid); }
   else tree.disable();
   if (!open) { selNode.value = null; treeOpen.value = true; }
-});
+}, { immediate: true });
 watch(() => props.sessionId, (sid) => { if (sid && props.open) tree.enable(sid); });
 
 let settleInterval = 0 as unknown as ReturnType<typeof setInterval>;
