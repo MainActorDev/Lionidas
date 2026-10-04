@@ -85,16 +85,20 @@ describe('simdeck input', () => {
     }
   });
 
-  it('non-positional kinds get no dims (scroll/key/button/type)', async () => {
+  it('non-positional kinds get no dims (key/type); scroll IS positional (pan synthesis needs the screen size)', async () => {
     mod = await loadMod();
     for (const g of [
-      { kind: 'scroll', deltaX: 0, deltaY: 5 },
       { kind: 'key', code: 'KeyH', modifiers: ['shift'] },
       { kind: 'type', text: 'hi' },
     ]) {
       const out = mod.toSimdeckGesture(g, 402, 874);
       expect(out['width']).toBeUndefined();
     }
+    // scroll: the child synthesizes a 2-finger pan (scroll-HID aborts
+    // backboardd) — it needs width/height like every positional gesture
+    const sc = mod.toSimdeckGesture({ kind: 'scroll', deltaX: 0, deltaY: 5 }, 402, 874);
+    expect(sc['width']).toBe(402);
+    expect(sc['height']).toBe(874);
   });
 
   it('type ack budget scales with text length (base for short, headroom for long)', async () => {

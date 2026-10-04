@@ -150,11 +150,20 @@ function stepName(s: PlaybackStep): string {
   return `type "${(s.text ?? '').slice(0, 20)}"`;
 }
 
-/** Panel-facing summary of an expanded step (run.plan / step events). */
-function stepLabel(s: PlaybackStep): string {
-  if (s.action === 'expect') return `expect ${s.selector?.label ?? s.selector?.identifier ?? '?'}`;
+/** Panel-facing summary of an expanded step (run.plan / step events).
+ *  Honest labels: selectors fall back identifier→label→labelContains (the
+ *  contains-matchers are legal selectors), type shows a redaction marker
+ *  instead of an empty string when the text is resolved at run time
+ *  (env/secret) or genuinely empty. */
+function selectorHint(s: PlaybackStep): string {
+  const sel = s.selector as { identifier?: string; label?: string; labelContains?: string } | undefined;
+  return sel?.identifier ?? sel?.label ?? sel?.labelContains ?? '';
+}
+/** exported for tests — plan-label contract */
+export function stepLabel(s: PlaybackStep): string {
+  if (s.action === 'expect') return `expect ${selectorHint(s) || '?'}`;
   if (s.action === 'runFlow') return `run flow ${s.templateId ?? '?'}`;
-  if (s.action === 'tap') return s.selector ? `tap ${s.selector.label ?? s.selector.identifier ?? ''}`.trim() : `tap ${s.x},${s.y}`;
+  if (s.action === 'tap') return s.selector ? `tap ${selectorHint(s)}`.trim() : `tap ${s.x},${s.y}`;
   if (s.action === 'scroll') return `scroll ${s.direction}`;
   if (s.action === 'arrive') return `arrive ${s.screen ?? '?'}`;
   if (s.action === 'refresh') return `refresh ${s.screen ?? '?'}`;
@@ -162,7 +171,16 @@ function stepLabel(s: PlaybackStep): string {
   if (s.action === 'expectScreen') return `screen ${s.expectScreen?.screen ?? '?'}.${s.expectScreen?.state ?? '?'}`;
   if (s.action === 'alert') return `alert ${s.alertAction ?? 'dismiss'}`;
   if (s.action === 'location') return `location ${s.location?.latitude ?? '?'}${s.location?.longitude !== undefined ? ',' : ''}${s.location?.longitude ?? ''}`;
-  return `type "${(s.text ?? '').slice(0, 20)}"`;
+  if (s.action === 'ensureLogin') return 'ensure logged in';
+  if (s.action === 'ensureLogout') return 'ensure logged out';
+  if (s.action === 'type') {
+    const on = s.selector ? ` → ${selectorHint(s)}` : '';
+    const t = (s.text ?? '').trim();
+    // run-time-resolved text (env/secret) and empty text both read as a
+    // redaction marker — the plan never ships the literal either way
+    return `type ${t ? `\"${t.slice(0, 20)}\"` : '•••'}${on}`;
+  }
+  return `${s.action} ${selectorHint(s)}`.trim();
 }
 
 

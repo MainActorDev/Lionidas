@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>022-B — Device Cockpit · Mission-control stance</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--color-void); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-label); }
+  button { font-family: inherit; background: none; border: 1px solid var(--color-iron); color: var(--color-fog); padding: var(--s-1) var(--s-2); cursor: pointer; font-size: var(--text-caption); border-radius: var(--r); transition: var(--t); }
+  button:hover { border-color: var(--color-slate); color: var(--color-paper); }
+  button.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: var(--weight-bold); }
+  button.on { border-color: var(--color-ember); color: var(--color-ember); }
+
+  .topbar { display: flex; align-items: center; gap: var(--s-4); height: 40px; padding: 0 var(--s-4); border-bottom: 1px solid var(--color-iron); background: var(--color-carbon); }
+  .crumb { color: var(--color-ash); font-size: var(--text-caption); }
+  .crumb b { color: var(--color-paper); }
+
+  /* 3-zone grid: left rail / center stage / right rail */
+  .frame { display: grid; grid-template-columns: 264px 1fr 300px; height: calc(100vh - 40px); }
+  .rail { background: var(--color-carbon); border-right: 1px solid var(--color-iron); overflow-y: auto; }
+  .rail.right { border-right: none; border-left: 1px solid var(--color-iron); }
+
+  .sect { border-bottom: 1px solid var(--color-iron); }
+  .sect > h3 { font-size: var(--text-caption); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-ash); padding: var(--s-2) var(--s-3); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+  .sect > h3::after { content: "–"; color: var(--color-steel); }
+  .sect.closed > h3::after { content: "+"; }
+  .sect.closed .body { display: none; }
+  .body { padding: 0 var(--s-3) var(--s-3); }
+
+  .row { display: flex; justify-content: space-between; align-items: center; padding: var(--s-1) 0; border-bottom: 1px solid var(--color-iron); font-size: var(--text-caption); }
+  .row:last-child { border-bottom: none; }
+  .row .k { color: var(--color-fog); }
+  .row .v { color: var(--color-paper); }
+  .row .v em { color: var(--color-ember); font-style: normal; }
+
+  .devlist .d { display: flex; gap: var(--s-2); padding: var(--s-1) 0; color: var(--color-ash); font-size: var(--text-caption); align-items: center; }
+  .devlist .d.active { color: var(--color-paper); border-left: 2px solid var(--color-ember); padding-left: var(--s-2); }
+  .devlist .d .st { margin-left: auto; }
+
+  .stage { display: grid; place-items: center; position: relative; background: var(--color-void); }
+  .bezel { position: relative; width: 320px; height: 660px; background: var(--color-graphite); border: 1px solid var(--color-slate); border-radius: 14px; padding: 10px; }
+  .screen { width: 300px; height: 638px; background: #0b0f14; border-radius: 4px; overflow: hidden; position: relative; }
+  .app-ui { width: 100%; height: 100%; background: linear-gradient(180deg,#0d1520,#0a0e14); }
+  .app-ui .bar { height: 40px; border-bottom: 1px solid #1d2a38; display:flex; align-items:center; padding:0 14px; color:#7d93ab; font-size:11px; }
+  .app-ui .hero { padding:18px 14px; color:#cfe0f0; }
+  .app-ui .hero .big { font-size:19px; font-weight:700; }
+  .app-ui .hero .sub { color:#7d93ab; margin-top:4px; font-size:12px; }
+  .app-ui .cta { margin:14px auto 0; width:118px; height:34px; background:#e8590c; color:#fff; border-radius:4px; display:grid; place-items:center; font-size:13px; }
+  .chip { position:absolute; top:8px; right:8px; border:1px solid var(--color-ember); color:var(--color-ember); background:rgba(0,0,0,.72); font-size:10px; padding:1px 6px; }
+  .steps { font-size: 11px; }
+  .steps .s { display: flex; gap: 6px; padding: 2px 0; color: var(--color-ash); }
+  .steps .s.done { color: var(--color-fog); } .steps .s.done::before { content:"✓"; color: var(--color-paper); }
+  .steps .s.live { color: var(--color-ember); } .steps .s.live::before { content:"◆"; }
+  .steps .s.todo::before { content:"◌"; }
+  .traffic .s.live::before { content:"→"; }
+  .meter { display:flex; align-items:center; gap:6px; font-size:10px; color:var(--color-ash); }
+  .meter .track { flex:1; height:3px; background:var(--color-iron); position:relative; }
+  .meter .fill { position:absolute; inset:0 auto 0 0; width:68%; background:var(--color-ember); }
+</style>
+</head>
+<body>
+  <div class="topbar"><span class="crumb">lionidas / <b>device cockpit</b> — manual workstation</span></div>
+  <div class="frame">
+
+    <!-- LEFT RAIL: device + lifecycle + environment -->
+    <div class="rail">
+      <div class="sect"><h3>devices</h3><div class="body devlist">
+        <div class="d active">iPhone 15 Pro <span class="st">◆</span></div>
+        <div class="d">iPhone 15 · intl <span class="st">◌</span></div>
+        <div class="d">iPad Pro 13 <span class="st">◌</span></div>
+        <div class="d" style="color:var(--color-steel)">+ boot device…</div>
+      </div></div>
+      <div class="sect"><h3>lifecycle</h3><div class="body">
+        <div class="row"><span class="k">state</span><span class="v"><em>booted · streaming</em></span></div>
+        <div class="row"><span class="k">runtime</span><span class="v">iOS 17.4</span></div>
+        <div style="display:flex; gap:6px; margin-top:8px"><button>restart</button><button>shutdown</button><button>erase…</button></div>
+        <div style="display:flex; gap:6px; margin-top:6px"><button>install…</button><button>launch app</button></div>
+      </div></div>
+      <div class="sect closed"><h3>network</h3><div class="body">
+        <div class="row"><span class="k">scenario</span><span class="v"><em>countries-sg</em></span></div>
+        <div class="row"><span class="k">preset</span><span class="v">batam · GET → 200</span></div>
+        <div style="margin-top:8px"><button>activate scenario ▾</button> <button>clear</button></div>
+      </div></div>
+      <div class="sect closed"><h3>location & env</h3><div class="body">
+        <div class="row"><span class="k">location</span><span class="v">Jakarta (−6.2, 106.8)</span></div>
+        <div class="row"><span class="k">env vars</span><span class="v">3 overrides</span></div>
+        <div style="margin-top:8px"><button>set on map…</button></div>
+      </div></div>
+    </div>
+
+    <!-- CENTER: the device -->
+    <div class="stage">
+      <div class="bezel"><div class="screen">
+        <div class="chip">MANUAL · 42m</div>
+        <div class="app-ui">
+          <div class="bar">9:41 ○○○ ⌁ Lion Parcel</div>
+          <div class="hero"><div class="big">Kirim paket</div><div class="sub">Dari lokasi kamu</div></div>
+          <div class="cta">Bayar Sekarang</div>
+        </div>
+      </div></div>
+      <div style="position:absolute; bottom:12px; display:flex; gap:8px; align-items:center">
+        <button class="primary">take control</button>
+        <button>release</button>
+        <button id="inspect">inspect</button>
+        <button>screenshot</button>
+        <button>record</button>
+      </div>
+    </div>
+
+    <!-- RIGHT RAIL: watchers, always-on -->
+    <div class="rail right">
+      <div class="sect"><h3>session</h3><div class="body">
+        <div class="row"><span class="k">lease</span><span class="v"><em>manual:ms_9f2</em></span></div>
+        <div class="row"><span class="k">dims</span><span class="v">428 × 926</span></div>
+        <div class="row"><span class="k">watchdog</span><span class="v">3m 12s</span></div>
+      </div></div>
+      <div class="sect"><h3>run watch · countries-sg smoke</h3><div class="body steps">
+        <div class="s done">arrive home</div>
+        <div class="s done">tap check tariff</div>
+        <div class="s done">type destination</div>
+        <div class="s live">expect list · 2 entries</div>
+        <div class="s todo">tap first result</div>
+        <div class="s todo">expect detail</div>
+        <div class="meter" style="margin-top:8px"><span class="track"><span class="fill"></span></span> 4/7</div>
+      </div></div>
+      <div class="sect closed"><h3>traffic</h3><div class="body steps traffic">
+        <div class="s live">GET /destination-recommendation → 200 · 41 ms</div>
+        <div class="s done">POST /login → 204 · 88 ms</div>
+        <div class="s done">GET /config → 200 · 12 ms</div>
+      </div></div>
+      <div class="sect closed"><h3>captures</h3><div class="body">
+        <div class="row"><span class="k">gallery</span><span class="v">12 shots · 2 clips</span></div>
+        <div style="margin-top:8px"><button>open gallery</button></div>
+      </div></div>
+    </div>
+
+  </div>
+<script>
+  document.querySelectorAll('.sect > h3').forEach(h => h.onclick = () => h.parentElement.classList.toggle('closed'));
+  document.querySelector('#inspect').onclick = (e) => e.target.classList.toggle('on');
+</script>
+</body>
+</html>

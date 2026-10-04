@@ -42,7 +42,7 @@ function base(): string {
 /** our gesture dialect → the child's. ONE translation table (plan Task 1.5):
  *  tap/swipe carry width/height (device points) for normalization; `kind`
  *  renames to `type`; everything else passes through. */
-const POSITIONAL_KINDS = new Set(['tap', 'swipe', 'touch1', 'touch2', 'pan']);
+const POSITIONAL_KINDS = new Set(['tap', 'swipe', 'touch1', 'touch2', 'pan', 'scroll']); // scroll: the child synthesizes a 2-finger pan (scroll-HID aborts backboardd) and needs the screen size
 /** Crucible kinds whose child wire type differs (verified: 'press' -> "unknown kind: press"). */
 const KIND_TO_WIRE: Record<string, string> = { press: 'button' };
 

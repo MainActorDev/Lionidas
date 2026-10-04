@@ -20,9 +20,19 @@ let db: Database.Database;
 let app: FastifyInstance;
 const calls: string[] = [];
 
-/** fake alloy dispatch: logs actions, succeeds */
+/** fake alloy dispatch: logs actions, succeeds. A shutdown ack also flips
+ *  the device mirror to Shutdown — mirrors async CoreSimulator state flips the
+ *  restart route now WAITS for before booting (2026-10-03 race fix). */
 const fakeDispatch = async (_tool: string, input: unknown): Promise<{ ok: true }> => {
-  calls.push(String((input as { action: string }).action));
+  const action = String((input as { action: string }).action);
+  calls.push(action);
+  const udid = (input as { udid?: string }).udid;
+  if (action === 'shutdown') {
+    setTimeout(() => { try { db?.prepare(`UPDATE devices SET state = 'Shutdown' WHERE udid = ?`).run(udid); } catch { /* closed */ } }, 100);
+  }
+  if (action === 'boot') {
+    try { db?.prepare(`UPDATE devices SET state = 'Booted' WHERE udid = ?`).run(udid); } catch { /* closed */ }
+  }
   return { ok: true };
 };
 
@@ -38,6 +48,13 @@ beforeEach(async () => {
   app = Fastify();
   registerUserResolution(app, db);
   registerDeviceRoutes(app, db);
+  // fake power-state source: reads the devices table (the stub flips it on shutdown;
+  // the 2026-10-03 restart fix waits on FRESH simctl state, which can't see fake udids)
+  const devicesMod = await import('../src/routes/devices.ts');
+  devicesMod.__setDeviceStateSourceForTest((u, cb) => {
+    const row = db.prepare('SELECT state FROM devices WHERE udid = ?').get(u) as { state: string | null } | undefined;
+    cb(row?.state ?? null);
+  });
   calls.length = 0;
   __setAlloyForTest({
     dispatch: fakeDispatch,
@@ -46,7 +63,9 @@ beforeEach(async () => {
   await initAlloyRuntime(); // alloyDispatchDepsSync() needs the singleton
 });
 
-afterEach(() => {
+afterEach(async () => {
+  const devicesMod = await import('../src/routes/devices.ts');
+  devicesMod.__setDeviceStateSourceForTest(null);
   app.close();
   db.close();
   rmSync(tmp, { recursive: true, force: true });

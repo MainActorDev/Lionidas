@@ -50,6 +50,11 @@ beforeEach(async () => {
   await initAlloyRuntime();         // alloyDispatchDepsSync() needs the singleton
   app = Fastify();
   registerDeviceRoutes(app, db);
+  const devicesMod = await import('../src/routes/devices.ts');
+  devicesMod.__setDeviceStateSourceForTest((u, cb) => {
+    const row = db.prepare('SELECT state FROM devices WHERE udid = ?').get(u) as { state: string | null } | undefined;
+    cb(row?.state ?? null);
+  });
   await app.ready();
 });
 afterEach(async () => {

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>aurora loading — curtain check</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #000; color: #eee; font-family: ui-monospace, monospace; display: grid; place-items: center; min-height: 100vh; }
+  .case { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .name { font-size: 11px; color: #7e7e7e; letter-spacing: .12em; text-transform: uppercase; }
+  .screen { position: relative; width: 248px; height: 520px; background: #000; border: 1px solid #202020; border-radius: 12px; overflow: hidden; }
+  .aurora { position: absolute; inset: 0; filter: blur(34px) saturate(1.15); }
+  .rib { position: absolute; left: -60%; width: 220%; height: 46%; will-change: transform; }
+  .r1 { top: 2%;  animation: drift-a 9s linear infinite; }
+  .r2 { top: 26%; animation: drift-b 13s linear infinite; }
+  .r3 { top: 52%; animation: drift-a 17s linear infinite reverse; }
+  @keyframes drift-a { from { transform: translateX(-55%) skewX(-14deg); } to { transform: translateX(15%) skewX(-14deg); } }
+  @keyframes drift-b { from { transform: translateX(10%) skewX(-7deg); } to { transform: translateX(-50%) skewX(-7deg); } }
+  .glow { position: absolute; inset: 0; border-radius: 50%; mix-blend-mode: screen; }
+  .g1 { background: linear-gradient(90deg, transparent 0%, transparent 34%, rgba(238,238,238,.55) 50%, transparent 66%, transparent 100%); opacity: .30; animation: wave1 5.4s ease-in-out infinite; }
+  .g2 { background: linear-gradient(90deg, transparent 0%, transparent 40%, rgba(218,92,44,.55) 54%, transparent 68%, transparent 100%); opacity: .26; animation: wave2 6.8s ease-in-out infinite; }
+  .g3 { background: linear-gradient(90deg, transparent 0%, transparent 38%, rgba(238,238,238,.34) 48%, rgba(218,92,44,.24) 58%, transparent 72%, transparent 100%); opacity: .22; animation: wave1 8.2s ease-in-out infinite reverse; }
+  @keyframes wave1 { 0%,100% { transform: translateY(4%) rotate(1.2deg) scaleY(1); } 50% { transform: translateY(-4%) rotate(-1.2deg) scaleY(1.14); } }
+  @keyframes wave2 { 0%,100% { transform: translateY(-3%) rotate(-1deg) scaleY(1.08); } 50% { transform: translateY(5%) rotate(1.6deg) scaleY(.92); } }
+</style>
+</head>
+<body>
+  <div class="case">
+    <div class="screen"><div class="aurora">
+      <div class="rib r1"><div class="glow g1"></div></div>
+      <div class="rib r2"><div class="glow g2"></div></div>
+      <div class="rib r3"><div class="glow g3"></div></div>
+    </div></div>
+    <div class="name">aurora curtains</div>
+  </div>
+</body>
+</html>

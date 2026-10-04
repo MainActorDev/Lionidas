@@ -15,7 +15,6 @@ import { registerEnvVarRoutes } from './routes/env-vars.ts';
 import { registerRunRoutes } from './routes/runs.ts';
 import { registerMatrixRoute } from './routes/matrix.ts';
 import { registerEvidenceRoute } from './routes/evidence.ts';
-import { registerBaselineRoutes } from './routes/baselines.ts';
 import { registerMonitoringRoutes } from './routes/monitoring.ts';
 import { registerAuthRoutes } from './routes/auth.ts';
 import { registerUserResolution } from './auth/roles.ts';
@@ -28,7 +27,6 @@ import { registerFolderRoutes } from './routes/folders.ts';
 import { registerScenarioFolderRoutes } from './routes/scenario-folders.ts';
 import { registerPresetFolderRoutes } from './routes/preset-folders.ts';
 import { registerSuiteRoutes } from './routes/suites.ts';
-import { registerFlakeRoutes } from './routes/flakes.ts';
 import { registerOverviewRoutes } from './routes/overview.ts';
 import { registerEventsWs } from './routes/events-ws.ts';
 import { startGcLoop } from './gc/retention.ts';
@@ -97,13 +95,6 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   const forgeState = createForgeState();
   registerForgeRoutes(app, db.raw, forgeState, bus);
   registerMonitoringRoutes(app, db.raw);
-  // baselines: dispatchDeps resolved lazily (approvals always run post-boot)
-  registerBaselineRoutes(app, db.raw, {
-    db: db.raw,
-    bus,
-    artifactsDir: cfg.artifactsDir,
-    get dispatchDeps() { return runtimeMod.alloyDispatchDepsSync(); },
-  } as never);
   registerManualRoutes(app, db.raw, {
     bus,
     artifactsDir: cfg.artifactsDir,
@@ -121,7 +112,6 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   registerScenarioFolderRoutes(app, db.raw);
   registerPresetFolderRoutes(app, db.raw);
   registerSuiteRoutes(app, db.raw);
-  registerFlakeRoutes(app, db.raw, bus);
   registerOverviewRoutes(app, db.raw); // clock injectable; default Date.now
   app.decorate('crucibleBus', bus);
 

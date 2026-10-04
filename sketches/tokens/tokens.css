@@ -1,0 +1,20 @@
+:root {
+  --color-void: #000000;
+  --color-carbon: #111111;
+  --color-graphite: #191919;
+  --color-iron: #202020;
+  --color-slate: #3a3a3a;
+  --color-pewter: #505050;
+  --color-steel: #606060;
+  --color-ash: #7e7e7e;
+  --color-fog: #b4b4b4;
+  --color-chalk: #d9d9d9;
+  --color-paper: #eeeeee;
+  --color-ember: #da5c2c;
+  --color-ember-dim: #a04521;
+  --r: 6px;
+  --text-caption: 11px;
+  --text-label: 12px;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  --weight-bold: 700;
+}

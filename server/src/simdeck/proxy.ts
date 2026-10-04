@@ -175,6 +175,23 @@ export function registerSimdeckProxy(app: FastifyInstance, deps: SimdeckProxyDep
     const upPath = path.split('/simulators/').length > 1 ? path : path; // already child-shaped
     const upstream = new WsMod(`ws://${u.host}${upPath}`, { headers: upHeaders });
 
+    // VIEWER RULES (v2 — found live in the two-viewer war): WATCH legs may
+    // MULTIPLY (the engine streams to many viewers; input gating is per-leg).
+    // Only a DRIVE leg (live manual session) evicts existing DRIVE legs for
+    // this udid — one driver. This still clears reload-zombie drive legs,
+    // while two tabs WATCHING the same device never evict each other again
+    // (v1 last-viewer-wins made any two viewers loop: aurora→screen→aurora).
+    if (mode === 'drive') {
+      for (const existing of Array.from(legs)) {
+        if (existing.udid === udid && !existing.closed && existing.mode === 'drive') {
+          existing.closed = true;
+          legs.delete(existing);
+          try { existing.client.close(); } catch { /* gone */ }
+          try { existing.upstream.close(); } catch { /* gone */ }
+        }
+      }
+    }
+
     const leg: Leg = { udid, client, upstream, mode, closed: false };
     legs.add(leg);
 

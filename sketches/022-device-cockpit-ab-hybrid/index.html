@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>022-AB — Device Cockpit · hybrid</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--color-void); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-label); }
+  button { font-family: inherit; background: none; border: 1px solid var(--color-iron); color: var(--color-fog); padding: var(--s-1) var(--s-2); cursor: pointer; font-size: var(--text-caption); border-radius: var(--r); transition: var(--t); white-space: nowrap; }
+  button:hover { border-color: var(--color-slate); color: var(--color-paper); }
+  button:focus-visible { outline: 1px solid var(--color-ember); outline-offset: 1px; }
+  button.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: var(--weight-bold); }
+  button.on { border-color: var(--color-ember); color: var(--color-ember); }
+
+  /* ── A's chrome: topbar + one toolbar row ── */
+  .topbar { display: flex; align-items: center; gap: var(--s-4); height: 40px; padding: 0 var(--s-4); border-bottom: 1px solid var(--color-iron); background: var(--color-carbon); }
+  .crumb { color: var(--color-ash); font-size: var(--text-caption); }
+  .crumb b { color: var(--color-paper); font-weight: var(--weight-bold); }
+  .spacer { flex: 1; }
+  .devsel { display: flex; align-items: center; gap: var(--s-2); font-size: var(--text-caption); }
+  .devsel .state { color: var(--color-ember); }
+
+  .toolbar { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--color-iron); flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
+  .tgroup { display: flex; align-items: center; gap: var(--s-2); padding-right: var(--s-3); margin-right: var(--s-1); border-right: 1px solid var(--color-iron); flex: 0 0 auto; }
+  .tgroup:last-child { border-right: none; }
+  .tlabel { color: var(--color-steel); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .chipstate { color: var(--color-ember); font-size: 11px; }
+
+  /* ── frame: center stage + ONE persistent right rail (B, selective) ── */
+  .frame { display: grid; grid-template-columns: 1fr 296px; height: calc(100vh - 40px - 41px); min-height: 560px; }
+  .stage { position: relative; display: grid; place-items: center; overflow: auto; }
+  .bezel { position: relative; width: 328px; height: 640px; background: var(--color-graphite); border: 1px solid var(--color-slate); border-radius: 14px; padding: 10px; }
+  .screen { position: relative; width: 308px; height: 618px; background: #0b0f14; border-radius: 4px; overflow: hidden; }
+  .app-ui { width:100%; height:100%; background: linear-gradient(180deg,#0d1520,#0a0e14); position: relative; }
+  .app-ui .bar { height: 42px; border-bottom:1px solid #1d2a38; display:flex; align-items:center; padding:0 14px; color:#7d93ab; font-size:11px; }
+  .app-ui .hero { padding: 18px 14px; color:#cfe0f0; }
+  .app-ui .hero .big { font-size: 20px; font-weight: 700; }
+  .app-ui .hero .sub { color:#7d93ab; margin-top:4px; font-size:12px; }
+  .app-ui .card { margin: 10px 14px; border:1px solid #1d2a38; border-radius:6px; padding:10px; color:#9fb4c8; font-size:12px; }
+  .app-ui .cta { margin: 14px auto 0; width: 122px; height: 36px; background:#e8590c; color:#fff; border-radius:4px; display:grid; place-items:center; font-size:13px; }
+  .session-chip { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,.72); border: 1px solid var(--color-ember); color: var(--color-ember); font-size: 10px; padding: 1px 6px; z-index: 3; }
+  .inspect-tag { position: absolute; font-size: 9px; color: #6fe3a1; border: 1px solid #2d5a41; background: rgba(0,0,0,.7); padding: 1px 4px; pointer-events: none; display: none; }
+  .stage.inspecting .inspect-tag { display: block; }
+
+  /* session-lost banner (honest 410 class) */
+  .lost { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: var(--color-carbon); border: 1px solid var(--color-paper); color: var(--color-paper); font-size: 11px; padding: 6px 10px; display: none; z-index: 6; }
+  .lost.show { display: block; }
+
+  /* ── right rail: watchers only ── */
+  .rail { background: var(--color-carbon); border-left: 1px solid var(--color-iron); overflow-y: auto; }
+  .sect { border-bottom: 1px solid var(--color-iron); }
+  .sect > h3 { font-size: var(--text-caption); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-ash); padding: var(--s-2) var(--s-3); display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+  .sect > h3 .meta { color: var(--color-steel); text-transform: none; letter-spacing: 0; }
+  .sect > h3::after { content: "–"; color: var(--color-steel); }
+  .sect.closed > h3::after { content: "+"; }
+  .sect.closed .body { display: none; }
+  .body { padding: 0 var(--s-3) var(--s-3); }
+  .row { display: flex; justify-content: space-between; align-items: center; padding: var(--s-1) 0; border-bottom: 1px solid var(--color-iron); font-size: var(--text-caption); }
+  .row:last-child { border-bottom: none; }
+  .row .k { color: var(--color-fog); }
+  .row .v { color: var(--color-paper); }
+  .row .v em { color: var(--color-ember); font-style: normal; }
+  .steps { font-size: 11px; }
+  .s { display: flex; gap: 6px; padding: 2px 0; color: var(--color-ash); }
+  .s.done { color: var(--color-fog); } .s.done::before { content: "✓"; color: var(--color-paper); }
+  .s.live { color: var(--color-ember); } .s.live::before { content: "◆"; }
+  .s.todo::before { content: "◌"; }
+  .s.http.live::before { content: "→"; }
+  .meter { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--color-ash); margin-top: 6px; }
+  .meter .track { flex: 1; height: 3px; background: var(--color-iron); position: relative; }
+  .meter .fill { position: absolute; inset: 0 auto 0 0; background: var(--color-ember); }
+
+  /* ── environment drawer (A): ONE left drawer for the set-and-forget group ── */
+  .drawer { position: absolute; inset: 0 auto 0 0; width: 280px; background: var(--color-carbon); border-right: 1px solid var(--color-iron); transform: translateX(-100%); transition: transform 180ms ease; z-index: 5; display: flex; flex-direction: column; }
+  .drawer.open { transform: translateX(0); }
+  .drawer h3 { font-size: var(--text-caption); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-ash); padding: var(--s-3); border-bottom: 1px solid var(--color-iron); display: flex; justify-content: space-between; }
+  .drawer .body { padding: var(--s-3); overflow-y: auto; flex: 1; }
+
+  @media (prefers-reduced-motion: reduce) { .drawer { transition: none; } }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <span class="crumb">lionidas / <b>cockpit</b></span>
+    <span class="spacer"></span>
+    <div class="devsel"><b>iPhone 15 Pro</b> <span class="state" id="devState">◆ booted · streaming</span></div>
+    <button>switch ▾</button>
+  </div>
+
+  <div class="toolbar">
+    <div class="tgroup">
+      <button class="primary" id="takeBtn">take control</button>
+    </div>
+    <div class="tgroup">
+      <button id="inspectBtn">inspect</button>
+      <button>screenshot</button>
+      <button>record</button>
+      <button>captures · 12</button>
+    </div>
+    <div class="tgroup">
+      <span class="tlabel">device</span>
+      <button>restart</button><button>shutdown</button>
+    </div>
+    <div class="tgroup">
+      <span class="tlabel">app</span>
+      <button>install…</button><button>launch</button>
+    </div>
+    <div class="tgroup">
+      <span class="tlabel">env</span>
+      <button id="envBtn">net · <span class="chipstate">countries-sg</span> ▾</button>
+      <button>loc · Jakarta</button>
+    </div>
+  </div>
+
+  <div class="frame">
+    <div class="stage" id="stage">
+      <div class="lost" id="lost">session lost — server restarted. take control again.</div>
+      <div class="drawer" id="envDrawer">
+        <h3>environment <button data-close>✕</button></h3>
+        <div class="body">
+          <div class="row"><span class="k">network scenario</span><span class="v"><em>countries-sg</em> ▾</span></div>
+          <div class="row"><span class="k">preset served</span><span class="v">batam · GET → 200</span></div>
+          <div class="row"><span class="k">location</span><span class="v">Jakarta</span></div>
+          <div class="row"><span class="k">env vars</span><span class="v">3 overrides</span></div>
+          <div style="display:flex; gap:6px; margin-top:10px"><button>activate</button><button>clear scenario</button></div>
+        </div>
+      </div>
+
+      <div class="bezel"><div class="screen">
+        <div class="session-chip" id="sessionChip" style="display:none">MANUAL · lease held</div>
+        <div class="app-ui">
+          <div class="bar">9:41 ○○○ ⌁ Lion Parcel</div>
+          <div class="hero"><div class="big">Kirim paket</div><div class="sub">Dari lokasi kamu</div></div>
+          <div class="card">Berat 2.4 kg · Jakarta → Batam<br>Estimasi Rp 31.000</div>
+          <div class="cta">Bayar Sekarang</div>
+        </div>
+        <span class="inspect-tag" style="top:110px; left:16px; width:276px;">checkout_summary_view</span>
+        <span class="inspect-tag" style="top:480px; left:96px; width:116px;">pay_now_button</span>
+      </div></div>
+    </div>
+
+    <!-- ONE persistent rail: watchers -->
+    <div class="rail">
+      <div class="sect"><h3>session <span class="meta" id="sessionMeta">idle</span></h3><div class="body" id="sessionBody">
+        <div class="row"><span class="k">lease</span><span class="v">—</span></div>
+        <div class="row"><span class="k">dims</span><span class="v">428 × 926</span></div>
+        <div class="row"><span class="k">watchdog</span><span class="v">—</span></div>
+      </div></div>
+      <div class="sect"><h3>run watch <span class="meta">countries-sg smoke</span></h3><div class="body steps">
+        <div class="s done">arrive home</div>
+        <div class="s done">tap check tariff</div>
+        <div class="s done">type destination</div>
+        <div class="s live">expect list · 2 entries</div>
+        <div class="s todo">tap first result</div>
+        <div class="s todo">expect detail</div>
+        <div class="meter"><span class="track"><span class="fill" style="width:57%"></span></span> 4/7</div>
+      </div></div>
+      <div class="sect closed"><h3>traffic <span class="meta">forge</span></h3><div class="body steps">
+        <div class="s http live">GET /destination-recommendation → 200 · 41 ms</div>
+        <div class="s http done">POST /login → 204 · 88 ms</div>
+        <div class="s http done">GET /config → 200 · 12 ms</div>
+      </div></div>
+      <div class="sect closed"><h3>recent</h3><div class="body steps">
+        <div class="s done">LP-1042 pay-now regression · pass</div>
+        <div class="s done">intl drill · destination worlds · pass</div>
+      </div></div>
+    </div>
+  </div>
+
+<script>
+  const $ = (s) => document.querySelector(s);
+  // take control → session-live state
+  $('#takeBtn').onclick = () => {
+    const b = $('#takeBtn');
+    const held = b.classList.toggle('primary') === false && b.textContent === 'take control';
+    b.textContent = b.classList.contains('primary') ? 'take control' : 'release';
+    const live = b.textContent === 'release';
+    $('#sessionChip').style.display = live ? '' : 'none';
+    $('#sessionMeta').textContent = live ? 'live' : 'idle';
+    $('#sessionBody').innerHTML = live
+      ? '<div class="row"><span class="k">lease</span><span class="v"><em>manual:ms_9f2</em></span></div><div class="row"><span class="k">dims</span><span class="v">428 × 926</span></div><div class="row"><span class="k">watchdog</span><span class="v">3m 12s left</span></div>'
+      : '<div class="row"><span class="k">lease</span><span class="v">—</span></div><div class="row"><span class="k">dims</span><span class="v">428 × 926</span></div><div class="row"><span class="k">watchdog</span><span class="v">—</span></div>';
+    $('#lost').classList.remove('show');
+  };
+  // inspect toggle (never dispatches)
+  $('#inspectBtn').onclick = (e) => { e.target.classList.toggle('on'); $('#stage').classList.toggle('inspecting'); };
+  // env drawer
+  $('#envBtn').onclick = () => $('#envDrawer').classList.add('open');
+  document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => b.closest('.drawer').classList.remove('open'));
+  // rail sections collapse
+  document.querySelectorAll('.sect > h3').forEach(h => h.onclick = () => h.parentElement.classList.toggle('closed'));
+  // demo the session-lost state after 8s of live session (then auto-clear on retake)
+  setTimeout(() => { if ($('#takeBtn').textContent === 'release') $('#lost').classList.add('show'); }, 8000);
+</script>
+</body>
+</html>

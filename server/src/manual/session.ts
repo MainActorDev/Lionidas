@@ -124,10 +124,16 @@ export class ManualSessionError extends Error {
 
 export async function startManualSession(deps: ManualDeps, udid: string, operator: string, appBundleId?: string): Promise<{ sessionId: string; logicalW: number | null; logicalH: number | null }> {
   return (async () => {
+    // Blocks on ANY active TESTCASE (template runs incl. cockpit plays — they
+    // carry kind=manual with template_id set — plus queue/batch kinds). Manual
+    // SESSION rows (template_id NULL) don't block: a second session on a free
+    // device replaces cleanly. Operator 2026-10-04: take control must be
+    // unavailable while a testcase runs — driving mid-case poisons its steps
+    // (verified live: drill taps made a selector never resolve).
     const busy = deps.db
-      .prepare(`SELECT 1 FROM runs WHERE device_udid = ? AND status IN ('queued','running') AND kind != 'manual' LIMIT 1`)
+      .prepare(`SELECT 1 FROM runs WHERE device_udid = ? AND status IN ('queued','running') AND template_id IS NOT NULL LIMIT 1`)
       .get(udid);
-    if (busy) throw new ManualSessionError('QUEUE_ACTIVE', 'a queued/running automated run owns this device — wait or abort it');
+    if (busy) throw new ManualSessionError('QUEUE_ACTIVE', 'a test case is running on this device — take control unlocks when it finishes');
     // waiting queue entries are fine (dispatcher serializes); only ACTIVE runs block
 
     // QA keyboard quieting (simulator-only, best-effort): autocorrect/prediction

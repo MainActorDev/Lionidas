@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { execFile } from 'node:child_process';
 import { ensureSimdeck } from '../simdeck/supervisor.ts';
 import type Database from 'better-sqlite3';
 import { createReadStream, statSync } from 'node:fs';
@@ -33,6 +34,50 @@ function memoryByUdid(sweep: PsSweep): Map<string, number> {
   return map;
 }
 
+/** Poll the LIVE device state (fresh `simctl list`, not the 2s-lagging
+ *  mirror) until `want(state)` holds. CoreSimulator flips power state
+ *  asynchronously AFTER simctl commands return — the mirror alone is too
+ *  stale to sequence restart's shutdown→boot transition. False on timeout —
+ *  callers surface, never guess. */
+/** udids with a restart in flight (the power route holds the whole cycle).
+ *  Exposed on GET /api/devices so ANY page can show the restarting state —
+ *  not just the one that clicked the button (found live: cockpit reload
+ *  mid-restart showed nothing; the client-only set lost the state). */
+const restartingInFlight = new Set<string>();
+
+/** test seam: replace the state source (unit tests inject a fake udid→state map) */
+export let __deviceStateSource: ((udid: string, cb: (state: string | null) => void) => void) | null = null;
+export function __setDeviceStateSourceForTest(fn: typeof __deviceStateSource): void { __deviceStateSource = fn; }
+
+function waitForDeviceState(udid: string, want: (s: string | null) => boolean, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  const readState = __deviceStateSource ?? ((u: string, cb: (s: string | null) => void) => {
+    execFile('xcrun', ['simctl', 'list', 'devices', '-j'], { maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
+      let state: string | null = null;
+      if (!err) {
+        try {
+          const payload = JSON.parse(String(stdout)) as { devices?: Record<string, Array<{ udid: string; state: string }>> };
+          for (const list of Object.values(payload.devices ?? {})) {
+            const hit = list.find((e) => e.udid === u);
+            if (hit) { state = hit.state; break; }
+          }
+        } catch { /* parse failure = keep polling */ }
+      }
+      cb(state);
+    });
+  });
+  return new Promise((resolve) => {
+    const tick = () => {
+      readState(udid, (state) => {
+        if (state !== null && want(state)) return resolve(true);
+        if (Date.now() >= deadline) return resolve(false);
+        setTimeout(tick, 700);
+      });
+    };
+    tick();
+  });
+}
+
 export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database): void {
   app.get('/api/devices', async (req) => {
     // simulator-only wall: physical devices stay out of the list entirely
@@ -59,6 +104,7 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
       pinned: pinnedSet.has(r.udid as string),
       lastUsed: (r.last_used as number | null) ?? null,
       memoryRss: r.state === 'Booted' ? mem.get(r.udid as string) ?? 0 : null,
+      restarting: restartingInFlight.has(r.udid as string),
     }));
     return { devices };
   });
@@ -121,9 +167,41 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
       return r;
     };
     let r = b.action === 'restart' ? await withLeaseRetry('shutdown') : await withLeaseRetry(b.action as 'boot' | 'shutdown');
-    if (r.ok && b.action === 'restart') r = await one('boot');
-    if (!r.ok) return reply.code(502).send({ error: `${b.action} failed: ${r.error.message}` });
+    if (b.action === 'restart') restartingInFlight.add(udid);
+    try {
+    if (r.ok && b.action === 'restart') {
+      // Restart races TWO async layers (found live 2026-10-03, twice):
+      //  1. simctl shutdown returns BEFORE CoreSimulator flips state — the
+      //     mirror still says Booted, engine-A's ensure-boot no-ops.
+      //  2. Even booting after the mirror flips can LOSE: a boot issued
+      //     while the OS shutdown is still completing "succeeds" and is then
+      //     killed by the finishing shutdown (observed: boot result
+      //     `booted:true` at +3.4s, device left Shutdown).
+      // Fix: wait for the shutdown to LAND (fresh simctl, not the lagging
+      // poller mirror), boot, then VERIFY the device actually reached Booted
+      // — retry the boot once if the shutdown finished after it.
+      const landed = await waitForDeviceState(udid, (s) => s !== 'Booted', 20_000);
+      if (!landed) return reply.code(502).send({ error: 'restart failed: device never reached Shutdown (20s)' });
+      r = await one('boot');
+      if (r.ok) {
+        let up = await waitForDeviceState(udid, (s) => s === 'Booted', 45_000);
+        if (!up) {
+          // the shutdown finished after our boot — one clean retry now that
+          // the device is truly down
+          r = await one('boot');
+          if (r.ok) up = await waitForDeviceState(udid, (s) => s === 'Booted', 45_000);
+        }
+        if (!up) return reply.code(502).send({ error: 'restart failed: device did not come back up' });
+      }
+    } else if (r.ok && b.action === 'boot') {
+      // boot alone: verify too — an ensure-boot can no-op against a stale
+      // Booted observation and report success while the device is down
+      const up = await waitForDeviceState(udid, (s) => s === 'Booted', 45_000);
+      if (!up) return reply.code(502).send({ error: 'boot failed: device did not reach Booted (45s)' });
+    }
+    if (!r.ok) { if (b.action === 'restart') restartingInFlight.delete(udid); return reply.code(502).send({ error: `${b.action} failed: ${r.error.message}` }); }
     return { ok: true };
+    } finally { if (b.action === 'restart') restartingInFlight.delete(udid); }
   });
 
   // Watch pulse: one screenshot on demand (read-only; never takes a lease).

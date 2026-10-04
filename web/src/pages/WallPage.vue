@@ -4,6 +4,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import DeviceSidebar, { type SidebarDevice } from '../components/DeviceSidebar.vue';
 import DeviceMiniPreview from '../components/DeviceMiniPreview.vue';
 import { useLiveEvents } from '../stores/live.ts';
+import { useRouter } from 'vue-router';
 
 interface DeviceRow { udid: string; name: string | null; state: string | null; platform: string | null; kind: string | null; os_version: string | null; resolution: string | null; lease_holder: string | null; lease_engine: string | null; lease_display?: string | null; pinned?: boolean; lastUsed?: number | null; memoryRss?: number | null }
 interface QueueRow { id: string; state: string; priority: number; requested_by: string }
@@ -12,10 +13,14 @@ interface RunRow { id: string; ticket_key: string; status: string; kind: string 
 const live = useLiveEvents();
 const devices = ref<DeviceRow[]>([]);
 const queue = ref<QueueRow[]>([]);
+const router = useRouter();
 const lastRuns = ref<Record<string, RunRow>>({});
 let poll: ReturnType<typeof setInterval> | null = null;
 
 // ── per-row pending power state (no global message bar) ──
+// restarts pass through Shutdown before Booted again — tracked so the
+// 'restarting' state can only clear after the full cycle
+const restartWentDown = new Set<string>();
 // udid → 'boot' | 'shutdown' | 'restart' while the request is in flight /
 // awaiting the poller's state confirmation; cleared by device.changed or timeout
 type PowerAction = 'boot' | 'shutdown' | 'restart';
@@ -46,7 +51,7 @@ function leaseInfoFor(udid: string | undefined): string | null {
   return devices.value.find((d) => d.udid === udid)?.lease_display ?? null;
 }
 
-const booted = computed(() => devices.value.filter((d) => d.state === 'Booted'));
+const booted = computed(() => devices.value.filter((d) => d.state === 'Booted' || isPending(d.udid) === 'restart')); // restarting rows STAY (they leave Booted mid-cycle)
 // pinned ∧ not booted — booted pins live in the booted table like everyone else
 const pinnedShelf = computed(() => devices.value.filter((d) => d.pinned && d.state !== 'Booted'));
 const shelf = computed(() => devices.value.filter((d) => !d.pinned && d.state !== 'Booted'));
@@ -143,8 +148,18 @@ const unwatchEvents = watch(
       if (udid && pending.value.has(udid)) {
         const row = devices.value.find((d) => d.udid === udid);
         const wants = pending.value.get(udid);
-        // boot/restart confirmed when Booted; shutdown when not-Booted
-        if (row && ((wants === 'shutdown') !== (row.state === 'Booted'))) clearPending(udid);
+        // confirmation is PER-INTENT (the old `wants !== 'shutdown'` test
+        // cleared a RESTART the instant the device left Booted — mid-cycle,
+        // exactly when the state should read 'restarting'):
+        //  - shutdown → done when not Booted
+        //  - boot     → done when Booted
+        //  - restart  → done when Booted AGAIN after having gone down
+        if (row && wants === 'shutdown' && row.state !== 'Booted') clearPending(udid);
+        if (row && (wants === 'boot' || wants === 'restart') && row.state === 'Booted') {
+          if (wants === 'boot') clearPending(udid);
+          else if (restartWentDown.has(udid)) { restartWentDown.delete(udid); clearPending(udid); }
+        }
+        if (row && wants === 'restart' && row.state !== 'Booted') restartWentDown.add(udid);
       }
     }
     if (latest && latest.type === 'run.started' && typeof latest.payload['udid'] === 'string') {
@@ -209,6 +224,7 @@ onUnmounted(() => {
               <th class="pcol" title="pin — keep a device at hand"><svg class="ic-h"><use href="#pin-glyph" /></svg></th>
               <th style="width: 22%;">device</th>
               <th>os</th>
+              <th>state</th>
               <th>mem</th>
               <th>lease</th>
               <th>last run</th>
@@ -228,6 +244,7 @@ onUnmounted(() => {
                 </div>
               </td>
               <td style="color: var(--color-paper);">{{ d.os_version ?? '—' }}</td>
+              <td><span v-if="isPending(d.udid) === 'restart'" class="restarting-chip"><span class="restarting-dot" />restarting</span><span v-else style="color: var(--color-steel);">on</span></td>
               <td :style="{ color: (d.memoryRss ?? 0) > 1024 * 1024 * 1024 ? 'var(--color-ember)' : 'var(--color-fog)' }" title="host memory: every process referencing this device">{{ fmtBytes(d.memoryRss) }}</td>
               <td>
                 <b v-if="d.lease_holder?.startsWith('manual:')" style="color: var(--color-ember);" :title="d.lease_display ?? 'manual'">{{ d.lease_display && d.lease_display !== 'manual' ? d.lease_display : 'manual' }}</b>
@@ -242,7 +259,7 @@ onUnmounted(() => {
                 <span v-else style="color: var(--color-steel);">—</span>
               </td>
               <td style="text-align: right; white-space: nowrap;" @click.stop>
-                <button class="btn btn-sm" @click="openSidebar(d)">drive</button>
+                <button class="btn btn-sm" @click="router.push(`/cockpit?device=${d.udid}`)">drive</button>
                 <button class="btn btn-sm" style="margin-left: 6px;" :disabled="isPending(d.udid) !== undefined" @click="power(d.udid, 'restart')">{{ isPending(d.udid) === 'restart' ? 'restarting…' : 'restart' }}</button>
                 <button class="btn btn-sm btn-danger" style="margin-left: 6px;" :disabled="isPending(d.udid) !== undefined" @click="power(d.udid, 'shutdown')">{{ isPending(d.udid) === 'shutdown' ? 'shutting down…' : 'shut down' }}</button>
               </td>
@@ -268,6 +285,7 @@ onUnmounted(() => {
                 <div style="font-size: 10px; color: var(--color-steel); user-select: text;">{{ d.udid }}</div>
               </td>
               <td style="color: var(--color-paper);">{{ d.os_version ?? '—' }}</td>
+              <td><span v-if="isPending(d.udid) === 'restart'" class="restarting-chip"><span class="restarting-dot" />restarting</span><span v-else style="color: var(--color-steel);">on</span></td>
               <td v-if="d.lastUsed != null" style="color: var(--color-steel);" title="last time this device ran anything (run or manual session)">{{ timeAgo(d.lastUsed) }}</td>
               <td v-else style="color: var(--color-steel);">never used</td>
               <td style="text-align: right;"><button class="btn btn-sm" :disabled="isPending(d.udid) !== undefined" @click="power(d.udid, 'boot')">{{ isPending(d.udid) === 'boot' ? 'booting…' : 'boot' }}</button></td>
@@ -293,6 +311,7 @@ onUnmounted(() => {
                 <div style="font-size: 10px; color: var(--color-steel); user-select: text;">{{ d.udid }}</div>
               </td>
               <td style="color: var(--color-paper);">{{ d.os_version ?? '—' }}</td>
+              <td><span v-if="isPending(d.udid) === 'restart'" class="restarting-chip"><span class="restarting-dot" />restarting</span><span v-else style="color: var(--color-steel);">on</span></td>
               <td v-if="d.lastUsed != null" style="color: var(--color-steel);">{{ timeAgo(d.lastUsed) }}</td>
               <td v-else style="color: var(--color-steel);">never used</td>
               <td style="text-align: right;"><button class="btn btn-sm" :disabled="isPending(d.udid) !== undefined" @click="power(d.udid, 'boot')">{{ isPending(d.udid) === 'boot' ? 'booting…' : 'boot' }}</button></td>
@@ -337,4 +356,8 @@ th.pcol, td.pcol { width:44px; text-align:center; padding:0 4px; }
 .dev-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .dev-text { min-width: 0; }
 th.pcol .ic-h { width:12px; height:12px; fill:none; stroke:currentColor; stroke-width:2; vertical-align:middle; }
+.restarting-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--color-ember); border: 1px solid var(--color-ember); padding: 1px 7px; border-radius: var(--r); }
+.restarting-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-ember); animation: restarting-pulse 1.1s infinite; }
+@keyframes restarting-pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .restarting-dot { animation: none; } }
 </style>

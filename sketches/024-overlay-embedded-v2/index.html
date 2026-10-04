@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>overlay — embedded rail, redesigned panels</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; background: #000; color: #eeeeee; height: 100vh; display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; }
+  /* ── chrome ── */
+  .menubar { display: flex; align-items: center; gap: 2px; padding: 4px 10px; background: #000; border-bottom: 1px solid #202020; font-size: 12px; color: #b4b4b4; }
+  .menubar img { width: 18px; height: 18px; margin-right: 4px; }
+  .menubar button { background: none; border: 0; color: inherit; font: inherit; padding: 3px 8px; border-radius: 2px; cursor: pointer; }
+  .menubar button:hover, .menubar button.open { background: #111; color: #eeeeee; }
+  .tabs { display: flex; gap: 4px; padding: 6px 10px 0; background: #000; }
+  .tab { padding: 5px 12px; font-size: 12px; color: #b4b4b4; background: #111; border: 1px solid #202020; border-bottom: 0; border-radius: 6px 6px 0 0; display: flex; gap: 8px; align-items: center; }
+  .tab.on { color: #eeeeee; background: #191919; }
+  .tab .x { color: #606060; cursor: pointer; } .tab .x:hover { color: #da5c2c; }
+  .frame { flex: 1; display: grid; grid-template-columns: 1fr 320px; min-height: 0; background: #111; border-top: 1px solid #202020; }
+  .stage { position: relative; display: grid; place-items: center; background: radial-gradient(ellipse at 50% 40%, #151515 0%, #0a0a0a 70%); }
+  .bezel { width: 230px; height: 470px; border-radius: 34px; background: #1c1c1e; border: 3px solid #2c2c2e; position: relative; }
+  .bezel::after { content: ""; position: absolute; inset: 8px; border-radius: 26px; background: linear-gradient(160deg, #101418, #0a0d11); }
+  /* selection ring on the bezel (inspect mode is ON) */
+  .ring { position: absolute; left: 50%; top: 30%; width: 120px; height: 34px; transform: translateX(-50%); border: 1.5px solid #da5c2c; border-radius: 3px; box-shadow: 0 0 0 3px rgba(218,92,44,.18); }
+  .ring::after { content: "1"; position: absolute; top: -18px; left: -1.5px; background: #da5c2c; color: #111; font-size: 10px; padding: 0 5px; border-radius: 2px; }
+  .fps { position: absolute; top: 10px; right: 12px; font-size: 9px; color: #b4b4b4; background: #111; border: 1px solid #202020; padding: 1px 6px; border-radius: 2px; }
+
+  /* ═══════════ THE OVERLAY CONTAINER (reusable) ═══════════ */
+  .rail { position: relative; background: #0b0b0b; border-left: 1px solid #202020; display: flex; flex-direction: column; }
+  .rail-tabs { display: flex; border-bottom: 1px solid #202020; opacity: .35; pointer-events: none; }
+  .rail-tab { flex: 1; text-align: center; padding: 7px 0; font-size: 12px; color: #7e7e7e; }
+  .rail-tab.on { color: #da5c2c; border-bottom: 2px solid #da5c2c; }
+
+  .overlay { position: absolute; inset: 0; background: #0d0d0d; z-index: 5; display: flex; flex-direction: column; animation: rise .18s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .overlay { animation: none; } }
+
+  .ov-head { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-bottom: 1px solid #202020; }
+  .ov-ico { width: 22px; height: 22px; border: 1px solid #3a3a3a; border-radius: 2px; display: grid; place-items: center; font-size: 11px; color: #da5c2c; flex: none; }
+  .ov-title { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: #eeeeee; }
+  .ov-badge { font-size: 10px; color: #111; background: #da5c2c; padding: 1px 6px; border-radius: 2px; }
+  .ov-badge.off { background: none; color: #7e7e7e; border: 1px solid #3a3a3a; }
+  .ov-spacer { flex: 1; }
+  .ov-x { background: none; border: 1px solid #202020; color: #b4b4b4; border-radius: 2px; cursor: pointer; font-size: 12px; padding: 1px 7px; }
+  .ov-x:hover { border-color: #da5c2c; color: #da5c2c; }
+  .ov-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+
+  /* ═══════════ ENVIRONMENT panel ═══════════ */
+  .env-live { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #202020; background: #111; }
+  .pulse { width: 6px; height: 6px; border-radius: 50%; background: #da5c2c; animation: pulse 2.4s infinite; flex: none; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+  .env-live .k { font-size: 10px; color: #7e7e7e; text-transform: uppercase; letter-spacing: .08em; }
+  .env-live .v { font-size: 12px; color: #eeeeee; }
+  .env-live .none { color: #7e7e7e; }
+
+  .scen-list { padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+  .scen { border: 1px solid #202020; border-radius: 2px; padding: 8px 10px; cursor: pointer; background: #0d0d0d; }
+  .scen:hover { border-color: #3a3a3a; }
+  .scen.on { border-color: #da5c2c; background: #131010; }
+  .scen-top { display: flex; align-items: center; gap: 8px; }
+  .scen-name { font-size: 12px; color: #eeeeee; }
+  .scen.on .scen-name { color: #da5c2c; }
+  .radio { width: 10px; height: 10px; border: 1.5px solid #505050; border-radius: 50%; flex: none; }
+  .scen.on .radio { border-color: #da5c2c; background: radial-gradient(circle, #da5c2c 0 3.5px, transparent 4px); }
+  .scen-desc { font-size: 10.5px; color: #7e7e7e; margin-top: 3px; line-height: 1.45; }
+  .scen-tag { margin-left: auto; font-size: 9px; color: #7e7e7e; border: 1px solid #202020; padding: 0 5px; border-radius: 2px; }
+  .scen-foot { margin-top: 6px; display: flex; align-items: center; }
+  .scen-clear { background: none; border: 1px solid #202020; color: #b4b4b4; font: inherit; font-size: 11px; padding: 3px 12px; border-radius: 2px; cursor: pointer; }
+  .scen-clear:hover { border-color: #3a3a3a; color: #eeeeee; }
+  .scen-hint { margin-left: auto; font-size: 10px; color: #606060; }
+
+  /* ═══════════ INSPECT panel ═══════════ */
+  .insp-state { display: flex; gap: 6px; align-items: center; padding: 7px 12px; border-bottom: 1px solid #202020; background: #111; font-size: 10px; color: #7e7e7e; text-transform: uppercase; letter-spacing: .08em; }
+  .insp-state .dot { width: 6px; height: 6px; border-radius: 50%; background: #da5c2c; }
+  .insp-state .seg { margin-left: auto; color: #b4b4b4; border: 1px solid #202020; border-radius: 2px; }
+  .insp-state .seg b { font-weight: 400; color: #eeeeee; }
+
+  .crumbs { padding: 8px 12px 2px; font-size: 10.5px; color: #7e7e7e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .crumbs .last { color: #eeeeee; }
+  .crumbs .sep { margin: 0 4px; color: #505050; }
+
+  .tree { flex: none; max-height: 176px; overflow-y: auto; padding: 6px 12px 8px; font-size: 11px; border-bottom: 1px solid #202020; }
+  .tn { padding: 2px 0; color: #b4b4b4; white-space: nowrap; cursor: pointer; }
+  .tn:hover { color: #eeeeee; }
+  .tn.sel { color: #da5c2c; }
+  .tn .t { color: #606060; }
+
+  .detail { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+  .ident { display: flex; align-items: baseline; gap: 8px; }
+  .etype { font-size: 13px; color: #eeeeee; }
+  .etype::before { content: "<"; color: #505050; } .etype::after { content: ">"; color: #505050; }
+  .eid { font-size: 11px; color: #da5c2c; }
+  .elabel { font-size: 11px; color: #7e7e7e; }
+  .chips { display: flex; gap: 6px; }
+  .chip { font-size: 9.5px; color: #b4b4b4; border: 1px solid #202020; padding: 1px 6px; border-radius: 2px; }
+  .chip.ok { color: #eeeeee; border-color: #3a3a3a; }
+
+  .geo-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: #202020; border: 1px solid #202020; border-radius: 2px; overflow: hidden; }
+  .geo-cell { background: #0d0d0d; padding: 6px 8px; }
+  .geo-k { font-size: 9px; color: #7e7e7e; text-transform: uppercase; letter-spacing: .06em; }
+  .geo-v { font-size: 12px; color: #eeeeee; margin-top: 1px; }
+
+  .kv-sec .sect-label { font-size: 9px; color: #7e7e7e; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 4px; }
+  .paint-rows { display: flex; flex-direction: column; gap: 2px; }
+  .paint-row { display: flex; justify-content: space-between; font-size: 11px; }
+  .paint-row .k { color: #7e7e7e; } .paint-row .v { color: #eeeeee; }
+  .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; border: 1px solid #3a3a3a; vertical-align: -1px; margin-right: 5px; }
+
+  .selbox { border: 1px solid #202020; border-radius: 2px; background: #0a0a0a; padding: 8px; }
+  .selbox .sect-label { font-size: 9px; color: #7e7e7e; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 4px; display: flex; justify-content: space-between; }
+  .selbox code { font-size: 10.5px; color: #eeeeee; word-break: break-all; line-height: 1.5; }
+  .selbox .hl { color: #da5c2c; }
+
+  .acts { display: flex; gap: 6px; }
+  .act { flex: 1; background: none; border: 1px solid #202020; color: #b4b4b4; font: inherit; font-size: 11px; padding: 5px 0; border-radius: 2px; cursor: pointer; }
+  .act:hover { border-color: #3a3a3a; color: #eeeeee; }
+  .act.primary { background: #da5c2c; border-color: #da5c2c; color: #111; }
+  .act.primary:hover { background: #c24e22; }
+
+  .under { padding: 5px 10px; border-top: 1px solid #202020; font-size: 9.5px; color: #606060; display: flex; }
+</style>
+</head>
+<body>
+  <div class="menubar">
+    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23da5c2c'/%3E%3Ctext x='16' y='22' font-size='16' text-anchor='middle' fill='%23fff' font-family='monospace'%3EL%3C/text%3E%3C/svg%3E" alt="">
+    <button>file</button><button>device</button><button class="open">view</button><button>run</button>
+    <span style="margin-left:auto; font-size:11px; color:#7e7e7e">MANUAL · 3m · iPhone 14 Plus</span>
+  </div>
+  <div class="tabs">
+    <div class="tab on">iPhone 14 Plus <span class="x">✕</span></div>
+    <div class="tab">iPhone 16 <span class="x">✕</span></div>
+  </div>
+  <div class="frame">
+    <div class="stage">
+      <div class="bezel"><div class="ring"></div></div>
+      <div class="fps">live · 20fps</div>
+    </div>
+    <div class="rail">
+      <div class="rail-tabs"><div class="rail-tab on">watch</div><div class="rail-tab">chat</div></div>
+      <!-- ══ ENVIRONMENT overlay — ✕ switches to inspect to compare both ══ -->
+      <div class="overlay" id="env">
+        <div class="ov-head">
+          <div class="ov-ico">◔</div>
+          <span class="ov-title">environment</span>
+          <span class="ov-badge">1 active</span>
+          <span class="ov-spacer"></span>
+          <button class="ov-x" title="switch to inspect (compare)" onclick="show('insp')">✕</button>
+        </div>
+        <div class="ov-body">
+          <div class="env-live">
+            <span class="pulse"></span>
+            <span class="k">shaping</span>
+            <span class="v">lp1042-payment-error</span>
+          </div>
+          <div class="scen-list">
+            <div class="scen on">
+              <div class="scen-top"><span class="radio"></span><span class="scen-name">lp1042-payment-error</span><span class="scen-tag">payments</span></div>
+              <div class="scen-desc">POST /v2/payments → 502 · 3s delay — card + wallet checkout fail with retryable state</div>
+            </div>
+            <div class="scen">
+              <div class="scen-top"><span class="radio"></span><span class="scen-name">countries-empty</span><span class="scen-tag">geo</span></div>
+              <div class="scen-desc">GET /v1/countries → [] — destination picker renders its empty state</div>
+            </div>
+            <div class="scen">
+              <div class="scen-top"><span class="radio"></span><span class="scen-name">countries-my</span><span class="scen-tag">geo</span></div>
+              <div class="scen-desc">country list pinned to Malaysia — rates + zones resolve MY lanes</div>
+            </div>
+            <div class="scen">
+              <div class="scen-top"><span class="radio"></span><span class="scen-name">countries-sg</span><span class="scen-tag">geo</span></div>
+              <div class="scen-desc">country list pinned to Singapore — cross-border rate card loads</div>
+            </div>
+            <div class="scen-foot">
+              <button class="scen-clear">clear scenario</button>
+              <span class="scen-hint">chat sees what's active</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ INSPECT overlay — one at a time ══ -->
+      <div class="overlay" id="insp" style="display:none">
+        <div class="ov-head">
+          <div class="ov-ico">⌖</div>
+          <span class="ov-title">inspect</span>
+          <span class="ov-badge off">25 nodes</span>
+          <span class="ov-spacer"></span>
+          <button class="ov-x" title="switch to environment (compare)" onclick="show('env')">✕</button>
+        </div>
+        <div class="ov-body">
+          <div class="insp-state"><span class="dot"></span> aligned · picking live <span class="seg">session <b>ms_7f2a</b></span></div>
+          <div class="crumbs">window <span class="sep">›</span> home-view <span class="sep">›</span> <span class="last">quote-button</span></div>
+          <div class="tree">
+            <div class="tn"><span class="t">▾</span> window</div>
+            <div class="tn" style="padding-left:14px"><span class="t">▾</span> home-view</div>
+            <div class="tn" style="padding-left:28px"><span class="t">·</span> hero-card</div>
+            <div class="tn sel" style="padding-left:28px"><span class="t">·</span> quote-button <span class="t">— "Get a Quote"</span></div>
+            <div class="tn" style="padding-left:28px"><span class="t">·</span> shortcut-grid</div>
+            <div class="tn" style="padding-left:42px"><span class="t">·</span> tile ×4</div>
+            <div class="tn" style="padding-left:28px"><span class="t">·</span> tab-bar</div>
+          </div>
+          <div class="detail">
+            <div>
+              <div class="ident"><span class="etype">Button</span><span class="eid">btn_quote_cta</span></div>
+              <div class="elabel">“Get a Quote”</div>
+              <div class="chips" style="margin-top:6px"><span class="chip ok">hittable</span><span class="chip">AX button</span></div>
+            </div>
+            <div class="geo-grid">
+              <div class="geo-cell"><div class="geo-k">x</div><div class="geo-v">16.0</div></div>
+              <div class="geo-cell"><div class="geo-k">y</div><div class="geo-v">612.5</div></div>
+              <div class="geo-cell"><div class="geo-k">w</div><div class="geo-v">342.0</div></div>
+              <div class="geo-cell"><div class="geo-k">h</div><div class="geo-v">48.0</div></div>
+            </div>
+            <div class="kv-sec">
+              <div class="sect-label">paint</div>
+              <div class="paint-rows">
+                <div class="paint-row"><span class="k">background</span><span class="v"><span class="swatch" style="background:#da5c2c"></span>#DA5C2C</span></div>
+                <div class="paint-row"><span class="k">text</span><span class="v"><span class="swatch" style="background:#111111"></span>#111111 · 17 semibold</span></div>
+                <div class="paint-row"><span class="k">corner</span><span class="v">10.0</span></div>
+              </div>
+            </div>
+            <div class="selbox">
+              <div class="sect-label"><span>selector</span><span>click to copy</span></div>
+              <code>identifier: <span class="hl">btn_quote_cta</span></code>
+            </div>
+            <div class="acts">
+              <button class="act primary">tap</button>
+              <button class="act">copy selector</button>
+              <button class="act">copy spec</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+<script>
+  function show(id) {
+    document.getElementById('env').style.display = id === 'env' ? '' : 'none';
+    document.getElementById('insp').style.display = id === 'insp' ? '' : 'none';
+  }
+</script>
+</body>
+</html>

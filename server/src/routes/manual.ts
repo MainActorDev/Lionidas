@@ -14,6 +14,8 @@ import { fetchProbeViewtree, probeArmed, ProbeError } from '../manual/viewtree-p
 import { listSimulatorApps } from '../manual/apps.ts';
 import { installApp } from '../manual/app-install.ts';
 import { findArtifacts, importArtifact, appsStoreDir } from '../manual/artifacts.ts';
+import { execFileAsync } from '../manual/apps.ts';
+import { dispatchWithHeal } from '../alloy/heal.ts';
 import { existsSync } from 'node:fs';
 import { runTemplatePlayback, PlaybackError } from '../manual/playback.ts';
 import type { ForgeState } from '../forge/proxy.ts';
@@ -388,6 +390,15 @@ export function registerManualRoutes(
     }
   });
 
+  // open manual sessions — the cockpit hydrates its per-device control map and
+  // detects watchdog-reaped sessions on tab activation (plan F4)
+  app.get('/api/manual/sessions', { preHandler: requireRole('operator') }, async () => {
+    const rows = db
+      .prepare('SELECT id, udid, operator, started_at, last_activity FROM manual_sessions WHERE finished_at IS NULL ORDER BY started_at DESC')
+      .all() as Array<{ id: string; udid: string; operator: string; started_at: number; last_activity: number }>;
+    return { sessions: rows.map((r) => ({ id: r.id, udid: r.udid, operator: r.operator, startedAt: r.started_at, lastActivity: r.last_activity })) };
+  });
+
   app.get('/api/manual/:id/record', async (req, reply) => {
     const { id } = req.params as { id: string };
     try {
@@ -429,8 +440,29 @@ export function registerManualRoutes(
   // ── template playback ──
   app.post('/api/templates/:id/play', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const b = req.body as { udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string>; variant?: string } | null;
+    const b = req.body as { udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string>; variant?: string; udids?: string[]; allBooted?: boolean } | null;
     try {
+      // ── multi-device fan-out (plan R4): loop the base single-play path per
+      // target udid. Worlds/variant selectors stay single-device (out of
+      // scope for fan-out); each device plays the case's default lane.
+      const fanoutTargets = b?.allBooted
+        ? (db.prepare(`SELECT udid FROM devices WHERE state = 'Booted'`).all() as Array<{ udid: string }>).map((r) => r.udid)
+        : b?.udids ?? null;
+      if (fanoutTargets) {
+        if (b?.allBooted && fanoutTargets.length === 0) return reply.code(400).send({ error: 'no booted devices' });
+        if (b?.udid || b?.variant) return reply.code(400).send({ error: 'fan-out plays the base case: udid/variant cannot combine with udids/allBooted' });
+        const pbDeps0 = { db, bus: deps.bus, dispatchDeps: deps.dispatchDeps, artifactsDir: deps.artifactsDir, forgeState: deps.forgeState, ...(process.env['VITEST'] ? { awaitStreamLive: null } : {}) };
+        const per: Array<{ udid: string; runId?: string; error?: string }> = [];
+        for (const u of fanoutTargets) {
+          try {
+            const { runId } = await runTemplatePlayback(pbDeps0, id, { udid: u, ...(req.user?.name !== undefined ? { triggeredBy: req.user.name } : (b?.triggeredBy !== undefined ? { triggeredBy: b.triggeredBy } : {})), ...(b?.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}), ...(b?.env !== undefined ? { env: b.env } : {}) });
+            per.push({ udid: u, runId });
+          } catch (err) {
+            per.push({ udid: u, error: err instanceof Error ? err.message : String(err) });
+          }
+        }
+        return { fanOut: true, count: per.length, runs: per };
+      }
       // Phase C: variants expand HERE (single-play entry point). A variants
       // case runs ONCE PER VARIANT, sequentially (declaration order — proxy
       // state is device-global). `variant: 'id'` runs exactly one.
@@ -579,6 +611,23 @@ export function registerManualRoutes(
       return reply.header('content-type', 'image/png').send(createReadStream(app.iconPath));
     } catch (err) {
       return reply.code(502).send({ error: err instanceof Error ? err.message : 'icon read failed' });
+    }
+  });
+
+  // ── run app: open an installed app on the device (cockpit 'app → run app…').
+  // Same alloy_apps open the playback path uses; terminate-first mirrors the
+  // playback readiness contract (fresh app state, best-effort when not running).
+  app.post('/api/devices/:udid/apps/:bundleId/launch', async (req, reply) => {
+    const { udid, bundleId } = req.params as { udid: string; bundleId: string };
+    try {
+      try { await execFileAsync('xcrun', ['simctl', 'terminate', udid, decodeURIComponent(bundleId)]); } catch { /* not running — fine */ }
+      const r = (await dispatchWithHeal('alloy_apps', { action: 'open', app: decodeURIComponent(bundleId), udid, hold: false }, deps.dispatchDeps)) as
+        | { ok: true }
+        | { ok: false; error?: { message?: string } };
+      if (!r.ok) return reply.code(502).send({ error: r.error?.message ?? 'open failed' });
+      return { ok: true };
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : 'launch failed' });
     }
   });
 

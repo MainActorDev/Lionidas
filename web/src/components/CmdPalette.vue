@@ -37,8 +37,6 @@ const commands = computed<Command[]>(() => {
     { label: 'devices', hint: 'device grid + queue', run: () => router.push('/devices') },
     { label: 'runs', hint: 'history', run: () => router.push('/runs') },
     { label: 'network', hint: 'traffic + mock responses', run: () => router.push('/forge') },
-    { label: 'approvals', hint: 'review visual changes', run: () => router.push('/baselines') },
-    { label: 'flaky tests', hint: 'quarantine', run: () => router.push('/flakes') },
     { label: 'guide', hint: 'how to use', run: () => router.push('/guide') },
   ];
   for (const d of devices.value) {

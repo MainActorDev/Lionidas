@@ -24,13 +24,15 @@ const route = useRoute();
 const router = useRouter();
 const isActive = (name: string): boolean => route.name === name;
 const isPublic = computed(() => route.meta.public === true);
+// fullscreen pages render outside the app shell (own chrome) but stay auth-guarded
+const isBare = computed(() => isPublic.value || route.meta.fullscreen === true);
 // cheap re-check on route change (login/out navigations refresh the chip)
 watch(() => route.fullPath, () => void loadMe());
 </script>
 
 <template>
   <!-- public routes (login) own the full viewport — no app chrome -->
-  <router-view v-if="isPublic" />
+  <router-view v-if="isBare" />
   <div v-else class="app">
     <div class="logo"><img class="logo-mark" src="/icons/lionidas-app-128.png" alt="" width="20" height="20" /> lionidas</div>
 
@@ -44,8 +46,6 @@ watch(() => route.fullPath, () => void loadMe());
       </div>
       <div class="nav-group">
         <div class="nav-group-label">quality</div>
-        <RouterLink to="/baselines" class="nav-item" :class="{ active: isActive('baselines') }">approvals</RouterLink>
-        <RouterLink to="/flakes" class="nav-item" :class="{ active: isActive('flakes') }">flaky tests</RouterLink>
         <RouterLink to="/templates" class="nav-item" :class="{ active: isActive('templates') }">test cases</RouterLink>
         <RouterLink to="/screens" class="nav-item" :class="{ active: isActive('screens') }">screens</RouterLink>
         <RouterLink to="/env" class="nav-item" :class="{ active: isActive('env') }">env</RouterLink>

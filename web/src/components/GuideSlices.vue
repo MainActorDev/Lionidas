@@ -3,7 +3,7 @@
 // Pure presentation; no data fetching. Each mirrors its full-size counterpart's
 // Axiom classes so visual drift is impossible (same tokens, same structure).
 // Pass `show` to render ONE named slice; omit to render all.
-export type SliceName = 'wall' | 'runs' | 'matrix' | 'status' | 'triage' | 'baselines' | 'forge' | 'drive' | 'flakes' | 'queue';
+export type SliceName = 'wall' | 'runs' | 'matrix' | 'status' | 'triage' | 'forge' | 'drive' | 'queue';
 const props = defineProps<{ show?: SliceName }>();
 </script>
 
@@ -127,31 +127,6 @@ const props = defineProps<{ show?: SliceName }>();
     </div>
   </div>
 
-  <!-- ═══ BASELINE SLICE ═══ -->
-  <div v-if="!props.show || props.show === 'baselines'" class="slice">
-    <div class="slice-label">baselines · before/after judgment</div>
-    <div class="mini-card mini-accent">
-      <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-        <span class="mini-title">login-nav</span>
-        <span class="badge" style="font-size: 10px;">run_df7bc975</span>
-      </div>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
-        <div>
-          <div style="width: 100%; height: 70px; background: var(--color-void); border: 1px solid var(--color-iron); border-radius: 2px; display: flex; align-items: center; justify-content: center; font-size: 10px; color: var(--color-steel);">baseline</div>
-          <div style="font-size: 10px; color: var(--color-steel); margin-top: 2px;">a1b2c3d4</div>
-        </div>
-        <div>
-          <div style="width: 100%; height: 70px; background: var(--color-void); border: 1px solid var(--color-ember-dim); border-radius: 2px; display: flex; align-items: center; justify-content: center; font-size: 10px; color: var(--color-ember);">current</div>
-          <div style="font-size: 10px; color: var(--color-steel); margin-top: 2px;">e5f6g7h8</div>
-        </div>
-      </div>
-      <div style="display: flex; gap: 4px; margin-top: 6px;">
-        <span class="mini-btn mini-btn-primary">approve — intentional</span>
-        <span class="mini-btn mini-btn-danger">reject — regression</span>
-      </div>
-    </div>
-  </div>
-
   <!-- ═══ FORGE SLICE ═══ -->
   <div v-if="!props.show || props.show === 'forge'" class="slice">
     <div class="slice-label">forge · live traffic inspector</div>
@@ -209,27 +184,6 @@ const props = defineProps<{ show?: SliceName }>();
         <span class="mini-btn" style="font-size: 10px;">↓</span>
         <span style="flex: 1;"></span>
         <span class="mini-btn mini-btn-danger" style="font-size: 10px;">finish</span>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══ FLAKES SLICE ═══ -->
-  <div v-if="!props.show || props.show === 'flakes'" class="slice">
-    <div class="slice-label">flakes · quarantine</div>
-    <div class="mini-table">
-      <div class="mini-tr" style="cursor: default; font-size: 11px;">
-        <span>login-nav</span>
-        <span style="color: var(--color-ash);">0.78</span>
-        <span style="color: var(--color-steel); letter-spacing: 2px;">✓ ✕ ✓ ✕ ✓ ✕</span>
-        <span class="status status-quarantined" style="font-size: 10px;">quarantined</span>
-        <span class="mini-btn" style="font-size: 10px;">release</span>
-      </div>
-      <div class="mini-tr" style="cursor: default; font-size: 11px;">
-        <span>onboarding-smoke</span>
-        <span style="color: var(--color-ash);">0.11</span>
-        <span style="color: var(--color-steel); letter-spacing: 2px;">✓ ✓ ✓ ✕ ✓</span>
-        <span style="color: var(--color-steel);">—</span>
-        <span></span>
       </div>
     </div>
   </div>

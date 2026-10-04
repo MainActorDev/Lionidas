@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>022-Final — Cockpit · T1 + split + chat + logs</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--color-void); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-label); overflow-x: hidden; }
+  button { font-family: inherit; background: none; border: 1px solid var(--color-iron); color: var(--color-fog); padding: var(--s-1) var(--s-2); cursor: pointer; font-size: var(--text-caption); border-radius: var(--r); }
+  button:hover { border-color: var(--color-slate); color: var(--color-paper); }
+  button.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: var(--weight-bold); }
+
+  /* ── T1 menu bar ── */
+  .menubar { display: flex; align-items: center; gap: 2px; height: 36px; padding: 0 var(--s-3); border-bottom: 1px solid var(--color-iron); background: var(--color-carbon); position: relative; z-index: 30; }
+  .menu { position: relative; }
+  .menu > button { border: none; padding: 4px 10px; }
+  .menu.open > button { background: var(--color-graphite); color: var(--color-paper); }
+  .dropdown { display: none; position: absolute; top: 100%; left: 0; min-width: 230px; background: var(--color-graphite); border: 1px solid var(--color-slate); border-radius: var(--r); padding: 4px; z-index: 40; }
+  .menu.open .dropdown { display: block; }
+  .dropdown .item { display: flex; justify-content: space-between; gap: 14px; padding: 5px 10px; color: var(--color-fog); font-size: var(--text-caption); cursor: pointer; border-radius: var(--r); }
+  .dropdown .item:hover { background: var(--color-iron); color: var(--color-paper); }
+  .dropdown .item .accel { color: var(--color-steel); }
+  .dropdown .item.act { color: var(--color-ember); }
+  .dropdown hr { border: none; border-top: 1px solid var(--color-iron); margin: 4px 0; }
+  .dropdown .item .chk { width: 12px; display: inline-block; }
+  .status { margin-left: auto; display: flex; align-items: center; gap: var(--s-3); font-size: var(--text-caption); color: var(--color-ash); }
+  .status b { color: var(--color-paper); }
+  .status .live { color: var(--color-ember); }
+  .session-chip-top { border: 1px solid var(--color-ember); color: var(--color-ember); padding: 1px 6px; }
+
+  /* ── frame: split stage + right rail (tabs: watch | chat) ── */
+  .frame { display: grid; grid-template-columns: 1fr 320px; height: calc(100vh - 36px); min-height: 640px; }
+  .stage { position: relative; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; padding: 12px; overflow: auto; align-content: center; }
+  .stage.one { grid-template-rows: 1fr; grid-template-columns: 1fr; }
+  .stage.two { grid-template-rows: 1fr; }
+  .cell { position: relative; display: grid; place-items: center; border: 1px solid var(--color-iron); border-radius: 6px; background: var(--color-carbon); cursor: pointer; min-height: 220px; }
+  .cell.active { border-color: var(--color-ember); }
+  .cell .tag { position: absolute; top: 6px; left: 8px; font-size: 11px; color: var(--color-fog); }
+  .cell.active .tag { color: var(--color-ember); }
+  .cell .chip { position: absolute; top: 6px; right: 8px; font-size: 9px; border: 1px solid var(--color-pewter); color: var(--color-fog); padding: 0 4px; }
+  .cell.active .chip { border-color: var(--color-ember); color: var(--color-ember); }
+  .cell .scr { width: 150px; height: 300px; background: linear-gradient(180deg,#0d1520,#0a0e14); border: 1px solid var(--color-slate); border-radius: 10px; position: relative; overflow: hidden; }
+  .cell .scr .bar { height: 22px; border-bottom: 1px solid #1d2a38; display: flex; align-items: center; padding: 0 8px; color: #7d93ab; font-size: 9px; }
+  .cell .scr .hero { padding: 10px 8px; color: #cfe0f0; font-size: 11px; }
+  .cell .scr .cta { margin: 8px auto 0; width: 60px; height: 18px; background: #e8590c; border-radius: 3px; display: grid; place-items: center; color: #fff; font-size: 8px; }
+  .cell .statechip { position: absolute; bottom: 6px; left: 8px; font-size: 9px; color: var(--color-fog); border: 1px solid var(--color-iron); padding: 0 4px; }
+  .cell.dim .scr { opacity: .75; }
+  .ctrl-note { position: absolute; bottom: 6px; right: 8px; font-size: 10px; color: var(--color-ash); }
+
+  /* ── rail: tabs WATCH | CHAT (+LOGS inside watch) ── */
+  .rail { background: var(--color-carbon); border-left: 1px solid var(--color-iron); display: flex; flex-direction: column; min-height: 0; }
+  .railtabs { display: flex; border-bottom: 1px solid var(--color-iron); }
+  .rtab { flex: 1; padding: 8px 0; text-align: center; font-size: var(--text-caption); color: var(--color-ash); cursor: pointer; border-bottom: 2px solid transparent; text-transform: uppercase; letter-spacing: .08em; }
+  .rtab:hover { color: var(--color-paper); }
+  .rtab.active { color: var(--color-paper); border-bottom-color: var(--color-ember); }
+  .railbody { flex: 1; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; }
+  .pane { display: none; flex-direction: column; min-height: 0; flex: 1; }
+  .pane.show { display: flex; }
+
+  .sect { border-bottom: 1px solid var(--color-iron); }
+  .sect > h3 { font-size: var(--text-caption); text-transform: uppercase; letter-spacing: .08em; color: var(--color-ash); padding: var(--s-2) var(--s-3); display: flex; justify-content: space-between; cursor: pointer; }
+  .sect > h3 .meta { color: var(--color-steel); text-transform: none; }
+  .sect.closed .body { display: none; }
+  .sect > h3::after { content: "–"; color: var(--color-steel); }
+  .sect.closed > h3::after { content: "+"; }
+  .body { padding: 0 var(--s-3) var(--s-3); }
+  .row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid var(--color-iron); font-size: var(--text-caption); }
+  .row:last-child { border-bottom: none; }
+  .row .k { color: var(--color-fog); } .row .v { color: var(--color-paper); } .row .v em { color: var(--color-ember); font-style: normal; }
+  .s { display: flex; gap: 6px; padding: 2px 0; color: var(--color-ash); font-size: 11px; }
+  .s.done { color: var(--color-fog); } .s.done::before { content: "✓"; color: var(--color-paper); }
+  .s.live { color: var(--color-ember); } .s.live::before { content: "◆"; }
+  .s.todo::before { content: "◌"; }
+  .meter { display: flex; gap: 6px; align-items: center; font-size: 10px; color: var(--color-ash); margin-top: 4px; }
+  .meter .track { flex: 1; height: 3px; background: var(--color-iron); } .meter .fill { height: 3px; background: var(--color-ember); width: 57%; }
+
+  /* logs section: compact tail */
+  .logtail { font-size: 10px; line-height: 1.6; color: var(--color-ash); background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r); padding: 8px; max-height: 140px; overflow-y: auto; }
+  .logtail .t { color: var(--color-steel); }
+  .logtail .err { color: var(--color-paper); }
+  .logtail .hit { color: var(--color-ember); }
+
+  /* chat pane */
+  .chatlog { flex: 1; overflow-y: auto; padding: var(--s-3); display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+  .msg { max-width: 92%; border: 1px solid var(--color-iron); border-radius: var(--r); padding: 6px 8px; font-size: var(--text-caption); line-height: 1.45; }
+  .msg.user { align-self: flex-end; border-color: var(--color-slate); }
+  .msg.agent { align-self: flex-start; }
+  .msg.agent .who { color: var(--color-ember); font-size: 10px; margin-bottom: 2px; }
+  .msg .tool { color: var(--color-ash); font-size: 10px; border-left: 2px solid var(--color-pewter); padding-left: 6px; margin-top: 4px; }
+  .chatarea { border-top: 1px solid var(--color-iron); padding: var(--s-2) var(--s-3); display: flex; gap: 6px; }
+  .chatarea input { flex: 1; background: var(--color-void); border: 1px solid var(--color-slate); color: var(--color-paper); font-family: inherit; font-size: var(--text-caption); padding: 6px 8px; border-radius: var(--r); outline: none; }
+  .chatarea input:focus { border-color: var(--color-ember); }
+  .ctxnote { font-size: 9px; color: var(--color-steel); padding: 0 var(--s-3) var(--s-2); }
+  .ctxnote em { color: var(--color-ember); font-style: normal; }
+
+  /* env drawer (unchanged concept) */
+  .drawer { position: absolute; inset: 0 auto 0 0; width: 264px; background: var(--color-carbon); border-right: 1px solid var(--color-slate); transform: translateX(-100%); transition: transform 160ms ease; z-index: 25; display: flex; flex-direction: column; }
+  .drawer.open { transform: translateX(0); }
+  .drawer h3 { font-size: var(--text-caption); text-transform: uppercase; letter-spacing: .08em; color: var(--color-ash); padding: var(--s-3); border-bottom: 1px solid var(--color-iron); display: flex; justify-content: space-between; }
+  .drawer .body { padding: var(--s-3); }
+  @media (prefers-reduced-motion: reduce) { .drawer { transition: none; } }
+
+  .hint { position: fixed; bottom: 6px; left: 50%; transform: translateX(-50%); color: var(--color-steel); font-size: 10px; z-index: 5; background: rgba(0,0,0,.8); padding: 2px 8px; border-radius: var(--r); }
+</style>
+</head>
+<body>
+  <!-- T1 menubar -->
+  <div class="menubar">
+    <span style="color:var(--color-ember);font-weight:700;padding:0 8px 0 2px">◇</span>
+    <div class="menu" data-menu><button>file</button>
+      <div class="dropdown">
+        <div class="item">new manual session <span class="accel">⌘N</span></div>
+        <div class="item">screenshot <span class="accel">⌘1</span></div>
+        <div class="item">open captures…</div>
+      </div>
+    </div>
+    <div class="menu" data-menu><button>device</button>
+      <div class="dropdown">
+        <div class="item">add device to split… <span class="accel">⌘⇧D</span></div>
+        <div class="item act">layout · 3 split</div>
+        <div class="item">layout · 2 side-by-side</div>
+        <div class="item">layout · single</div>
+        <hr>
+        <div class="item">restart active</div>
+        <div class="item">shutdown inactive…</div>
+      </div>
+    </div>
+    <div class="menu" data-menu><button>app</button>
+      <div class="dropdown">
+        <div class="item">install…</div>
+        <div class="item">launch LP Consumer</div>
+        <div class="item">terminate</div>
+      </div>
+    </div>
+    <div class="menu" data-menu><button id="envMenuBtn">environment</button>
+      <div class="dropdown">
+        <div class="item act"><span><span class="chk">✓</span>countries-sg</span> <span class="accel">net</span></div>
+        <div class="item"><span><span class="chk"></span>countries-my</span></div>
+        <div class="item"><span><span class="chk"></span>countries-empty</span></div>
+        <hr>
+        <div class="item">set location…</div>
+        <div class="item">env vars…</div>
+      </div>
+    </div>
+    <div class="menu" data-menu><button>run</button>
+      <div class="dropdown">
+        <div class="item">play case on active device… <span class="accel">⌘P</span></div>
+        <div class="item">watch active run</div>
+      </div>
+    </div>
+    <div class="menu" data-menu><button>view</button>
+      <div class="dropdown">
+        <div class="item"><span><span class="chk">✓</span>inspect elements</span> <span class="accel">⌘I</span></div>
+        <div class="item"><span><span class="chk">✓</span>watcher rail</span> <span class="accel">⌘\</span></div>
+        <div class="item act">chat panel</div>
+      </div>
+    </div>
+
+    <div class="status">
+      <span class="session-chip-top">MANUAL · SG · 42m</span>
+      <b>iPhone 15 Pro</b>
+      <span class="live">◆ 3 devices live</span>
+    </div>
+  </div>
+
+  <div class="frame">
+    <!-- SPLIT STAGE: 3 cells, one active -->
+    <div class="stage" id="stage">
+      <div class="drawer" id="envDrawer">
+        <h3>environment — active device <button data-close>✕</button></h3>
+        <div class="body">
+          <div class="row"><span class="k">scenario</span><span class="v"><em>countries-sg</em></span></div>
+          <div class="row"><span class="k">preset</span><span class="v">batam · GET → 200</span></div>
+          <div class="row"><span class="k">location</span><span class="v">Jakarta</span></div>
+          <div style="margin-top:10px;display:flex;gap:6px"><button>activate</button><button>clear</button></div>
+        </div>
+      </div>
+
+      <div class="cell active" data-cell>
+        <span class="tag">1 · iPhone 15 Pro</span>
+        <span class="chip">CONTROLLED</span>
+        <div class="scr"><div class="bar">9:41 ⌁ Lion Parcel</div><div class="hero">Kirim paket<div style="color:#7d93ab;font-size:9px;margin-top:2px">Dari lokasi kamu</div></div><div class="cta">Bayar</div></div>
+        <span class="statechip">screen · home/world-sg</span>
+      </div>
+      <div class="cell dim" data-cell>
+        <span class="tag">2 · iPhone 15 · intl</span>
+        <span class="chip">WATCH</span>
+        <div class="scr"><div class="bar">9:41 ⌁ LP Intl</div><div class="hero">Tarif<div style="color:#7d93ab;font-size:9px;margin-top:2px">Malaysia route</div></div><div class="cta">Check</div></div>
+        <span class="statechip">screen · home/world-my</span>
+        <span class="ctrl-note">click to take control</span>
+      </div>
+      <div class="cell dim" data-cell>
+        <span class="tag">3 · iPad Pro 13</span>
+        <span class="chip">WATCH</span>
+        <div class="scr" style="width:200px;height:260px"><div class="bar">9:41 ⌁ Lion Parcel</div><div class="hero">Kirim paket</div><div class="cta">Bayar</div></div>
+        <span class="statechip">idle · no session</span>
+        <span class="ctrl-note">click to take control</span>
+      </div>
+    </div>
+
+    <!-- RAIL: watch | chat -->
+    <div class="rail">
+      <div class="railtabs">
+        <div class="rtab active" data-pane="watch">watch</div>
+        <div class="rtab" data-pane="chat">chat</div>
+      </div>
+      <div class="railbody">
+        <div class="pane show" data-pane="watch">
+          <div class="sect"><h3>session <span class="meta">iPhone 15 Pro · live</span></h3><div class="body">
+            <div class="row"><span class="k">lease</span><span class="v"><em>manual:ms_9f2</em></span></div>
+            <div class="row"><span class="k">dims</span><span class="v">428 × 926</span></div>
+            <div class="row"><span class="k">watchdog</span><span class="v">3m 12s</span></div>
+          </div></div>
+          <div class="sect"><h3>run watch <span class="meta">countries-sg smoke</span></h3><div class="body">
+            <div class="s done">arrive home</div>
+            <div class="s done">tap check tariff</div>
+            <div class="s live">expect list · 2 entries</div>
+            <div class="s todo">tap first result</div>
+            <div class="meter"><span class="track"><span class="fill"></span></span> 3/4</div>
+          </div></div>
+          <div class="sect"><h3>logs <span class="meta">tail · active device</span></h3><div class="body">
+            <div class="logtail">
+              <div><span class="t">09:41:02</span> LionParcelNG[412] <span class="hit">tariff fetched · batam×2</span></div>
+              <div><span class="t">09:41:00</span> LionParcelNG[412] nav → world-sg</div>
+              <div><span class="t">09:40:58</span> NetworkBag <span class="err">499 retry /config</span></div>
+              <div><span class="t">09:40:55</span> LionParcelNG[412] scene home ready</div>
+            </div>
+          </div></div>
+          <div class="sect closed"><h3>traffic</h3><div class="body">
+            <div class="s live">GET /destination-recommendation → 200 · 41 ms</div>
+            <div class="s done">POST /login → 204 · 88 ms</div>
+          </div></div>
+        </div>
+
+        <div class="pane" data-pane="chat">
+          <div class="chatlog">
+            <div class="msg agent"><div class="who">agent · glm-5.3</div>The active device is on <b>home/world-sg</b> with scenario countries-sg serving the batam preset. What next?
+              <div class="tool">screens.registry ✓ · runs.history ✓</div>
+            </div>
+            <div class="msg user">draft a case asserting Medan appears when I switch the preset</div>
+            <div class="msg agent"><div class="who">agent</div>Draft saved as <b>tpl_medan_01</b> (3 steps, narrated). It expects home.world-my state after preset switch — flag: that state exists only in the intl registry. Want me to revise to world-sg terms?
+              <div class="tool">case.validate ✓ · case.draft.save ✓</div>
+            </div>
+          </div>
+          <div class="ctxnote">context: <em>iPhone 15 Pro</em> · home/world-sg · countries-sg · run 4/7 — agent sees what you see</div>
+          <div class="chatarea">
+            <input placeholder="ask the agent… (it can read, not play)">
+            <button class="primary">send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="hint">T1 · 3-split (click a cell to take control) · rail tabs watch|chat · env drawer via menu</div>
+
+<script>
+  const $ = (s) => document.querySelector(s);
+  // menus
+  const menus = [...document.querySelectorAll('[data-menu]')];
+  menus.forEach(m => m.querySelector('button').onclick = (e) => {
+    const was = m.classList.contains('open');
+    menus.forEach(x => x.classList.remove('open'));
+    if (!was) m.classList.add('open');
+    e.stopPropagation();
+  });
+  document.addEventListener('click', () => menus.forEach(m => m.classList.remove('open')));
+  // env menu opens the drawer on ANY item pick
+  document.querySelectorAll('.menu').forEach(m => {
+    if (m.textContent.startsWith('environment')) {
+      m.querySelectorAll('.item').forEach(i => i.addEventListener('click', (e) => { e.stopPropagation(); menus.forEach(x => x.classList.remove('open')); document.querySelector('#envDrawer').classList.add('open'); }));
+    }
+  });
+  // cells: click to activate (control transfers)
+  document.querySelectorAll('[data-cell]').forEach(c => c.onclick = () => {
+    document.querySelectorAll('[data-cell]').forEach(x => { x.classList.remove('active'); x.classList.add('dim'); const ch = x.querySelector('.chip'); ch.textContent = 'WATCH'; });
+    c.classList.add('active'); c.classList.remove('dim');
+    c.querySelector('.chip').textContent = 'CONTROLLED';
+  });
+  // rail tabs
+  document.querySelectorAll('.rtab').forEach(t => t.onclick = () => {
+    document.querySelectorAll('.rtab').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.querySelectorAll('.pane').forEach(p => p.classList.toggle('show', p.dataset.pane === t.dataset.pane));
+  });
+  // sections + drawer
+  document.querySelectorAll('.sect > h3').forEach(h => h.onclick = () => h.parentElement.classList.toggle('closed'));
+  document.querySelectorAll('[data-close]').forEach(b => b.onclick = (e) => { e.stopPropagation(); b.closest('.drawer').classList.remove('open'); });
+
+</script>
+</body>
+</html>

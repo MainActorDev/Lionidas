@@ -38,6 +38,7 @@ export function useDeviceStream(): DeviceStream {
   const canvasRef = ref<HTMLCanvasElement | null>(null);
   const state = ref<StreamState>('idle');
   const fps = ref(0);
+  let fpsIdleTimer: ReturnType<typeof setTimeout> | null = null;
   const failure = ref('');
   const retryable = ref(false);
   const frames = ref(0); // total received — distinguishes "connected, idle screen" from "nothing ever"
@@ -270,6 +271,14 @@ export function useDeviceStream(): DeviceStream {
       frameCount = 0;
       lastFpsTime = now;
     }
+    // Keep the meter honest on quiet screens: countFps only runs when a
+    // frame arrives, so a screen that goes still left fps.value frozen at
+    // the last motion reading forever (a rolling-peak chip then re-pushed
+    // that stale sample every tick and never went idle). Decay to 0 after
+    // 1.2s without frames — the engine's quiet gate ships nothing on a
+    // static screen by design, so silence IS the idle signal.
+    if (fpsIdleTimer) clearTimeout(fpsIdleTimer);
+    fpsIdleTimer = setTimeout(() => { fps.value = 0; frameCount = 0; }, 1200);
   }
 
 /** Engine session shape (baguette lineage, stream-session.js): decoder fed by the WS,
@@ -337,15 +346,19 @@ export function useDeviceStream(): DeviceStream {
     );
     ws.onopen = () => {
       state.value = 'live';
-      // 60fps @ 8Mbps — the fork's documented pairing for NATIVE-resolution
-      // H.264 (StreamConfig.default). 2Mbps was baguette's "Balanced" preset
-      // paired with scale=2 (half-res); at native 1206×2622 it visibly
-      // macroblocks (user report 2026-09-12). The earlier "24Mbps stuttered"
-      // observation was HW-decode saturation at 60fps — if motion ever
-      // stutters again, tune fps down before bitrate. Idle screens encode
-      // ~0 frames anyway (seed-gated), so stills ride full IDR quality.
+      // 30fps @ 8Mbps — measured motion sustains ~20fps (2026-10-03 drill:
+      // scripted swipes sampled 1s: 20,20,8,20,20,8…), so 30 caps the wire
+      // just above the observed floor with headroom, while halving per-frame
+      // decode cost vs the old 60 (60@native saturated HW decode once — the
+      // standing note: tune fps down before bitrate). Bitrate stays 8Mbps —
+      // the fork's documented pairing for NATIVE-resolution H.264; 2Mbps was
+      // baguette's "Balanced" preset paired with scale=2 (half-res) and
+      // visibly macroblocks at native 1206×2622 (user report 2026-09-12).
+      // Idle screens encode ~0 frames anyway (seed-gated), so stills ride
+      // full IDR quality. If a future consumer needs true 60, this is a
+      // one-line revert.
       try {
-        socket.send(JSON.stringify({ type: 'set_fps', fps: 60 }));
+        socket.send(JSON.stringify({ type: 'set_fps', fps: 30 }));
         socket.send(JSON.stringify({ type: 'set_bitrate', bps: 8_000_000 }));
       } catch { /* socket gone */ }
     };
@@ -561,6 +574,7 @@ export function useDeviceStream(): DeviceStream {
       void connect(udid, false);
     },
     stop(): void {
+      if (fpsIdleTimer) { clearTimeout(fpsIdleTimer); fpsIdleTimer = null; }
       currentUdid = '';
       state.value = 'idle';
       failure.value = '';
