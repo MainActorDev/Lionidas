@@ -536,12 +536,22 @@ void live;
     <MenuBar :status="status" @menu-event="onMenuEvent" />
     <DeviceSwitcher :devices="devices" :active-udid="activeUdid" :closing-udid="closingUdid" @switch="onSwitch" @close="onTabClose" />
     <div class="frame">
+      <div class="stage-col">
       <StageBezel v-if="activeUdid" :key="activeUdid" ref="stage" :udid="activeUdid" :restarting="isRestarting(activeUdid)" :session="activeSession"
         :overlay-nodes="overlayData.nodes" :overlay-w="overlayData.w" :overlay-h="overlayData.h" :overlay-visible="overlayData.visible" :sel-parent-node="overlayData.sel" :selected-node="overlayData.sel"
         @session-state="onSessionState" @inspect-click="onInspectClick"
         @session-acquired="onSessionAcquired" @session-dropped="onSessionDropped"
         @exit-inspect="overlay = null; toolsOpen = false" />
       <div v-else class="empty">no booted devices — boot one from the device menu</div>
+      <!-- toasts live INSIDE the device container area (stage column), top-left -->
+      <div class="toast-stack" aria-live="polite">
+        <div v-for="t in toasts" :key="t.id" class="toast" :class="t.kind" @click="dropToast(t.id)">
+          <span class="t-ico">{{ t.kind === 'ok' ? '✓' : '✕' }}</span>
+          <span class="t-text">{{ t.text }}</span>
+          <span class="t-bar"><i /></span>
+        </div>
+      </div>
+      </div>
       <WatcherPanel :tabs="[{ id: 'watch', label: 'watch' }, { id: 'chat', label: 'chat' }]" :active="railTab" @switch="railTab = $event">
         <WatchPane v-show="railTab === 'watch'" :udid="activeUdid" :session-id="sessionOn" :dims="dims" />
         <ChatPane v-show="railTab === 'chat'" :udid="activeUdid" :device-name="activeName" :screen-state="screenState" :scenario="activeScenario" />
@@ -679,13 +689,6 @@ void live;
       </div>
     </div>
 
-    <div class="toast-stack" aria-live="polite">
-      <div v-for="t in toasts" :key="t.id" class="toast" :class="t.kind" @click="dropToast(t.id)">
-        <span class="t-ico">{{ t.kind === 'ok' ? '✓' : '✕' }}</span>
-        <span class="t-text">{{ t.text }}</span>
-        <span class="t-bar"><i /></span>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -697,7 +700,8 @@ void live;
 .k { color: var(--color-fog); font-size: var(--text-caption); }
 .row { display: flex; justify-content: space-between; padding: 3px 0; font-size: var(--text-caption); }
 .v { color: var(--color-paper); }
-.toast-stack { position: absolute; top: 46px; right: 14px; z-index: 60; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; pointer-events: none; }
+.stage-col { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.toast-stack { position: absolute; top: 12px; left: 14px; z-index: 60; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; pointer-events: none; }
 .toast { position: relative; display: flex; align-items: center; gap: 8px; background: var(--color-carbon); border: 1px solid var(--color-slate); color: var(--color-paper); font-size: var(--text-caption); padding: 7px 12px; border-radius: var(--r); pointer-events: auto; cursor: pointer; overflow: hidden; animation: toast-in .18s ease; max-width: 340px; }
 @keyframes toast-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
@@ -705,7 +709,7 @@ void live;
 .toast.ok .t-ico { background: var(--color-ember); color: var(--color-carbon); }
 .toast.err { border-color: var(--color-ember); }
 .toast.err .t-ico { border: 1px solid var(--color-ember); color: var(--color-ember); }
-.toast .t-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.toast .t-text { white-space: normal; overflow-wrap: anywhere; }
 .toast .t-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; }
 .toast .t-bar i { display: block; height: 2px; background: var(--color-ember); animation: toast-drain 2.6s linear forwards; }
 @keyframes toast-drain { from { width: 100%; } to { width: 0; } }
