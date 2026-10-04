@@ -69,7 +69,7 @@ onMounted(() => {
   // settle rate — the exact flicker this smoothing exists to hide.
   fpsPruner = setInterval(() => { pushSample(); fpsTick.value++; }, 500);
 });
-onBeforeUnmount(() => { if (fpsPruner) clearInterval(fpsPruner); });
+onBeforeUnmount(() => { if (fpsPruner) clearInterval(fpsPruner); if (watchRetry) clearInterval(watchRetry); });
 
 const sessionId = ref<string | null>(null);
 const logicalW = ref<number | null>(null);
@@ -215,8 +215,37 @@ async function takeControl(): Promise<void> {
       emit('session-acquired', { sessionId: body.sessionId, startedAt: startedAt.value });
       emit('session-state', { sessionId: body.sessionId, dims: { w: logicalW.value, h: logicalH.value } });
       if (!stream.state.value || stream.state.value === 'idle') stream.start(props.udid);
+    } else if (/queued\/running automated run|run holds this device/i.test(body.error ?? '')) {
+      // a testcase owns the device: enter WATCH-LOCK — the stream stays (it
+      // needs no session), the banner explains, and the button retries the
+      // moment the run finishes (operator: take control should be available
+      // while a testcase runs — this makes it available-without-poisoning).
+      runLocked.value = true;
+      if (!stream.state.value || stream.state.value === 'idle') stream.start(props.udid);
+      // retry the start every 5s: while the run holds the device the 409
+      // keeps the lock; the first success clears it and the session lands
+      watchRetry = setInterval(() => { void tryStart(); }, 5000);
     } else error.value = body.error ?? 'failed to start';
   } finally { busy.value = false; }
+}
+let watchRetry: ReturnType<typeof setInterval> | undefined;
+const runLocked = ref(false);
+async function tryStart(): Promise<void> {
+  const res = await fetch('/api/manual/start', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ udid: props.udid }),
+  });
+  const body = await res.json() as { sessionId?: string; logicalW?: number | null; logicalH?: number | null; error?: string };
+  if (body.sessionId) {
+    if (watchRetry) { clearInterval(watchRetry); watchRetry = undefined; }
+    runLocked.value = false;
+    sessionId.value = body.sessionId;
+    logicalW.value = body.logicalW ?? null;
+    logicalH.value = body.logicalH ?? null;
+    startedAt.value = Date.now();
+    emit('session-acquired', { sessionId: body.sessionId, startedAt: startedAt.value });
+    emit('session-state', { sessionId: body.sessionId, dims: { w: logicalW.value, h: logicalH.value } });
+  }
 }
 
 async function release(): Promise<void> {
@@ -324,7 +353,8 @@ const sessionLabel = computed((): string | null => {
   return `MANUAL · ${min}m`;
 });
 defineExpose({
-  takeControl, release, sessionLabel, screenState, zoomIn, zoomOut,
+  takeControl, release, sessionLabel, screenState, zoomIn, zoomOut, runLocked,
+  dismissRunLock: (): void => { runLocked.value = false; if (watchRetry) { clearInterval(watchRetry); watchRetry = undefined; } },
   setScreenState: (s: string): void => { screenState.value = s; },
   setInspect, inspect,
   paintSelectedSpec: (n: AxNode | null): void => { selNode.value = n; },
@@ -334,6 +364,7 @@ defineExpose({
 <template>
   <div class="stage">
     <div v-if="lost" class="lost">session lost — take control again</div>
+    <div v-if="runLocked" class="runlock">⏳ a test case is running on this device — take control unlocks automatically when it finishes</div>
 
     <!-- control cluster: zoom on top, session button below -->
     <div class="ctrlcol">
@@ -403,6 +434,7 @@ defineExpose({
 
 <style scoped>
 .stage { position: relative; display: grid; place-items: center; overflow: auto; grid-template-rows: 1fr auto; width: 100%; height: 100%; }
+.runlock { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 8; background: var(--color-carbon); border: 1px solid var(--color-ember); color: var(--color-ember); font-size: 11px; letter-spacing: .04em; padding: 6px 14px; border-radius: var(--r); white-space: nowrap; }
 .lost { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 6; background: var(--color-carbon); border: 1px solid var(--color-paper); color: var(--color-paper); font-size: 11px; padding: 6px 10px; }
 .ctrlcol { position: absolute; top: 12px; right: 12px; z-index: 6; display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
 .zoombar { display: flex; align-items: center; justify-content: center; gap: 6px; background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r); padding: 3px 6px; }

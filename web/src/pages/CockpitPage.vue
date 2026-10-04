@@ -32,7 +32,15 @@ const toolsOpen = ref(false); // inspect overlay (kept name: menu + refs)
 const overlay = ref<'env' | 'inspect' | null>(null); // ONE supplementary panel at a time
 watch(overlay, (o) => { if (o !== 'inspect') stage.value?.setInspect(false); })
 const overlayData = ref<{ nodes: Array<Record<string, unknown>>; w: number | null; h: number | null; visible: boolean; sel: Record<string, unknown> | null }>({ nodes: [], w: null, h: null, visible: false, sel: null });
-const toast = ref('');
+interface Toast { id: number; text: string; kind: 'ok' | 'err' }
+const toasts = ref<Toast[]>([]);
+let toastSeq = 0;
+function flash(msg: string, kind: 'ok' | 'err' = 'ok'): void {
+  const id = ++toastSeq;
+  toasts.value = [...toasts.value.slice(-3), { id, text: msg, kind }];
+  setTimeout(() => { toasts.value = toasts.value.filter((t) => t.id !== id); }, 2600);
+}
+function dropToast(id: number): void { toasts.value = toasts.value.filter((t) => t.id !== id); }
 const stage = ref<InstanceType<typeof StageBezel> | null>(null);
 const deviceSessions = useDeviceSessions();
 const activeSession = computed((): DeviceSession | null => deviceSessions.sessions.get(activeUdid.value) ?? null);
@@ -128,7 +136,6 @@ onBeforeUnmount(() => { if (devicesTimer) clearInterval(devicesTimer); window.re
 
 const activeName = computed((): string => devices.value.find((d) => d.udid === activeUdid.value)?.name ?? '—');
 
-function flash(msg: string): void { toast.value = msg; setTimeout(() => { if (toast.value === msg) toast.value = ''; }, 2400); }
 
 function onMenuEvent(event: string): void {
   if (event === 'exit-console') { void router.push('/'); return; }
@@ -147,7 +154,7 @@ function onMenuEvent(event: string): void {
 /** screenshot: canvas → PNG download (same as the sidebar's camera tool) */
 async function captureScreenshot(): Promise<void> {
   const c = document.querySelector('.cockpit .stage canvas') as HTMLCanvasElement | null;
-  if (!c) { flash('no screen to capture'); return; }
+  if (!c) { flash('no screen to capture', 'err'); return; }
   try {
     const url = c.toDataURL('image/png');
     const a = document.createElement('a');
@@ -155,7 +162,7 @@ async function captureScreenshot(): Promise<void> {
     a.download = `cockpit-${activeName.value.replace(/\s+/g, '-').toLowerCase()}-${Date.now()}.png`;
     a.click();
     flash('screenshot saved');
-  } catch { flash('capture failed'); }
+  } catch { flash('capture failed', 'err'); }
 }
 
 /** power actions via the devices route (boot|shutdown|restart) */
@@ -184,8 +191,8 @@ async function power(action: 'boot' | 'shutdown' | 'restart', udid: string = act
         setTimeout(() => void loadDevices(), 4000);
       }
     }
-    else flash(b.error ?? `${action} failed`);
-  } catch { flash(`${action} request failed`); }
+    else flash(b.error ?? `${action} failed`, 'err');
+  } catch { flash(`${action} request failed`, 'err'); }
   finally { powerBusy.value = false; }
 }
 
@@ -418,7 +425,7 @@ async function pickPlayCase(): Promise<void> {
     playPickId.value = '';
     playSearch.value = '';
     playOpen.value = true;
-  } catch { flash('case list failed'); }
+  } catch { flash('case list failed', 'err'); }
 }
 async function playCase(id: string): Promise<void> {
   playBusy.value = true;
@@ -434,8 +441,8 @@ async function playCase(id: string): Promise<void> {
       flash(`queued on ${ok}/${b.count ?? '?'} devices`);
       railTab.value = 'watch';
     } else if (b.runId) { playOpen.value = false; flash(`run started · ${String(b.runId).slice(0, 14)}`); railTab.value = 'watch'; }
-    else flash(b.error ?? 'play failed');
-  } catch { flash('play request failed'); }
+    else flash(b.error ?? 'play failed', 'err');
+  } catch { flash('play request failed', 'err'); }
   finally { playBusy.value = false; }
 }
 
@@ -672,7 +679,13 @@ void live;
       </div>
     </div>
 
-    <div v-if="toast" class="toast">{{ toast }}</div>
+    <div class="toast-stack" aria-live="polite">
+      <div v-for="t in toasts" :key="t.id" class="toast" :class="t.kind" @click="dropToast(t.id)">
+        <span class="t-ico">{{ t.kind === 'ok' ? '✓' : '✕' }}</span>
+        <span class="t-text">{{ t.text }}</span>
+        <span class="t-bar"><i /></span>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -684,7 +697,19 @@ void live;
 .k { color: var(--color-fog); font-size: var(--text-caption); }
 .row { display: flex; justify-content: space-between; padding: 3px 0; font-size: var(--text-caption); }
 .v { color: var(--color-paper); }
-.toast { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--color-carbon); border: 1px solid var(--color-slate); color: var(--color-paper); font-size: var(--text-caption); padding: 6px 14px; border-radius: var(--r); z-index: 60; }
+.toast-stack { position: absolute; top: 46px; right: 14px; z-index: 60; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; pointer-events: none; }
+.toast { position: relative; display: flex; align-items: center; gap: 8px; background: var(--color-carbon); border: 1px solid var(--color-slate); color: var(--color-paper); font-size: var(--text-caption); padding: 7px 12px; border-radius: var(--r); pointer-events: auto; cursor: pointer; overflow: hidden; animation: toast-in .18s ease; max-width: 340px; }
+@keyframes toast-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+.toast .t-ico { flex: none; width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; }
+.toast.ok .t-ico { background: var(--color-ember); color: var(--color-carbon); }
+.toast.err { border-color: var(--color-ember); }
+.toast.err .t-ico { border: 1px solid var(--color-ember); color: var(--color-ember); }
+.toast .t-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.toast .t-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; }
+.toast .t-bar i { display: block; height: 2px; background: var(--color-ember); animation: toast-drain 2.6s linear forwards; }
+@keyframes toast-drain { from { width: 100%; } to { width: 0; } }
+@media (prefers-reduced-motion: reduce) { .toast .t-bar { display: none; } }
 .modal-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 50; }
 .modal { background: var(--color-carbon); border: 1px solid var(--color-slate); border-radius: var(--r); padding: 16px; min-width: 320px; max-height: 60vh; display: flex; flex-direction: column; }
 .modal-body { flex: 1; min-height: 0; overflow-y: auto; }
