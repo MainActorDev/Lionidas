@@ -989,6 +989,38 @@ export function registerManualRoutes(
       return reply.code(409).send({ error: drift, code, skipped: [...drifted, ...deprecatedSkipped, ...ghostPins.map((g) => g.templateId)] });
     }
     const b = (req.body ?? {}) as { udid?: string; triggeredBy?: string };
+    // Scenario-member pre-flight (2026-10-04): a variant bound to a forge
+    // scenario dies BEFORE its run row exists (playback's T7 gate) — the
+    // batch then silently skips it (operator saw 'intl regression' run one
+    // of two cases with zero trace). Refuse the whole play up front: name
+    // the members and the fix. Partial suites are worse than no run.
+    {
+      const { forgePreflight } = await import('../forge/health.ts');
+      const { variantScenarioNames } = await import('@crucible/shared/yaml-variants');
+      const tplRow = db.prepare('SELECT variants_json FROM templates WHERE id = ?');
+      const dead: string[] = [];
+      const nameOf = db.prepare('SELECT name FROM templates WHERE id = ?');
+      for (const m of inScope) {
+        if (!m.variantIds || m.variantIds.length === 0) continue;
+        const vj = (() => { try { return JSON.parse((tplRow.get(m.templateId) as { variants_json: string | null } | undefined)?.variants_json ?? 'null') as Array<{ id: string; scenarios?: string[]; networkScenario?: string }>; } catch { return null; } })();
+        const caseName = ((nameOf.get(m.templateId) as { name: string } | undefined)?.name) ?? m.templateId;
+        for (const vid of m.variantIds) {
+          const v = (vj ?? []).find((x) => x.id === vid);
+          if (!v) continue;
+          const names = variantScenarioNames(v as never);
+          for (const name of names) {
+            const pf = forgePreflight(name);
+            if (pf) dead.push(`"${caseName}" / ${vid} (${pf.message})`);
+          }
+        }
+      }
+      if (dead.length > 0) {
+        return reply.code(409).send({
+          error: `suite cannot run: scenario-bound members need the forge alive — ${dead.join('; ')}`,
+          code: 'FORGE_DOWN',
+        });
+      }
+    }
     const r = await runBatch({
       cases: inScope,
       ...(b.udid !== undefined ? { udid: b.udid } : {}),
