@@ -43,6 +43,7 @@ const emit = defineEmits<{
   (e: 'session-dropped'): void;
 
   (e: 'exit-inspect'): void;
+  (e: 'abort-running'): void;
 }>();
 
 const stream = useDeviceStream();
@@ -376,7 +377,8 @@ defineExpose({
         <span class="zlabel">{{ zoomLabel }}</span>
         <button type="button" :disabled="zoomIdx === ZOOM_STEPS.length - 1" title="zoom in (+)" @click="zoomIn">+</button>
       </div>
-      <button v-if="!sessionId" class="session-btn primary" :disabled="busy || caseRunning" :title="caseRunning ? 'a test case is running on this device' : undefined" @click="takeControl">{{ caseRunning ? 'case running…' : 'take control' }}</button>
+      <button v-if="!sessionId && caseRunning" class="session-btn abort" title="abort the running test case / suite" @click="emit('abort-running')">abort</button>
+      <button v-else-if="!sessionId" class="session-btn primary" :disabled="busy" @click="takeControl">take control</button>
       <button v-else class="session-btn danger" :disabled="busy" @click="release">release</button>
       <button v-if="inspect" type="button" class="inspect-chip" title="exit inspect (⌘I)" @click.stop="emit('exit-inspect')">⌖ inspecting · ⌘I to exit</button>
       <div v-if="stream.state.value === 'live'" class="fps-chip">{{ fpsLabel }}</div>
@@ -444,6 +446,8 @@ defineExpose({
 .session-btn { font-family: inherit; background: none; border: 1px solid var(--color-iron); color: var(--color-fog); padding: 4px 10px; cursor: pointer; font-size: var(--text-caption); border-radius: var(--r); }
 .session-btn:hover:not(:disabled) { border-color: var(--color-slate); color: var(--color-paper); }
 .session-btn.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: var(--weight-bold); }
+.session-btn.abort { background: none; border: 1px solid var(--color-ember); color: var(--color-ember); }
+.session-btn.abort:hover { background: var(--color-ember); color: var(--color-carbon); }
 .session-btn.danger { background: #c8342c; border-color: #c8342c; color: #fff; font-weight: var(--weight-bold); }
 .session-btn.danger:hover:not(:disabled) { background: #b02a23; border-color: #b02a23; color: #fff; }
 .session-btn:disabled { opacity: .5; cursor: default; }

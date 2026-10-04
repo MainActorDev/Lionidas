@@ -660,8 +660,8 @@ export function registerManualRoutes(
   // Shared by play-all AND plans (one engine). ──
   // authenticated identity wins for attribution; body triggeredBy only for
   // bots/agents whose user IS the machine. Mirrors the manual-session rule.
-  async function runBatch(b: { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string>; cases?: Array<{ templateId: string; variantIds?: string[] | null }>; suiteId?: string; planId?: string }, reqUser?: { name: string } | null):
-    Promise<{ ok: true; runIds: string[]; count: number; batchId?: string; lanes?: Array<{ device: { udid: string; name: string | null }; runIds: string[]; skipped: string[]; haltedAt?: string; haltedReason?: string }> } | { ok: false; code: 400 | 409; error: string; runIds: string[]; appBundleId?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null }> {
+  async function runBatch(b: { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string>; cases?: Array<{ templateId: string; variantIds?: string[] | null }>; suiteId?: string; planId?: string; awaitSettle?: boolean }, reqUser?: { name: string } | null):
+    Promise<{ ok: true; runIds: string[]; count: number; batchId?: string; queuedOnly?: boolean; lanes?: Array<{ device: { udid: string; name: string | null }; runIds: string[]; skipped: string[]; haltedAt?: string; haltedReason?: string }> } | { ok: false; code: 400 | 409; error: string; runIds: string[]; appBundleId?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null }> {
     const { selectTemplates } = await import('./templates.ts');
     const { planLanes } = await import('../manual/batch/plan.ts');
     const { runParallelBatch, ParallelScenarioError } = await import('../manual/batch/pool.ts');
@@ -738,6 +738,30 @@ export function registerManualRoutes(
       ...(b.planId !== undefined ? { planId: b.planId } : {}),
       ...(multiLane ? { forgeAttribution: false } : {}), // proxy can't tell sims apart
     };
+
+    // queue-time mode (suite play from the cockpit): resolve when lanes are
+    // DISPATCHED, not settled — run rows/events are the live view; the modal
+    // must not hang for the whole suite (operator 2026-10-04)
+    if (b.awaitSettle === false) {
+      const batchId = `batch_${randomUUID().slice(0, 8)}`;
+      void runParallelBatch(
+        { db, bus: deps.bus, forgeState: deps.forgeState } as never,
+        {
+          lanes,
+          opts: batchOpts,
+          batchId,
+          runOne: async (templateId: string, udid: string, o: Record<string, unknown>, variantId?: string) => {
+            const variant = variantId !== undefined ? variantsOf(templateId).find((v) => v.id === variantId) ?? null : null;
+            return runTemplatePlayback(
+              { db, bus: deps.bus, dispatchDeps: deps.dispatchDeps, artifactsDir: deps.artifactsDir, forgeState: deps.forgeState, ...(process.env['VITEST'] ? { awaitStreamLive: null } : {}) },
+              templateId,
+              { ...o, ...(variant ? { variant } : {}) },
+            );
+          },
+        },
+      ).catch((err) => console.error('[batch] queue-only batch failed:', err));
+      return { ok: true, runIds: [] as string[], queuedOnly: true, batchId, count: sel.length };
+    }
 
     let result;
     try {
@@ -970,6 +994,7 @@ export function registerManualRoutes(
       ...(b.udid !== undefined ? { udid: b.udid } : {}),
       triggeredBy: `suite:${row.name}`,
       suiteId: row.id,
+      awaitSettle: false, // cockpit: modal must not wait for the whole suite
     }, req.user);
     if (!r.ok) return reply.code(r.code).send({ error: r.error, code: r.code === 409 ? 'DEVICE_BUSY' : undefined, runIds: r.runIds });
     return { runIds: r.runIds, count: r.count, batchId: r.batchId, ...(drifted.length > 0 ? { skippedDrifted: drifted } : {}), ...(deprecatedSkipped.length > 0 ? { skippedDeprecated: deprecatedSkipped } : {}), ...(ghostPins.length > 0 ? { skippedDeadVariants: ghostPins } : {}) };

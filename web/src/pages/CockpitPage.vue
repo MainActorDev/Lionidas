@@ -55,15 +55,36 @@ let preselectApplied = false;
 // away mid-restart, exactly when the operator is watching). Kept in `devices`
 // with sub:'restarting' until the cycle completes server-side.
 // a testcase (template run) active on the ACTIVE device — take control
-// is disabled while one runs (driving mid-case poisons its steps)
+// is disabled while one runs (driving mid-case poisons its steps); the
+// ABORT button uses the same truth (run id on this device, or the batch)
 const caseRunningOnActive = ref(false);
+const activeRunId = ref<string | null>(null);
+const lastBatchId = ref<string | null>(null);
 async function pollCaseRunning(): Promise<void> {
-  if (!activeUdid.value) { caseRunningOnActive.value = false; return; }
+  if (!activeUdid.value) { caseRunningOnActive.value = false; activeRunId.value = null; return; }
   try {
     const r = await fetch('/api/runs?limit=12');
-    const b = (await r.json()) as { runs?: Array<{ device_udid?: string; status?: string; template_id?: string | null; kind?: string }> };
-    caseRunningOnActive.value = (b.runs ?? []).some((x) => x.device_udid === activeUdid.value && (x.status === 'queued' || x.status === 'running') && x.template_id);
+    const b = (await r.json()) as { runs?: Array<{ id?: string; device_udid?: string; status?: string; template_id?: string | null; kind?: string }> };
+    const hit = (b.runs ?? []).find((x) => x.device_udid === activeUdid.value && (x.status === 'queued' || x.status === 'running') && x.template_id);
+    caseRunningOnActive.value = !!hit;
+    activeRunId.value = hit?.id ?? null;
   } catch { /* transient */ }
+}
+/** abort what's running: the batch when we launched a suite (covers all
+ *  lanes + between-steps aborts in-flight runs), else this device's run */
+async function abortRunning(): Promise<void> {
+  try {
+    if (lastBatchId.value) {
+      const r = await fetch(`/api/batches/${encodeURIComponent(lastBatchId.value)}/abort`, { method: 'POST' });
+      if (r.ok) { flash('suite aborting'); return; }
+      // batch settled — fall through to run-abort below
+    }
+    if (activeRunId.value) {
+      const r = await fetch(`/api/runs/${encodeURIComponent(activeRunId.value)}/abort`, { method: 'POST' });
+      if (r.ok) { flash('case aborting'); return; }
+    }
+    flash('nothing to abort', 'err');
+  } catch { flash('abort request failed', 'err'); }
 }
 
 const restarting = ref(new Set<string>());
@@ -400,9 +421,17 @@ async function playSuite(): Promise<void> {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify(playAllBooted.value ? {} : { udid: activeUdid.value }),
     });
-    const b = (await r.json()) as { runIds?: string[]; count?: number; batchId?: string; error?: string };
-    if (b.runIds) {
+    const b = (await r.json()) as { runIds?: string[]; count?: number; batchId?: string; queuedOnly?: boolean; error?: string };
+    if (b.queuedOnly || b.batchId) {
+      // queue-time response: runIds are empty by design (runs spawn async)
       suiteOpen.value = false;
+      lastBatchId.value = b.batchId ?? null; // abort = batch-abort (all lanes)
+      flash(`suite · ${b.count ?? '…'} runs queued`);
+      railTab.value = 'watch';
+    }
+    else if (b.runIds && b.runIds.length > 0) {
+      suiteOpen.value = false;
+      lastBatchId.value = b.batchId ?? null;
       flash(`suite · ${b.count ?? b.runIds.length} runs queued`);
       railTab.value = 'watch';
     }
@@ -451,9 +480,10 @@ async function playCase(id: string): Promise<void> {
     if (b.fanOut) {
       playOpen.value = false;
       const ok = (b.runs ?? []).filter((x) => x.runId).length;
+      lastBatchId.value = null; // fan-out is per-device runs, not a batch — abort = run-abort
       flash(`queued on ${ok}/${b.count ?? '?'} devices`);
       railTab.value = 'watch';
-    } else if (b.runId) { playOpen.value = false; flash(`run started · ${String(b.runId).slice(0, 14)}`); railTab.value = 'watch'; }
+    } else if (b.runId) { playOpen.value = false; lastBatchId.value = null; flash(`run started · ${String(b.runId).slice(0, 14)}`); railTab.value = 'watch'; }
     else flash(b.error ?? 'play failed', 'err');
   } catch { flash('play request failed', 'err'); }
   finally { playBusy.value = false; }
@@ -554,7 +584,8 @@ void live;
         :overlay-nodes="overlayData.nodes" :overlay-w="overlayData.w" :overlay-h="overlayData.h" :overlay-visible="overlayData.visible" :sel-parent-node="overlayData.sel" :selected-node="overlayData.sel"
         @session-state="onSessionState" @inspect-click="onInspectClick"
         @session-acquired="onSessionAcquired" @session-dropped="onSessionDropped"
-        @exit-inspect="overlay = null; toolsOpen = false" />
+        @exit-inspect="overlay = null; toolsOpen = false"
+        @abort-running="abortRunning" />
       <div v-else class="empty">no booted devices — boot one from the device menu</div>
       <!-- toasts live INSIDE the device container area (stage column), top-left -->
       <div class="toast-stack" aria-live="polite">
