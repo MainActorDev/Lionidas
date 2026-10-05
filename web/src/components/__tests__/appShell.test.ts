@@ -18,7 +18,6 @@ const routes = [
   { path: '/screens', name: 'screens', component: { template: '<div id="stub-page" />' } },
   { path: '/env', name: 'env', component: { template: '<div id="stub-page" />' } },
   { path: '/forge', name: 'forge', component: { template: '<div id="stub-page" />' } },
-  { path: '/monitoring', name: 'monitoring', component: { template: '<div id="stub-page" />' } },
   { path: '/users', name: 'users', component: { template: '<div id="stub-page" />' } },
   { path: '/guide', name: 'guide', component: { template: '<div id="stub-page" />' } },
 ];
@@ -49,11 +48,11 @@ describe('app shell sidebar (025-A collapsible tree)', () => {
     // text() includes the caret glyph — compare normalized labels
     expect(heads.map(h => h.text().replace('▾', '').trim())).toEqual(['testing', 'library', 'system']);
     const items = wrapper.findAll('.nav-item');
-    expect(items).toHaveLength(11);
+    expect(items).toHaveLength(10);
     expect(items.map(i => i.text())).toEqual([
       'overview', 'suites', 'devices', 'runs',
       'test cases', 'screens', 'env', 'network',
-      'monitoring', 'users', 'guide',
+      'users', 'guide',
     ]);
     // all expanded by default
     expect(wrapper.findAll('.nav-grp-kids')).toHaveLength(3);
@@ -88,11 +87,11 @@ describe('app shell sidebar (025-A collapsible tree)', () => {
     const head = wrapper.findAll('.nav-grp-head')[2]; // system
     await head.trigger('click');
     expect(wrapper.findAll('.nav-grp')[2].classes()).toContain('closed');
-    await router.push('/monitoring');
+    await router.push('/users');
     await flushPromises();
     expect(wrapper.findAll('.nav-grp')[2].classes()).not.toContain('closed');
     const active = wrapper.findAll('.nav-item').find(i => i.classes().includes('active'));
-    expect(active?.text()).toBe('monitoring');
+    expect(active?.text()).toBe('users');
   });
 
   it('navigates via group child links', async () => {

@@ -54,7 +54,6 @@ const navGroups: NavGroup[] = [
   {
     id: 'system', label: 'system',
     items: [
-      { to: '/monitoring', label: 'monitoring', names: ['monitoring'] },
       { to: '/users', label: 'users', names: ['users'] },
       { to: '/guide', label: 'guide', names: ['guide'] },
     ],

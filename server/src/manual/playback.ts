@@ -1912,13 +1912,9 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
         // activeRunId implicitly via the null default — this one is explicit.)
         try { forgeStateService(deps).setActiveRun(null); } catch { /* clear best-effort */ }
       }
-      // managed-env audit (plan rev 2 S2.3): source COUNTS only, never values
-      try {
-        const s = resolvedBase.sources;
-        const parts = [`global(${s.global})`, `app(${s.app})`, `plan(${s.plan})`, `request(${s.request})`];
-        const cur0 = (deps.db.prepare('SELECT note FROM runs WHERE id = ?').get(runId) as { note: string | null } | undefined)?.note ?? '';
-        deps.db.prepare(`UPDATE runs SET note = ? WHERE id = ?`).run((cur0 ? `${cur0}\n` : '') + `env sources: ${parts.join(' ')}`, runId);
-      } catch { /* audit line best-effort */ }
+      // managed-env audit: source counts live in the run's env resolution
+      // payload (resolvedBase.sources) — the note stamp was cut from the runs
+      // log display contract (user: "show only the test case name").
       // policy audit lines — appended to whatever note exists
       if (noteLines.length > 0) {
         try {
