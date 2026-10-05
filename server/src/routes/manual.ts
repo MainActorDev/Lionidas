@@ -13,7 +13,7 @@ import { dumpViewtree, ViewtreeError, acquireViewtreeLock, releaseViewtreeLock }
 import { fetchProbeViewtree, probeArmed, ProbeError } from '../manual/viewtree-probe.ts';
 import { listSimulatorApps } from '../manual/apps.ts';
 import { installApp } from '../manual/app-install.ts';
-import { packagesDir, listPackages, readIpaIdentity } from '../manual/packages.ts';
+import { packagesDir, listPackages, readIpaIdentity, isSimulatorRunnable } from '../manual/packages.ts';
 import { execFileAsync } from '../manual/apps.ts';
 import { dispatchWithHeal } from '../alloy/heal.ts';
 import { existsSync } from 'node:fs';
@@ -571,6 +571,14 @@ export function registerManualRoutes(
     if (resolved.endsWith('.apk')) return reply.code(422).send({ error: '.apk install lands with Android support', code: 'APK_UNSUPPORTED' });
     const identity = readIpaIdentity(resolved);
     if (!identity) return reply.code(400).send({ error: `cannot read bundle identity from ${resolved}`, code: 'PACKAGE_UNREADABLE' });
+    // a device/macos .ipa installs fine and then dies at launch with a
+    // mystery error — refuse it here with the real reason instead
+    if (!isSimulatorRunnable({ kind: 'ipa', platform: identity.platform })) {
+      return reply.code(422).send({
+        error: `this .ipa was built for ${identity.platform} — simulator packages must be built with -sdk iphonesimulator`,
+        code: 'SIM_PACKAGE_REQUIRED',
+      });
+    }
     const st = db.prepare('SELECT state FROM devices WHERE udid = ?').get(udid) as { state: string | null } | undefined;
     if (!st || st.state !== 'Booted') return reply.code(409).send({ error: 'device not booted', code: 'DEVICE_NOT_BOOTED' });
     const busy = db.prepare(`SELECT 1 FROM runs WHERE device_udid = ? AND status IN ('queued','running') LIMIT 1`).get(udid)
@@ -613,7 +621,7 @@ export function registerManualRoutes(
     mkdirSync(packagesDir(), { recursive: true });
     writeFileSync(dest, body);
     const id = name.endsWith('.ipa') ? readIpaIdentity(dest) : null;
-    return { ok: true, path: dest, bundleId: id?.bundleId ?? null, version: id?.version ?? null, kind: name.endsWith('.ipa') ? 'ipa' : 'apk' };
+    return { ok: true, path: dest, bundleId: id?.bundleId ?? null, version: id?.version ?? null, kind: name.endsWith('.ipa') ? 'ipa' : 'apk', platform: id?.platform ?? null };
   });
 
   // ── app catalog: identity + icon for the device's installed apps ──

@@ -30,14 +30,15 @@ function fakeXcrun(opts: { fail?: boolean } = {}): void {
 }
 
 /** A real .ipa on disk: Payload/<name>.app/Info.plist inside a genuine zip —
- *  identity is read by the production unzip -p + plutil path. */
-function plantPackage(bundleId: string, version: string, name = `${bundleId.replace(/\./g, '_')}-${version}.ipa`): string {
+ *  identity is read by the production unzip -p + plutil path. platform
+ *  controls the DTPlatformName written into the plist. */
+function plantPackage(bundleId: string, version: string, name = `${bundleId.replace(/\./g, '_')}-${version}.ipa`, platform = 'iphonesimulator'): string {
   const p = join(pkgDir, name);
   const stage = join(root, 'stage');
   const appDir = join(stage, 'Payload', `${bundleId.replace(/\./g, '_')}.app`);
   mkdirSync(appDir, { recursive: true });
   writeFileSync(join(appDir, 'Info.plist'),
-    `<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>${bundleId}</string><key>CFBundleShortVersionString</key><string>${version}</string></dict></plist>`);
+    `<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>${bundleId}</string><key>CFBundleShortVersionString</key><string>${version}</string><key>DTPlatformName</key><string>${platform}</string></dict></plist>`);
   execFileSync('zip', ['-q', '-X', p, '-r', 'Payload'], { cwd: stage });
   rmSync(stage, { recursive: true, force: true });
   return p;
@@ -156,6 +157,19 @@ describe('POST /api/devices/:udid/install (packages)', () => {
     const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/install`, payload: { packagePath: p } });
     expect(r.statusCode).toBe(502);
     expect(r.json().code).toBe('INSTALL_FAILED');
+  });
+
+  it('device-build .ipa (DTPlatformName iphoneos) → 422 SIM_PACKAGE_REQUIRED', async () => {
+    fakeXcrun();
+    seedDevice(U, 'Booted');
+    const p = plantPackage('com.test.app', '1.0.0', 'device-build.ipa', 'iphoneos');
+    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/install`, payload: { packagePath: p } });
+    expect(r.statusCode).toBe(422);
+    const b = r.json() as { code: string; error: string };
+    expect(b.code).toBe('SIM_PACKAGE_REQUIRED');
+    expect(b.error).toContain('-sdk iphonesimulator');
+    // simctl never ran
+    expect(existsSync(join(bin, 'calls.log'))).toBe(false);
   });
 });
 

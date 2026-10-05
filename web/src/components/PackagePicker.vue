@@ -5,7 +5,7 @@
  *  selectable for visibility but flagged (install lands with Android). */
 import { computed, onMounted, ref } from 'vue';
 
-export interface PkgRow { path: string; bundleId: string | null; version: string | null; kind: 'ipa' | 'apk'; mtimeMs: number; sizeBytes: number }
+export interface PkgRow { path: string; bundleId: string | null; version: string | null; kind: 'ipa' | 'apk'; platform: string | null; mtimeMs: number; sizeBytes: number }
 interface Group { key: string; bundleId: string | null; rows: PkgRow[] }
 
 const props = defineProps<{ modelValue: boolean; title?: string }>();
@@ -77,9 +77,18 @@ function sizeOf(bytes: number): string {
   if (bytes > 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(1)}G`;
   return `${Math.round(bytes / 1024 / 1024)}M`;
 }
+const simRunnable = computed(() => {
+  const p = rows.value.find((x) => x.path === pick.value);
+  return !p || isSim(p);
+});
 function choose(p: PkgRow): void {
   pick.value = p.path;
-  if (p.kind === 'ipa') emit('picked', p.path);
+  if (p.kind === 'ipa' && isSim(p)) emit('picked', p.path);
+}
+/** mirrors the server's guard: null platform = unknown (allowed); anything
+ *  other than iphonesimulator is a device/macos build that cannot boot */
+function isSim(p: PkgRow): boolean {
+  return p.kind === 'apk' || p.platform === null || p.platform === 'iphonesimulator';
 }
 </script>
 
@@ -104,10 +113,11 @@ function choose(p: PkgRow): void {
               <span class="pp-n">{{ g.rows.length }}</span>
             </button>
             <div v-if="expanded === g.key" class="pp-rows">
-              <div v-for="p in g.rows" :key="p.path" class="pp-row" :class="{ picked: pick === p.path, apk: p.kind === 'apk' }" @click="choose(p)">
+              <div v-for="p in g.rows" :key="p.path" class="pp-row" :class="{ picked: pick === p.path, apk: p.kind === 'apk', nosim: !isSim(p) }" @click="choose(p)">
                 <span class="pp-name" :title="p.path">{{ p.path.split('/').pop() }}</span>
                 <span class="pp-ver">{{ p.version ?? '' }}</span>
                 <span class="pp-chip" :class="p.kind">{{ p.kind }}</span>
+                <span v-if="!isSim(p)" class="pp-chip nosim" :title="`built for ${p.platform} — rebuild with -sdk iphonesimulator`">{{ p.platform }}</span>
                 <span class="pp-age">{{ ageOf(p.mtimeMs) }} · {{ sizeOf(p.sizeBytes) }}</span>
               </div>
             </div>
@@ -117,7 +127,7 @@ function choose(p: PkgRow): void {
       </div>
       <div class="pp-actions">
         <button class="btn" @click="emit('update:modelValue', false)">cancel</button>
-        <button class="btn btn-primary" :disabled="!pick || pick.endsWith('.apk')" @click="pick && emit('confirm', pick)">install</button>
+        <button class="btn btn-primary" :disabled="!pick || pick.endsWith('.apk') || !simRunnable" @click="pick && emit('confirm', pick)">{{ simRunnable ? 'install' : 'simulator builds only' }}</button>
       </div>
     </div>
   </div>
@@ -151,6 +161,8 @@ function choose(p: PkgRow): void {
 .pp-ver { color: var(--color-ash); font-size: var(--text-caption); }
 .pp-chip { font-size: 10px; padding: 1px 5px; border: 1px solid var(--color-iron); color: var(--color-ash); text-transform: uppercase; letter-spacing: 0.04em; }
 .pp-chip.ipa { color: var(--color-ember); border-color: var(--color-ember-dim); }
+.pp-chip.nosim { color: var(--color-ash); border-color: var(--color-pewter); }
+.pp-row.nosim { opacity: .75; }
 .pp-age { color: var(--color-steel); font-size: var(--text-caption); }
 .pp-actions { display: flex; gap: var(--s-2); padding: var(--s-3) var(--s-5); border-top: 1px solid var(--color-iron); justify-content: flex-end; }
 </style>

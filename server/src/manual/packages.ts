@@ -15,6 +15,7 @@ export interface PackageInfo {
   bundleId: string | null;
   version: string | null;
   kind: 'ipa' | 'apk';
+  platform: string | null;
   mtimeMs: number;
   sizeBytes: number;
   projectId: string | null;
@@ -34,16 +35,27 @@ export function packagesDir(): string {
  *  (caught live: identity read null on every real .ipa). Null on ANY failure —
  *  callers skip the row (a half-copied CI file reads as unreadable and simply
  *  does not list until complete). */
-export function readIpaIdentity(ipaPath: string): { bundleId: string; version: string | null } | null {
+export function readIpaIdentity(ipaPath: string): { bundleId: string; version: string | null; platform: string | null } | null {
   try {
     const plist = execFileSync('unzip', ['-p', ipaPath, 'Payload/*.app/Info.plist'], { maxBuffer: 16 * 1024 * 1024 });
     const json = execFileSync('plutil', ['-convert', 'json', '-o', '-', '-'], { input: plist, maxBuffer: 16 * 1024 * 1024 }).toString();
-    const p = JSON.parse(json) as { CFBundleIdentifier?: string; CFBundleShortVersionString?: string };
+    const p = JSON.parse(json) as { CFBundleIdentifier?: string; CFBundleShortVersionString?: string; DTPlatformName?: string };
     if (!p.CFBundleIdentifier) return null;
-    return { bundleId: p.CFBundleIdentifier, version: p.CFBundleShortVersionString ?? null };
+    return { bundleId: p.CFBundleIdentifier, version: p.CFBundleShortVersionString ?? null, platform: p.DTPlatformName ?? null };
   } catch {
     return null;
   }
+}
+
+/** A package that can actually run on a simulator. Device/macos builds pass
+ *  `simctl install` (structure check only) then die at launch with a generic
+ *  "Simulator device failed to launch" — the real reason (SpringBoard
+ *  "Bootstrap failed") never reaches the UI. Gate them HERE with a named
+ *  error instead. Unknown platform (null) is allowed — Xcode strips DT*
+ *  keys in some export paths; we do not reject what we cannot read. */
+export function isSimulatorRunnable(pkg: { kind: 'ipa' | 'apk'; platform: string | null }): boolean {
+  if (pkg.kind === 'apk') return true; // android lands with its own seam
+  return pkg.platform === null || pkg.platform === 'iphonesimulator';
 }
 
 /** All .ipa/.apk files in the packages dir, freshest first. Apks list with
@@ -60,7 +72,7 @@ export function listPackages(dir: string = packagesDir()): PackageInfo[] {
       const st = statSync(full);
       if (!st.isFile()) continue;
       const id = kind === 'ipa' ? readIpaIdentity(full) : null;
-      out.push({ path: full, bundleId: id?.bundleId ?? null, version: id?.version ?? null, kind, mtimeMs: st.mtimeMs, sizeBytes: st.size, projectId: null });
+      out.push({ path: full, bundleId: id?.bundleId ?? null, version: id?.version ?? null, kind, platform: id?.platform ?? null, mtimeMs: st.mtimeMs, sizeBytes: st.size, projectId: null });
     } catch { continue; }
   }
   return out.sort((a, b) => b.mtimeMs - a.mtimeMs);
