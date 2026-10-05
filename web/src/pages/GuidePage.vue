@@ -340,8 +340,8 @@ const groups = computed(() => {
           <div class="section-label">missing app</div>
           <div class="card">
             <div class="meta-row"><span class="k">pre-check</span><b>a case whose app is not installed on the booted simulator refuses to start — no wasted run</b></div>
-            <div class="meta-row"><span class="k">install hint</span><b>the refusal carries a one-click fix: install the last-known build, then the case auto-runs</b></div>
-            <div class="meta-row"><span class="k">own store</span><b>whatever you pick is cloned into Lionidas's storage — a repo clean can never break history</b></div>
+            <div class="meta-row"><span class="k">install hint</span><b>the refusal carries a one-click fix: install the last-known package, then the case auto-runs</b></div>
+            <div class="meta-row"><span class="k">packages</span><b>installs come from the packages dir (CI-dropped .ipa files) — pick one from the chooser; the dir is shown in the picker</b></div>
           </div>
 
           <div class="section-label">running</div>

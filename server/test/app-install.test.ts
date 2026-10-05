@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, chmodSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { migrateM1 } from '../src/db/schema.ts';
@@ -22,14 +22,6 @@ function fakeXcrun(dir: string, opts: { delayMs?: number; fail?: boolean }): voi
   chmodSync(script, 0o755);
 }
 
-function plantArtifact(root: string, bundleId: string, version: string): string {
-  const app = join(root, `${bundleId.replace(/\./g, '_')}.app`);
-  mkdirSync(app, { recursive: true });
-  writeFileSync(join(app, 'Info.plist'),
-    `<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>${bundleId}</string><key>CFBundleShortVersionString</key><string>${version}</string></dict></plist>`);
-  return app;
-}
-
 let root: string;
 let bin: string;
 let db: Database.Database;
@@ -47,27 +39,28 @@ afterEach(() => {
   db.close();
 });
 
-describe('installApp', () => {
+const IPA = join('/store/packages', 'com.test.app-3.4.0.ipa');
+const ID = { bundleId: 'com.test.app', version: '3.4.0' };
+
+describe('installApp (package contract — identity owned by the route)', () => {
   it('installs, records into app_catalog, returns version + duration', async () => {
     fakeXcrun(bin, {});
-    const app = plantArtifact(root, 'com.test.app', '3.4.0');
-    const r = await installApp({ db }, { udid: 'UDID-1', appPath: app });
+    const r = await installApp({ db }, { udid: 'UDID-1', appPath: IPA, identity: ID });
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.version).toBe('3.4.0');
       expect(r.durationMs).toBeGreaterThanOrEqual(0);
     }
     const calls = readFileSync(join(bin, 'calls.log'), 'utf8');
-    expect(calls).toContain('simctl install UDID-1');
-    expect(lastArtifactFor(db, 'com.test.app')?.artifactPath).toBe(app);
+    expect(calls).toContain(`simctl install UDID-1 ${IPA}`);
+    expect(lastArtifactFor(db, 'com.test.app')?.artifactPath).toBe(IPA);
     expect(lastArtifactFor(db, 'com.test.app')?.appVersion).toBe('3.4.0');
   });
 
   it('INSTALL_IN_FLIGHT: second concurrent call does not invoke simctl again', async () => {
     fakeXcrun(bin, { delayMs: 300 });
-    const app = plantArtifact(root, 'com.test.app', '1.0.0');
-    const p1 = installApp({ db }, { udid: 'UDID-1', appPath: app });
-    const r2 = await installApp({ db }, { udid: 'UDID-1', appPath: app });
+    const p1 = installApp({ db }, { udid: 'UDID-1', appPath: IPA, identity: ID });
+    const r2 = await installApp({ db }, { udid: 'UDID-1', appPath: IPA, identity: ID });
     expect(r2.ok).toBe(false);
     if (!r2.ok) expect(r2.code).toBe('INSTALL_IN_FLIGHT');
     await p1;
@@ -77,29 +70,22 @@ describe('installApp', () => {
 
   it('different devices install in parallel (per-udid guard)', async () => {
     fakeXcrun(bin, {});
-    const app = plantArtifact(root, 'com.test.app', '1.0.0');
     const [r1, r2] = await Promise.all([
-      installApp({ db }, { udid: 'UDID-1', appPath: app }),
-      installApp({ db }, { udid: 'UDID-2', appPath: app }),
+      installApp({ db }, { udid: 'UDID-1', appPath: IPA, identity: ID }),
+      installApp({ db }, { udid: 'UDID-2', appPath: IPA, identity: ID }),
     ]);
     expect(r1.ok).toBe(true);
     expect(r2.ok).toBe(true);
   });
 
-  it('INSTALL_FAILED surfaces stderr; ARTIFACT_UNREADABLE when identity missing', async () => {
+  it('INSTALL_FAILED surfaces stderr; nothing recorded on failure', async () => {
     fakeXcrun(bin, { fail: true });
-    const app = plantArtifact(root, 'com.test.app', '1.0.0');
-    const r = await installApp({ db }, { udid: 'UDID-1', appPath: app });
+    const r = await installApp({ db }, { udid: 'UDID-1', appPath: IPA, identity: ID });
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.code).toBe('INSTALL_FAILED');
       expect(r.error).toContain('install failed');
     }
-    const broken = join(root, 'Broken.app');
-    mkdirSync(broken);
-    const r2 = await installApp({ db }, { udid: 'UDID-1', appPath: broken });
-    expect(r2.ok).toBe(false);
-    if (!r2.ok) expect(r2.code).toBe('ARTIFACT_UNREADABLE');
     expect(lastArtifactFor(db, 'com.test.app')).toBeNull(); // nothing recorded on failure
   });
 });

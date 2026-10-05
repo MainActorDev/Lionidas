@@ -14,6 +14,7 @@ import WatchPane from '../components/cockpit/WatchPane.vue';
 import EnvPanelContent from '../components/cockpit/EnvPanelContent.vue';
 import OverlayPanel from '../components/shared/OverlayPanel.vue';
 import ChatPane from '../components/cockpit/ChatPane.vue';
+import PackagePicker from '../components/PackagePicker.vue';
 import { useDeviceSessions, type DeviceSession } from '../composables/deviceSessions.ts';
 import ToolsDrawer from '../components/cockpit/ToolsDrawer.vue';
 import { useLiveEvents } from '../stores/live.ts';
@@ -283,59 +284,35 @@ async function launchApp(): Promise<void> {
   finally { runAppBusy.value = false; }
 }
 
-// ── install modal (file menu) ──
+// ── install modal (file menu — shared PackagePicker, 026-B) ──
 const installOpen = ref(false);
-interface ArtifactFlat { path: string; bundleId: string; version: string | null; mtimeMs: number; source: string }
-const installApps = ref<Array<{ key: string; name: string; bundleId: string; version: string | null; mtimeMs: number; source: string; builds: ArtifactFlat[] }>>([]);
-const installLoaded = ref(false);
 const installPick = ref('');
 const installBusy = ref(false);
 const installErr = ref('');
-const installExpanded = ref<string | null>(null);
-async function openInstall(): Promise<void> {
-  installOpen.value = true; installErr.value = '';
-  if (!installLoaded.value) {
-    try {
-      const r = await fetch(`/api/devices/${encodeURIComponent(activeUdid.value)}/artifacts`);
-      const b = (await r.json()) as { artifacts?: ArtifactFlat[] };
-      // group flat artifacts by bundle (sidebar parity: human name, newest first)
-      const list = b.artifacts ?? [];
-      const byBundle = new Map<string, ArtifactFlat[]>();
-      for (const a of list) {
-        const k = a.bundleId || a.path;
-        byBundle.set(k, [...(byBundle.get(k) ?? []), a]);
-      }
-      const storeName = /^[a-z][a-z0-9]*(\.[a-z0-9-]+)+-\d+(\.\d+)*-\d+$/;
-      installApps.value = [...byBundle.values()].map((builds) => {
-        const sorted = [...builds].sort((x, y) => y.mtimeMs - x.mtimeMs);
-        const head = sorted[0]!;
-        const humanName = sorted.map((x) => x.path.split('/').pop()?.replace(/\.app$/, '') ?? '')
-          .find((n) => n && !storeName.test(n));
-        return { key: head.bundleId || head.path, name: humanName ?? head.bundleId ?? 'app', bundleId: head.bundleId, version: head.version, mtimeMs: head.mtimeMs, source: head.source, builds: sorted };
-      }).sort((a, b2) => b2.mtimeMs - a.mtimeMs);
-      installLoaded.value = true;
-    } catch { installErr.value = 'artifact discovery failed'; }
-  }
+function openInstall(): void {
+  installOpen.value = true; installErr.value = ''; installPick.value = '';
 }
-function ageOf(ms: number): string {
-  const h = Math.floor((Date.now() - ms) / 3600_000);
-  if (h < 1) return `${Math.max(1, Math.floor((Date.now() - ms) / 60_000))}m ago`;
-  if (h < 48) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
-async function runInstall(): Promise<void> {
-  if (!installPick.value || installBusy.value) return;
+async function runInstall(pkgPath?: string): Promise<void> {
+  const target = pkgPath ?? installPick.value;
+  if (!target || installBusy.value) return;
+  installPick.value = target;
   installBusy.value = true; installErr.value = '';
   try {
     const r = await fetch(`/api/devices/${encodeURIComponent(activeUdid.value)}/install`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ appPath: installPick.value }),
+      body: JSON.stringify({ packagePath: target }),
     });
     const b = (await r.json()) as { ok?: boolean; version?: string; error?: string };
     if (b.ok) { installOpen.value = false; flash(`installed${b.version ? ` · ${b.version}` : ''}`); }
     else installErr.value = b.error ?? 'install failed';
   } catch { installErr.value = 'install request failed'; }
   finally { installBusy.value = false; }
+}
+function ageOf(ms: number): string {
+  const h = Math.floor((Date.now() - ms) / 3600_000);
+  if (h < 1) return `${Math.max(1, Math.floor((Date.now() - ms) / 60_000))}m ago`;
+  if (h < 48) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }
 async function pickBootDevice(): Promise<void> {
   bootErr.value = ''; bootSel.value = '';
@@ -682,32 +659,9 @@ void live;
       </div>
     </div>
 
-    <!-- install modal -->
-    <div v-if="installOpen" class="modal-scrim" @click.self="installOpen = false">
-      <div class="modal wide">
-        <h3>install app on {{ activeName }}</h3>
-        <div class="modal-body">
-        <div v-if="!installLoaded && !installErr" class="k">discovering artifacts…</div>
-        <div v-for="a in installApps" :key="a.key" class="app-row" :class="{ picked: installPick && a.builds.some((b) => b.path === installPick) }">
-          <div class="app-head" @click="installExpanded = installExpanded === a.key ? null : a.key">
-            <span class="app-name">{{ a.name }}</span>
-            <span class="k">{{ a.version ?? '—' }} · {{ ageOf(a.mtimeMs) }} · {{ a.builds.length > 1 ? a.builds.length + ' builds' : a.source }}</span>
-          </div>
-          <div v-if="installExpanded === a.key" class="app-builds">
-            <div v-for="b in a.builds" :key="b.path" class="pick-row" :class="{ picked: installPick === b.path }" @click="installPick = b.path">
-              <span>{{ b.path.split('/').pop() }}</span>
-              <span class="k">{{ ageOf(b.mtimeMs) }} · {{ b.source }}</span>
-            </div>
-          </div>
-        </div>
-        </div>
-        <div class="modal-actions">
-          <button class="m-btn" @click="installOpen = false">cancel</button>
-          <button class="m-btn primary" :disabled="!installPick || installBusy" @click="runInstall">{{ installBusy ? 'installing… (≈12s)' : 'install' }}</button>
-        </div>
-        <div v-if="installErr" class="hint-err">{{ installErr }}</div>
-      </div>
-    </div>
+    <!-- install modal (shared package picker) -->
+    <PackagePicker v-model="installOpen" :title="`install app on ${activeName}`" @confirm="runInstall(String($event))" />
+    <div v-if="installErr" class="hint-err">{{ installErr }}</div>
 
     <!-- run app modal (installed apps of this simulator) -->
     <div v-if="runAppOpen" class="modal-scrim" @click.self="runAppOpen = false">

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>026-B · grouped by app</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  body { background: var(--color-void); color: var(--color-paper); font-family: var(--font-mono); }
+  .modal-scaffold { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+  .modal { width: 560px; background: var(--color-graphite); border: 1px solid var(--color-iron); }
+  .m-head { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-4) var(--s-5); border-bottom: 1px solid var(--color-iron); }
+  .m-title { font-size: var(--text-heading-sm); color: var(--color-paper); }
+  .m-head .x { margin-left: auto; color: var(--color-steel); cursor: pointer; font-size: 16px; }
+  .m-head .x:hover { color: var(--color-paper); }
+  .m-dir { padding: var(--s-2) var(--s-5); font-size: var(--text-caption); color: var(--color-steel); border-bottom: 1px solid var(--color-iron); }
+  .m-body { max-height: 320px; overflow-y: auto; }
+  .grp-head {
+    display: flex; align-items: center; gap: var(--s-2);
+    padding: var(--s-2) var(--s-5); font-size: var(--text-caption);
+    text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-steel);
+    cursor: pointer; user-select: none;
+  }
+  .grp-head .n { margin-left: auto; }
+  .grp-head:hover { color: var(--color-fog); }
+  .prow {
+    display: grid; grid-template-columns: 1fr auto auto auto; gap: var(--s-3);
+    align-items: center; padding: var(--s-2) var(--s-5) var(--s-2) 30px;
+    border-bottom: 1px solid var(--color-iron); cursor: pointer;
+    font-size: var(--text-label); color: var(--color-fog);
+  }
+  .prow:hover { background: var(--color-carbon); color: var(--color-paper); }
+  .prow.on { background: var(--color-carbon); color: var(--color-paper); }
+  .prow .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .prow .ver { color: var(--color-ash); font-size: var(--text-caption); }
+  .chip { font-size: 10px; padding: 1px 5px; border: 1px solid var(--color-iron); color: var(--color-ash); text-transform: uppercase; letter-spacing: 0.04em; }
+  .chip.ipa { color: var(--color-ember); border-color: var(--color-ember-dim); }
+  .age { color: var(--color-steel); font-size: var(--text-caption); }
+  .m-actions { display: flex; gap: var(--s-2); padding: var(--s-3) var(--s-5); border-top: 1px solid var(--color-iron); }
+  .btn { font-family: var(--font-mono); font-size: 12px; color: var(--color-paper); background: var(--color-carbon); border: 1px solid var(--color-iron); padding: 4px 12px; cursor: pointer; }
+  .btn:hover { background: var(--color-graphite); }
+  .btn.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; }
+  .btn.primary:hover { background: var(--color-ember-dim); }
+  .btn[disabled] { opacity: .4; cursor: default; }
+</style>
+</head>
+<body>
+<div class="modal-scaffold">
+  <div class="modal">
+    <div class="m-head"><span class="m-title">install package</span><span class="x">✕</span></div>
+    <div class="m-dir">packages dir · <span id="dir">/Volumes/…/lionidas/server/packages</span></div>
+    <div class="m-body" id="body"></div>
+    <div class="m-actions">
+      <button class="btn primary" id="go" disabled>install</button>
+      <button class="btn">cancel</button>
+    </div>
+  </div>
+</div>
+<script>
+  const groups = [
+    { bundle: 'com.lionparcel.app', pkgs: [
+      { name: 'lionparcel-consumer-1.42.0-142.ipa', ver: '1.42.0', kind: 'ipa', age: '2h' },
+      { name: 'lionparcel-consumer-1.41.9-141.ipa', ver: '1.41.9', kind: 'ipa', age: '1d' },
+      { name: 'lionparcel-consumer-1.41.0-134.ipa', ver: '1.41.0', kind: 'ipa', age: '6d' },
+    ]},
+    { bundle: 'com.lionparcel.logistics', pkgs: [
+      { name: 'lionparcel-logistics-0.9.2-38.ipa', ver: '0.9.2', kind: 'ipa', age: '3d' },
+    ]},
+    { bundle: 'unidentified', pkgs: [
+      { name: 'maps-debug.apk', ver: null, kind: 'apk', age: '8d' },
+    ]},
+  ];
+  const body = document.getElementById('body');
+  groups.forEach(g => {
+    const h = document.createElement('div');
+    h.className = 'grp-head';
+    h.innerHTML = `<span>${g.bundle}</span><span class="n">${g.pkgs.length}</span>`;
+    body.appendChild(h);
+    g.pkgs.forEach(p => {
+      const r = document.createElement('div');
+      r.className = 'prow';
+      r.innerHTML = `<span class="name">${p.name}</span>
+        <span class="ver">${p.ver ?? ''}</span>
+        <span class="chip ${p.kind}">${p.kind}</span>
+        <span class="age">${p.age}</span>`;
+      r.addEventListener('click', () => {
+        document.querySelectorAll('.prow').forEach(x => x.classList.remove('on'));
+        r.classList.add('on');
+        const go = document.getElementById('go');
+        go.disabled = p.kind === 'apk';
+        go.textContent = p.kind === 'apk' ? 'android later' : 'install';
+      });
+      body.appendChild(r);
+    });
+  });
+</script>
+</body>
+</html>

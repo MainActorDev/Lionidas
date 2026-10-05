@@ -2,10 +2,10 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
-import { createReadStream, statSync, rm } from 'node:fs';
+import { createReadStream, statSync, rm, mkdirSync, writeFileSync } from 'node:fs';
 import { requireRole } from '../auth/roles.ts';
 import { tmpdir } from 'node:os';
-import { dirname } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, manualProbeSelector, manualTree, finishManualSession, setRecording, getRecording, deleteRecordedStep, recordExpectStep, manualGesture, touchSessionActivity, ManualSessionError } from '../manual/session.ts';
 import { inspectSample } from '../manual/inspect-route-fns.ts';
@@ -13,7 +13,7 @@ import { dumpViewtree, ViewtreeError, acquireViewtreeLock, releaseViewtreeLock }
 import { fetchProbeViewtree, probeArmed, ProbeError } from '../manual/viewtree-probe.ts';
 import { listSimulatorApps } from '../manual/apps.ts';
 import { installApp } from '../manual/app-install.ts';
-import { findArtifacts, importArtifact, appsStoreDir } from '../manual/artifacts.ts';
+import { packagesDir, listPackages, readIpaIdentity, isSimulatorRunnable } from '../manual/packages.ts';
 import { execFileAsync } from '../manual/apps.ts';
 import { dispatchWithHeal } from '../alloy/heal.ts';
 import { existsSync } from 'node:fs';
@@ -555,27 +555,36 @@ export function registerManualRoutes(
     }
   });
 
-  // ── explicit install (app-catalog feature, 2026-09-04): direct simctl
-  //  install from a chosen artifact; non-store paths are first IMPORTED into
-  //  the Crucible store (APFS clone) so the catalog never references repo/
-  //  DerivedData paths. One install per device; never while a run holds it. ──
+  // ── explicit install (packages direction, 2026-10-05): simctl install of a
+  //  package file from the packages dir (CI-produced .ipa; .apk lands with
+  //  Android). The route never installs arbitrary paths — packagePath must
+  //  resolve inside packagesDir(). One install per device; never while a run
+  //  holds it. ──
   app.post('/api/devices/:udid/install', async (req, reply) => {
     const { udid } = req.params as { udid: string };
-    const b = (req.body ?? {}) as { appPath?: string };
-    if (!b.appPath) return reply.code(422).send({ error: 'appPath required' });
-    if (!existsSync(b.appPath)) return reply.code(400).send({ error: `artifact not found: ${b.appPath}` });
+    const b = (req.body ?? {}) as { packagePath?: string };
+    if (!b.packagePath) return reply.code(422).send({ error: 'packagePath required' });
+    const resolved = resolve(b.packagePath);
+    const dir = packagesDir();
+    if (!(resolved + '/').startsWith(dir + '/')) return reply.code(400).send({ error: `package must live inside ${dir}`, code: 'PACKAGE_OUTSIDE_DIR' });
+    if (!existsSync(resolved)) return reply.code(400).send({ error: `package not found: ${resolved}` });
+    if (resolved.endsWith('.apk')) return reply.code(422).send({ error: '.apk install lands with Android support', code: 'APK_UNSUPPORTED' });
+    const identity = readIpaIdentity(resolved);
+    if (!identity) return reply.code(400).send({ error: `cannot read bundle identity from ${resolved}`, code: 'PACKAGE_UNREADABLE' });
+    // a device/macos .ipa installs fine and then dies at launch with a
+    // mystery error — refuse it here with the real reason instead
+    if (!isSimulatorRunnable({ kind: 'ipa', platform: identity.platform })) {
+      return reply.code(422).send({
+        error: `this .ipa was built for ${identity.platform} — simulator packages must be built with -sdk iphonesimulator`,
+        code: 'SIM_PACKAGE_REQUIRED',
+      });
+    }
     const st = db.prepare('SELECT state FROM devices WHERE udid = ?').get(udid) as { state: string | null } | undefined;
     if (!st || st.state !== 'Booted') return reply.code(409).send({ error: 'device not booted', code: 'DEVICE_NOT_BOOTED' });
     const busy = db.prepare(`SELECT 1 FROM runs WHERE device_udid = ? AND status IN ('queued','running') LIMIT 1`).get(udid)
       ?? db.prepare('SELECT 1 FROM manual_sessions WHERE udid = ? AND finished_at IS NULL LIMIT 1').get(udid);
     if (busy) return reply.code(409).send({ error: 'a run or manual session is active on this device — wait or abort it', code: 'DEVICE_BUSY' });
-    let storePath: string;
-    try {
-      storePath = b.appPath.startsWith(appsStoreDir()) ? b.appPath : importArtifact(b.appPath);
-    } catch (err) {
-      return reply.code(502).send({ error: `import failed: ${err instanceof Error ? err.message : String(err)}`, code: 'ARTIFACT_UNREADABLE' });
-    }
-    const r = await installApp({ db }, { udid, appPath: storePath });
+    const r = await installApp({ db }, { udid, appPath: resolved, identity });
     if (!r.ok) {
       const code = r.code === 'INSTALL_IN_FLIGHT' ? 409 : 502;
       return reply.code(code).send({ error: r.error, code: r.code });
@@ -583,10 +592,36 @@ export function registerManualRoutes(
     return { ok: true, version: r.version, durationMs: r.durationMs };
   });
 
-  // discovery for the artifact picker: build dirs + DerivedData + our store,
-  // freshest first, source-labeled (repo/cache dirs are PICK sources only)
-  app.get('/api/devices/:udid/artifacts', async () => {
-    return { artifacts: findArtifacts() };
+  // package discovery for the install picker: CI-dropped .ipa/.apk files in
+  // the configured packages dir, freshest first
+  app.get('/api/packages', async () => {
+    return { dir: packagesDir(), packages: listPackages() };
+  });
+
+  // ── package upload (picker's "choose file…"): raw octet-stream body,
+  //  filename via query (Fastify's default JSON parser can't carry a 100MB+
+  //  binary; a raw parser registered HERE applies to this app instance — the
+  //  zip-import lesson). Buffer-then-write is fine at .ipa scale (cap 1GB). ──
+  app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer' }, (_req, body, done) => done(null, body));
+  app.post('/api/packages', { preHandler: requireRole('operator'), bodyLimit: 1024 * 1024 * 1024 }, async (req, reply) => {
+    const q = req.query as { filename?: string };
+    const name = (q.filename ?? '').trim();
+    if (!name || !/^[\w .@-]+$/.test(name)) return reply.code(422).send({ error: 'filename query required (plain name, no path)', code: 'BAD_FILENAME' });
+    if (!name.endsWith('.ipa') && !name.endsWith('.apk')) return reply.code(422).send({ error: 'only .ipa / .apk files', code: 'BAD_EXTENSION' });
+    const body = req.body as Buffer | undefined;
+    if (!body || body.length === 0) return reply.code(422).send({ error: 'empty body', code: 'EMPTY_BODY' });
+    const dest = join(packagesDir(), name);
+    // refuse to shadow an existing different file — same name+size re-upload
+    // (retry) is idempotent-ish; a same-name DIFFERENT file is a mistake worth
+    // surfacing rather than silently replacing what a run may reference
+    if (existsSync(dest)) {
+      const st = statSync(dest);
+      if (st.size !== body.length) return reply.code(409).send({ error: `${name} already exists with a different size — rename or delete it first`, code: 'NAME_TAKEN' });
+    }
+    mkdirSync(packagesDir(), { recursive: true });
+    writeFileSync(dest, body);
+    const id = name.endsWith('.ipa') ? readIpaIdentity(dest) : null;
+    return { ok: true, path: dest, bundleId: id?.bundleId ?? null, version: id?.version ?? null, kind: name.endsWith('.ipa') ? 'ipa' : 'apk', platform: id?.platform ?? null };
   });
 
   // ── app catalog: identity + icon for the device's installed apps ──
