@@ -63,12 +63,14 @@ export async function runParallelBatch(
     lanes: Lane[];
     opts: Record<string, unknown>;
     runOne: RunOne;
+    /** caller-supplied id (queue-time callers need it BEFORE the pool resolves) */
+    batchId?: string;
   },
 ): Promise<BatchResult> {
   if (input.opts['scenarioId'] !== undefined && input.lanes.filter((l) => l.cases.length > 0).length > 1) {
     throw new ParallelScenarioError('network scenarios are not supported in parallel batches (global proxy state)');
   }
-  const batchId = `batch_${randomUUID().slice(0, 8)}`;
+  const batchId = input.batchId ?? `batch_${randomUUID().slice(0, 8)}`;
   const controller: Controller = { abort() { this.aborted = true; }, aborted: false };
   batches.set(batchId, controller);
   deps.bus.emit('batch.started', { batchId, lanes: input.lanes.length, cases: input.lanes.reduce((s, l) => s + l.cases.length, 0) });

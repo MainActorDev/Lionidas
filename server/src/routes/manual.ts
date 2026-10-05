@@ -660,8 +660,8 @@ export function registerManualRoutes(
   // Shared by play-all AND plans (one engine). ──
   // authenticated identity wins for attribution; body triggeredBy only for
   // bots/agents whose user IS the machine. Mirrors the manual-session rule.
-  async function runBatch(b: { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string>; cases?: Array<{ templateId: string; variantIds?: string[] | null }>; suiteId?: string; planId?: string }, reqUser?: { name: string } | null):
-    Promise<{ ok: true; runIds: string[]; count: number; batchId?: string; lanes?: Array<{ device: { udid: string; name: string | null }; runIds: string[]; skipped: string[]; haltedAt?: string; haltedReason?: string }> } | { ok: false; code: 400 | 409; error: string; runIds: string[]; appBundleId?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null }> {
+  async function runBatch(b: { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string>; cases?: Array<{ templateId: string; variantIds?: string[] | null }>; suiteId?: string; planId?: string; awaitSettle?: boolean }, reqUser?: { name: string } | null):
+    Promise<{ ok: true; runIds: string[]; count: number; batchId?: string; queuedOnly?: boolean; lanes?: Array<{ device: { udid: string; name: string | null }; runIds: string[]; skipped: string[]; haltedAt?: string; haltedReason?: string }> } | { ok: false; code: 400 | 409; error: string; runIds: string[]; appBundleId?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null }> {
     const { selectTemplates } = await import('./templates.ts');
     const { planLanes } = await import('../manual/batch/plan.ts');
     const { runParallelBatch, ParallelScenarioError } = await import('../manual/batch/pool.ts');
@@ -738,6 +738,30 @@ export function registerManualRoutes(
       ...(b.planId !== undefined ? { planId: b.planId } : {}),
       ...(multiLane ? { forgeAttribution: false } : {}), // proxy can't tell sims apart
     };
+
+    // queue-time mode (suite play from the cockpit): resolve when lanes are
+    // DISPATCHED, not settled — run rows/events are the live view; the modal
+    // must not hang for the whole suite (operator 2026-10-04)
+    if (b.awaitSettle === false) {
+      const batchId = `batch_${randomUUID().slice(0, 8)}`;
+      void runParallelBatch(
+        { db, bus: deps.bus, forgeState: deps.forgeState } as never,
+        {
+          lanes,
+          opts: batchOpts,
+          batchId,
+          runOne: async (templateId: string, udid: string, o: Record<string, unknown>, variantId?: string) => {
+            const variant = variantId !== undefined ? variantsOf(templateId).find((v) => v.id === variantId) ?? null : null;
+            return runTemplatePlayback(
+              { db, bus: deps.bus, dispatchDeps: deps.dispatchDeps, artifactsDir: deps.artifactsDir, forgeState: deps.forgeState, ...(process.env['VITEST'] ? { awaitStreamLive: null } : {}) },
+              templateId,
+              { ...o, ...(variant ? { variant } : {}) },
+            );
+          },
+        },
+      ).catch((err) => console.error('[batch] queue-only batch failed:', err));
+      return { ok: true, runIds: [] as string[], queuedOnly: true, batchId, count: sel.length };
+    }
 
     let result;
     try {
@@ -965,11 +989,44 @@ export function registerManualRoutes(
       return reply.code(409).send({ error: drift, code, skipped: [...drifted, ...deprecatedSkipped, ...ghostPins.map((g) => g.templateId)] });
     }
     const b = (req.body ?? {}) as { udid?: string; triggeredBy?: string };
+    // Scenario-member pre-flight (2026-10-04): a variant bound to a forge
+    // scenario dies BEFORE its run row exists (playback's T7 gate) — the
+    // batch then silently skips it (operator saw 'intl regression' run one
+    // of two cases with zero trace). Refuse the whole play up front: name
+    // the members and the fix. Partial suites are worse than no run.
+    {
+      const { forgePreflight } = await import('../forge/health.ts');
+      const { variantScenarioNames } = await import('@crucible/shared/yaml-variants');
+      const tplRow = db.prepare('SELECT variants_json FROM templates WHERE id = ?');
+      const dead: string[] = [];
+      const nameOf = db.prepare('SELECT name FROM templates WHERE id = ?');
+      for (const m of inScope) {
+        if (!m.variantIds || m.variantIds.length === 0) continue;
+        const vj = (() => { try { return JSON.parse((tplRow.get(m.templateId) as { variants_json: string | null } | undefined)?.variants_json ?? 'null') as Array<{ id: string; scenarios?: string[]; networkScenario?: string }>; } catch { return null; } })();
+        const caseName = ((nameOf.get(m.templateId) as { name: string } | undefined)?.name) ?? m.templateId;
+        for (const vid of m.variantIds) {
+          const v = (vj ?? []).find((x) => x.id === vid);
+          if (!v) continue;
+          const names = variantScenarioNames(v as never);
+          for (const name of names) {
+            const pf = forgePreflight(name);
+            if (pf) dead.push(`"${caseName}" / ${vid} (${pf.message})`);
+          }
+        }
+      }
+      if (dead.length > 0) {
+        return reply.code(409).send({
+          error: `suite cannot run: scenario-bound members need the forge alive — ${dead.join('; ')}`,
+          code: 'FORGE_DOWN',
+        });
+      }
+    }
     const r = await runBatch({
       cases: inScope,
       ...(b.udid !== undefined ? { udid: b.udid } : {}),
       triggeredBy: `suite:${row.name}`,
       suiteId: row.id,
+      awaitSettle: false, // cockpit: modal must not wait for the whole suite
     }, req.user);
     if (!r.ok) return reply.code(r.code).send({ error: r.error, code: r.code === 409 ? 'DEVICE_BUSY' : undefined, runIds: r.runIds });
     return { runIds: r.runIds, count: r.count, batchId: r.batchId, ...(drifted.length > 0 ? { skippedDrifted: drifted } : {}), ...(deprecatedSkipped.length > 0 ? { skippedDeprecated: deprecatedSkipped } : {}), ...(ghostPins.length > 0 ? { skippedDeadVariants: ghostPins } : {}) };

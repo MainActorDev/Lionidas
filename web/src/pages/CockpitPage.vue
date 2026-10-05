@@ -55,15 +55,36 @@ let preselectApplied = false;
 // away mid-restart, exactly when the operator is watching). Kept in `devices`
 // with sub:'restarting' until the cycle completes server-side.
 // a testcase (template run) active on the ACTIVE device — take control
-// is disabled while one runs (driving mid-case poisons its steps)
+// is disabled while one runs (driving mid-case poisons its steps); the
+// ABORT button uses the same truth (run id on this device, or the batch)
 const caseRunningOnActive = ref(false);
+const activeRunId = ref<string | null>(null);
+const lastBatchId = ref<string | null>(null);
 async function pollCaseRunning(): Promise<void> {
-  if (!activeUdid.value) { caseRunningOnActive.value = false; return; }
+  if (!activeUdid.value) { caseRunningOnActive.value = false; activeRunId.value = null; return; }
   try {
     const r = await fetch('/api/runs?limit=12');
-    const b = (await r.json()) as { runs?: Array<{ device_udid?: string; status?: string; template_id?: string | null; kind?: string }> };
-    caseRunningOnActive.value = (b.runs ?? []).some((x) => x.device_udid === activeUdid.value && (x.status === 'queued' || x.status === 'running') && x.template_id);
+    const b = (await r.json()) as { runs?: Array<{ id?: string; device_udid?: string; status?: string; template_id?: string | null; kind?: string }> };
+    const hit = (b.runs ?? []).find((x) => x.device_udid === activeUdid.value && (x.status === 'queued' || x.status === 'running') && x.template_id);
+    caseRunningOnActive.value = !!hit;
+    activeRunId.value = hit?.id ?? null;
   } catch { /* transient */ }
+}
+/** abort what's running: the batch when we launched a suite (covers all
+ *  lanes + between-steps aborts in-flight runs), else this device's run */
+async function abortRunning(): Promise<void> {
+  try {
+    if (lastBatchId.value) {
+      const r = await fetch(`/api/batches/${encodeURIComponent(lastBatchId.value)}/abort`, { method: 'POST' });
+      if (r.ok) { flash('suite aborting'); return; }
+      // batch settled — fall through to run-abort below
+    }
+    if (activeRunId.value) {
+      const r = await fetch(`/api/runs/${encodeURIComponent(activeRunId.value)}/abort`, { method: 'POST' });
+      if (r.ok) { flash('case aborting'); return; }
+    }
+    flash('nothing to abort', 'err');
+  } catch { flash('abort request failed', 'err'); }
 }
 
 const restarting = ref(new Set<string>());
@@ -400,9 +421,17 @@ async function playSuite(): Promise<void> {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify(playAllBooted.value ? {} : { udid: activeUdid.value }),
     });
-    const b = (await r.json()) as { runIds?: string[]; count?: number; batchId?: string; error?: string };
-    if (b.runIds) {
+    const b = (await r.json()) as { runIds?: string[]; count?: number; batchId?: string; queuedOnly?: boolean; error?: string };
+    if (b.queuedOnly || b.batchId) {
+      // queue-time response: runIds are empty by design (runs spawn async)
       suiteOpen.value = false;
+      lastBatchId.value = b.batchId ?? null; // abort = batch-abort (all lanes)
+      flash(`suite · ${b.count ?? '…'} runs queued`);
+      railTab.value = 'watch';
+    }
+    else if (b.runIds && b.runIds.length > 0) {
+      suiteOpen.value = false;
+      lastBatchId.value = b.batchId ?? null;
       flash(`suite · ${b.count ?? b.runIds.length} runs queued`);
       railTab.value = 'watch';
     }
@@ -451,9 +480,10 @@ async function playCase(id: string): Promise<void> {
     if (b.fanOut) {
       playOpen.value = false;
       const ok = (b.runs ?? []).filter((x) => x.runId).length;
+      lastBatchId.value = null; // fan-out is per-device runs, not a batch — abort = run-abort
       flash(`queued on ${ok}/${b.count ?? '?'} devices`);
       railTab.value = 'watch';
-    } else if (b.runId) { playOpen.value = false; flash(`run started · ${String(b.runId).slice(0, 14)}`); railTab.value = 'watch'; }
+    } else if (b.runId) { playOpen.value = false; lastBatchId.value = null; flash(`run started · ${String(b.runId).slice(0, 14)}`); railTab.value = 'watch'; }
     else flash(b.error ?? 'play failed', 'err');
   } catch { flash('play request failed', 'err'); }
   finally { playBusy.value = false; }
@@ -554,7 +584,8 @@ void live;
         :overlay-nodes="overlayData.nodes" :overlay-w="overlayData.w" :overlay-h="overlayData.h" :overlay-visible="overlayData.visible" :sel-parent-node="overlayData.sel" :selected-node="overlayData.sel"
         @session-state="onSessionState" @inspect-click="onInspectClick"
         @session-acquired="onSessionAcquired" @session-dropped="onSessionDropped"
-        @exit-inspect="overlay = null; toolsOpen = false" />
+        @exit-inspect="overlay = null; toolsOpen = false"
+        @abort-running="abortRunning" />
       <div v-else class="empty">no booted devices — boot one from the device menu</div>
       <!-- toasts live INSIDE the device container area (stage column), top-left -->
       <div class="toast-stack" aria-live="polite">
@@ -728,7 +759,7 @@ void live;
 @keyframes toast-drain { from { width: 100%; } to { width: 0; } }
 @media (prefers-reduced-motion: reduce) { .toast .t-bar { display: none; } }
 .modal-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 50; }
-.modal { background: var(--color-carbon); border: 1px solid var(--color-slate); border-radius: var(--r); padding: 16px; min-width: 320px; max-height: 60vh; display: flex; flex-direction: column; }
+.modal { background: var(--color-carbon); border: 1px solid var(--color-slate); border-radius: var(--r); padding: 16px; min-width: 320px; max-width: min(560px, calc(100vw - 48px)); max-height: 60vh; display: flex; flex-direction: column; box-sizing: border-box; }
 .modal-body { flex: 1; min-height: 0; overflow-y: auto; }
 .runapp-icon { vertical-align: -4px; margin-right: 7px; border-radius: 4px; }
 .running-dot { color: var(--color-ember); font-size: 9px; margin-left: 5px; }
@@ -744,10 +775,10 @@ void live;
    checkbox-next-to-text shape. */
 .fanout-row input { width: 13px; height: 13px; flex: 0 0 auto; margin: 0; accent-color: var(--color-ember); cursor: pointer; }
 .fanout-row:hover { color: var(--color-paper); }
-.modal.wide { min-width: 460px; }
+.modal.wide { width: 560px; min-width: 0; max-width: min(560px, calc(100vw - 48px)); }
 .app-row { border: 1px solid var(--color-iron); border-radius: var(--r); padding: 8px; margin-bottom: 6px; }
 .app-row.picked { border-color: var(--color-ember); }
-.modal-search { font-family: inherit; font-size: var(--text-caption); color: var(--color-paper); background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r); padding: 5px 8px; margin-bottom: 8px; width: 100%; outline: none; }
+.modal-search { box-sizing: border-box; font-family: inherit; font-size: var(--text-caption); color: var(--color-paper); background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r); padding: 5px 8px; margin-bottom: 8px; width: 100%; outline: none; }
 .modal-search:focus { border-color: var(--color-slate); }
 .case-row { cursor: pointer; }
 .case-row:hover { border-color: var(--color-slate); }
@@ -763,7 +794,7 @@ void live;
 .m-btn.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: var(--weight-bold); }
 .m-btn:disabled { opacity: .5; cursor: default; }
 .hint-ok { color: var(--color-paper); font-size: var(--text-caption); margin-top: 8px; }
-.hint-err { color: var(--color-paper); font-size: var(--text-caption); margin-top: 8px; border-left: 2px solid var(--color-ember); padding-left: 8px; }
+.hint-err { color: var(--color-paper); font-size: var(--text-caption); margin-top: 8px; border-left: 2px solid var(--color-ember); padding-left: 8px; overflow-wrap: anywhere; white-space: pre-wrap; max-height: 84px; overflow-y: auto; flex: none; }
 .dev-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; border: 1px solid var(--color-iron); border-radius: var(--r); padding: 8px 10px; margin-bottom: 6px; cursor: pointer; }
 .dev-row:hover { border-color: var(--color-slate); }
 .dev-row.picked { border-color: var(--color-ember); }
