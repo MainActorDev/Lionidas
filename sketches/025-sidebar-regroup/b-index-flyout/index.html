@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>025-B · index + flyout</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  .app {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    grid-template-rows: 48px 1fr;
+    grid-template-areas: "logo topbar" "nav main";
+    height: 100vh;
+  }
+  .logo {
+    grid-area: logo; display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--color-fog); letter-spacing: 0.02em;
+    padding: 0 16px; border-right: 1px solid var(--color-iron);
+    border-bottom: 1px solid var(--color-iron);
+  }
+  .logo .mark { width: 20px; height: 20px; background: var(--color-ember); border-radius: 4px; flex: none; }
+  .sidebar {
+    grid-area: nav; background: var(--color-void);
+    border-right: 1px solid var(--color-iron); padding: 16px 0; overflow-y: auto;
+    position: relative;
+  }
+  .topbar {
+    grid-area: topbar; display: flex; align-items: center; gap: 12px;
+    padding: 0 24px; border-bottom: 1px solid var(--color-iron);
+  }
+  .topbar .spacer { flex: 1; }
+  .topbar .user { font-size: 12px; color: var(--color-fog); display: flex; align-items: center; gap: 6px; }
+  .topbar .user .dot { width: 6px; height: 6px; background: var(--color-ember); }
+  .kbd { font-size: 11px; color: var(--color-steel); border: 1px solid var(--color-iron); padding: 1px 5px; }
+  .btn {
+    font-family: var(--font-mono); font-size: 12px; color: var(--color-paper);
+    background: var(--color-carbon); border: 1px solid var(--color-iron);
+    padding: 3px 10px; cursor: pointer;
+  }
+  .btn:hover { background: var(--color-graphite); }
+  .main { grid-area: main; padding: 24px; overflow-y: auto; }
+
+  /* ── index rail + flyout ── */
+  .nav-item {
+    display: flex; align-items: center;
+    padding: 8px 16px;
+    font-family: var(--font-mono); font-size: 14px;
+    color: var(--color-fog); cursor: pointer;
+    transition: color var(--t), background var(--t);
+    border-left: 2px solid transparent; user-select: none; text-decoration: none;
+  }
+  .nav-item:hover { color: var(--color-paper); background: var(--color-carbon); }
+  .nav-item.active {
+    color: var(--color-paper); background: var(--color-carbon);
+    border-left-color: var(--color-ember);
+  }
+  .grp { position: relative; }
+  .grp-head {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--font-mono); font-size: 14px; color: var(--color-fog);
+    padding: 8px 16px; cursor: pointer; user-select: none;
+    border-left: 2px solid transparent;
+  }
+  .grp-head:hover, .grp:hover .grp-head { color: var(--color-paper); background: var(--color-carbon); }
+  .grp-head .sub {
+    margin-left: auto; font-size: 11px; color: var(--color-steel);
+  }
+  .grp-head .marker { width: 5px; height: 5px; background: var(--color-ember); opacity: 0; }
+  .grp.has-active .grp-head .marker { opacity: 1; }
+  .grp.has-active .grp-head { color: var(--color-paper); }
+  .fly {
+    display: none; position: absolute; left: calc(100% + 1px); top: 0; z-index: 40;
+    min-width: 168px; background: var(--color-graphite);
+    border: 1px solid var(--color-iron); border-left-color: var(--color-slate);
+    padding: 4px 0; box-shadow: 0 0 0 1px rgba(0,0,0,.6);
+  }
+  .grp:hover .fly, .grp:focus-within .fly { display: block; }
+  .fly a {
+    display: flex; align-items: center; padding: 7px 14px;
+    font-family: var(--font-mono); font-size: 13px; color: var(--color-fog);
+    text-decoration: none; border-left: 2px solid transparent; cursor: pointer;
+  }
+  .fly a:hover { color: var(--color-paper); background: var(--color-carbon); }
+  .fly a.active { color: var(--color-paper); border-left-color: var(--color-ember); background: var(--color-carbon); }
+  .gap { height: 20px; }
+
+  /* ── page stub (house anatomy) ── */
+  .ph { margin-bottom: 24px; }
+  .ph-row1 { display: flex; align-items: baseline; gap: 16px; padding-bottom: 8px; }
+  .ph-title { font-size: 18px; color: var(--color-paper); }
+  .ph-acts { margin-left: auto; display: flex; gap: 8px; }
+  .ph-row2 {
+    display: flex; gap: 12px; align-items: center;
+    font-size: 13px; color: var(--color-ash);
+    padding: 6px 0; border-top: 1px solid var(--color-iron);
+  }
+  .rows { max-width: 860px; }
+  .row {
+    display: grid; grid-template-columns: 2fr 1fr 90px 90px; gap: 12px;
+    padding: 12px 0; border-bottom: 1px solid var(--color-iron);
+    font-size: 13px; color: var(--color-fog); align-items: center;
+  }
+  .row .id { color: var(--color-paper); }
+  .row .st { justify-self: start; font-size: 11px; padding: 1px 6px; border: 1px solid var(--color-iron); color: var(--color-ash); }
+  .row .st.ok { color: var(--color-ember); border-color: var(--color-ember-dim); }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="logo"><span class="mark"></span> lionidas</div>
+
+  <nav class="sidebar" aria-label="primary">
+    <a class="nav-item active" data-page="overview">overview</a>
+    <div class="gap"></div>
+    <div class="grp" data-grp="testing">
+      <div class="grp-head" tabindex="0"><span class="marker"></span> testing <span class="sub">4</span></div>
+      <div class="fly">
+        <a data-page="suites">suites</a>
+        <a data-page="runs">runs</a>
+        <a data-page="devices">devices</a>
+      </div>
+    </div>
+    <div class="grp" data-grp="library">
+      <div class="grp-head" tabindex="0"><span class="marker"></span> library <span class="sub">4</span></div>
+      <div class="fly">
+        <a data-page="templates">test cases</a>
+        <a data-page="screens">screens</a>
+        <a data-page="env">env</a>
+        <a data-page="forge">network</a>
+      </div>
+    </div>
+    <div class="grp" data-grp="system">
+      <div class="grp-head" tabindex="0"><span class="marker"></span> system <span class="sub">3</span></div>
+      <div class="fly">
+        <a data-page="monitoring">monitoring</a>
+        <a data-page="users">users</a>
+        <a data-page="guide">guide</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="topbar">
+    <span class="spacer"></span>
+    <span class="user"><span class="dot"></span> berkamain · admin</span>
+    <button class="btn">sign out</button>
+    <span class="kbd">⌘K</span>
+  </div>
+
+  <main class="main">
+    <div class="ph">
+      <div class="ph-row1">
+        <span class="ph-title" id="pt">overview</span>
+        <span class="ph-acts"><button class="btn" id="pa">run suite</button></span>
+      </div>
+      <div class="ph-row2"><span id="pd">device farm health across the current batch</span></div>
+    </div>
+    <div class="rows" id="rows"></div>
+  </main>
+</div>
+
+<script>
+  const pages = {
+    overview:  ['overview', 'device farm health across the current batch', 'run suite'],
+    suites:    ['suites', 'ordered member collections · play top to bottom', 'new suite'],
+    runs:      ['runs', 'execution log · day-grouped', 'new run'],
+    devices:   ['devices', 'simulator wall · boot, drive, install', 'boot device'],
+    templates: ['test cases', 'case documents per app · variant-aware', 'new case'],
+    screens:   ['screens', 'screen registry the case yaml references', 'new screen'],
+    env:       ['env', 'scoped variables · usage-checked', 'new variable'],
+    forge:     ['network', 'scenario documents · presets shape traffic', 'new scenario'],
+    monitoring:['monitoring', 'host + service telemetry', ''],
+    users:     ['users', 'operator accounts · roles', 'new user'],
+    guide:     ['guide', 'how the registry and grammar fit together', ''],
+  };
+  const rows = [
+    ['sg · login-otp', 'com.lionparcel.app', '2m 14s', 'pass'],
+    ['my · claim-flow', 'com.lionparcel.app', '41s', 'pass'],
+    ['sg · onboard-v2', 'com.lionparcel.app', '3m 02s', 'fail'],
+    ['id · pickup-scan', 'com.lionparcel.logistics', '58s', 'pass'],
+    ['sg · payment-va', 'com.lionparcel.app', '1m 47s', 'pass'],
+  ];
+  const rowsEl = document.getElementById('rows');
+  rows.forEach(r => {
+    const d = document.createElement('div'); d.className = 'row';
+    d.innerHTML = `<span class="id">${r[0]}</span><span>${r[1]}</span><span>${r[2]}</span><span class="st ${r[3]==='pass'?'ok':''}">${r[3]}</span>`;
+    rowsEl.appendChild(d);
+  });
+  function activate(a) {
+    document.querySelectorAll('.nav-item, .fly a').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.grp').forEach(g => g.classList.remove('has-active'));
+    a.classList.add('active');
+    if (a.closest('.grp')) a.closest('.grp').classList.add('has-active');
+    const p = pages[a.dataset.page];
+    document.getElementById('pt').textContent = p[0];
+    document.getElementById('pd').textContent = p[1];
+    document.getElementById('pa').textContent = p[2] || 'action';
+  }
+  document.querySelectorAll('.nav-item, .fly a').forEach(a => a.addEventListener('click', () => activate(a)));
+</script>
+</body>
+</html>
