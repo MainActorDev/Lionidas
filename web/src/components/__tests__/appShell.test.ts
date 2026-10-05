@@ -7,6 +7,7 @@ import App from '../../App.vue';
 // stub every page component so the drill targets the shell (sidebar) only.
 // fetch stub: auth probe returns a user (else the guard bounces to /login),
 // CmdPalette's /api/devices returns an empty boot list.
+let currentRole = 'admin';
 const routes = [
   { path: '/login', name: 'login', component: { template: '<div id="stub-page" />' }, meta: { public: true } },
   { path: '/', name: 'overview', component: { template: '<div id="stub-page" />' } },
@@ -22,7 +23,8 @@ const routes = [
   { path: '/guide', name: 'guide', component: { template: '<div id="stub-page" />' } },
 ];
 
-async function makeApp(path = '/'): Promise<{ wrapper: ReturnType<typeof mount>; router: Router }> {
+async function makeApp(path = '/', role = 'admin'): Promise<{ wrapper: ReturnType<typeof mount>; router: Router }> {
+  currentRole = role;
   const router = createRouter({ history: createMemoryHistory(), routes });
   router.push(path);
   await router.isReady();
@@ -33,30 +35,38 @@ async function makeApp(path = '/'): Promise<{ wrapper: ReturnType<typeof mount>;
 
 describe('app shell sidebar (025-A collapsible tree)', () => {
   beforeEach(() => {
+    currentRole = 'admin';
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/api/devices')) return { ok: true, json: async () => ({ devices: [] }) } as Response;
       if (url.includes('/api/runs')) return { ok: true, json: async () => ({ runs: [] }) } as Response;
-      return { ok: true, json: async () => ({ user: { name: 'drill', role: 'admin' } }) } as Response;
+      return { ok: true, json: async () => ({ user: { name: 'drill', role: currentRole } }) } as Response;
     }));
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it('renders three collapsible groups with all 11 destinations', async () => {
+  it('renders three collapsible groups with all destinations (admin)', async () => {
     const { wrapper } = await makeApp('/');
     const heads = wrapper.findAll('.nav-grp-head');
     // text() includes the caret glyph — compare normalized labels
     expect(heads.map(h => h.text().replace('▾', '').trim())).toEqual(['testing', 'library', 'system']);
     const items = wrapper.findAll('.nav-item');
-    expect(items).toHaveLength(10);
+    expect(items).toHaveLength(11);
     expect(items.map(i => i.text())).toEqual([
       'overview', 'suites', 'devices', 'runs',
       'test cases', 'screens', 'env', 'network',
-      'users', 'guide',
+      'users', 'guide', 'projects',
     ]);
     // all expanded by default
     expect(wrapper.findAll('.nav-grp-kids')).toHaveLength(3);
     expect(wrapper.findAll('.nav-grp.closed')).toHaveLength(0);
+  });
+
+  it('hides the admin-only projects item for non-admins', async () => {
+    const { wrapper } = await makeApp('/', 'operator');
+    const items = wrapper.findAll('.nav-item').map(i => i.text());
+    expect(items).not.toContain('projects');
+    expect(items).toHaveLength(10);
   });
 
   it('toggles a group closed and hides its children', async () => {
