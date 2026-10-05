@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>027-B · projects — inline row editor</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  body { background: var(--color-void); color: var(--color-paper); font-family: var(--font-mono); }
+  .page { max-width: 920px; margin: 0 auto; padding: var(--s-6); }
+  .ph { margin-bottom: var(--s-5); }
+  .ph-row1 { display: flex; align-items: baseline; gap: var(--s-4); padding-bottom: var(--s-2); }
+  .ph-title { font-size: var(--text-heading-sm); }
+  .ph-acts { margin-left: auto; display: flex; gap: var(--s-2); }
+  .ph-row2 { font-size: var(--text-label); color: var(--color-ash); padding: var(--s-2) 0; border-top: 1px solid var(--color-iron); }
+  .list { border: 1px solid var(--color-iron); background: var(--color-carbon); }
+  .thead { display: grid; grid-template-columns: 2fr 3fr 1fr 90px 80px; gap: var(--s-3); padding: var(--s-2) var(--s-4); font-size: var(--text-caption); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-steel); border-bottom: 1px solid var(--color-iron); }
+  .row { display: grid; grid-template-columns: 2fr 3fr 1fr 90px 80px; gap: var(--s-3); padding: 0 var(--s-4); border-bottom: 1px solid var(--color-iron); font-size: var(--text-label); color: var(--color-fog); align-items: center; min-height: 44px; cursor: pointer; }
+  .row:hover { background: var(--color-graphite); color: var(--color-paper); }
+  .row .nm { color: var(--color-paper); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .url, .row .br { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ash); }
+  .auth { font-size: 10px; padding: 1px 5px; border: 1px solid var(--color-iron); color: var(--color-ash); text-transform: uppercase; justify-self: start; }
+  .auth.on { color: var(--color-ember); border-color: var(--color-ember-dim); }
+  .act { color: var(--color-steel); cursor: pointer; user-select: none; }
+  .act:hover { color: var(--color-paper); }
+  /* expanded inline editor (a2-row-card idiom) */
+  .editor { background: var(--color-graphite); border-bottom: 1px solid var(--color-iron); padding: var(--s-4); display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); }
+  .fld label { display: block; font-size: var(--text-caption); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-steel); margin-bottom: 4px; }
+  .fld input { width: 100%; background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-label); padding: 6px 8px; }
+  .fld .hint { font-size: var(--text-caption); color: var(--color-steel); margin-top: 3px; }
+  .editor .foot { grid-column: 1 / -1; display: flex; gap: var(--s-2); justify-content: flex-end; }
+  .btn { font-family: var(--font-mono); font-size: 12px; color: var(--color-paper); background: var(--color-carbon); border: 1px solid var(--color-iron); padding: 4px 12px; cursor: pointer; }
+  .btn:hover { background: var(--color-graphite); }
+  .btn.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: bold; }
+  .btn.danger { color: var(--color-ember); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="ph">
+    <div class="ph-row1">
+      <span class="ph-title">projects</span>
+      <span class="ph-acts"><button class="btn primary" id="add">+ project</button></span>
+    </div>
+    <div class="ph-row2">source repositories lionidas knows — packages and CI anchor to them · admin only</div>
+  </div>
+  <div class="list" id="list">
+    <div class="thead"><span>name</span><span>repo</span><span>branch</span><span>auth</span><span></span></div>
+    <div class="row" data-r="1"><span class="nm">intl</span><span class="url">git@github.com:MainActorDev/LionParcelLogisticsINTL.git</span><span class="br">develop</span><span class="auth on">token</span><span class="act" onclick="toggle(event,1)">edit</span></div>
+    <div class="editor" data-e="1" style="display:none">
+      <div class="fld"><label>name</label><input value="intl"></div>
+      <div class="fld"><label>repo url</label><input value="git@github.com:MainActorDev/LionParcelLogisticsINTL.git"></div>
+      <div class="fld"><label>local path — optional</label><input placeholder="/Users/you/Developer/…"></div>
+      <div class="fld"><label>default branch</label><input value="develop"></div>
+      <div class="fld" style="grid-column: 1 / -1;"><label>auth token — optional · blank keeps</label><input type="password" placeholder="write-only: never displayed"><div class="hint">git-host credential (e.g. a GitHub PAT)</div></div>
+      <div class="foot"><button class="btn danger">delete</button><button class="btn">cancel</button><button class="btn primary">save</button></div>
+    </div>
+    <div class="row" data-r="2"><span class="nm">consumer</span><span class="url">git@github.com:MainActorDev/ios-consumer.git</span><span class="br">main</span><span class="auth">—</span><span class="act" onclick="toggle(event,2)">edit</span></div>
+    <div class="editor" data-e="2" style="display:none">
+      <div class="fld"><label>name</label><input value="consumer"></div>
+      <div class="fld"><label>repo url</label><input value="git@github.com:MainActorDev/ios-consumer.git"></div>
+      <div class="foot"><button class="btn danger">delete</button><button class="btn">cancel</button><button class="btn primary">save</button></div>
+    </div>
+    <div class="row" data-r="3"><span class="nm">lionidas</span><span class="url">git@github.com:MainActorDev/Lionidas.git</span><span class="br">main</span><span class="auth">—</span><span class="act" onclick="toggle(event,3)">edit</span></div>
+  </div>
+</div>
+<script>
+function toggle(e, i){ e.stopPropagation(); const ed = document.querySelector(`[data-e="${i}"]`); ed.style.display = ed.style.display === 'none' ? 'grid' : 'none'; }
+</script>
+</body>
+</html>
