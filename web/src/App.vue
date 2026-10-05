@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import CmdPalette from './components/CmdPalette.vue';
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, reactive } from 'vue';
 
 const me = ref<{ name: string; role: string } | null>(null);
 async function loadMe(): Promise<void> {
@@ -28,6 +28,46 @@ const isPublic = computed(() => route.meta.public === true);
 const isBare = computed(() => isPublic.value || route.meta.fullscreen === true);
 // cheap re-check on route change (login/out navigations refresh the chip)
 watch(() => route.fullPath, () => void loadMe());
+
+// ── collapsible nav groups (025-A) ──
+interface NavEntry { to: string; label: string; names: string[] }
+interface NavGroup { id: string; label: string; items: NavEntry[] }
+const navGroups: NavGroup[] = [
+  {
+    id: 'testing', label: 'testing',
+    items: [
+      { to: '/', label: 'overview', names: ['overview'] },
+      { to: '/suites', label: 'suites', names: ['suites'] },
+      { to: '/devices', label: 'devices', names: ['wall'] },
+      { to: '/runs', label: 'runs', names: ['runs', 'runDetail'] },
+    ],
+  },
+  {
+    id: 'library', label: 'library',
+    items: [
+      { to: '/templates', label: 'test cases', names: ['templates'] },
+      { to: '/screens', label: 'screens', names: ['screens'] },
+      { to: '/env', label: 'env', names: ['env'] },
+      { to: '/forge', label: 'network', names: ['forge'] },
+    ],
+  },
+  {
+    id: 'system', label: 'system',
+    items: [
+      { to: '/monitoring', label: 'monitoring', names: ['monitoring'] },
+      { to: '/users', label: 'users', names: ['users'] },
+      { to: '/guide', label: 'guide', names: ['guide'] },
+    ],
+  },
+];
+const collapsed = reactive<Record<string, boolean>>({});
+const toggleGroup = (id: string): void => { collapsed[id] = !collapsed[id]; };
+const groupHasActive = (g: NavGroup): boolean =>
+  g.items.some(it => it.names.some(isActive));
+// navigating into a collapsed group expands it (active page must stay visible)
+watch(() => route.name, () => {
+  for (const g of navGroups) if (groupHasActive(g)) collapsed[g.id] = false;
+}, { immediate: true });
 </script>
 
 <template>
@@ -36,32 +76,17 @@ watch(() => route.fullPath, () => void loadMe());
   <div v-else class="app">
     <div class="logo"><img class="logo-mark" src="/icons/lionidas-app-128.png" alt="" width="20" height="20" /> lionidas</div>
 
-    <nav class="sidebar">
-      <div class="nav-group">
-        <div class="nav-group-label">testing</div>
-        <RouterLink to="/" class="nav-item" :class="{ active: isActive('overview') }">overview</RouterLink>
-        <RouterLink to="/suites" class="nav-item" :class="{ active: isActive('suites') }">suites</RouterLink>
-        <RouterLink to="/devices" class="nav-item" :class="{ active: isActive('wall') }">devices</RouterLink>
-        <RouterLink to="/runs" class="nav-item" :class="{ active: isActive('runs') || isActive('runDetail') }">runs</RouterLink>
-      </div>
-      <div class="nav-group">
-        <div class="nav-group-label">quality</div>
-        <RouterLink to="/templates" class="nav-item" :class="{ active: isActive('templates') }">test cases</RouterLink>
-        <RouterLink to="/screens" class="nav-item" :class="{ active: isActive('screens') }">screens</RouterLink>
-        <RouterLink to="/env" class="nav-item" :class="{ active: isActive('env') }">env</RouterLink>
-        <RouterLink to="/monitoring" class="nav-item" :class="{ active: isActive('monitoring') }">monitoring</RouterLink>
-      </div>
-      <div class="nav-group">
-        <div class="nav-group-label">access</div>
-        <RouterLink to="/users" class="nav-item" :class="{ active: isActive('users') }">users</RouterLink>
-      </div>
-      <div class="nav-group">
-        <div class="nav-group-label">network</div>
-        <RouterLink to="/forge" class="nav-item" :class="{ active: isActive('forge') }">network</RouterLink>
-      </div>
-      <div class="nav-group">
-        <div class="nav-group-label">help</div>
-        <RouterLink to="/guide" class="nav-item" :class="{ active: isActive('guide') }">guide</RouterLink>
+    <nav class="sidebar" aria-label="primary">
+      <div v-for="g in navGroups" :key="g.id" class="nav-grp" :class="{ closed: collapsed[g.id] }">
+        <button type="button" class="nav-grp-head" :class="{ on: groupHasActive(g) }" :aria-expanded="!collapsed[g.id]" @click="toggleGroup(g.id)">
+          <span class="caret">▾</span>{{ g.label }}
+        </button>
+        <div v-show="!collapsed[g.id]" class="nav-grp-kids">
+          <RouterLink
+            v-for="it in g.items" :key="it.to" :to="it.to" class="nav-item"
+            :class="{ active: it.names.some(isActive) }"
+          >{{ it.label }}</RouterLink>
+        </div>
       </div>
     </nav>
 
