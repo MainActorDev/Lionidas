@@ -13,3 +13,6 @@ server/apps/
 server/.env
 .hermes/
 __pycache__/
+
+# CI-dropped install packages (.ipa/.apk)
+server/packages/

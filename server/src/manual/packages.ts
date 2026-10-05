@@ -29,11 +29,14 @@ export function packagesDir(): string {
 
 /** Bundle id + version from a .ipa: `unzip -p` streams Payload/*.app/Info.plist
  *  to stdout, plutil converts the plist to json on stdin. No extraction to
- *  disk. Null on ANY failure — callers skip the row (a half-copied CI file
- *  reads as unreadable and simply does not list until complete). */
+ *  disk. The plist stays a BUFFER end-to-end — a binary plist survives the
+ *  pipe, but toString() mangles its bytes and plutil rejects the result
+ *  (caught live: identity read null on every real .ipa). Null on ANY failure —
+ *  callers skip the row (a half-copied CI file reads as unreadable and simply
+ *  does not list until complete). */
 export function readIpaIdentity(ipaPath: string): { bundleId: string; version: string | null } | null {
   try {
-    const plist = execFileSync('unzip', ['-p', ipaPath, 'Payload/*.app/Info.plist'], { maxBuffer: 16 * 1024 * 1024 }).toString();
+    const plist = execFileSync('unzip', ['-p', ipaPath, 'Payload/*.app/Info.plist'], { maxBuffer: 16 * 1024 * 1024 });
     const json = execFileSync('plutil', ['-convert', 'json', '-o', '-', '-'], { input: plist, maxBuffer: 16 * 1024 * 1024 }).toString();
     const p = JSON.parse(json) as { CFBundleIdentifier?: string; CFBundleShortVersionString?: string };
     if (!p.CFBundleIdentifier) return null;

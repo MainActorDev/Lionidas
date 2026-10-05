@@ -15,6 +15,7 @@ import { useInspectSample } from '../composables/useInspectSample.ts';
 import InspectOverlay from './InspectOverlay.vue';
 import InspectRedlines from './InspectRedlines.vue';
 import DeviceRail from './DeviceRail.vue';
+import PackagePicker from './PackagePicker.vue';
 import InspectTree from './InspectTree.vue';
 import InspectProps from './InspectProps.vue';
 
@@ -388,84 +389,32 @@ async function loadAppOptions(): Promise<void> {
 }
 watch(() => props.device?.udid, () => { appOptionsLoaded = false; appOptions.value = []; appBundleId.value = ''; }, { immediate: true });
 
-// ── install app card: artifact picker (discovery: build dirs + DerivedData
-// + the Lionidas store, freshest first) → explicit install → refresh list. ──
-interface ArtifactRow { path: string; bundleId: string; version: string | null; mtimeMs: number; source: string }
-const artifacts = ref<ArtifactRow[]>([]);
-const artifactsLoaded = ref(false);
-const artifactPick = ref('');
-/** deduped picker model: one row per bundle id (newest build as headline),
- *  tiered: build-roots+store = "your apps"; deriveddata = "on this mac" */
-interface AppRow { key: string; name: string; bundleId: string; version: string | null; mtimeMs: number; source: string; builds: ArtifactRow[] }
-const yourApps = ref<AppRow[]>([]);
-const macApps = ref<AppRow[]>([]);
-const showMacApps = ref(false);
-const expandedRow = ref<string | null>(null);
-function buildAppRows(list: ArtifactRow[]): void {
-  const byBundle = new Map<string, ArtifactRow[]>();
-  for (const a of list) {
-    const k = a.bundleId ?? a.path;
-    byBundle.set(k, [...(byBundle.get(k) ?? []), a]);
-  }
-  const row = (builds: ArtifactRow[]): AppRow => {
-    const sorted = [...builds].sort((x, y) => y.mtimeMs - x.mtimeMs);
-    const head = sorted[0]!;
-    // name: prefer the human .app name (LionParcelLogistics), not the store's
-    // bundle-timestamped filename — build-source entries carry it
-    // store filenames look like <bundle>-<version>-<mtime> (all-lowercase dotted
-    // prefix + trailing digit segments); anything else is a human .app name
-    const storeName = /^[a-z][a-z0-9]*(\.[a-z0-9-]+)+-\d+(\.\d+)*-\d+$/;
-    const humanName = sorted.map((b) => b.path.split('/').pop()?.replace(/\.app$/, '') ?? '')
-      .find((n) => n && !storeName.test(n));
-    return { key: head.bundleId ?? head.path, name: humanName ?? head.bundleId ?? 'app',
-             bundleId: head.bundleId ?? '', version: head.version, mtimeMs: head.mtimeMs, source: head.source, builds: sorted };
-  };
-  const rows = [...byBundle.values()].map(row).sort((a, b) => b.mtimeMs - a.mtimeMs);
-  yourApps.value = rows.filter((r) => r.builds.some((b) => b.source !== 'deriveddata'));
-  macApps.value = rows.filter((r) => r.builds.every((b) => b.source === 'deriveddata'));
+// ── install app card (packages direction, 026-B): shared PackagePicker
+//  modal → pick → explicit install → refresh installed list. ──
+const pkgPickerOpen = ref(false);
+const pkgPick = ref('');
+const pkgPickLabel = ref('');
+function pickPackage(path: string): void {
+  pkgPick.value = path;
+  pkgPickLabel.value = path.split('/').pop() ?? path;
+  pkgPickerOpen.value = false;
 }
-watch(artifacts, (list) => buildAppRows(list));
-const ageOf = (ms: number): string => {
-  const m = Math.round((Date.now() - ms) / 60000);
-  return m < 60 ? `${m}m ago` : m < 2880 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`;
-};
 const installing = ref(false);
 const installMsg = ref('');
 const installErr = ref('');
-let artifactsRequested = false;
-async function loadArtifacts(): Promise<void> {
-  if (!props.device || artifactsRequested) return;
-  artifactsRequested = true;
-  try {
-    const res = await fetch(`/api/devices/${props.device.udid}/artifacts`);
-    const body = await res.json() as { artifacts?: ArtifactRow[] };
-    artifacts.value = body.artifacts ?? [];
-    // preselect: match the picked app bundle, else the freshest row
-    const match = artifacts.value.find((a) => a.bundleId === appBundleId.value);
-    artifactPick.value = (match ?? artifacts.value[0])?.path ?? '';
-    artifactsLoaded.value = true;
-  } catch { artifacts.value = []; }
-}
-watch(() => props.device?.udid, () => { artifactsRequested = false; artifacts.value = []; artifactsLoaded.value = false; artifactPick.value = ''; installMsg.value = ''; installErr.value = ''; }, { immediate: true });
 function relAge(ms: number): string {
   const m = Math.round((Date.now() - ms) / 60000);
   if (m < 60) return `${m}m ago`;
   if (m < 1440) return `${Math.round(m / 60)}h ago`;
   return `${Math.round(m / 1440)}d ago`;
 }
-function artifactLabel(a: ArtifactRow): string {
-  const v = a.version ? `v${a.version}` : 'unknown';
-  const parts = a.path.split('/').filter(Boolean);
-  const job = parts.length >= 3 ? parts[parts.length - 3] : (parts[0] ?? a.path);
-  return `${v} · ${job} · ${a.source} · ${relAge(a.mtimeMs)}`;
-}
 async function installPicked(): Promise<void> {
-  if (!props.device || !artifactPick.value || installing.value) return;
+  if (!props.device || !pkgPick.value || installing.value) return;
   installing.value = true; installMsg.value = ''; installErr.value = '';
   try {
     const r = await fetch(`/api/devices/${props.device.udid}/install`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ appPath: artifactPick.value }),
+      body: JSON.stringify({ packagePath: pkgPick.value }),
     });
     const b = (await r.json()) as { ok?: boolean; version?: string | null; durationMs?: number; error?: string };
     if (!b.ok) { installErr.value = b.error ?? 'install failed'; return; }
@@ -933,48 +882,14 @@ watch(isControlLost(), (lost) => {
             <!-- INSTALL pane (watching only - rail disables it otherwise) -->
             <div v-else-if="activeTool === 'install'" class="tpane">
               <div class="sect-label"><span>install app</span></div>
-              <button v-if="!artifactsLoaded" class="btn btn-sm" @click="loadArtifacts">browse artifacts…</button>
-              <template v-else>
-                <div v-for="r in yourApps" :key="r.key" class="app-row" :class="{ picked: artifactPick && r.builds.some((b) => b.path === artifactPick) }">
-                  <div class="app-row-head" @click="expandedRow = expandedRow === r.key ? null : r.key">
-                    <span class="app-name">{{ r.name }}</span>
-                    <span class="app-meta">{{ r.version ?? '—' }} · {{ ageOf(r.mtimeMs) }} · {{ r.builds.length > 1 ? `${r.builds.length} builds` : r.source }}</span>
-                  </div>
-                  <div v-if="expandedRow === r.key" class="app-builds">
-                    <div v-for="b in r.builds" :key="b.path" class="app-build" :class="{ picked: artifactPick === b.path }"
-                      @click="artifactPick = b.path; appBundleId = r.bundleId">
-                      <span>{{ b.path.split('/').pop() }}</span>
-                      <span class="app-meta">{{ ageOf(b.mtimeMs) }} · {{ b.source }}</span>
-                    </div>
-                  </div>
-                  <button v-else class="btn btn-sm" style="width: 100%; margin-top: 4px;"
-                    @click="artifactPick = r.builds[0]!.path; appBundleId = r.bundleId">use newest</button>
-                </div>
-                <button v-if="macApps.length" class="btn btn-sm btn-quiet" style="width: 100%; margin-top: var(--s-2);"
-                  @click="showMacApps = !showMacApps">{{ showMacApps ? 'hide' : `also on this mac (${macApps.length})` }}</button>
-                <template v-if="showMacApps">
-                  <div v-for="r in macApps" :key="r.key" class="app-row" :class="{ picked: artifactPick && r.builds.some((b) => b.path === artifactPick) }">
-                    <div class="app-row-head" @click="expandedRow = expandedRow === r.key ? null : r.key">
-                      <span class="app-name">{{ r.name }}</span>
-                      <span class="app-meta">{{ r.version ?? '—' }} · {{ ageOf(r.mtimeMs) }}</span>
-                    </div>
-                    <div v-if="expandedRow === r.key" class="app-builds">
-                      <div v-for="b in r.builds" :key="b.path" class="app-build" :class="{ picked: artifactPick === b.path }"
-                        @click="artifactPick = b.path; appBundleId = r.bundleId">
-                        <span>{{ b.path.split('/').pop() }}</span>
-                        <span class="app-meta">{{ ageOf(b.mtimeMs) }} · {{ b.source }}</span>
-                      </div>
-                    </div>
-                    <button v-else class="btn btn-sm" style="width: 100%; margin-top: 4px;"
-                      @click="artifactPick = r.builds[0]!.path; appBundleId = r.bundleId">use newest</button>
-                  </div>
-                </template>
-                <button class="btn" style="width: 100%; margin-top: var(--s-2);" :disabled="installing || !artifactPick" @click="installPicked">
-                  {{ installing ? 'installing… (≈12s)' : 'install' }}
-                </button>
-              </template>
+              <button class="btn btn-sm" @click="pkgPickerOpen = true">browse packages…</button>
+              <div v-if="pkgPickLabel" class="sect-hint" style="margin-top: var(--s-2); word-break: break-all;">{{ pkgPickLabel }}</div>
+              <button class="btn" style="width: 100%; margin-top: var(--s-2);" :disabled="installing || !pkgPick" @click="installPicked">
+                {{ installing ? 'installing… (≈12s)' : 'install' }}
+              </button>
               <div v-if="installMsg" class="sect-hint" style="margin-top: var(--s-2);">{{ installMsg }}</div>
               <div v-if="installErr" class="form-err" style="margin-top: var(--s-2);">{{ installErr }}</div>
+              <PackagePicker v-model="pkgPickerOpen" title="install package" @confirm="pickPackage" />
             </div>
 
             <!-- INSPECT pane — the menu IS the inspect toggle; measure lives
