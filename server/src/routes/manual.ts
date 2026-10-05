@@ -14,6 +14,7 @@ import { fetchProbeViewtree, probeArmed, ProbeError } from '../manual/viewtree-p
 import { listSimulatorApps } from '../manual/apps.ts';
 import { installApp } from '../manual/app-install.ts';
 import { packagesDir, listPackages, readIpaIdentity, isSimulatorRunnable } from '../manual/packages.ts';
+import { packageOwners } from '../projects/store.ts';
 import { execFileAsync } from '../manual/apps.ts';
 import { dispatchWithHeal } from '../alloy/heal.ts';
 import { existsSync } from 'node:fs';
@@ -593,9 +594,12 @@ export function registerManualRoutes(
   });
 
   // package discovery for the install picker: CI-dropped .ipa/.apk files in
-  // the configured packages dir, freshest first
+  // the configured packages dir, freshest first; owner names join in from
+  // the project registry's claims
   app.get('/api/packages', async () => {
-    return { dir: packagesDir(), packages: listPackages() };
+    const pkgs = listPackages();
+    const owners = packageOwners(db, pkgs.map((p) => p.path));
+    return { dir: packagesDir(), packages: pkgs.map((p) => ({ ...p, owner: owners.get(p.path) ?? null })) };
   });
 
   // ── package upload (picker's "choose file…"): raw octet-stream body,

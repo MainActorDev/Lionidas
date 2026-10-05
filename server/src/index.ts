@@ -22,6 +22,7 @@ import { registerAuthRoutes } from './routes/auth.ts';
 import { registerUserResolution } from './auth/roles.ts';
 import { seedUsers } from './auth/users.ts';
 import { registerManualRoutes } from './routes/manual.ts';
+import { registerProjectRoutes } from './projects/routes.ts';
 import { stopMitmIfRunning } from './forge/mitm/manager.ts';
 import { healStaleProxies } from './forge/sim-routing.ts';
 import { registerTemplateRoutes } from './routes/templates.ts';
@@ -103,6 +104,7 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
     get dispatchDeps() { return runtimeMod.alloyDispatchDepsSync(); },
   } as never);
   registerTemplateRoutes(app, db.raw);
+  registerProjectRoutes(app, db.raw);
   const agent = buildAgentContext(db.raw, {
     dbPath: cfg.dbPath, artifactsDir: cfg.artifactsDir, env,
     // F2: preset tool-writes sync the live forge proxy (same call the routes make)

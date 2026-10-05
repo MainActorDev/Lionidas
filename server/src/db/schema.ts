@@ -318,6 +318,30 @@ export function migrateM1(db: Database.Database): void {
   ]) {
     try { db.exec(col); } catch { /* column exists */ }
   }
+  // ── project registry (plan 20261005T092500Z): one project = one repo,
+  // many bundle ids may hang off it later. auth_token is stored PLAINTEXT
+  // (review M1: future consumers must PRESENT it to git — a hash cannot);
+  // the store layer owns the projection and NEVER selects it into API
+  // responses. Local SQLite + admin-only surface, env_vars precedent. ──
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS projects(
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      repo_url TEXT NOT NULL,
+      local_path TEXT,
+      default_branch TEXT,
+      auth_token TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    -- package attribution: packages are FILES, not rows — the claim maps an
+    -- exact packages-dir path to its owning project (re-claim after a rename
+    -- is one click; review L2)
+    CREATE TABLE IF NOT EXISTS package_owner(
+      package_path TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE
+    );
+  `);
   // Phase E: legacy rows must READ active, not NULL. ALTER DEFAULT only
   // covers new inserts; normalize once. Idempotent (WHERE status IS NULL —
   // explicit draft/deprecated survive re-migrates).
