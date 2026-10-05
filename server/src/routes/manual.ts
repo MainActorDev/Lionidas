@@ -2,10 +2,10 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
-import { createReadStream, statSync, rm } from 'node:fs';
+import { createReadStream, statSync, rm, mkdirSync, writeFileSync } from 'node:fs';
 import { requireRole } from '../auth/roles.ts';
 import { tmpdir } from 'node:os';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, manualProbeSelector, manualTree, finishManualSession, setRecording, getRecording, deleteRecordedStep, recordExpectStep, manualGesture, touchSessionActivity, ManualSessionError } from '../manual/session.ts';
 import { inspectSample } from '../manual/inspect-route-fns.ts';
@@ -585,9 +585,35 @@ export function registerManualRoutes(
   });
 
   // package discovery for the install picker: CI-dropped .ipa/.apk files in
-  // the configured packages dir, freshest first (dir ships for the empty state)
+  // the configured packages dir, freshest first
   app.get('/api/packages', async () => {
     return { dir: packagesDir(), packages: listPackages() };
+  });
+
+  // ── package upload (picker's "choose file…"): raw octet-stream body,
+  //  filename via query (Fastify's default JSON parser can't carry a 100MB+
+  //  binary; a raw parser registered HERE applies to this app instance — the
+  //  zip-import lesson). Buffer-then-write is fine at .ipa scale (cap 1GB). ──
+  app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer' }, (_req, body, done) => done(null, body));
+  app.post('/api/packages', { preHandler: requireRole('operator'), bodyLimit: 1024 * 1024 * 1024 }, async (req, reply) => {
+    const q = req.query as { filename?: string };
+    const name = (q.filename ?? '').trim();
+    if (!name || !/^[\w .@-]+$/.test(name)) return reply.code(422).send({ error: 'filename query required (plain name, no path)', code: 'BAD_FILENAME' });
+    if (!name.endsWith('.ipa') && !name.endsWith('.apk')) return reply.code(422).send({ error: 'only .ipa / .apk files', code: 'BAD_EXTENSION' });
+    const body = req.body as Buffer | undefined;
+    if (!body || body.length === 0) return reply.code(422).send({ error: 'empty body', code: 'EMPTY_BODY' });
+    const dest = join(packagesDir(), name);
+    // refuse to shadow an existing different file — same name+size re-upload
+    // (retry) is idempotent-ish; a same-name DIFFERENT file is a mistake worth
+    // surfacing rather than silently replacing what a run may reference
+    if (existsSync(dest)) {
+      const st = statSync(dest);
+      if (st.size !== body.length) return reply.code(409).send({ error: `${name} already exists with a different size — rename or delete it first`, code: 'NAME_TAKEN' });
+    }
+    mkdirSync(packagesDir(), { recursive: true });
+    writeFileSync(dest, body);
+    const id = name.endsWith('.ipa') ? readIpaIdentity(dest) : null;
+    return { ok: true, path: dest, bundleId: id?.bundleId ?? null, version: id?.version ?? null, kind: name.endsWith('.ipa') ? 'ipa' : 'apk' };
   });
 
   // ── app catalog: identity + icon for the device's installed apps ──

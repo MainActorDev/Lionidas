@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, readFileSync, utimesSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, readFileSync, utimesSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
@@ -57,6 +57,9 @@ beforeEach(async () => {
   db = new Database(':memory:');
   migrateM1(db);
   app = Fastify();
+  // satisfy requireRole on the upload route (unit scope — auth itself is
+  // covered by the auth suites)
+  app.addHook('onRequest', async (req: import('fastify').FastifyRequest) => { (req as unknown as { user: unknown }).user = { name: 'test-op', role: 'operator' }; });
   registerManualRoutes(app, db, { bus: { emit: () => undefined } as never, artifactsDir: root, forgeState: { activeRunId: null } as never, dispatchDeps: null } as never);
   await app.ready();
 });
@@ -153,6 +156,53 @@ describe('POST /api/devices/:udid/install (packages)', () => {
     const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/install`, payload: { packagePath: p } });
     expect(r.statusCode).toBe(502);
     expect(r.json().code).toBe('INSTALL_FAILED');
+  });
+});
+
+describe('POST /api/packages (upload)', () => {
+  it('round-trips a real ipa: buffer body → file on disk → identity', async () => {
+    // build a fixture ipa in a temp spot, read its bytes, upload them
+    const stage = mkdtempSync(join(tmpdir(), 'stage-'));
+    const appDir = join(stage, 'Payload', 'Upload.app');
+    mkdirSync(appDir, { recursive: true });
+    writeFileSync(join(appDir, 'Info.plist'),
+      `<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.upload.test</string><key>CFBundleShortVersionString</key><string>2.0.1</string></dict></plist>`);
+    execFileSync('zip', ['-q', '-X', join(stage, 'up.ipa'), '-r', 'Payload'], { cwd: stage });
+    const bytes = readFileSync(join(stage, 'up.ipa'));
+    const r = await app.inject({ method: 'POST', url: '/api/packages?filename=uploaded.ipa', headers: { 'content-type': 'application/octet-stream', 'content-length': String(bytes.length) }, payload: bytes });
+    expect(r.statusCode).toBe(200);
+    const b = r.json() as { ok: boolean; path: string; bundleId: string | null; version: string | null; kind: string };
+    expect(b.ok).toBe(true);
+    expect(b.bundleId).toBe('com.upload.test');
+    expect(b.version).toBe('2.0.1');
+    expect(b.kind).toBe('ipa');
+    expect(existsSync(join(pkgDir, 'uploaded.ipa'))).toBe(true);
+    // listed by GET afterwards
+    const g = await app.inject({ method: 'GET', url: '/api/packages' });
+    const gb = g.json() as { packages: Array<{ path: string }> };
+    expect(gb.packages.some((p) => p.path.endsWith('uploaded.ipa'))).toBe(true);
+    rmSync(stage, { recursive: true, force: true });
+  });
+
+  it('bad extension → 422 BAD_EXTENSION; missing filename → 422', async () => {
+    const r1 = await app.inject({ method: 'POST', url: '/api/packages?filename=thing.zip', headers: { 'content-type': 'application/octet-stream' }, payload: Buffer.from('x') });
+    expect(r1.statusCode).toBe(422);
+    expect(r1.json().code).toBe('BAD_EXTENSION');
+    const r2 = await app.inject({ method: 'POST', url: '/api/packages', headers: { 'content-type': 'application/octet-stream' }, payload: Buffer.from('x') });
+    expect(r2.statusCode).toBe(422);
+  });
+
+  it('path traversal in filename → 422 BAD_FILENAME', async () => {
+    const r = await app.inject({ method: 'POST', url: `/api/packages?filename=${encodeURIComponent('../../etc/evil.ipa')}`, headers: { 'content-type': 'application/octet-stream' }, payload: Buffer.from('x') });
+    expect(r.statusCode).toBe(422);
+    expect(r.json().code).toBe('BAD_FILENAME');
+  });
+
+  it('same name different size → 409 NAME_TAKEN', async () => {
+    writeFileSync(join(pkgDir, 'clash.ipa'), 'original-bytes');
+    const r = await app.inject({ method: 'POST', url: '/api/packages?filename=clash.ipa', headers: { 'content-type': 'application/octet-stream' }, payload: Buffer.from('different-length') });
+    expect(r.statusCode).toBe(409);
+    expect(r.json().code).toBe('NAME_TAKEN');
   });
 });
 

@@ -17,6 +17,9 @@ const loaded = ref(false);
 const err = ref('');
 const pick = ref('');
 const expanded = ref<string | null>(null);
+const fileInput = ref<HTMLInputElement | null>(null);
+const uploading = ref(false);
+const uploadErr = ref('');
 
 async function load(): Promise<void> {
   err.value = '';
@@ -29,6 +32,27 @@ async function load(): Promise<void> {
   } catch { err.value = 'package list failed'; }
 }
 onMounted(() => void load());
+
+async function uploadFile(f: File): Promise<void> {
+  uploading.value = true; uploadErr.value = '';
+  try {
+    const r = await fetch(`/api/packages?filename=${encodeURIComponent(f.name)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/octet-stream' },
+      body: f,
+    });
+    const b = (await r.json()) as { ok?: boolean; error?: string };
+    if (!b.ok) { uploadErr.value = b.error ?? 'upload failed'; return; }
+    await load(); // refresh the list; the new file lands on top (freshest)
+  } catch { uploadErr.value = 'upload failed'; }
+  finally { uploading.value = false; }
+}
+function onFileChosen(e: Event): void {
+  const input = e.target as HTMLInputElement;
+  const f = input.files?.[0];
+  if (f) void uploadFile(f);
+  input.value = ''; // same file re-choosable
+}
 
 const groups = computed<Group[]>(() => {
   const byKey = new Map<string, PkgRow[]>();
@@ -64,13 +88,14 @@ function choose(p: PkgRow): void {
     <div class="pp-modal">
       <div class="pp-head">
         <span class="pp-title">{{ title ?? 'install package' }}</span>
+        <button class="pp-linkbtn" :disabled="uploading" @click="fileInput?.click()">{{ uploading ? 'uploading…' : '+ choose file…' }}</button>
+        <input ref="fileInput" type="file" accept=".ipa,.apk" style="display: none;" @change="onFileChosen" />
         <button class="pp-x" @click="emit('update:modelValue', false)">✕</button>
       </div>
-      <div v-if="dir" class="pp-dir">packages dir · {{ dir }}</div>
       <div class="pp-body">
         <div v-if="!loaded && !err" class="pp-empty">listing packages…</div>
         <div v-else-if="err" class="pp-empty pp-err">{{ err }}</div>
-        <div v-else-if="groups.length === 0" class="pp-empty">no packages yet — drop .ipa files in {{ dir || 'the packages dir' }}</div>
+        <div v-else-if="groups.length === 0" class="pp-empty">no packages — drop .ipa files in the packages dir, or choose a file above</div>
         <template v-else>
           <div v-for="g in groups" :key="g.key" class="pp-grp">
             <button type="button" class="pp-grp-head" @click="expanded = expanded === g.key ? null : g.key">
@@ -88,6 +113,7 @@ function choose(p: PkgRow): void {
             </div>
           </div>
         </template>
+        <div v-if="uploadErr" class="pp-empty pp-err" style="padding-top: 0;">{{ uploadErr }}</div>
       </div>
       <div class="pp-actions">
         <button class="btn" @click="emit('update:modelValue', false)">cancel</button>
@@ -104,6 +130,10 @@ function choose(p: PkgRow): void {
 .pp-title { font-size: var(--text-heading-sm); color: var(--color-paper); }
 .pp-x { margin-left: auto; background: none; border: none; color: var(--color-steel); cursor: pointer; font-size: 15px; }
 .pp-x:hover { color: var(--color-paper); }
+.pp-linkbtn { margin-left: auto; background: none; border: none; font-family: var(--font-mono); font-size: var(--text-caption); color: var(--color-ash); cursor: pointer; padding: 0; }
+.pp-linkbtn:hover { color: var(--color-paper); }
+.pp-linkbtn:disabled { opacity: .5; cursor: default; }
+.pp-x { margin-left: var(--s-3); }
 .pp-dir { padding: var(--s-2) var(--s-5); font-size: var(--text-caption); color: var(--color-steel); border-bottom: 1px solid var(--color-iron); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pp-body { max-height: 340px; overflow-y: auto; min-height: 120px; }
 .pp-empty { padding: var(--s-5); color: var(--color-ash); font-size: var(--text-label); }
