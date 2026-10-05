@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, readFileSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
@@ -12,7 +13,7 @@ const REAL_PATH = process.env.PATH!;
 
 let root: string;
 let bin: string;
-let store: string;
+let pkgDir: string;
 let db: Database.Database;
 let app: FastifyInstance;
 
@@ -28,12 +29,18 @@ function fakeXcrun(opts: { fail?: boolean } = {}): void {
   chmodSync(script, 0o755);
 }
 
-function plantArtifact(bundleId: string, version: string): string {
-  const dir = join(root, `${bundleId.replace(/\./g, '_')}.app`);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'Info.plist'),
+/** A real .ipa on disk: Payload/<name>.app/Info.plist inside a genuine zip —
+ *  identity is read by the production unzip -p + plutil path. */
+function plantPackage(bundleId: string, version: string, name = `${bundleId.replace(/\./g, '_')}-${version}.ipa`): string {
+  const p = join(pkgDir, name);
+  const stage = join(root, 'stage');
+  const appDir = join(stage, 'Payload', `${bundleId.replace(/\./g, '_')}.app`);
+  mkdirSync(appDir, { recursive: true });
+  writeFileSync(join(appDir, 'Info.plist'),
     `<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>${bundleId}</string><key>CFBundleShortVersionString</key><string>${version}</string></dict></plist>`);
-  return dir;
+  execFileSync('zip', ['-q', '-X', p, '-r', 'Payload'], { cwd: stage });
+  rmSync(stage, { recursive: true, force: true });
+  return p;
 }
 
 function seedDevice(udid: string, state: string): void {
@@ -44,9 +51,9 @@ function seedDevice(udid: string, state: string): void {
 beforeEach(async () => {
   root = mkdtempSync(join(tmpdir(), 'install-route-'));
   bin = mkdtempSync(join(tmpdir(), 'bin-'));
-  store = mkdtempSync(join(tmpdir(), 'store-'));
+  pkgDir = mkdtempSync(join(tmpdir(), 'packages-'));
   process.env.PATH = `${bin}:${REAL_PATH}`;
-  process.env['CRUCIBLE_APPS_DIR'] = store;
+  process.env['CRUCIBLE_PACKAGES_DIR'] = pkgDir;
   db = new Database(':memory:');
   migrateM1(db);
   app = Fastify();
@@ -54,35 +61,60 @@ beforeEach(async () => {
   await app.ready();
 });
 afterEach(async () => {
-  delete process.env['CRUCIBLE_APPS_DIR'];
+  delete process.env['CRUCIBLE_PACKAGES_DIR'];
   process.env.PATH = REAL_PATH;
   await app.close();
   db.close();
   rmSync(root, { recursive: true, force: true });
   rmSync(bin, { recursive: true, force: true });
-  rmSync(store, { recursive: true, force: true });
+  rmSync(pkgDir, { recursive: true, force: true });
 });
 
 const U = 'UDID-1';
 
-describe('POST /api/devices/:udid/install', () => {
-  it('missing appPath → 422', async () => {
+describe('POST /api/devices/:udid/install (packages)', () => {
+  it('missing packagePath → 422', async () => {
     seedDevice(U, 'Booted');
     const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/install`, payload: {} });
     expect(r.statusCode).toBe(422);
   });
 
-  it('nonexistent path → 400', async () => {
+  it('path outside the packages dir → 400 PACKAGE_OUTSIDE_DIR', async () => {
     seedDevice(U, 'Booted');
-    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/install`, payload: { appPath: '/nope.app' } });
+    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/install`, payload: { packagePath: '/etc/passwd.ipa' } });
     expect(r.statusCode).toBe(400);
-    expect(r.json().error).toContain('artifact not found');
+    expect(r.json().code).toBe('PACKAGE_OUTSIDE_DIR');
+  });
+
+  it('nonexistent package → 400', async () => {
+    seedDevice(U, 'Booted');
+    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/install`, payload: { packagePath: join(pkgDir, 'nope.ipa') } });
+    expect(r.statusCode).toBe(400);
+    expect(r.json().error).toContain('package not found');
+  });
+
+  it('.apk → 422 APK_UNSUPPORTED', async () => {
+    seedDevice(U, 'Booted');
+    const p = join(pkgDir, 'thing.apk');
+    writeFileSync(p, 'bytes');
+    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/install`, payload: { packagePath: p } });
+    expect(r.statusCode).toBe(422);
+    expect(r.json().code).toBe('APK_UNSUPPORTED');
+  });
+
+  it('unreadable ipa → 400 PACKAGE_UNREADABLE', async () => {
+    seedDevice(U, 'Booted');
+    const p = join(pkgDir, 'broken.ipa');
+    writeFileSync(p, 'not a zip');
+    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/install`, payload: { packagePath: p } });
+    expect(r.statusCode).toBe(400);
+    expect(r.json().code).toBe('PACKAGE_UNREADABLE');
   });
 
   it('shutdown device → 409 DEVICE_NOT_BOOTED', async () => {
     seedDevice(U, 'Shutdown');
-    const app_ = plantArtifact('com.test.app', '1.0.0');
-    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/install`, payload: { appPath: app_ } });
+    const p = plantPackage('com.test.app', '1.0.0');
+    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/install`, payload: { packagePath: p } });
     expect(r.statusCode).toBe(409);
     expect(r.json().code).toBe('DEVICE_NOT_BOOTED');
   });
@@ -91,67 +123,62 @@ describe('POST /api/devices/:udid/install', () => {
     seedDevice(U, 'Booted');
     db.prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at)
                 VALUES ('run_x', 'T', 'manual', 'running', 'qa', ?, 0)`).run(U);
-    const app_ = plantArtifact('com.test.app', '1.0.0');
-    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/install`, payload: { appPath: app_ } });
+    const p = plantPackage('com.test.app', '1.0.0');
+    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/install`, payload: { packagePath: p } });
     expect(r.statusCode).toBe(409);
     expect(r.json().code).toBe('DEVICE_BUSY');
   });
 
-  it('happy path imports into store, installs, records catalog', async () => {
+  it('happy path installs the ipa directly, records catalog', async () => {
     fakeXcrun();
     seedDevice(U, 'Booted');
-    const src = plantArtifact('com.test.app', '3.4.0');
-    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/install`, payload: { appPath: src } });
+    const p = plantPackage('com.test.app', '3.4.0');
+    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/install`, payload: { packagePath: p } });
     expect(r.statusCode).toBe(200);
     const b = r.json() as { ok: boolean; version: string | null; durationMs: number };
     expect(b.ok).toBe(true);
     expect(b.version).toBe('3.4.0');
-    // catalog points at the STORE copy, not the source
+    // catalog points at the package file itself
     const last = lastArtifactFor(db, 'com.test.app')!;
-    expect(last.artifactPath.startsWith(store)).toBe(true);
-    expect(last.artifactPath).not.toBe(src);
-    // simctl ran against the store path
+    expect(last.artifactPath).toBe(p);
+    // simctl ran against the package path
     const calls = readFileSync(join(bin, 'calls.log'), 'utf8');
-    expect(calls).toContain(last.artifactPath);
+    expect(calls).toContain(p);
   });
 
   it('simctl failure → 502 INSTALL_FAILED', async () => {
     fakeXcrun({ fail: true });
     seedDevice(U, 'Booted');
-    const src = plantArtifact('com.test.app', '1.0.0');
-    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/install`, payload: { appPath: src } });
+    const p = plantPackage('com.test.app', '1.0.0');
+    const r = await app.inject({ method: 'POST', url: `/api/devices/${U}/install`, payload: { packagePath: p } });
     expect(r.statusCode).toBe(502);
     expect(r.json().code).toBe('INSTALL_FAILED');
   });
 });
 
-describe('GET /api/devices/:udid/artifacts', () => {
-  it('lists discovered + store artifacts with source labels', async () => {
+describe('GET /api/packages', () => {
+  it('lists packages freshest-first with identity, ships dir', async () => {
     fakeXcrun();
     seedDevice(U, 'Booted');
-    // discovery layout: <root>/<job>/Build/Products/<cfg>-iphonesimulator/*.app
-    const job = join(root, 'verify-1', 'Build', 'Products', 'Dev -iphonesimulator');
-    mkdirSync(job, { recursive: true });
-    const src = join(job, 'TestApp.app');
-    mkdirSync(src);
-    writeFileSync(join(src, 'Info.plist'),
-      `<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.test.app</string><key>CFBundleShortVersionString</key><string>3.4.0</string></dict></plist>`);
-    // import into the store first (as the install route would)
-    const r0 = await app.inject({ method: 'POST', url: `/api/devices/${U}/install`, payload: { appPath: src } });
-    expect(r0.statusCode).toBe(200);
-    // discovery scoped to the test root (no real-machine scan)
-    process.env['CRUCIBLE_LP_BUILD_ROOT'] = root;
-    process.env['CRUCIBLE_DERIVED_ROOT'] = join(root, 'no-dd');
-    try {
-      const r = await app.inject({ method: 'GET', url: `/api/devices/${U}/artifacts` });
-      expect(r.statusCode).toBe(200);
-      const b = r.json() as { artifacts: Array<{ bundleId: string; source: string }> };
-      const ids = b.artifacts.map((a) => `${a.bundleId}:${a.source}`);
-      expect(ids).toContain('com.test.app:build');
-      expect(ids).toContain('com.test.app:store');
-    } finally {
-      delete process.env['CRUCIBLE_LP_BUILD_ROOT'];
-      delete process.env['CRUCIBLE_DERIVED_ROOT'];
-    }
+    const a = plantPackage('com.test.app', '3.4.0');
+    const older = plantPackage('com.test.app', '3.3.0', 'older.ipa');
+    utimesSync(older, new Date(Date.now() - 86_400_000), new Date(Date.now() - 86_400_000));
+    writeFileSync(join(pkgDir, 'android-thing.apk'), 'apk bytes');
+    writeFileSync(join(pkgDir, 'not-a-package.txt'), 'ignore me');
+    const r = await app.inject({ method: 'GET', url: '/api/packages' });
+    expect(r.statusCode).toBe(200);
+    const b = r.json() as { dir: string; packages: Array<{ path: string; bundleId: string | null; version: string | null; kind: string }> };
+    expect(b.dir).toBe(pkgDir);
+    const paths = b.packages.map((p) => p.path);
+    expect(paths).toContain(a);
+    expect(paths).toContain(older);
+    expect(paths.indexOf(a)).toBeLessThan(paths.indexOf(older)); // freshest first
+    const ipa = b.packages.find((p) => p.path === a)!;
+    expect(ipa.bundleId).toBe('com.test.app');
+    expect(ipa.version).toBe('3.4.0');
+    expect(ipa.kind).toBe('ipa');
+    const apk = b.packages.find((p) => p.path.endsWith('.apk'))!;
+    expect(apk.bundleId).toBeNull(); // identity lands with Android
+    expect(b.packages.some((p) => p.path.endsWith('.txt'))).toBe(false);
   });
 });

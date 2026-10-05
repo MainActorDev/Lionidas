@@ -24,7 +24,6 @@ const ALLOWED: ReadonlySet<string> = new Set([
   'forge/sim-routing.ts',
   'manual/app-install.ts',
   'manual/apps.ts',
-  'manual/artifacts.ts',
   'manual/keyboard-quiet.ts',
   'manual/location-tcc.ts',
   'manual/location.ts',

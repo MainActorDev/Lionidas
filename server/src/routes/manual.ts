@@ -5,7 +5,7 @@ import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { createReadStream, statSync, rm } from 'node:fs';
 import { requireRole } from '../auth/roles.ts';
 import { tmpdir } from 'node:os';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, manualProbeSelector, manualTree, finishManualSession, setRecording, getRecording, deleteRecordedStep, recordExpectStep, manualGesture, touchSessionActivity, ManualSessionError } from '../manual/session.ts';
 import { inspectSample } from '../manual/inspect-route-fns.ts';
@@ -13,7 +13,7 @@ import { dumpViewtree, ViewtreeError, acquireViewtreeLock, releaseViewtreeLock }
 import { fetchProbeViewtree, probeArmed, ProbeError } from '../manual/viewtree-probe.ts';
 import { listSimulatorApps } from '../manual/apps.ts';
 import { installApp } from '../manual/app-install.ts';
-import { findArtifacts, importArtifact, appsStoreDir } from '../manual/artifacts.ts';
+import { packagesDir, listPackages, readIpaIdentity } from '../manual/packages.ts';
 import { execFileAsync } from '../manual/apps.ts';
 import { dispatchWithHeal } from '../alloy/heal.ts';
 import { existsSync } from 'node:fs';
@@ -555,27 +555,28 @@ export function registerManualRoutes(
     }
   });
 
-  // ── explicit install (app-catalog feature, 2026-09-04): direct simctl
-  //  install from a chosen artifact; non-store paths are first IMPORTED into
-  //  the Crucible store (APFS clone) so the catalog never references repo/
-  //  DerivedData paths. One install per device; never while a run holds it. ──
+  // ── explicit install (packages direction, 2026-10-05): simctl install of a
+  //  package file from the packages dir (CI-produced .ipa; .apk lands with
+  //  Android). The route never installs arbitrary paths — packagePath must
+  //  resolve inside packagesDir(). One install per device; never while a run
+  //  holds it. ──
   app.post('/api/devices/:udid/install', async (req, reply) => {
     const { udid } = req.params as { udid: string };
-    const b = (req.body ?? {}) as { appPath?: string };
-    if (!b.appPath) return reply.code(422).send({ error: 'appPath required' });
-    if (!existsSync(b.appPath)) return reply.code(400).send({ error: `artifact not found: ${b.appPath}` });
+    const b = (req.body ?? {}) as { packagePath?: string };
+    if (!b.packagePath) return reply.code(422).send({ error: 'packagePath required' });
+    const resolved = resolve(b.packagePath);
+    const dir = packagesDir();
+    if (!(resolved + '/').startsWith(dir + '/')) return reply.code(400).send({ error: `package must live inside ${dir}`, code: 'PACKAGE_OUTSIDE_DIR' });
+    if (!existsSync(resolved)) return reply.code(400).send({ error: `package not found: ${resolved}` });
+    if (resolved.endsWith('.apk')) return reply.code(422).send({ error: '.apk install lands with Android support', code: 'APK_UNSUPPORTED' });
+    const identity = readIpaIdentity(resolved);
+    if (!identity) return reply.code(400).send({ error: `cannot read bundle identity from ${resolved}`, code: 'PACKAGE_UNREADABLE' });
     const st = db.prepare('SELECT state FROM devices WHERE udid = ?').get(udid) as { state: string | null } | undefined;
     if (!st || st.state !== 'Booted') return reply.code(409).send({ error: 'device not booted', code: 'DEVICE_NOT_BOOTED' });
     const busy = db.prepare(`SELECT 1 FROM runs WHERE device_udid = ? AND status IN ('queued','running') LIMIT 1`).get(udid)
       ?? db.prepare('SELECT 1 FROM manual_sessions WHERE udid = ? AND finished_at IS NULL LIMIT 1').get(udid);
     if (busy) return reply.code(409).send({ error: 'a run or manual session is active on this device — wait or abort it', code: 'DEVICE_BUSY' });
-    let storePath: string;
-    try {
-      storePath = b.appPath.startsWith(appsStoreDir()) ? b.appPath : importArtifact(b.appPath);
-    } catch (err) {
-      return reply.code(502).send({ error: `import failed: ${err instanceof Error ? err.message : String(err)}`, code: 'ARTIFACT_UNREADABLE' });
-    }
-    const r = await installApp({ db }, { udid, appPath: storePath });
+    const r = await installApp({ db }, { udid, appPath: resolved, identity });
     if (!r.ok) {
       const code = r.code === 'INSTALL_IN_FLIGHT' ? 409 : 502;
       return reply.code(code).send({ error: r.error, code: r.code });
@@ -583,10 +584,10 @@ export function registerManualRoutes(
     return { ok: true, version: r.version, durationMs: r.durationMs };
   });
 
-  // discovery for the artifact picker: build dirs + DerivedData + our store,
-  // freshest first, source-labeled (repo/cache dirs are PICK sources only)
-  app.get('/api/devices/:udid/artifacts', async () => {
-    return { artifacts: findArtifacts() };
+  // package discovery for the install picker: CI-dropped .ipa/.apk files in
+  // the configured packages dir, freshest first (dir ships for the empty state)
+  app.get('/api/packages', async () => {
+    return { dir: packagesDir(), packages: listPackages() };
   });
 
   // ── app catalog: identity + icon for the device's installed apps ──
