@@ -125,13 +125,23 @@ function daySyms(g: DayGroup): Array<{ t: string; cls: string }> {
 
 // ── row helpers ──
 function caseName(r: RunRow): string | null {
-  if (r.template_id && r.note?.startsWith('template:')) return r.note.slice(r.note.indexOf(' ') + 1) || null;
+  if (r.template_id && r.note?.startsWith('template:')) {
+    // the note can carry appended audit lines after the name — the name is
+    // the FIRST line only
+    const firstLine = r.note.split('\n')[0] ?? '';
+    return firstLine.slice(firstLine.indexOf(' ') + 1) || null;
+  }
   return null;
 }
 function noteOf(r: RunRow): string | null {
   if (!r.note) return null;
-  if (r.note.startsWith('template:') || r.note.startsWith('sidebar:')) return null;
-  return r.note;
+  // the row shows the case name + the diagnostic only — audit stamps
+  // (env sources:) are stripped wherever they appear (legacy rows carry
+  // them mid-note after other lines were appended)
+  const lines = r.note.split('\n').filter(l => !l.startsWith('env sources:'));
+  const rest = lines.join('\n').trim();
+  if (!rest || rest.startsWith('template:') || rest.startsWith('sidebar:')) return null;
+  return rest;
 }
 function fmtDur(ms: number | null, running = false): string {
   if (running) return '…';

@@ -15,7 +15,9 @@ import { registerEnvVarRoutes } from './routes/env-vars.ts';
 import { registerRunRoutes } from './routes/runs.ts';
 import { registerMatrixRoute } from './routes/matrix.ts';
 import { registerEvidenceRoute } from './routes/evidence.ts';
-import { registerMonitoringRoutes } from './routes/monitoring.ts';
+// registerMonitoringRoutes hidden with the monitoring page (design cleanup
+// 2026-10-05): routes/monitoring.ts + tests stay in the tree — restoring is
+// re-registering this line + the web route/nav/page (git history has both).
 import { registerAuthRoutes } from './routes/auth.ts';
 import { registerUserResolution } from './auth/roles.ts';
 import { seedUsers } from './auth/users.ts';
@@ -94,7 +96,6 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
 
   const forgeState = createForgeState();
   registerForgeRoutes(app, db.raw, forgeState, bus);
-  registerMonitoringRoutes(app, db.raw);
   registerManualRoutes(app, db.raw, {
     bus,
     artifactsDir: cfg.artifactsDir,

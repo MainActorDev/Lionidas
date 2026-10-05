@@ -131,7 +131,8 @@ const exitCode = computed(() => {
 const caseName = computed(() => {
   const r = run.value;
   if (!r?.template_id) return null;
-  if (r.note?.startsWith('template:')) return r.note.slice(r.note.indexOf(' ') + 1) || null;
+  // name = first line only — the note can carry appended audit lines
+  if (r.note?.startsWith('template:')) return (r.note.split('\n')[0] ?? '').slice(r.note.indexOf(' ') + 1) || null;
   return `case ${r.template_id.slice(0, 12)}`;
 });
 const realTicket = computed(() => {
@@ -150,17 +151,26 @@ async function loadDeviceName(): Promise<void> {
   } catch { deviceName.value = null; }
 }
 
+/** strips audit stamps the runs log also strips (env sources:) so the cause
+ *  sentence stays the case name / diagnostic only */
+function noteClean(note: string | null): string | null {
+  if (!note) return null;
+  const rest = note.split('\n').filter(l => !l.startsWith('env sources:')).join('\n').trim();
+  return rest || null;
+}
+
 /** the cause sentence: steps → note → status word (plan T1 fallback chain).
  *  Blocked runs carry their message in note; failed runs' note is usually
  *  just the case label — hence the template:/sidebar: guard. */
 const causeText = computed(() => {
   const r = run.value;
   if (!r) return null;
-  if (isBlocked.value) return r.note ?? 'infrastructure failure — the app never got tested';
+  if (isBlocked.value) return noteClean(r.note) ?? 'infrastructure failure — the app never got tested';
   if (r.status === 'failed' || r.status === 'aborted') {
     const s = steps.value.find((x) => x.status === 'failed' || x.status === 'aborted');
     if (s?.reason) return s.reason;
-    if (r.note && !r.note.startsWith('template:') && !r.note.startsWith('sidebar:')) return r.note;
+    const n = noteClean(r.note);
+    if (n && !n.startsWith('template:') && !n.startsWith('sidebar:')) return n;
     return 'no failure reason recorded';
   }
   if (isRunning.value) {
@@ -168,7 +178,7 @@ const causeText = computed(() => {
     return `step ${done} of ${Math.max(done, steps.value.length)}${steps.value.some((x) => x.status === 'running') ? ' running…' : ' — starting…'}`;
   }
   if (r.status === 'passed') return `${caseName.value ?? 'run'} — all steps green`;
-  return r.note ?? null;
+  return noteClean(r.note);
 });
 const blockedHint = computed(() => {
   const r = run.value;

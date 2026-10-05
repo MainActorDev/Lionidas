@@ -74,10 +74,10 @@ describe('playback variant opt (T1)', () => {
     const runId = await runCase('tpl_c1');
     const run = db.prepare('SELECT variant_id, note FROM runs WHERE id = ?').get(runId) as { variant_id: string | null; note: string };
     expect(run.variant_id).toBeNull();
-    // managed-env era: the note gains the env-sources audit line (counts
-    // only) — the provenance prefix itself is unchanged
+    // env-sources audit stamp removed from the note (runs log shows the case
+    // name only) — the provenance prefix itself is unchanged
     expect(run.note.startsWith('template:tpl_c1 tpl_c1')).toBe(true);
-    expect(run.note).toContain('env sources: global(0) app(0) plan(0) request(0)');
+    expect(run.note).not.toContain('env sources:');
   });
 
   it('variant run → variant_id stamped, note carries " / active"', async () => {
