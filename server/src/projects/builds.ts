@@ -94,6 +94,8 @@ export function startBuild(db: Database.Database, projectId: string): StartResul
   mkdirSync(artifactsDir(), { recursive: true });
   const logPath = join(artifactsDir(), `${id}.log`);
   const transport = pickTransport(ws);
+  // best-effort sync discovery for the immediate response; xcodegen repos
+  // discover later (post-generate) inside runGeneric and UPDATE the row.
   const scheme = transport === 'generic' ? discoverScheme(ws) : null;
   db.prepare(`INSERT INTO builds(id, project_id, number, status, transport, scheme, started_at, log_path)
               VALUES (?, ?, ?, 'running', ?, ?, ?, ?)`)
@@ -108,7 +110,7 @@ export function startBuild(db: Database.Database, projectId: string): StartResul
     try {
       const ipaPath = transport === 'repo-lane'
         ? await runRepoLane(ws, log)
-        : await runGeneric(ws, scheme, log);
+        : await runGeneric(ws, scheme, log, (s) => safeDb(() => db.prepare('UPDATE builds SET scheme = ? WHERE id = ?').run(s, id)));
       // platform guard parity: reject device/macos artifacts
       const idn = readIpaIdentity(ipaPath);
       if (!idn) throw new Error(`cannot read identity from built artifact ${ipaPath}`);
@@ -203,12 +205,22 @@ async function runRepoLane(ws: string, log: (l: string) => void): Promise<string
   return ipa;
 }
 
-async function runGeneric(ws: string, scheme: string | null, log: (l: string) => void): Promise<string> {
-  if (!scheme) throw new Error('no scheme discovered — xcodebuild -list returned nothing');
-  if (existsSync(join(ws, 'project.yml')) && !existsSync(join(ws, '*.xcodeproj'))) {
+function hasXcodeproj(ws: string): boolean {
+  try { return readdirSync(ws).some((f) => f.endsWith('.xcodeproj')); } catch { return false; }
+}
+
+async function runGeneric(ws: string, scheme: string | null, log: (l: string) => void, onScheme?: (s: string) => void): Promise<string> {
+  // xcodegen FIRST: project.yml-only repos have no schemes until the
+  // .xcodeproj is generated (discovery before generate finds nothing).
+  if (existsSync(join(ws, 'project.yml')) && !hasXcodeproj(ws)) {
     log('$ xcodegen generate');
     await runCommand('xcodegen', ['generate'], ws, log, 5 * 60_000);
+    if (!scheme) {
+      scheme = discoverScheme(ws);
+      if (scheme) { log(`# scheme discovered: ${scheme}`); onScheme?.(scheme); }
+    }
   }
+  if (!scheme) throw new Error('no scheme discovered — xcodebuild -list returned nothing');
   // cache conventions (any SPM repo benefits; mirrors the intl repo's rules)
   const dd = join(ws, '.derived-data');
   const args = [
