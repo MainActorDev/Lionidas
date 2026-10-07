@@ -57,6 +57,7 @@ const navGroups: NavGroup[] = [
       { to: '/users', label: 'users', names: ['users'] },
       { to: '/guide', label: 'guide', names: ['guide'] },
       { to: '/projects', label: 'projects', names: ['projects'] },
+      { to: '/settings', label: 'settings', names: ['settings'] },
     ],
   },
 ];
@@ -69,7 +70,7 @@ const groupHasActive = (g: NavGroup): boolean =>
 const visibleGroups = computed<NavGroup[]>(() =>
   me.value?.role === 'admin'
     ? navGroups
-    : navGroups.map(g => ({ ...g, items: g.items.filter(it => !it.names.includes('projects')) })));
+    : navGroups.map(g => ({ ...g, items: g.items.filter(it => !it.names.includes('projects') && !it.names.includes('settings')) })));
 // navigating into a collapsed group expands it (active page must stay visible)
 watch(() => route.name, () => {
   for (const g of navGroups) if (groupHasActive(g)) collapsed[g.id] = false;

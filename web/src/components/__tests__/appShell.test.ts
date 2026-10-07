@@ -51,21 +51,22 @@ describe('app shell sidebar (025-A collapsible tree)', () => {
     // text() includes the caret glyph — compare normalized labels
     expect(heads.map(h => h.text().replace('▾', '').trim())).toEqual(['testing', 'library', 'system']);
     const items = wrapper.findAll('.nav-item');
-    expect(items).toHaveLength(11);
+    expect(items).toHaveLength(12);
     expect(items.map(i => i.text())).toEqual([
       'overview', 'suites', 'devices', 'runs',
       'test cases', 'screens', 'env', 'network',
-      'users', 'guide', 'projects',
+      'users', 'guide', 'projects', 'settings',
     ]);
     // all expanded by default
     expect(wrapper.findAll('.nav-grp-kids')).toHaveLength(3);
     expect(wrapper.findAll('.nav-grp.closed')).toHaveLength(0);
   });
 
-  it('hides the admin-only projects item for non-admins', async () => {
+  it('hides the admin-only projects/settings items for non-admins', async () => {
     const { wrapper } = await makeApp('/', 'operator');
     const items = wrapper.findAll('.nav-item').map(i => i.text());
     expect(items).not.toContain('projects');
+    expect(items).not.toContain('settings');
     expect(items).toHaveLength(10);
   });
 

@@ -10,6 +10,7 @@ import TestCasesPage from './pages/TestCasesPage.vue';
 import ScreensPage from './pages/ScreensPage.vue';
 import EnvPage from './pages/EnvPage.vue';
 import ProjectsPage from './pages/ProjectsPage.vue';
+import SettingsPage from './pages/SettingsPage.vue';
 import LoginPage from './pages/LoginPage.vue';
 import UsersPage from './pages/UsersPage.vue';
 import GuidePage from './pages/GuidePage.vue';
@@ -31,6 +32,7 @@ export const router = createRouter({
     { path: '/env', name: 'env', component: EnvPage, meta: { title: 'env' } },
     { path: '/users', name: 'users', component: UsersPage, meta: { title: 'users' } },
     { path: '/projects', name: 'projects', component: ProjectsPage, meta: { title: 'projects' } },
+    { path: '/settings', name: 'settings', component: SettingsPage, meta: { title: 'settings' } },
     { path: '/login', name: 'login', component: LoginPage, meta: { title: 'sign in', public: true } },
     { path: '/guide', name: 'guide', component: GuidePage, meta: { title: 'guide' } },
   ] satisfies RouteRecordRaw[],
