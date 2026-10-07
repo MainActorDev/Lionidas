@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>029-B · builds — job cards + console split</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  body { background: var(--color-void); color: var(--color-paper); font-family: var(--font-mono); }
+  .page { max-width: 1080px; margin: 0 auto; padding: var(--s-6); }
+  .ph { margin-bottom: var(--s-5); }
+  .ph-row1 { display: flex; align-items: center; gap: var(--s-4); padding-bottom: var(--s-2); }
+  .ph-title { font-size: var(--text-heading-sm); }
+  .ph-acts { margin-left: auto; display: flex; gap: var(--s-2); }
+  .ph-row2 { font-size: var(--text-label); color: var(--color-ash); padding: var(--s-2) 0; border-top: 1px solid var(--color-iron); }
+  .split { display: grid; grid-template-columns: 360px 1fr; gap: var(--s-5); align-items: start; }
+  .jobs { border: 1px solid var(--color-iron); background: var(--color-carbon); }
+  .job { padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--color-iron); cursor: pointer; display: flex; gap: var(--s-3); align-items: baseline; }
+  .job:last-child { border-bottom: none; }
+  .job:hover { background: var(--color-graphite); }
+  .job.on { background: var(--color-graphite); box-shadow: inset 2px 0 0 var(--color-ember); }
+  .ball { font-size: 13px; }
+  .ball.pass { color: var(--color-ember); }
+  .ball.fail { color: var(--color-paper); }
+  .ball.run { color: var(--color-ash); animation: spin 1.2s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .jname { color: var(--color-paper); }
+  .jmeta { margin-left: auto; color: var(--color-steel); font-size: var(--text-caption); }
+  .history { border-top: 1px solid var(--color-iron); }
+  .hrow { display: grid; grid-template-columns: 46px 60px 80px 1fr; gap: var(--s-2); padding: var(--s-2) var(--s-4); font-size: var(--text-caption); color: var(--color-ash); align-items: baseline; }
+  .hrow:hover { background: var(--color-graphite); }
+  .hrow .n { color: var(--color-steel); }
+  .btn { font-family: var(--font-mono); font-size: 12px; color: var(--color-paper); background: var(--color-carbon); border: 1px solid var(--color-iron); padding: 4px 12px; cursor: pointer; }
+  .btn.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: bold; }
+  /* console panel */
+  .console { background: var(--color-carbon); border: 1px solid var(--color-iron); display: flex; flex-direction: column; min-height: 420px; }
+  .c-head { display: flex; gap: var(--s-3); align-items: baseline; padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--color-iron); }
+  .c-title { font-size: var(--text-label); color: var(--color-paper); }
+  .c-meta { color: var(--color-steel); font-size: var(--text-caption); }
+  .c-body { padding: var(--s-3) var(--s-4); font-size: 12px; line-height: 1.6; color: var(--color-fog); overflow-y: auto; flex: 1; }
+  .c-body .cmd { color: var(--color-paper); }
+  .c-body .ok { color: var(--color-ember); }
+  .c-body .err { color: var(--color-paper); background: color-mix(in srgb, var(--color-ember) 12%, transparent); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="ph">
+    <div class="ph-row1">
+      <span class="ph-title">builds</span>
+      <span class="ph-acts"><button class="btn primary">▶ build…</button></span>
+    </div>
+    <div class="ph-row2">ci — simulator packages built from the repos workspace · admin only</div>
+  </div>
+  <div class="split">
+    <div class="jobs">
+      <div class="job on">
+        <span class="ball run">◐</span>
+        <span class="jname">ios-consumer-intl</span>
+        <span class="jmeta">#4 running</span>
+        <div style="flex-basis:100%" class="history">
+          <div class="hrow"><span class="n">#3</span><span class="ball pass">●</span><span>8m 41s</span><span>1.2.0 · repo-lane</span></div>
+          <div class="hrow"><span class="n">#2</span><span class="ball fail">✕</span><span>2m 03s</span><span>iphoneos artifact ✕</span></div>
+          <div class="hrow"><span class="n">#1</span><span class="ball pass">●</span><span>11m 02s</span><span>1.1.9 · generic</span></div>
+        </div>
+      </div>
+      <div class="job">
+        <span class="ball pass">●</span>
+        <span class="jname">lionidas</span>
+        <span class="jmeta">#12 · 40m ago</span>
+      </div>
+    </div>
+    <div class="console">
+      <div class="c-head">
+        <span class="c-title">console — ios-consumer-intl #4</span>
+        <span class="c-meta">generic · scheme LionParcelLogisticsINTL · live</span>
+      </div>
+      <div class="c-body" id="log">
+        <div># build 4 · ios-consumer-intl · transport=generic · scheme=LionParcelLogisticsINTL</div>
+        <div class="cmd">$ xcodegen generate</div>
+        <div>Platform: macOS …</div>
+        <div class="cmd">$ xcodebuild -scheme LionParcelLogisticsINTL -sdk iphonesimulator …</div>
+        <div>Resolve Package Graph …</div>
+        <div>Building targets (34) …</div>
+        <div>▌ CompileSwift Sources/Foo.swift (idx 12/214)</div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+const log = document.getElementById('log');
+const lines = ['▌ CompileSwift Sources/Bar.swift (idx 13/214)', '▌ Ld Fake.app/Fake normal (simulator)', 'note: linking against a dylib'];
+let i = 0;
+setInterval(() => { if (i < lines.length) { const d = document.createElement('div'); d.textContent = lines[i++]; log.appendChild(d); log.scrollTop = log.scrollHeight; } }, 900);
+</script>
+</body>
+</html>
