@@ -9,10 +9,22 @@ import PageHeader from '../components/PageHeader.vue';
 interface Build {
   id: string; projectId: string; projectName: string; number: number;
   status: 'running' | 'passed' | 'failed'; transport: 'repo-lane' | 'generic';
-  scheme: string | null; startedAt: number; finishedAt: number | null;
+  scheme: string | null; configuration: string | null; resolution: string | null;
+  startedAt: number; finishedAt: number | null;
   artifactPath: string | null; error: string | null;
 }
 interface Project { id: string; name: string }
+interface BuildInputs {
+  appSchemes: string[]; configurations: string[];
+  pinned: { scheme: string | null; configuration: string | null };
+  manifest: { scheme: string | null; configuration: string | null } | null;
+  manifestError: string | null;
+  effective: {
+    scheme: string | null; configuration: string | null;
+    schemeResolution: string | null; configurationResolution: string | null;
+  };
+  repoShape: string | null;
+}
 
 const builds = ref<Build[]>([]);
 const projects = ref<Project[]>([]);
@@ -27,6 +39,67 @@ let logPoll: ReturnType<typeof setInterval> | null = null;
 
 const pickOpen = ref(false);
 const starting = ref(false);
+// picker step 2 (build inputs): loaded after choosing a project
+const pickProject = ref<Project | null>(null);
+const inputs = ref<BuildInputs | null>(null);
+const inputsErr = ref('');
+const selScheme = ref('');
+const selConfig = ref('');
+const remember = ref(false);
+
+async function chooseProject(p: Project): Promise<void> {
+  pickProject.value = p;
+  inputs.value = null; inputsErr.value = ''; selScheme.value = ''; selConfig.value = ''; remember.value = false;
+  try {
+    const r = await fetch(`/api/projects/${p.id}/build-inputs`);
+    if (r.status === 409) { inputsErr.value = 'no workspace — clone the project first'; return; }
+    if (!r.ok) { inputsErr.value = `load failed (${r.status})`; return; }
+    const b = (await r.json()) as BuildInputs;
+    inputs.value = b;
+    selScheme.value = b.effective.scheme ?? '';
+    selConfig.value = b.effective.configuration ?? '';
+  } catch { inputsErr.value = 'load failed'; }
+}
+
+function provChip(res: string | null): string {
+  if (res === 'manifest') return 'manifest';
+  if (res === 'registry') return 'set';
+  if (res === 'discovered') return 'auto';
+  return '';
+}
+
+function closePicker(): void {
+  pickOpen.value = false;
+  pickProject.value = null;
+  inputs.value = null;
+  inputsErr.value = '';
+}
+
+async function startPicked(): Promise<void> {
+  const p = pickProject.value;
+  if (!p || starting.value) return;
+  // "remember" pins the chosen inputs in the registry (admin intent) —
+  // provenance for the next builds becomes `registry`
+  if (remember.value && (selScheme.value || selConfig.value)) {
+    try {
+      await fetch(`/api/projects/${p.id}`, {
+        method: 'PUT', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...(selScheme.value ? { buildScheme: selScheme.value } : {}), ...(selConfig.value ? { buildConfiguration: selConfig.value } : {}) }),
+      });
+    } catch { /* pin best-effort; build proceeds */ }
+  }
+  starting.value = true; error.value = '';
+  try {
+    const r = await fetch(`/api/projects/${p.id}/builds`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const b = (await r.json()) as { ok?: boolean; build?: Build; error?: string };
+    if (!b.ok) { error.value = b.error ?? `start failed (${r.status})`; return; }
+    pickOpen.value = false; pickProject.value = null; inputs.value = null;
+    await load();
+    if (b.build) toggleLog(b.build.id);
+    if (!poll) poll = setInterval(() => void load(), 3000);
+  } catch { error.value = 'start failed'; }
+  finally { starting.value = false; }
+}
 
 async function load(): Promise<void> {
   try {
@@ -108,6 +181,15 @@ function hhmm(ts: number): string {
 }
 
 const runningCount = computed(() => builds.value.filter((b) => b.status === 'running').length);
+
+function provOf(b: Build): string {
+  if (!b.resolution) return '';
+  try {
+    const r = JSON.parse(b.resolution) as { scheme?: string | null; configuration?: string | null };
+    const src = r.scheme ?? r.configuration;
+    return src === 'manifest' ? 'manifest' : src === 'registry' ? 'set' : src === 'discovered' ? 'auto' : '';
+  } catch { return ''; }
+}
 </script>
 
 <template>
@@ -130,8 +212,8 @@ const runningCount = computed(() => builds.value.filter((b) => b.status === 'run
         <div class="b-row" @click="toggleLog(b.id)" :title="openId === b.id ? 'click to collapse console' : 'click for console'">
           <span class="b-num">#{{ b.number }}</span>
           <span class="b-status"><span class="ball" :class="ball(b).cls">{{ ball(b).glyph }}</span> <span class="b-meta">{{ ball(b).label }}</span></span>
-          <span class="b-proj">{{ b.projectName }} <span v-if="b.scheme" class="b-meta">· {{ b.scheme }}</span></span>
-          <span><span class="b-chip">{{ b.transport }}</span></span>
+          <span class="b-proj">{{ b.projectName }} <span v-if="b.scheme" class="b-meta">· {{ b.scheme }}</span><span v-if="b.configuration" class="b-meta"> · {{ b.configuration }}</span></span>
+          <span class="b-src"><span class="b-chip">{{ b.transport }}</span> <span v-if="provOf(b)" class="b-chip b-chip-src" :title="`inputs: ${b.resolution ?? ''}`">{{ provOf(b) }}</span></span>
           <span class="b-meta">{{ b.status === 'running' ? '…' : '' }}{{ durOf(b) }}</span>
           <span class="b-meta">{{ hhmm(b.startedAt) }}</span>
           <span class="b-meta b-art" :title="b.artifactPath ?? b.error ?? ''">
@@ -148,16 +230,45 @@ const runningCount = computed(() => builds.value.filter((b) => b.status === 'run
       <div v-if="builds.length === 0" class="b-empty">no builds yet — ▶ build… starts one from a cloned project</div>
     </div>
 
-    <!-- project picker for ▶ build… -->
-    <div v-if="pickOpen" class="pk-backdrop" @click.self="pickOpen = false">
+    <!-- ▶ build… picker: step 1 project, step 2 build inputs -->
+    <div v-if="pickOpen" class="pk-backdrop" @click.self="closePicker">
       <div class="pk-modal">
-        <div class="pk-head"><span class="pk-title">build project</span><button class="pk-x" @click="pickOpen = false">✕</button></div>
-        <div class="pk-body">
+        <div class="pk-head">
+          <span class="pk-title">{{ pickProject ? `build · ${pickProject.name}` : 'build project' }}</span>
+          <button class="pk-x" @click="closePicker">✕</button>
+        </div>
+        <!-- step 1: choose project -->
+        <div v-if="!pickProject" class="pk-body">
           <div v-if="projects.length === 0" class="b-empty">no projects — register one on the projects page first</div>
-          <div v-for="p in projects" :key="p.id" class="pk-row" @click="startBuild(p.id)">
+          <div v-for="p in projects" :key="p.id" class="pk-row" @click="chooseProject(p)">
             <span>{{ p.name }}</span>
             <span class="b-meta">▶</span>
           </div>
+        </div>
+        <!-- step 2: build inputs -->
+        <div v-else class="pk-body">
+          <div v-if="inputsErr" class="pk-err">{{ inputsErr }}</div>
+          <div v-else-if="!inputs" class="b-empty">loading build inputs…</div>
+          <template v-else>
+            <div v-if="inputs.manifestError" class="pk-err" :title="inputs.manifestError">⚠ manifest: {{ inputs.manifestError.slice(0, 80) }}{{ inputs.manifestError.length > 80 ? '…' : '' }}</div>
+            <div class="pk-field">
+              <label class="pk-label">scheme <span v-if="provChip(inputs.effective.schemeResolution)" class="b-chip">{{ provChip(inputs.effective.schemeResolution) }}</span></label>
+              <select v-model="selScheme" class="pk-select" :disabled="!!inputs.manifest?.scheme">
+                <option value="" disabled>{{ inputs.appSchemes.length ? 'choose scheme…' : 'none discovered' }}</option>
+                <option v-for="s in inputs.appSchemes" :key="s" :value="s">{{ s }}</option>
+              </select>
+            </div>
+            <div class="pk-field">
+              <label class="pk-label">configuration <span v-if="provChip(inputs.effective.configurationResolution)" class="b-chip">{{ provChip(inputs.effective.configurationResolution) }}</span></label>
+              <select v-model="selConfig" class="pk-select" :disabled="!!inputs.manifest?.configuration">
+                <option value="" disabled>choose config…</option>
+                <option v-for="c in inputs.configurations" :key="c" :value="c">{{ c }}</option>
+              </select>
+            </div>
+            <div v-if="inputs.manifest" class="pk-note">🔒 lionidas.yml pins these — edit the file in the repo to change</div>
+            <label class="pk-remember"><input v-model="remember" type="checkbox"> remember on this project (pins in registry)</label>
+            <button class="btn btn-primary pk-start" :disabled="!selScheme || starting" @click="startPicked">{{ starting ? 'starting…' : '▶ build' }}</button>
+          </template>
         </div>
       </div>
     </div>
@@ -191,4 +302,14 @@ const runningCount = computed(() => builds.value.filter((b) => b.status === 'run
 .pk-x { margin-left: auto; background: none; border: none; color: var(--color-steel); cursor: pointer; font-size: 15px; }
 .pk-row { display: flex; justify-content: space-between; align-items: center; padding: var(--s-3) var(--s-5); font-size: var(--text-label); color: var(--color-fog); cursor: pointer; border-bottom: 1px solid var(--color-iron); }
 .pk-row:hover { background: var(--color-carbon); color: var(--color-paper); }
+.pk-field { padding: var(--s-3) var(--s-5); }
+.pk-label { display: flex; align-items: center; gap: var(--s-2); font-size: var(--text-caption); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-steel); margin-bottom: var(--s-2); }
+.pk-select { width: 100%; font-family: var(--font-mono); font-size: var(--text-label); color: var(--color-paper); background: var(--color-carbon); border: 1px solid var(--color-iron); padding: var(--s-2) var(--s-3); }
+.pk-select:disabled { opacity: 0.6; cursor: not-allowed; }
+.pk-note { padding: 0 var(--s-5) var(--s-2); font-size: var(--text-caption); color: var(--color-ash); }
+.pk-remember { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-2) var(--s-5); font-size: var(--text-caption); color: var(--color-fog); cursor: pointer; }
+.pk-start { margin: var(--s-3) var(--s-5) var(--s-4); }
+.pk-err { padding: var(--s-3) var(--s-5); color: var(--color-ember); font-size: var(--text-caption); }
+.b-src { display: flex; gap: 4px; align-items: center; }
+.b-chip-src { color: var(--color-fog); }
 </style>
