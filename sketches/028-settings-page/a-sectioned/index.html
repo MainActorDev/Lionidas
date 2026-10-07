@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>028-A · settings — sectioned page</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  body { background: var(--color-void); color: var(--color-paper); font-family: var(--font-mono); }
+  .page { max-width: 760px; margin: 0 auto; padding: var(--s-6); }
+  .ph { margin-bottom: var(--s-5); }
+  .ph-row1 { display: flex; align-items: center; gap: var(--s-4); padding-bottom: var(--s-2); }
+  .ph-title { font-size: var(--text-heading-sm); }
+  .ph-row2 { font-size: var(--text-label); color: var(--color-ash); padding: var(--s-2) 0; border-top: 1px solid var(--color-iron); }
+  .section { margin-bottom: var(--s-6); }
+  .section-label { font-size: var(--text-caption); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-steel); margin-bottom: var(--s-2); }
+  .card { background: var(--color-carbon); border: 1px solid var(--color-iron); padding: var(--s-4); }
+  .row { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-2) 0; border-bottom: 1px solid var(--color-iron); font-size: var(--text-label); }
+  .row:last-child { border-bottom: none; }
+  .row .k { color: var(--color-fog); min-width: 140px; }
+  .row .v { color: var(--color-paper); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .muted { color: var(--color-steel); }
+  .btn { font-family: var(--font-mono); font-size: 12px; color: var(--color-paper); background: var(--color-carbon); border: 1px solid var(--color-iron); padding: 4px 12px; cursor: pointer; }
+  .btn:hover { background: var(--color-graphite); }
+  .btn.danger { color: var(--color-ember); }
+  input.tok { flex: 1; background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-label); padding: 6px 8px; }
+  .hint { font-size: var(--text-caption); color: var(--color-steel); margin-top: var(--s-2); }
+  .chip { font-size: 10px; padding: 1px 5px; border: 1px solid var(--color-iron); color: var(--color-ash); text-transform: uppercase; }
+  .chip.on { color: var(--color-ember); border-color: var(--color-ember-dim); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="ph">
+    <div class="ph-row1"><span class="ph-title">settings</span></div>
+    <div class="ph-row2">instance configuration — credentials, storage locations · admin only</div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">project credentials</div>
+    <div class="card">
+      <div class="row">
+        <span class="k">intl-app</span>
+        <span class="chip on">token</span>
+        <span class="v muted">git-host credential · write-only</span>
+        <span style="margin-left:auto; display:flex; gap:8px;">
+          <button class="btn">replace…</button>
+          <button class="btn danger">clear</button>
+        </span>
+      </div>
+      <div class="row">
+        <span class="k">consumer</span>
+        <span class="chip">none</span>
+        <span class="v muted">no token — public repo</span>
+        <span style="margin-left:auto;"><button class="btn">add token…</button></span>
+      </div>
+    </div>
+    <div class="hint">used when the system clones a project's repo into the workspace — never displayed again after save</div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">storage</div>
+    <div class="card">
+      <div class="row"><span class="k">repos workspace</span><span class="v">/…/lionidas/server/repos</span><span class="muted" style="margin-left:auto">CRUCIBLE_REPOS_DIR</span></div>
+      <div class="row"><span class="k">packages dir</span><span class="v">/…/lionidas/server/packages</span><span class="muted" style="margin-left:auto">CRUCIBLE_PACKAGES_DIR</span></div>
+    </div>
+    <div class="hint">read-only — configure via environment at server start</div>
+  </div>
+</div>
+</body>
+</html>

@@ -2,6 +2,7 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { requireRole } from '../auth/roles.ts';
+import { reposDir } from '../manual/packages.ts';
 import { listProjects, getProject, createProject, updateProject, deleteProject, claimPackage, unclaimPackage } from './store.ts';
 
 interface ProjectBody {
@@ -20,6 +21,12 @@ function validUrlish(v: string): boolean {
 }
 
 export function registerProjectRoutes(app: FastifyInstance, db: Database.Database): void {
+  // settings the projects surface consumes: the centralized repos workspace
+  // root (display-only derivation — nobody types clone paths)
+  app.get('/api/settings/repos-dir', { preHandler: requireRole('admin') }, async () => {
+    return { dir: reposDir() };
+  });
+
   app.get('/api/projects', { preHandler: requireRole('admin') }, async () => {
     return { projects: listProjects(db) };
   });

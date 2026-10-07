@@ -28,9 +28,15 @@ const busy = ref(false);
 
 const edName = ref('');
 const edRepoUrl = ref('');
-const edLocalPath = ref('');
 const edBranch = ref('');
-const edToken = ref('');
+
+/** where the system will clone this repo — centralized repos workspace
+ *  (CRUCIBLE_REPOS_DIR, default <db>/repos) + the project's name; the field
+ *  is display-only, nobody types a path (decision 2026-10-05: clone is the
+ *  only entry, the system owns the layout). */
+const reposDir = ref('');
+const workspacePath = computed(() =>
+  reposDir.value ? `${reposDir.value}/${edName.value.trim() || '<name>'}` : '');
 
 async function load(): Promise<void> {
   error.value = '';
@@ -49,6 +55,11 @@ async function load(): Promise<void> {
         pkgOwners.value = m;
       }
     } catch { /* counts are best-effort */ }
+    // repos workspace root (display-only derivation for the editor)
+    try {
+      const rr = await fetch('/api/settings/repos-dir');
+      if (rr.ok) reposDir.value = ((await rr.json()) as { dir?: string }).dir ?? '';
+    } catch { /* derivation is best-effort */ }
     loaded.value = true;
   } catch { error.value = 'load failed'; }
 }
@@ -60,13 +71,12 @@ function claimsOf(id: string): string[] {
 
 function startCreate(): void {
   openId.value = 'draft'; editing.value = null;
-  edName.value = ''; edRepoUrl.value = ''; edLocalPath.value = ''; edBranch.value = ''; edToken.value = '';
+  edName.value = ''; edRepoUrl.value = ''; edBranch.value = '';
 }
 function startEdit(p: Project): void {
   if (openId.value === p.id) { closePanel(); return; }
   openId.value = p.id; editing.value = p;
-  edName.value = p.name; edRepoUrl.value = p.repoUrl; edLocalPath.value = p.localPath ?? '';
-  edBranch.value = p.defaultBranch ?? ''; edToken.value = '';
+  edName.value = p.name; edRepoUrl.value = p.repoUrl; edBranch.value = p.defaultBranch ?? '';
 }
 function closePanel(): void {
   openId.value = null; editing.value = null;
@@ -79,9 +89,7 @@ async function save(): Promise<void> {
   const body = JSON.stringify({
     name: edName.value.trim(),
     repoUrl: edRepoUrl.value.trim(),
-    localPath: edLocalPath.value.trim() || null,
     defaultBranch: edBranch.value.trim() || null,
-    ...(edToken.value.trim() ? { authToken: edToken.value.trim() } : {}),
   });
   try {
     const r = editing.value
@@ -112,20 +120,6 @@ async function remove(): Promise<void> {
   finally { busy.value = false; }
 }
 
-async function clearToken(): Promise<void> {
-  if (!editing.value || busy.value) return;
-  busy.value = true; error.value = '';
-  try {
-    const r = await fetch(`/api/projects/${editing.value.id}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clearAuth: true }) });
-    if (!r.ok) { error.value = `clear failed (${r.status})`; return; }
-    edToken.value = '';
-    await load();
-    const fresh = projects.value.find((p) => p.id === editing.value?.id);
-    if (fresh) editing.value = fresh;
-  } catch { error.value = 'clear failed'; }
-  finally { busy.value = false; }
-}
-
 function ageOf(ms: number): string {
   const d = Math.floor((Date.now() - ms) / 86_400_000);
   if (d < 1) return 'today';
@@ -139,7 +133,9 @@ const canCreate = computed(() => openId.value !== 'draft');
 <template>
   <div>
     <PageHeader title="projects" desc="source repositories lionidas knows — packages and CI anchor to them · admin only">
-      <button class="btn btn-primary" :disabled="!canCreate" @click="startCreate">+ project</button>
+      <template #actions>
+        <button class="btn btn-primary" :disabled="!canCreate" @click="startCreate">+ project</button>
+      </template>
     </PageHeader>
 
     <div v-if="error && !openId" class="pj-err">{{ error }}</div>
@@ -164,11 +160,10 @@ const canCreate = computed(() => openId.value !== 'draft');
           <div class="ed-grid">
             <label class="ed-fld"><span>name</span><input v-model="edName" placeholder="intl" /></label>
             <label class="ed-fld"><span>repo url — required</span><input v-model="edRepoUrl" placeholder="git@github.com:org/repo.git" /></label>
-            <label class="ed-fld"><span>local path — optional</span><input v-model="edLocalPath" placeholder="/Users/you/Developer/…/repo" /></label>
             <label class="ed-fld"><span>default branch</span><input v-model="edBranch" placeholder="main" /></label>
-            <label class="ed-fld ed-wide"><span>auth token — optional</span>
-              <input v-model="edToken" type="password" placeholder="git-host credential (e.g. a GitHub PAT)" />
-              <span class="ed-hint">write-only: stored, never displayed; blank keeps the current token</span>
+            <label class="ed-fld ed-wide"><span>workspace path — derived</span>
+              <input :value="workspacePath" readonly tabindex="-1" class="ed-readonly" />
+              <span class="ed-hint">the clone lives in the centralized repos workspace — the system owns this path</span>
             </label>
           </div>
           <div class="ed-foot">
@@ -185,7 +180,7 @@ const canCreate = computed(() => openId.value !== 'draft');
           <span class="pj-name">{{ p.name }}</span>
           <span class="pj-repo" :title="p.repoUrl">{{ p.repoUrl }}</span>
           <span class="pj-br">{{ p.defaultBranch ?? '—' }}</span>
-          <span class="pj-auth" :class="{ on: p.authSet }" :title="p.authSet ? 'token stored — value never shown' : 'no token'">{{ p.authSet ? 'token' : '—' }}</span>
+          <span class="pj-auth" :class="{ on: p.authSet }" :title="p.authSet ? 'token set — manage on the settings page' : 'no token'">{{ p.authSet ? 'token' : '—' }}</span>
           <span class="pj-claims" :title="claimsOf(p.id).join('\n') || 'no claimed packages'">{{ claimsOf(p.id).length || '—' }}</span>
           <span class="pj-upd">{{ ageOf(p.updatedAt) }}</span>
           <span class="pj-actions"></span>
@@ -194,15 +189,13 @@ const canCreate = computed(() => openId.value !== 'draft');
           <div class="ed-grid">
             <label class="ed-fld"><span>name</span><input v-model="edName" /></label>
             <label class="ed-fld"><span>repo url — required</span><input v-model="edRepoUrl" /></label>
-            <label class="ed-fld"><span>local path — optional</span><input v-model="edLocalPath" /></label>
             <label class="ed-fld"><span>default branch</span><input v-model="edBranch" /></label>
-            <label class="ed-fld ed-wide"><span>auth token — optional</span>
-              <input v-model="edToken" type="password" :placeholder="p.authSet ? 'stored — blank keeps' : 'git-host credential (e.g. a GitHub PAT)'" />
-              <span class="ed-hint">write-only: stored, never displayed</span>
+            <label class="ed-fld ed-wide"><span>workspace path — derived</span>
+              <input :value="workspacePath" readonly tabindex="-1" class="ed-readonly" />
+              <span class="ed-hint">the clone lives in the centralized repos workspace — the system owns this path</span>
             </label>
           </div>
           <div class="ed-foot">
-            <button v-if="p.authSet" class="btn btn-ghost" :disabled="busy" @click="clearToken">clear token</button>
             <span v-if="error" class="ed-err">{{ error }}</span>
             <span class="pj-spacer"></span>
             <button class="btn btn-ghost" @click="closePanel">cancel</button>
@@ -251,6 +244,7 @@ const canCreate = computed(() => openId.value !== 'draft');
 .ed-fld { display: flex; flex-direction: column; gap: 4px; }
 .ed-fld > span:first-child { font-size: var(--text-caption); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-steel); }
 .ed-fld input { background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-label); padding: 6px 8px; width: 100%; }
+input.ed-readonly { color: var(--color-ash); }
 .ed-wide { grid-column: 1 / -1; }
 .ed-hint { font-size: var(--text-caption); color: var(--color-steel); }
 .ed-foot { display: flex; align-items: center; gap: var(--s-2); margin-top: var(--s-4); }

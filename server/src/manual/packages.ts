@@ -28,6 +28,19 @@ export function packagesDir(): string {
   return resolve(p);
 }
 
+/** Centralized repos workspace (decision 2026-10-05: the clone is the only
+ *  entry — the system owns where clones live; nobody types a path). A
+ *  project's clone = <reposDir>/<project name>. */
+export function reposDir(): string {
+  const p = process.env['CRUCIBLE_REPOS_DIR'] ?? join(dirname(process.env['CRUCIBLE_DB_PATH'] ?? './crucible.db'), 'repos');
+  return resolve(p);
+}
+
+/** Where this project's clone lives inside the repos workspace. */
+export function projectWorkspace(name: string): string {
+  return join(reposDir(), name);
+}
+
 /** Bundle id + version from a .ipa: `unzip -p` streams Payload/*.app/Info.plist
  *  to stdout, plutil converts the plist to json on stdin. No extraction to
  *  disk. The plist stays a BUFFER end-to-end — a binary plist survives the
