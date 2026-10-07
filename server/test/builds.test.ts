@@ -44,6 +44,24 @@ function fakeToolchain(opts: { platform?: string; failBuild?: boolean } = {}): v
   const xg = join(bin, 'xcodegen');
   writeFileSync(xg, '#!/bin/sh\nexit 0\n');
   chmodSync(xg, 0o755);
+  // fake xcbuddy mirrors the real one: writes the .app into the isolated
+  // .derived-data (when the real xcbuddy is absent this shim is what runs)
+  const xcbuddy = join(bin, 'xcbuddy');
+  writeFileSync(xcbuddy, [
+    '#!/bin/sh',
+    'echo "xcbuddy $@"',
+    opts.failBuild ? 'echo "xcbuddy: error: fabricated failure" >&2; exit 65' : [
+      'PROD=".derived-data/Build/Products/Debug-iphonesimulator"',
+      'mkdir -p "$PROD/Fake.app"',
+      `cat > "$PROD/Fake.app/Info.plist" <<'PLIST'`,
+      '<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.ci.fake</string><key>CFBundleShortVersionString</key><string>7.0.1</string><key>DTPlatformName</key><string>' + platform + '</string></dict></plist>',
+      'PLIST',
+      'echo "{\\"success\\":true,\\"status\\":0}"',
+      'exit 0',
+    ].join('\n'),
+    '',
+  ].join('\n'));
+  chmodSync(xcbuddy, 0o755);
 }
 
 beforeEach(async () => {

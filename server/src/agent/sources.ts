@@ -9,7 +9,10 @@ export function fileSource(root: string): ReturnType<typeof fileConnector> {
 }
 
 export function repoSource(origin: string, symbols = true): ReturnType<typeof repoConnector> {
-  return repoConnector('lionidas-repo', { origin, symbols });
+  // skipDirs: server/repos holds CI workspace clones (whole iOS repos + build
+  // caches — thousands of files that would eat the walk budget and pollute
+  // agent context with foreign source)
+  return repoConnector('lionidas-repo', { origin, symbols, skipDirs: ['repos', '.hermes', 'sketches', 'brainstorm', 'plans', 'reviews'] });
 }
 
 export function jiraSource(cfg: { baseUrl: string; project: string; authHeader?: string; jql?: string; maxIssues?: number }, fetchImpl?: typeof fetch): ReturnType<typeof jiraConnector> {

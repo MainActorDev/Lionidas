@@ -113,8 +113,12 @@ export function pullProject(db: Database.Database, id: string): Promise<Workspac
     try {
       if (proj.repoUrl.startsWith('https://') && token) {
         await git(['fetch', '--prune', httpsWithToken(proj.repoUrl, token), '+refs/heads/*:refs/remotes/origin/*'], dest, {});
+      } else if (token) {
+        // ssh remote cloned with askpass: origin keeps the clean ssh URL —
+        // plain fetch rides GIT_ASKPASS for credentials
+        await git(['fetch', '--prune', 'origin'], dest, { token });
       } else {
-        await git(['fetch', '--prune', ...((token && !proj.repoUrl.startsWith('https://')) ? [] : [])], dest, { token: token && !proj.repoUrl.startsWith('https://') ? token : null });
+        await git(['fetch', '--prune', 'origin'], dest, {});
       }
       if (proj.defaultBranch) {
         await git(['checkout', proj.defaultBranch], dest, {});

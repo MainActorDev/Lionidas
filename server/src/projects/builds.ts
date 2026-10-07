@@ -9,9 +9,9 @@
  *  artifacts/builds/<id>.log, per-project serial queue, 45-min kill timeout.
  *  Wrong-platform artifacts fail with the named reason (guard parity). */
 import type Database from 'better-sqlite3';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { getProject } from './store.ts';
@@ -151,17 +151,24 @@ function pickTransport(ws: string): 'repo-lane' | 'generic' {
   return 'generic';
 }
 
-/** xcodebuild -list -json → first scheme not ending in Tests. */
+/** xcodebuild -list -json → the app scheme. Heuristic: prefer the scheme
+ *  named after the .xcodeproj (the app target in xcodegen repos), else a
+ *  scheme matching no module prefixes, else first non-Tests scheme. */
 function discoverScheme(ws: string): string | null {
   try {
     const out = spawnSyncJson('xcodebuild', ['-list', '-json'], ws) as { project?: { schemes?: string[] } } | null;
     const schemes: string[] = out?.project?.schemes ?? [];
-    return schemes.find((s) => !/Tests?$/i.test(s)) ?? schemes[0] ?? null;
+    if (schemes.length === 0) return null;
+    const projName = readdirSync(ws).find((f) => f.endsWith('.xcodeproj'))?.replace(/\.xcodeproj$/, '');
+    if (projName && schemes.includes(projName)) return projName;
+    // xcodegen module schemes (LP*, two+ uppercase prefixes) are libraries —
+    // skip them; fall back to the first scheme that is not a module/test
+    const appish = schemes.find((s) => !/Tests?$/i.test(s) && !/^[A-Z]{2,}[A-Z a-z]*[a-z]/.test(s.replace(/[-_].*$/, '')));
+    return appish ?? schemes.find((s) => !/Tests?$/i.test(s)) ?? schemes[0] ?? null;
   } catch { return null; }
 }
 
 function spawnSyncJson(cmd: string, args: string[], cwd: string): unknown {
-  const { execFileSync } = require('node:child_process') as typeof import('node:child_process');
   try {
     return JSON.parse(execFileSync(cmd, args, { cwd, timeout: 120_000, maxBuffer: 16 * 1024 * 1024 }).toString());
   } catch { return null; }
@@ -205,6 +212,16 @@ async function runRepoLane(ws: string, log: (l: string) => void): Promise<string
   return ipa;
 }
 
+/** Locate an executable on PATH (server PATH + ~/.local/bin for user tools). */
+function which(bin: string): string | null {
+  const dirs = `${process.env.PATH ?? ''}${delimiter}${join(process.env.HOME ?? '/root', '.local', 'bin')}`.split(delimiter).filter(Boolean);
+  for (const d of dirs) {
+    const p = join(d, bin);
+    try { if (statSync(p).isFile() && (statSync(p).mode & 0o111) !== 0) return p; } catch { /* next */ }
+  }
+  return null;
+}
+
 function hasXcodeproj(ws: string): boolean {
   try { return readdirSync(ws).some((f) => f.endsWith('.xcodeproj')); } catch { return false; }
 }
@@ -221,17 +238,36 @@ async function runGeneric(ws: string, scheme: string | null, log: (l: string) =>
     }
   }
   if (!scheme) throw new Error('no scheme discovered — xcodebuild -list returned nothing');
-  // cache conventions (any SPM repo benefits; mirrors the intl repo's rules)
+  // UNLOCKED resolve pass first: a freshly xcodegen'd project has no
+  // Package.resolved in its workspace (and a repo-committed one may be
+  // stale) — locked builds (-disableAutomaticPackageResolution, which
+  // xcbuddy injects in isolated mode) fail without it. Resolve once here,
+  // warm .spm-clones, then the locked build is deterministic.
+  const resolveArgs = ['-resolvePackageDependencies', '-clonedSourcePackagesDirPath', join(ws, '.spm-clones')];
+  log(`$ xcodebuild ${resolveArgs.join(' ')}`);
+  await runCommand('xcodebuild', resolveArgs, ws, log, 15 * 60_000);
+  // xcbuddy (Lionidas internal tool): a friendly xcodebuild wrapper that
+  // auto-resolves the SPM graph, auto-injects isolated caches (.derived-data/
+  // .spm-clones/ in the repo — exactly our convention), fuzzy-matches
+  // simulators, and emits a JSON failure envelope. Preferred when present;
+  // raw xcodebuild is the fallback for tool-less environments.
+  const xcbuddy = which('xcbuddy');
   const dd = join(ws, '.derived-data');
-  const args = [
-    '-scheme', scheme, '-sdk', 'iphonesimulator', '-configuration', 'Debug',
-    '-derivedDataPath', dd,
-    '-clonedSourcePackagesDirPath', join(ws, '.spm-clones'),
-    '-disableAutomaticPackageResolution', '-onlyUsePackageVersionsFromResolvedFile', '-skipPackageUpdates',
-    'build',
-  ];
-  log(`$ xcodebuild ${args.join(' ')}`);
-  await runCommand('xcodebuild', args, ws, log);
+  if (xcbuddy) {
+    const args = ['build', '--scheme', scheme, '--json'];
+    log(`$ xcbuddy ${args.join(' ')} (auto: isolated caches, sim destination)`);
+    await runCommand(xcbuddy, args, ws, log);
+  } else {
+    const args = [
+      '-scheme', scheme, '-sdk', 'iphonesimulator', '-configuration', 'Debug',
+      '-derivedDataPath', dd,
+      '-clonedSourcePackagesDirPath', join(ws, '.spm-clones'),
+      '-disableAutomaticPackageResolution', '-onlyUsePackageVersionsFromResolvedFile', '-skipPackageUpdates',
+      'build',
+    ];
+    log(`$ xcodebuild ${args.join(' ')}`);
+    await runCommand('xcodebuild', args, ws, log);
+  }
   const products = join(dd, 'Build', 'Products', 'Debug-iphonesimulator');
   let appDir: string | null = null;
   try {
