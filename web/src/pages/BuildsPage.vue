@@ -9,7 +9,7 @@ import PageHeader from '../components/PageHeader.vue';
 interface Build {
   id: string; projectId: string; projectName: string; number: number;
   status: 'running' | 'passed' | 'failed'; transport: 'repo-lane' | 'generic';
-  scheme: string | null; configuration: string | null; resolution: string | null;
+  scheme: string | null; configuration: string | null; resolution: string | null; smoke: string | null;
   startedAt: number; finishedAt: number | null;
   artifactPath: string | null; error: string | null;
 }
@@ -190,6 +190,14 @@ function provOf(b: Build): string {
     return src === 'manifest' ? 'manifest' : src === 'registry' ? 'set' : src === 'discovered' ? 'auto' : '';
   } catch { return ''; }
 }
+
+function smokeOf(b: Build): { glyph: string; cls: string; title: string } | null {
+  if (b.status !== 'passed' || !b.artifactPath) return null; // only passed builds are probed
+  if (b.smoke === 'ok') return { glyph: '✓⌁', cls: 'smoke-ok', title: 'smoke: app installed, launched, stayed alive' };
+  if (b.smoke === 'crash') return { glyph: '⌁✕', cls: 'smoke-crash', title: 'smoke: app died on launch' };
+  if (b.smoke === 'skipped') return { glyph: '⌁–', cls: 'smoke-skip', title: 'smoke probe skipped (no simulator)' };
+  return null;
+}
 </script>
 
 <template>
@@ -211,7 +219,7 @@ function provOf(b: Build): string {
       <template v-for="b in builds" :key="b.id">
         <div class="b-row" @click="toggleLog(b.id)" :title="openId === b.id ? 'click to collapse console' : 'click for console'">
           <span class="b-num">#{{ b.number }}</span>
-          <span class="b-status"><span class="ball" :class="ball(b).cls">{{ ball(b).glyph }}</span> <span class="b-meta">{{ ball(b).label }}</span></span>
+          <span class="b-status"><span class="ball" :class="ball(b).cls">{{ ball(b).glyph }}</span> <span class="b-meta">{{ ball(b).label }}</span><span v-if="smokeOf(b)" class="smoke" :class="smokeOf(b)!.cls" :title="smokeOf(b)!.title">{{ smokeOf(b)!.glyph }}</span></span>
           <span class="b-proj">{{ b.projectName }} <span v-if="b.scheme" class="b-meta">· {{ b.scheme }}</span><span v-if="b.configuration" class="b-meta"> · {{ b.configuration }}</span></span>
           <span class="b-src"><span class="b-chip">{{ b.transport }}</span> <span v-if="provOf(b)" class="b-chip b-chip-src" :title="`inputs: ${b.resolution ?? ''}`">{{ provOf(b) }}</span></span>
           <span class="b-meta">{{ b.status === 'running' ? '…' : '' }}{{ durOf(b) }}</span>
@@ -312,4 +320,8 @@ function provOf(b: Build): string {
 .pk-err { padding: var(--s-3) var(--s-5); color: var(--color-ember); font-size: var(--text-caption); }
 .b-src { display: flex; gap: 4px; align-items: center; }
 .b-chip-src { color: var(--color-fog); }
+.smoke { font-size: 11px; margin-left: 4px; }
+.smoke-ok { color: var(--color-ember); }
+.smoke-crash { color: var(--color-paper); font-weight: bold; }
+.smoke-skip { color: var(--color-steel); }
 </style>

@@ -17,6 +17,7 @@ import { randomUUID } from 'node:crypto';
 import { getProject } from './store.ts';
 import { claimPackage } from './store.ts';
 import { readBuildManifest, prepareCommandPath, type BuildManifest, type PrepareStep } from './manifest.ts';
+import { smokeTestArtifact } from './smoke.ts';
 import { discoverAppInputs, type DiscoveredInputs } from './discovery.ts';
 import { packagesDir, projectWorkspace } from '../manual/packages.ts';
 import { readIpaIdentity } from '../manual/packages.ts';
@@ -28,7 +29,7 @@ export interface BuildRow {
   id: string; projectId: string; number: number;
   status: 'running' | 'passed' | 'failed';
   transport: 'repo-lane' | 'generic';
-  scheme: string | null; configuration: string | null; resolution: string | null;
+  scheme: string | null; configuration: string | null; resolution: string | null; smoke: string | null;
   startedAt: number; finishedAt: number | null;
   logPath: string | null;
   artifactPath: string | null; error: string | null;
@@ -36,14 +37,14 @@ export interface BuildRow {
 
 interface RawBuild {
   id: string; project_id: string; number: number; status: BuildRow['status'];
-  transport: BuildRow['transport']; scheme: string | null; configuration: string | null; resolution: string | null; started_at: number;
+  transport: BuildRow['transport']; scheme: string | null; configuration: string | null; resolution: string | null; smoke: string | null; started_at: number;
   finished_at: number | null; log_path: string | null; artifact_path: string | null; error: string | null;
 }
 
 function row(r: RawBuild): BuildRow {
   return {
     id: r.id, projectId: r.project_id, number: r.number, status: r.status,
-    transport: r.transport, scheme: r.scheme, configuration: r.configuration ?? null, resolution: r.resolution ?? null, startedAt: r.started_at,
+    transport: r.transport, scheme: r.scheme, configuration: r.configuration ?? null, resolution: r.resolution ?? null, smoke: r.smoke ?? null, startedAt: r.started_at,
     finishedAt: r.finished_at, logPath: r.log_path, artifactPath: r.artifact_path, error: r.error,
   };
 }
@@ -177,7 +178,24 @@ export function startBuild(db: Database.Database, projectId: string): StartResul
       copyFileSync(ipaPath, dest);
       claimPackage(db, dest, projectId);
       log(`✓ artifact → ${dest} (claimed to ${proj.name})`);
-      safeDb(() => db.prepare(`UPDATE builds SET status = 'passed', finished_at = ?, artifact_path = ? WHERE id = ?`).run(Date.now(), dest, id));
+      // ── smoke gate: a green build whose app dies on launch is NOT a pass ──
+      // (brainstorm 20261008T004500Z). Probe first, then set the verdict once:
+      // crash → failed + SMOKE_CRASH; skipped → passed (probe infra ≠ app).
+      let smokeCol: string | null = null;
+      try {
+        const outcome = smokeTestArtifact(dest, log);
+        smokeCol = outcome.result;
+        log(outcome.detail);
+        if (outcome.result === 'crash') {
+          safeDb(() => db.prepare(`UPDATE builds SET status = 'failed', finished_at = ?, artifact_path = ?, smoke = 'crash', error = ? WHERE id = ?`)
+            .run(Date.now(), dest, `[SMOKE_CRASH] ${outcome.crashLine ?? outcome.detail}`.slice(0, 2000), id));
+          return;
+        }
+      } catch (e) {
+        log(`smoke: probe error — skipped (${e instanceof Error ? e.message.split('\n')[0] : String(e)})`);
+      }
+      safeDb(() => db.prepare(`UPDATE builds SET status = 'passed', finished_at = ?, artifact_path = ?, smoke = ? WHERE id = ?`)
+        .run(Date.now(), dest, smokeCol ?? 'skipped', id));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log(`✕ ${msg}`);

@@ -329,6 +329,11 @@ export function migrateM1(db: Database.Database): void {
     // requested configuration (builds.scheme already exists) — the resolved
     // config the compile used, null on repo-lane builds
     'ALTER TABLE builds ADD COLUMN configuration TEXT',
+    // smoke gate (brainstorm 20261008T004500Z): post-build launch probe.
+    // 'ok' = installed+launched+alive 10s · 'crash' = died on launch (build
+    // is marked FAILED — a dead app is not a pass) · 'skipped' = probe could
+    // not run (no sim) — verdict unchanged, logged · NULL = not probed yet.
+    'ALTER TABLE builds ADD COLUMN smoke TEXT',
   ]) {
     try { db.exec(col); } catch { /* column exists */ }
   }
@@ -369,6 +374,7 @@ export function migrateM1(db: Database.Database): void {
       scheme TEXT,
       configuration TEXT,
       resolution TEXT,
+      smoke TEXT,
       started_at INTEGER NOT NULL,
       finished_at INTEGER,
       log_path TEXT,
