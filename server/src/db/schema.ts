@@ -315,6 +315,20 @@ export function migrateM1(db: Database.Database): void {
     // Build anchoring (run detail): CFBundleVersion stamped at run creation —
     // the marketing version (app_version) alone doesn't identify a build.
     'ALTER TABLE runs ADD COLUMN app_build TEXT',
+    // Build-inputs round (plan 20261007T164500Z): production-grade input
+    // resolution — manifest > registry > discovery, provenance per build.
+    // Platform-neutral names: scheme → Gradle module/flavor (Android),
+    // configuration → variant. repo_shape records the probe result
+    // (xcodegen|xcodeproj|workspace|unknown) that drives the generic engine.
+    'ALTER TABLE projects ADD COLUMN build_scheme TEXT',
+    'ALTER TABLE projects ADD COLUMN build_configuration TEXT',
+    'ALTER TABLE projects ADD COLUMN repo_shape TEXT',
+    // strict JSON {"scheme":"manifest|registry|discovered|null",
+    // "configuration":…} — where THIS build's inputs came from (R4)
+    'ALTER TABLE builds ADD COLUMN resolution TEXT',
+    // requested configuration (builds.scheme already exists) — the resolved
+    // config the compile used, null on repo-lane builds
+    'ALTER TABLE builds ADD COLUMN configuration TEXT',
   ]) {
     try { db.exec(col); } catch { /* column exists */ }
   }
@@ -331,6 +345,9 @@ export function migrateM1(db: Database.Database): void {
       local_path TEXT,
       default_branch TEXT,
       auth_token TEXT,
+      build_scheme TEXT,
+      build_configuration TEXT,
+      repo_shape TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -350,6 +367,8 @@ export function migrateM1(db: Database.Database): void {
       status TEXT NOT NULL CHECK(status IN ('running','passed','failed')),
       transport TEXT NOT NULL CHECK(transport IN ('repo-lane','generic')),
       scheme TEXT,
+      configuration TEXT,
+      resolution TEXT,
       started_at INTEGER NOT NULL,
       finished_at INTEGER,
       log_path TEXT,

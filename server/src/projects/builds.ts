@@ -16,28 +16,33 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { getProject } from './store.ts';
 import { claimPackage } from './store.ts';
+import { readBuildManifest, type BuildManifest } from './manifest.ts';
+import { discoverAppInputs, type DiscoveredInputs } from './discovery.ts';
 import { packagesDir, projectWorkspace } from '../manual/packages.ts';
 import { readIpaIdentity } from '../manual/packages.ts';
 
 const BUILD_TIMEOUT_MS = 45 * 60_000;
 
 export interface BuildRow {
-  id: string; projectId: string; number: number; status: 'running' | 'passed' | 'failed';
-  transport: 'repo-lane' | 'generic'; scheme: string | null;
-  startedAt: number; finishedAt: number | null; logPath: string | null;
+  id: string; projectId: string; number: number;
+  status: 'running' | 'passed' | 'failed';
+  transport: 'repo-lane' | 'generic';
+  scheme: string | null; configuration: string | null; resolution: string | null;
+  startedAt: number; finishedAt: number | null;
+  logPath: string | null;
   artifactPath: string | null; error: string | null;
 }
 
 interface RawBuild {
   id: string; project_id: string; number: number; status: BuildRow['status'];
-  transport: BuildRow['transport']; scheme: string | null; started_at: number;
+  transport: BuildRow['transport']; scheme: string | null; configuration: string | null; resolution: string | null; started_at: number;
   finished_at: number | null; log_path: string | null; artifact_path: string | null; error: string | null;
 }
 
 function row(r: RawBuild): BuildRow {
   return {
     id: r.id, projectId: r.project_id, number: r.number, status: r.status,
-    transport: r.transport, scheme: r.scheme, startedAt: r.started_at,
+    transport: r.transport, scheme: r.scheme, configuration: r.configuration ?? null, resolution: r.resolution ?? null, startedAt: r.started_at,
     finishedAt: r.finished_at, logPath: r.log_path, artifactPath: r.artifact_path, error: r.error,
   };
 }
@@ -94,14 +99,60 @@ export function startBuild(db: Database.Database, projectId: string): StartResul
   mkdirSync(artifactsDir(), { recursive: true });
   const logPath = join(artifactsDir(), `${id}.log`);
   const transport = pickTransport(ws);
+  // ── input resolution (plan T4): manifest > registry > discovery ──
+  // manifest errors (strict schema) fail the build BEFORE any compile.
+  let manifest: BuildManifest | null = null;
+  if (transport === 'generic') {
+    try {
+      manifest = readBuildManifest(ws);
+    } catch (e) {
+      // strict schema: a repo that speaks must be heard — a typo never
+      // silently falls through to guessing
+      const msg = e instanceof Error ? e.message : String(e);
+      try { appendFileSync(logPath, `✕ ${msg}\n`); } catch { /* best-effort */ }
+      const errId = `bld_${randomUUID().slice(0, 12)}`;
+      const errNum = ((db.prepare('SELECT MAX(number) AS n FROM builds WHERE project_id = ?').get(projectId) as { n: number | null })?.n ?? 0) + 1;
+      db.prepare(`INSERT INTO builds(id, project_id, number, status, transport, started_at, log_path, error)
+                  VALUES (?, ?, ?, 'failed', ?, ?, ?, ?)`)
+        .run(errId, projectId, errNum, transport, Date.now(), join(artifactsDir(), `${errId}.log`), msg);
+      return { ok: false, code: 'PROJECT_NOT_FOUND', error: msg };
+    }
+  }
+  const regScheme = (proj as { buildScheme?: string | null }).buildScheme ?? null;
+  const regConfig = (proj as { buildConfiguration?: string | null }).buildConfiguration ?? null;
   // best-effort sync discovery for the immediate response; xcodegen repos
   // discover later (post-generate) inside runGeneric and UPDATE the row.
-  const scheme = transport === 'generic' ? discoverScheme(ws) : null;
-  db.prepare(`INSERT INTO builds(id, project_id, number, status, transport, scheme, started_at, log_path)
-              VALUES (?, ?, ?, 'running', ?, ?, ?, ?)`)
-    .run(id, projectId, number, transport, scheme, Date.now(), logPath);
+  let discr: DiscoveredInputs | null = null;
+  if (transport === 'generic') {
+    try { discr = discoverAppInputs(ws); } catch { discr = null; }
+  }
+  const resolveInput = (m: string | null, r: string | null, d: (() => string | null) | null): { value: string | null; from: 'manifest' | 'registry' | 'discovered' | null } => {
+    if (m) return { value: m, from: 'manifest' };
+    if (r) return { value: r, from: 'registry' };
+    const v = d?.() ?? null;
+    return { value: v, from: v ? 'discovered' : null };
+  };
+  let schemeFrom = resolveInput(manifest?.scheme ?? null, regScheme, discr ? () => (discr.appSchemes.length === 1 ? discr.appSchemes[0]! : null) : null);
+  // AMBIGUITY: 2+ app schemes and neither manifest nor registry pinned one
+  if (schemeFrom.value == null && discr && discr.appSchemes.length > 1) {
+    const err = `SCHEME_AMBIGUOUS: ${discr.appSchemes.length} app schemes found (${discr.appSchemes.join(', ')}) — pin one via lionidas.yml or the project's build inputs`;
+    try { appendFileSync(logPath, `✕ ${err}\n`); } catch { /* best-effort */ }
+    db.prepare(`INSERT INTO builds(id, project_id, number, status, transport, scheme, started_at, log_path, error)
+                VALUES (?, ?, ?, 'failed', ?, NULL, ?, ?, ?)`)
+      .run(id, projectId, number, transport, Date.now(), logPath, err);
+    running.delete(projectId); runningBuildIds.delete(projectId);
+    return { ok: false, code: 'BUILD_RUNNING', error: err };
+  }
+  const scheme = schemeFrom.value;
+  const configFrom = resolveInput(manifest?.configuration ?? null, regConfig, discr ? () => (discr.configurations.includes('Debug') ? 'Debug' : discr.configurations[0] ?? null) : null);
+  const configuration = configFrom.value;
+  const resolution = JSON.stringify({ scheme: schemeFrom.from, configuration: configFrom.from });
+  db.prepare(`INSERT INTO builds(id, project_id, number, status, transport, scheme, configuration, resolution, started_at, log_path)
+              VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?, ?)`)
+    .run(id, projectId, number, transport, scheme, configuration, resolution, Date.now(), logPath);
   const log = (line: string): void => { try { appendFileSync(logPath, `${line}\n`); } catch { /* log best-effort */ } };
-  log(`# build ${number} · ${proj.name} · transport=${transport}${scheme ? ` · scheme=${scheme}` : ''}`);
+  log(`# build ${number} · ${proj.name} · transport=${transport}${scheme ? ` · scheme=${scheme}` : ''}${configuration ? ` · config=${configuration}` : ''}`);
+  log(`# inputs: ${resolution}${manifest ? ' · manifest=present' : ''}`);
 
   const p = (async (): Promise<void> => {
     // DB writes are guarded: the caller (route/tests) may close the handle
@@ -110,7 +161,7 @@ export function startBuild(db: Database.Database, projectId: string): StartResul
     try {
       const ipaPath = transport === 'repo-lane'
         ? await runRepoLane(ws, log)
-        : await runGeneric(ws, scheme, log, (s) => safeDb(() => db.prepare('UPDATE builds SET scheme = ? WHERE id = ?').run(s, id)));
+        : await runGeneric(ws, scheme, configuration, log, (s) => safeDb(() => db.prepare('UPDATE builds SET scheme = ? WHERE id = ?').run(s, id)));
       // platform guard parity: reject device/macos artifacts
       const idn = readIpaIdentity(ipaPath);
       if (!idn) throw new Error(`cannot read identity from built artifact ${ipaPath}`);
@@ -149,29 +200,6 @@ function pickTransport(ws: string): 'repo-lane' | 'generic' {
     } catch { /* fall through */ }
   }
   return 'generic';
-}
-
-/** xcodebuild -list -json → the app scheme. Heuristic: prefer the scheme
- *  named after the .xcodeproj (the app target in xcodegen repos), else a
- *  scheme matching no module prefixes, else first non-Tests scheme. */
-function discoverScheme(ws: string): string | null {
-  try {
-    const out = spawnSyncJson('xcodebuild', ['-list', '-json'], ws) as { project?: { schemes?: string[] } } | null;
-    const schemes: string[] = out?.project?.schemes ?? [];
-    if (schemes.length === 0) return null;
-    const projName = readdirSync(ws).find((f) => f.endsWith('.xcodeproj'))?.replace(/\.xcodeproj$/, '');
-    if (projName && schemes.includes(projName)) return projName;
-    // xcodegen module schemes (LP*, two+ uppercase prefixes) are libraries —
-    // skip them; fall back to the first scheme that is not a module/test
-    const appish = schemes.find((s) => !/Tests?$/i.test(s) && !/^[A-Z]{2,}[A-Z a-z]*[a-z]/.test(s.replace(/[-_].*$/, '')));
-    return appish ?? schemes.find((s) => !/Tests?$/i.test(s)) ?? schemes[0] ?? null;
-  } catch { return null; }
-}
-
-function spawnSyncJson(cmd: string, args: string[], cwd: string): unknown {
-  try {
-    return JSON.parse(execFileSync(cmd, args, { cwd, timeout: 120_000, maxBuffer: 16 * 1024 * 1024 }).toString());
-  } catch { return null; }
 }
 
 async function runCommand(cmd: string, args: string[], cwd: string, log: (l: string) => void, timeoutMs = BUILD_TIMEOUT_MS): Promise<void> {
@@ -226,18 +254,32 @@ function hasXcodeproj(ws: string): boolean {
   try { return readdirSync(ws).some((f) => f.endsWith('.xcodeproj')); } catch { return false; }
 }
 
-async function runGeneric(ws: string, scheme: string | null, log: (l: string) => void, onScheme?: (s: string) => void): Promise<string> {
+async function runGeneric(ws: string, scheme: string | null, configuration: string | null, log: (l: string) => void, onScheme?: (s: string) => void): Promise<string> {
+  const conf = configuration ?? 'Debug';
   // xcodegen FIRST: project.yml-only repos have no schemes until the
   // .xcodeproj is generated (discovery before generate finds nothing).
   if (existsSync(join(ws, 'project.yml')) && !hasXcodeproj(ws)) {
     log('$ xcodegen generate');
     await runCommand('xcodegen', ['generate'], ws, log, 5 * 60_000);
     if (!scheme) {
-      scheme = discoverScheme(ws);
+      const d = discoverAppInputs(ws);
+      scheme = d.appSchemes.length === 1 ? d.appSchemes[0]! : null;
       if (scheme) { log(`# scheme discovered: ${scheme}`); onScheme?.(scheme); }
+      else if (d.appSchemes.length > 1) throw new Error(`SCHEME_AMBIGUOUS: ${d.appSchemes.length} app schemes found (${d.appSchemes.join(', ')}) — pin one via lionidas.yml or the project's build inputs`);
     }
   }
   if (!scheme) throw new Error('no scheme discovered — xcodebuild -list returned nothing');
+  // PREFLIGHT (seconds, pre-compile — plan T4.6): the resolved scheme and
+  // configuration must exist; a wrong input dies here, not 15 minutes in.
+  const pre = ['-showBuildSettings', '-scheme', scheme, '-sdk', 'iphonesimulator', '-configuration', conf];
+  log(`$ xcodebuild ${pre.join(' ')} (preflight)`);
+  try {
+    await runCommand('xcodebuild', pre, ws, () => undefined, 120_000);
+    log('# preflight OK');
+  } catch (e) {
+    const avail = discoverAppInputs(ws);
+    throw new Error(`preflight failed for scheme "${scheme}" / configuration "${conf}"${avail.appSchemes.length ? ` — available app schemes: ${avail.appSchemes.join(', ')}` : ''}: ${e instanceof Error ? e.message.split('\n').pop() : String(e)}`);
+  }
   // UNLOCKED resolve pass first: a freshly xcodegen'd project has no
   // Package.resolved in its workspace (and a repo-committed one may be
   // stale) — locked builds (-disableAutomaticPackageResolution, which
@@ -255,11 +297,11 @@ async function runGeneric(ws: string, scheme: string | null, log: (l: string) =>
   const dd = join(ws, '.derived-data');
   if (xcbuddy) {
     const args = ['build', '--scheme', scheme, '--json'];
-    log(`$ xcbuddy ${args.join(' ')} (auto: isolated caches, sim destination)`);
+    log(`$ xcbuddy ${args.join(' ')} (auto: isolated caches, sim destination; config via project defaults)`);
     await runCommand(xcbuddy, args, ws, log);
   } else {
     const args = [
-      '-scheme', scheme, '-sdk', 'iphonesimulator', '-configuration', 'Debug',
+      '-scheme', scheme, '-sdk', 'iphonesimulator', '-configuration', conf,
       '-derivedDataPath', dd,
       '-clonedSourcePackagesDirPath', join(ws, '.spm-clones'),
       '-disableAutomaticPackageResolution', '-onlyUsePackageVersionsFromResolvedFile', '-skipPackageUpdates',
@@ -268,7 +310,7 @@ async function runGeneric(ws: string, scheme: string | null, log: (l: string) =>
     log(`$ xcodebuild ${args.join(' ')}`);
     await runCommand('xcodebuild', args, ws, log);
   }
-  const products = join(dd, 'Build', 'Products', 'Debug-iphonesimulator');
+  const products = join(dd, 'Build', 'Products', `${conf}-iphonesimulator`);
   let appDir: string | null = null;
   try {
     appDir = readdirSync(products).map((f) => join(products, f)).find((p) => p.endsWith('.app')) ?? null;

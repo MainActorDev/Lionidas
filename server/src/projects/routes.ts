@@ -5,6 +5,11 @@ import { requireRole } from '../auth/roles.ts';
 import { reposDir } from '../manual/packages.ts';
 import { listProjects, getProject, createProject, updateProject, deleteProject, claimPackage, unclaimPackage } from './store.ts';
 import { cloneProject, pullProject, workspaceStatus } from './workspace.ts';
+import { readBuildManifest } from './manifest.ts';
+import { discoverAppInputs, probeRepoShape } from './discovery.ts';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { projectWorkspace } from '../manual/packages.ts';
 import { startBuild, listBuilds, getBuild, buildLog, logSize } from './builds.ts';
 
 interface ProjectBody {
@@ -14,6 +19,8 @@ interface ProjectBody {
   defaultBranch?: string | null;
   authToken?: string | null;
   clearAuth?: boolean;
+  buildScheme?: string | null;
+  buildConfiguration?: string | null;
 }
 
 function validUrlish(v: string): boolean {
@@ -70,6 +77,8 @@ export function registerProjectRoutes(app: FastifyInstance, db: Database.Databas
       ...(b.defaultBranch !== undefined ? { defaultBranch: b.defaultBranch || null } : {}),
       // blank keeps (env-page pattern); clearAuth or explicit empty clears
       ...(b.clearAuth ? { authToken: '' } : b.authToken !== undefined ? { authToken: b.authToken || '' } : {}),
+      ...(b.buildScheme !== undefined ? { buildScheme: b.buildScheme || null } : {}),
+      ...(b.buildConfiguration !== undefined ? { buildConfiguration: b.buildConfiguration || null } : {}),
     });
     if (!p) return reply.code(404).send({ error: 'project not found' });
     return { ok: true, project: p };
@@ -115,6 +124,43 @@ export function registerProjectRoutes(app: FastifyInstance, db: Database.Databas
   app.get('/api/projects/:id/workspace', { preHandler: requireRole('admin') }, async (req) => {
     const { id } = req.params as { id: string };
     return { status: await workspaceStatus(db, id) };
+  });
+
+  // build-inputs: discovery + pinned values + manifest — feeds the pickers
+  // (plan 20261007T164500Z T5). Resolution preview shows what a build WOULD
+  // use: manifest > registry > discovery.
+  app.get('/api/projects/:id/build-inputs', { preHandler: requireRole('admin') }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const proj = getProject(db, id);
+    if (!proj) return reply.code(404).send({ error: 'project not found' });
+    const ws = projectWorkspace(proj.name);
+    if (!existsSync(join(ws, '.git'))) return reply.code(409).send({ error: 'no workspace — clone first', code: 'CLONE_FIRST' });
+    let manifest: { scheme: string | null; configuration: string | null } | null = null;
+    let manifestError: string | null = null;
+    try { manifest = readBuildManifest(ws); } catch (e) { manifestError = e instanceof Error ? e.message : String(e); }
+    let appSchemes: string[] = [];
+    let configurations: string[] = [];
+    let repoShape: string | null = proj.repoShape;
+    try {
+      const d = discoverAppInputs(ws);
+      appSchemes = d.appSchemes;
+      configurations = d.configurations;
+      if (!repoShape) {
+        repoShape = probeRepoShape(ws);
+        db.prepare('UPDATE projects SET repo_shape = ? WHERE id = ?').run(repoShape, id); // lazy backfill (review R5)
+      }
+    } catch { /* not generated yet — pickers show empty */ }
+    const scheme = manifest?.scheme ?? proj.buildScheme ?? (appSchemes.length === 1 ? appSchemes[0]! : null);
+    const schemeResolution = manifest?.scheme ? 'manifest' : proj.buildScheme ? 'registry' : scheme ? 'discovered' : (appSchemes.length > 1 ? 'ambiguous' : null);
+    const configuration = manifest?.configuration ?? proj.buildConfiguration ?? (configurations.includes('Debug') ? 'Debug' : configurations[0] ?? null);
+    const configurationResolution = manifest?.configuration ? 'manifest' : proj.buildConfiguration ? 'registry' : configuration ? 'discovered' : null;
+    return {
+      appSchemes, configurations,
+      pinned: { scheme: proj.buildScheme, configuration: proj.buildConfiguration },
+      manifest, manifestError,
+      effective: { scheme, configuration, schemeResolution, configurationResolution },
+      repoShape,
+    };
   });
 
   // ── CI builds (admin) ──

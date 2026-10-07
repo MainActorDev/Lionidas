@@ -13,6 +13,9 @@ export interface ProjectRow {
   localPath: string | null;
   defaultBranch: string | null;
   authSet: boolean;
+  buildScheme: string | null;
+  buildConfiguration: string | null;
+  repoShape: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -20,15 +23,17 @@ export interface ProjectRow {
 interface RawRow {
   id: string; name: string; repo_url: string; local_path: string | null;
   default_branch: string | null; auth_token: string | null;
+  build_scheme: string | null; build_configuration: string | null; repo_shape: string | null;
   created_at: number; updated_at: number;
 }
 
-const COLS = 'id, name, repo_url, local_path, default_branch, auth_token, created_at, updated_at';
+const COLS = 'id, name, repo_url, local_path, default_branch, auth_token, build_scheme, build_configuration, repo_shape, created_at, updated_at';
 
 function project(r: RawRow): ProjectRow {
   return {
     id: r.id, name: r.name, repoUrl: r.repo_url, localPath: r.local_path,
     defaultBranch: r.default_branch, authSet: r.auth_token != null && r.auth_token.length > 0,
+    buildScheme: r.build_scheme ?? null, buildConfiguration: r.build_configuration ?? null, repoShape: r.repo_shape ?? null,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
@@ -48,6 +53,8 @@ export interface ProjectInput {
   localPath?: string | null;
   defaultBranch?: string | null;
   authToken?: string | null; // null/absent = keep existing on update; '' = clear
+  buildScheme?: string | null; // '' / null = clear (input resolution: manifest > registry > discovery)
+  buildConfiguration?: string | null;
 }
 
 export function createProject(db: Database.Database, input: ProjectInput): ProjectRow {
@@ -65,13 +72,17 @@ export function updateProject(db: Database.Database, id: string, input: Partial<
   const token = input.authToken === undefined ? cur.auth_token // keep
     : input.authToken === '' || input.authToken === null ? null // explicit clear
     : input.authToken;
-  db.prepare(`UPDATE projects SET name = ?, repo_url = ?, local_path = ?, default_branch = ?, auth_token = ?, updated_at = ? WHERE id = ?`)
+  const norm = (v: string | null | undefined, keep: string | null): string | null =>
+    v === undefined ? keep : (v === '' ? null : v);
+  db.prepare(`UPDATE projects SET name = ?, repo_url = ?, local_path = ?, default_branch = ?, auth_token = ?, build_scheme = ?, build_configuration = ?, updated_at = ? WHERE id = ?`)
     .run(
       input.name ?? cur.name,
       input.repoUrl ?? cur.repo_url,
       input.localPath === undefined ? cur.local_path : (input.localPath || null),
       input.defaultBranch === undefined ? cur.default_branch : (input.defaultBranch || null),
       token,
+      norm(input.buildScheme, cur.build_scheme),
+      norm(input.buildConfiguration, cur.build_configuration),
       Date.now(),
       id,
     );

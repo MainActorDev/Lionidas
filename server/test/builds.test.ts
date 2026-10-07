@@ -27,7 +27,7 @@ function fakeToolchain(opts: { platform?: string; failBuild?: boolean } = {}): v
     '#!/bin/sh',
     `echo "xcb $@" >> ${JSON.stringify(join(bin, 'calls.log'))}`,
     // -list -json (scheme discovery)
-    'if [ "$1" = "-list" ]; then echo \'{ "project": { "schemes": [ "App", "AppTests" ] } }\'; exit 0; fi',
+    'if [ "$1" = "-list" ]; then echo \'{ "project": { "schemes": [ "App", "AppTests" ], "configurations": [ "Debug", "Staging", "Production" ] } }\'; exit 0; fi',
     // build: fabricate the product .app under $CRUCIBLE_PRODUCTS
     opts.failBuild ? 'echo "xcodebuild: error: fabricated failure" >&2; exit 65' : [
       `PROD="$CRUCIBLE_PRODUCTS/Debug-iphonesimulator"`,
@@ -139,6 +139,53 @@ async function waitSettled(buildId: string, tries = 40): Promise<void> {
 }
 
 describe('CI builds', () => {
+  it('resolution: manifest > registry > discovery with provenance recorded', async () => {
+    // no manifest, nothing pinned → discovered (single app scheme)
+    const pid = mkClonedProject('resapp');
+    let r = await app.inject({ method: 'POST', url: `/api/projects/${pid}/builds`, payload: {} });
+    let b0 = (r.json() as { build: { id: string; scheme: string | null; configuration: string | null; resolution: string } }).build;
+    expect(b0.scheme).toBe('App');
+    expect(b0.configuration).toBe('Debug');
+    expect(JSON.parse(b0.resolution)).toEqual({ scheme: 'discovered', configuration: 'discovered' });
+    await waitSettled(b0.id);
+    // registry pin wins over discovery
+    await app.inject({ method: 'PUT', url: `/api/projects/${pid}`, payload: { buildConfiguration: 'Staging' } });
+    r = await app.inject({ method: 'POST', url: `/api/projects/${pid}/builds`, payload: {} });
+    b0 = (r.json() as { build: { id: string; scheme: string | null; configuration: string | null; resolution: string } }).build;
+    expect(b0.configuration).toBe('Staging');
+    expect(JSON.parse(b0.resolution).configuration).toBe('registry');
+    await waitSettled(b0.id);
+    // manifest wins over everything
+    writeFileSync(join(repos, 'resapp', 'lionidas.yml'), 'build:\n  scheme: App\n  configuration: Production\n');
+    r = await app.inject({ method: 'POST', url: `/api/projects/${pid}/builds`, payload: {} });
+    b0 = (r.json() as { build: { id: string; scheme: string | null; configuration: string | null; resolution: string } }).build;
+    expect(b0.configuration).toBe('Production');
+    expect(JSON.parse(b0.resolution)).toEqual({ scheme: 'manifest', configuration: 'manifest' });
+    await waitSettled(b0.id);
+  });
+
+  it('invalid manifest → named failure, no compile', async () => {
+    const pid = mkClonedProject('badmfst');
+    writeFileSync(join(repos, 'badmfst', 'lionidas.yml'), 'build:\n  schemee: X\n');
+    const r = await app.inject({ method: 'POST', url: `/api/projects/${pid}/builds`, payload: {} });
+    expect(r.statusCode).toBeGreaterThanOrEqual(400);
+    const body = r.json() as { error?: string };
+    expect(body.error ?? '').toContain('build.schemee');
+  });
+
+  it('build-inputs endpoint: preview shows manifest + discovery + repo shape', async () => {
+    const pid = mkClonedProject('inputsapp');
+    writeFileSync(join(repos, 'inputsapp', 'lionidas.yml'), 'build:\n  scheme: App\n');
+    const r = await app.inject({ method: 'GET', url: `/api/projects/${pid}/build-inputs` });
+    expect(r.statusCode).toBe(200);
+    const b = r.json() as { appSchemes: string[]; manifest: { scheme: string | null } | null; effective: { scheme: string | null; schemeResolution: string }; repoShape: string | null };
+    expect(b.appSchemes).toContain('App');
+    expect(b.manifest?.scheme).toBe('App');
+    expect(b.effective.scheme).toBe('App');
+    expect(b.effective.schemeResolution).toBe('manifest');
+    expect(b.repoShape).toBeTruthy();
+  });
+
   it('generic path: discovers scheme, builds, zips sim ipa, claims package', async () => {
     const pid = mkClonedProject();
     const r = await app.inject({ method: 'POST', url: `/api/projects/${pid}/builds`, payload: {} });
