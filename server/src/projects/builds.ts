@@ -15,7 +15,7 @@ import { delimiter, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { getProject } from './store.ts';
-import { claimPackage } from './store.ts';
+import { claimPackage, unclaimPackage } from './store.ts';
 import { readBuildManifest, prepareCommandPath, type BuildManifest, type PrepareStep } from './manifest.ts';
 import { smokeTestArtifact } from './smoke.ts';
 import { discoverAppInputs, type DiscoveredInputs } from './discovery.ts';
@@ -187,8 +187,13 @@ export function startBuild(db: Database.Database, projectId: string): StartResul
         smokeCol = outcome.result;
         log(outcome.detail);
         if (outcome.result === 'crash') {
-          safeDb(() => db.prepare(`UPDATE builds SET status = 'failed', finished_at = ?, artifact_path = ?, smoke = 'crash', error = ? WHERE id = ?`)
-            .run(Date.now(), dest, `[SMOKE_CRASH] ${outcome.crashLine ?? outcome.detail}`.slice(0, 2000), id));
+          // the artifact stays on disk for inspection, but a launch-dead app
+          // is not a deliverable: drop the row's path AND unclaim the package
+          // (claim happens pre-probe) so it never shows as installable.
+          // Crash line names the cause.
+          safeDb(() => { unclaimPackage(db, dest); });
+          safeDb(() => db.prepare(`UPDATE builds SET status = 'failed', finished_at = ?, smoke = 'crash', error = ? WHERE id = ?`)
+            .run(Date.now(), `[SMOKE_CRASH] ${outcome.crashLine ?? outcome.detail}`.slice(0, 2000), id));
           return;
         }
       } catch (e) {
