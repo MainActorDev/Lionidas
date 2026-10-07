@@ -15,7 +15,7 @@ interface Project {
   authSet: boolean;
   updatedAt: number;
 }
-interface WsStatus { exists: boolean; branch: string | null; head: string | null; dirty: number | null; manifest: { scheme: string | null; configuration: string | null; prepare: string[] } | 'invalid' | null }
+interface WsStatus { exists: boolean; branch: string | null; head: string | null; dirty: number | null; manifest: { scheme: string | null; configuration: string | null; prepare: string[] } | 'invalid' | null; manifestRaw: string | null; manifestError: string | null }
 interface PackageRow { path: string; owner: { id: string; name: string } | null }
 
 const projects = ref<Project[]>([]);
@@ -87,6 +87,12 @@ function startEdit(p: Project): void {
   if (openId.value === p.id) { closePanel(); return; }
   openId.value = p.id; editing.value = p;
   edName.value = p.name; edRepoUrl.value = p.repoUrl; edBranch.value = p.defaultBranch ?? '';
+  // refresh workspace status when opening — the manifest block reads it
+  if (!wsStates.value[p.id]) {
+    void fetch(`/api/projects/${p.id}/workspace`).then(async (r) => {
+      if (r.ok) wsStates.value[p.id] = ((await r.json()) as { status: WsStatus }).status;
+    }).catch(() => undefined);
+  }
 }
 function closePanel(): void {
   openId.value = null; editing.value = null;
@@ -232,12 +238,21 @@ const canCreate = computed(() => openId.value !== 'draft');
         <div v-if="openId === p.id" class="pj-editor">
           <div class="ed-grid">
             <label class="ed-fld"><span>name</span><input v-model="edName" /></label>
-            <label class="ed-fld"><span>repo url — required</span><input v-model="edRepoUrl" /></label>
+            <label class="ed-fld"><span>repo url</span><input v-model="edRepoUrl" /></label>
             <label class="ed-fld"><span>default branch</span><input v-model="edBranch" /></label>
             <label class="ed-fld ed-wide"><span>workspace path — derived</span>
               <input :value="workspacePath" readonly tabindex="-1" class="ed-readonly" />
               <span class="ed-hint">the clone lives in the centralized repos workspace — the system owns this path</span>
             </label>
+          </div>
+          <!-- repo-declared build manifest (lionidas.yml) — repo-owned, read-only -->
+          <div v-if="editing && wsStates[editing.id]?.manifestRaw != null" class="ed-manifest">
+            <div class="ed-manifest-head">
+              <span class="ed-manifest-title">lionidas.yml <span class="pj-manifest-note">— repo-owned · pins build inputs</span></span>
+              <span v-if="wsStates[editing.id]?.manifest === 'invalid'" class="ed-manifest-bad" :title="wsStates[editing.id]?.manifestError ?? ''">⚠ invalid</span>
+            </div>
+            <pre class="ed-manifest-body">{{ wsStates[editing.id]?.manifestRaw }}</pre>
+            <span class="ed-hint">edit this file in the repo and pull — Lionidas never writes it</span>
           </div>
           <div class="ed-foot">
             <span v-if="error" class="ed-err">{{ error }}</span>
@@ -287,6 +302,12 @@ const canCreate = computed(() => openId.value !== 'draft');
 .pj-ws.dirty { color: var(--color-ember); }
 .pj-editor { padding: var(--s-4) 12px; background: var(--color-graphite); }
 .ed-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); }
+.ed-manifest { margin-top: var(--s-3); border: 1px solid var(--color-iron); background: var(--color-void); padding: var(--s-3) var(--s-4); }
+.ed-manifest-head { display: flex; align-items: center; gap: var(--s-2); margin-bottom: var(--s-2); }
+.ed-manifest-title { font-size: var(--text-label); color: var(--color-paper); }
+.pj-manifest-note { font-size: var(--text-caption); color: var(--color-ash); }
+.ed-manifest-bad { margin-left: auto; color: var(--color-ember); font-size: var(--text-caption); cursor: help; }
+.ed-manifest-body { font-family: var(--font-mono); font-size: 12px; line-height: 1.6; color: var(--color-fog); white-space: pre; margin: 0 0 var(--s-2); overflow-x: auto; }
 .ed-fld { display: flex; flex-direction: column; gap: 4px; }
 .ed-fld > span:first-child { font-size: var(--text-caption); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-steel); }
 .ed-fld input { background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-label); padding: 6px 8px; width: 100%; }
