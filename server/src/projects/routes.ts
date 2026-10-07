@@ -5,6 +5,7 @@ import { requireRole } from '../auth/roles.ts';
 import { reposDir } from '../manual/packages.ts';
 import { listProjects, getProject, createProject, updateProject, deleteProject, claimPackage, unclaimPackage } from './store.ts';
 import { cloneProject, pullProject, workspaceStatus } from './workspace.ts';
+import { startBuild, listBuilds, getBuild, buildLog, logSize } from './builds.ts';
 
 interface ProjectBody {
   name?: string;
@@ -114,5 +115,39 @@ export function registerProjectRoutes(app: FastifyInstance, db: Database.Databas
   app.get('/api/projects/:id/workspace', { preHandler: requireRole('admin') }, async (req) => {
     const { id } = req.params as { id: string };
     return { status: await workspaceStatus(db, id) };
+  });
+
+  // ── CI builds (admin) ──
+  app.post('/api/projects/:id/builds', { preHandler: requireRole('admin') }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const r = startBuild(db, id);
+    if (!r.ok) {
+      const code = r.code === 'BUILD_RUNNING' ? 409 : r.code === 'CLONE_FIRST' ? 409 : 404;
+      return reply.code(code).send({ error: r.error, code: r.code });
+    }
+    return { ok: true, build: r.build };
+  });
+
+  app.get('/api/builds', { preHandler: requireRole('admin') }, async (req) => {
+    const q = req.query as { project?: string };
+    return { builds: listBuilds(db, q.project) };
+  });
+
+  app.get('/api/builds/:id', { preHandler: requireRole('admin') }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = getBuild(db, id);
+    if (!b) return reply.code(404).send({ error: 'build not found' });
+    return { build: b, logBytes: logSize(id) };
+  });
+
+  app.get('/api/builds/:id/log', { preHandler: requireRole('admin') }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = getBuild(db, id);
+    if (!b) return reply.code(404).send({ error: 'build not found' });
+    const q = req.query as { from?: string };
+    const from = Number(q.from ?? '0') || 0;
+    reply.header('content-type', 'text/plain; charset=utf-8');
+    reply.header('x-log-size', String(logSize(id)));
+    return buildLog(id, from);
   });
 }

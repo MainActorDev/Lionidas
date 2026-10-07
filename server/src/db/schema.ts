@@ -341,6 +341,22 @@ export function migrateM1(db: Database.Database): void {
       package_path TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE
     );
+    -- CI builds (plan 20261007T054500Z): one row per build attempt; numbers
+    -- monotonic PER PROJECT. Artifacts land in the packages dir + claim.
+    CREATE TABLE IF NOT EXISTS builds(
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      number INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('running','passed','failed')),
+      transport TEXT NOT NULL CHECK(transport IN ('repo-lane','generic')),
+      scheme TEXT,
+      started_at INTEGER NOT NULL,
+      finished_at INTEGER,
+      log_path TEXT,
+      artifact_path TEXT,
+      error TEXT,
+      UNIQUE(project_id, number)
+    );
   `);
   // Phase E: legacy rows must READ active, not NULL. ALTER DEFAULT only
   // covers new inserts; normalize once. Idempotent (WHERE status IS NULL —
