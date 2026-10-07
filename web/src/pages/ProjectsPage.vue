@@ -15,7 +15,7 @@ interface Project {
   authSet: boolean;
   updatedAt: number;
 }
-interface WsStatus { exists: boolean; branch: string | null; head: string | null; dirty: number | null }
+interface WsStatus { exists: boolean; branch: string | null; head: string | null; dirty: number | null; manifest: { scheme: string | null; configuration: string | null; prepare: string[] } | 'invalid' | null }
 interface PackageRow { path: string; owner: { id: string; name: string } | null }
 
 const projects = ref<Project[]>([]);
@@ -156,7 +156,16 @@ function wsLabel(p: Project): { text: string; title: string } {
   const ws = wsStates.value[p.id];
   if (!ws?.exists) return { text: '—', title: 'not cloned' };
   const dirty = ws.dirty ? ` · ${ws.dirty} dirty` : '';
-  return { text: `⎇ ${ws.branch ?? '?'}@${ws.head ?? '?'}`, title: `workspace at ${reposDir.value}/${p.name}${dirty}` };
+  const m = ws.manifest;
+  let mTxt = '';
+  let mTitle = '';
+  if (m === 'invalid') { mTxt = ' · ⚠ manifest'; mTitle = ' · lionidas.yml invalid (builds fail MANIFEST_INVALID)'; }
+  else if (m) {
+    const pins = [m.scheme ?? '', m.configuration ?? ''].filter(Boolean).join('/') || 'prepare only';
+    mTxt = ` · ⚙ ${pins}${m.prepare.length ? ` +${m.prepare.length}prep` : ''}`;
+    mTitle = ` · lionidas.yml: ${pins}${m.prepare.length ? `, prepare: ${m.prepare.join('; ')}` : ''}`;
+  }
+  return { text: `⎇ ${ws.branch ?? '?'}@${ws.head ?? '?'}${mTxt}`, title: `workspace at ${reposDir.value}/${p.name}${dirty}${mTitle}` };
 }
 
 const canCreate = computed(() => openId.value !== 'draft');

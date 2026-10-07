@@ -13,6 +13,7 @@ import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { getProject, projectAuthToken } from './store.ts';
+import { readBuildManifest } from './manifest.ts';
 import { projectWorkspace } from '../manual/packages.ts';
 
 const execFileAsync = promisify(execFile);
@@ -27,6 +28,9 @@ export interface WorkspaceStatus {
   branch: string | null;
   head: string | null;
   dirty: number | null;
+  /** repo-declared build manifest (lionidas.yml) — cheap file read, shown on
+   *  the projects row. 'invalid' = present but failed strict validation. */
+  manifest: { scheme: string | null; configuration: string | null; prepare: string[] } | 'invalid' | null;
 }
 
 /** https URL → token-injected URL; ssh remote → null (askpass path handles it). */
@@ -136,16 +140,23 @@ export function pullProject(db: Database.Database, id: string): Promise<Workspac
 
 export async function workspaceStatus(db: Database.Database, id: string): Promise<WorkspaceStatus> {
   const proj = getProject(db, id);
-  if (!proj) return { exists: false, branch: null, head: null, dirty: null };
+  if (!proj) return { exists: false, branch: null, head: null, dirty: null, manifest: null };
   const dest = projectWorkspace(proj.name);
-  if (!existsSync(join(dest, '.git'))) return { exists: false, branch: null, head: null, dirty: null };
+  if (!existsSync(join(dest, '.git'))) return { exists: false, branch: null, head: null, dirty: null, manifest: null };
+  let manifest: WorkspaceStatus['manifest'] = null;
+  try {
+    const m = readBuildManifest(dest);
+    manifest = m ? { scheme: m.scheme, configuration: m.configuration, prepare: m.prepare.map((s) => s.run) } : null;
+  } catch {
+    manifest = 'invalid'; // present but fails strict validation — surfaced, not hidden
+  }
   try {
     const branch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'], dest, {})) || null;
     const head = (await git(['rev-parse', '--short', 'HEAD'], dest, {})) || null;
     const st = await git(['status', '--porcelain'], dest, {});
     const dirty = st ? st.split('\n').filter(Boolean).length : 0;
-    return { exists: true, branch, head, dirty };
+    return { exists: true, branch, head, dirty, manifest };
   } catch {
-    return { exists: true, branch: null, head: null, dirty: null };
+    return { exists: true, branch: null, head: null, dirty: null, manifest };
   }
 }
