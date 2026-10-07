@@ -4,6 +4,7 @@ import type Database from 'better-sqlite3';
 import { requireRole } from '../auth/roles.ts';
 import { reposDir } from '../manual/packages.ts';
 import { listProjects, getProject, createProject, updateProject, deleteProject, claimPackage, unclaimPackage } from './store.ts';
+import { cloneProject, pullProject, workspaceStatus } from './workspace.ts';
 
 interface ProjectBody {
   name?: string;
@@ -86,5 +87,32 @@ export function registerProjectRoutes(app: FastifyInstance, db: Database.Databas
     if (b.projectId == null || b.projectId === '') { unclaimPackage(db, b.packagePath); return { ok: true }; }
     if (!claimPackage(db, b.packagePath, b.projectId)) return reply.code(404).send({ error: 'project not found' });
     return { ok: true };
+  });
+
+  // ── workspace management (admin): clone / pull / status ──
+  app.post('/api/projects/:id/clone', { preHandler: requireRole('admin') }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = (req.body ?? {}) as { pullIfExists?: boolean };
+    const r = await cloneProject(db, id, { pullIfExists: b.pullIfExists === true });
+    if (!r.ok) {
+      const code = r.code === 'WORKSPACE_EXISTS' ? 409 : 502;
+      return reply.code(code).send({ error: r.error, code: r.code });
+    }
+    return { ok: true, kind: r.kind, path: r.path };
+  });
+
+  app.post('/api/projects/:id/pull', { preHandler: requireRole('admin') }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const r = await pullProject(db, id);
+    if (!r.ok) {
+      const code = r.code === 'WORKSPACE_MISSING' ? 409 : 502;
+      return reply.code(code).send({ error: r.error, code: r.code });
+    }
+    return { ok: true, kind: r.kind, path: r.path };
+  });
+
+  app.get('/api/projects/:id/workspace', { preHandler: requireRole('admin') }, async (req) => {
+    const { id } = req.params as { id: string };
+    return { status: await workspaceStatus(db, id) };
   });
 }

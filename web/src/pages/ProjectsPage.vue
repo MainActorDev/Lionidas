@@ -15,9 +15,12 @@ interface Project {
   authSet: boolean;
   updatedAt: number;
 }
+interface WsStatus { exists: boolean; branch: string | null; head: string | null; dirty: number | null }
 interface PackageRow { path: string; owner: { id: string; name: string } | null }
 
 const projects = ref<Project[]>([]);
+const wsStates = ref<Record<string, WsStatus>>({});
+const wsBusy = ref<Record<string, boolean>>({});
 const pkgOwners = ref<Map<string, string>>(new Map());
 const loaded = ref(false);
 const error = ref('');
@@ -60,6 +63,13 @@ async function load(): Promise<void> {
       const rr = await fetch('/api/settings/repos-dir');
       if (rr.ok) reposDir.value = ((await rr.json()) as { dir?: string }).dir ?? '';
     } catch { /* derivation is best-effort */ }
+    // workspace states (clone status per project)
+    await Promise.all(projects.value.map(async (p) => {
+      try {
+        const r = await fetch(`/api/projects/${p.id}/workspace`);
+        if (r.ok) wsStates.value[p.id] = ((await r.json()) as { status: WsStatus }).status;
+      } catch { /* status best-effort */ }
+    }));
     loaded.value = true;
   } catch { error.value = 'load failed'; }
 }
@@ -127,6 +137,28 @@ function ageOf(ms: number): string {
   return new Date(ms).toLocaleDateString();
 }
 
+// ── workspace actions ──
+async function cloneOrPull(p: Project): Promise<void> {
+  if (wsBusy.value[p.id]) return;
+  wsBusy.value[p.id] = true; error.value = '';
+  const ws = wsStates.value[p.id];
+  const url = ws?.exists ? `/api/projects/${p.id}/pull` : `/api/projects/${p.id}/clone`;
+  try {
+    const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const b = (await r.json()) as { ok?: boolean; error?: string };
+    if (!b.ok) { error.value = b.error ?? `workspace op failed (${r.status})`; return; }
+    const s = await fetch(`/api/projects/${p.id}/workspace`);
+    if (s.ok) wsStates.value[p.id] = ((await s.json()) as { status: WsStatus }).status;
+  } catch { error.value = 'workspace op failed'; }
+  finally { wsBusy.value[p.id] = false; }
+}
+function wsLabel(p: Project): { text: string; title: string } {
+  const ws = wsStates.value[p.id];
+  if (!ws?.exists) return { text: '—', title: 'not cloned' };
+  const dirty = ws.dirty ? ` · ${ws.dirty} dirty` : '';
+  return { text: `⎇ ${ws.branch ?? '?'}@${ws.head ?? '?'}`, title: `workspace at ${reposDir.value}/${p.name}${dirty}` };
+}
+
 const canCreate = computed(() => openId.value !== 'draft');
 </script>
 
@@ -142,7 +174,7 @@ const canCreate = computed(() => openId.value !== 'draft');
 
     <div class="pj-table a2-list">
       <div class="pj-thead">
-        <span>project</span><span>repo</span><span>branch</span><span>auth</span><span>claims</span><span>updated</span><span></span>
+        <span>project</span><span>repo</span><span>branch</span><span>auth</span><span>claims</span><span>workspace</span><span>updated</span><span></span>
       </div>
 
       <!-- draft card — creating -->
@@ -182,8 +214,11 @@ const canCreate = computed(() => openId.value !== 'draft');
           <span class="pj-br">{{ p.defaultBranch ?? '—' }}</span>
           <span class="pj-auth" :class="{ on: p.authSet }" :title="p.authSet ? 'token set — manage on the settings page' : 'no token'">{{ p.authSet ? 'token' : '—' }}</span>
           <span class="pj-claims" :title="claimsOf(p.id).join('\n') || 'no claimed packages'">{{ claimsOf(p.id).length || '—' }}</span>
+          <span class="pj-ws" :title="wsLabel(p).title" :class="{ dirty: (wsStates[p.id]?.dirty ?? 0) > 0 }">{{ wsLabel(p).text }}</span>
           <span class="pj-upd">{{ ageOf(p.updatedAt) }}</span>
-          <span class="pj-actions"></span>
+          <span class="pj-actions">
+            <button class="btn btn-ghost" :disabled="wsBusy[p.id]" @click.stop="cloneOrPull(p)" :title="wsStates[p.id]?.exists ? 'fetch + reset to origin' : 'clone into the repos workspace'">{{ wsBusy[p.id] ? '…' : (wsStates[p.id]?.exists ? 'pull' : 'clone') }}</button>
+          </span>
         </div>
         <div v-if="openId === p.id" class="pj-editor">
           <div class="ed-grid">
@@ -217,7 +252,7 @@ const canCreate = computed(() => openId.value !== 'draft');
 .pj-table { background: var(--color-carbon); border: 1px solid var(--color-iron); }
 .pj-thead, .pj-row {
   display: grid;
-  grid-template-columns: minmax(90px, 1fr) minmax(200px, 2.4fr) 70px 56px 56px 80px 32px;
+  grid-template-columns: minmax(90px, 1fr) minmax(180px, 2.2fr) 64px 52px 52px 130px 72px 64px;
   gap: var(--s-3);
   align-items: center;
   padding: 0 12px;
@@ -239,6 +274,8 @@ const canCreate = computed(() => openId.value !== 'draft');
 .pj-auth { font-size: 10px; padding: 1px 5px; border: 1px solid var(--color-iron); color: var(--color-ash); text-transform: uppercase; justify-self: start; }
 .pj-auth.on { color: var(--color-ember); border-color: var(--color-ember-dim); }
 .pj-claims { color: var(--color-ash); }
+.pj-ws { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ash); font-size: var(--text-caption); }
+.pj-ws.dirty { color: var(--color-ember); }
 .pj-editor { padding: var(--s-4) 12px; background: var(--color-graphite); }
 .ed-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); }
 .ed-fld { display: flex; flex-direction: column; gap: 4px; }
