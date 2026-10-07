@@ -1,28 +1,37 @@
 /** lionidas.yml — the repo-declared build manifest (plan 20261007T164500Z T2).
  *
- *  v1 shape (strict):
+ *  v2 shape (strict):
  *    build:
  *      scheme: <string>        # optional
  *      configuration: <string> # optional
+ *    prepare:                  # optional, ordered; runs BEFORE the build
+ *      - run: <command string> # first word must be an existing relative path
+ *                              # inside the repo (repo-owned script)
  *
- *  STRICT SCHEMA: unknown keys (top-level or under build), non-string
- *  values, or malformed YAML → ManifestError (code MANIFEST_INVALID, the
- *  offending key named). A repo that speaks must be heard — a typo never
- *  silently falls through to guessing. Absent file → null (normal path).
+ *  The repo owns setup knowledge in its own scripts (bootstrap.sh,
+ *  xcodebuild_cached.sh …) — Lionidas NEVER re-implements setup; it runs
+ *  what the repo declares. Trust model: identical to a repo lane script —
+ *  building a repo means running its code; the manifest is data declaring
+ *  which script, and scripts get no secret injection.
  *
- *  Trust model: repo content is trusted (same trust as a repo lane script);
- *  the manifest is DATA, never executed. Platform-neutral by design —
- *  future android:/web: sections extend the same file; scheme maps to a
- *  Gradle module/flavor later, configuration to a variant. */
+ *  STRICT SCHEMA: unknown keys, wrong types, out-of-repo paths →
+ *  ManifestError (code MANIFEST_INVALID, the offending part named). A repo
+ *  that speaks must be heard — a typo never silently runs nothing. Absent
+ *  file → null (normal path). */
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 
 export const MANIFEST_FILENAME = 'lionidas.yml';
 
+export interface PrepareStep {
+  run: string;
+}
+
 export interface BuildManifest {
   scheme: string | null;
   configuration: string | null;
+  prepare: PrepareStep[];
 }
 
 export class ManifestError extends Error {
@@ -30,6 +39,16 @@ export class ManifestError extends Error {
   constructor(reason: string) {
     super(`lionidas.yml: ${reason}`);
   }
+}
+
+/** A prepare command's first word must be a repo-relative path (no absolute,
+ *  no ..). Existence is validated at RUN time against the workspace. */
+export function prepareCommandPath(cmd: string): string {
+  const first = cmd.trim().split(/\s+/)[0] ?? '';
+  if (first === '') throw new ManifestError('prepare run command is empty');
+  if (isAbsolute(first)) throw new ManifestError(`prepare run "${first}" must be a path inside the repo, not absolute`);
+  if (first.split('/').includes('..')) throw new ManifestError(`prepare run "${first}" must not escape the repo`);
+  return first;
 }
 
 /** Read + validate the manifest from a workspace clone. Absent → null. */
@@ -52,25 +71,44 @@ export function readBuildManifest(ws: string): BuildManifest | null {
   }
   const top = doc as Record<string, unknown>;
   for (const k of Object.keys(top)) {
-    if (k !== 'build') throw new ManifestError(`unknown key "${k}" (only "build" is allowed)`);
+    if (k !== 'build' && k !== 'prepare') throw new ManifestError(`unknown key "${k}" (allowed: build, prepare)`);
   }
-  const out: BuildManifest = { scheme: null, configuration: null };
+  const out: BuildManifest = { scheme: null, configuration: null, prepare: [] };
   const build = top['build'];
-  if (build === undefined) return out; // build: absent → both null (valid)
-  if (build == null) return out; // `build:` with no children — vacuous, valid
-  if (typeof build !== 'object' || Array.isArray(build)) {
-    throw new ManifestError('"build" must be a mapping');
+  if (build !== undefined && build != null) {
+    if (typeof build !== 'object' || Array.isArray(build)) {
+      throw new ManifestError('"build" must be a mapping');
+    }
+    for (const [k, v] of Object.entries(build as Record<string, unknown>)) {
+      if (k !== 'scheme' && k !== 'configuration') {
+        throw new ManifestError(`unknown key "build.${k}" (allowed: scheme, configuration)`);
+      }
+      if (v === null || v === undefined) continue; // explicit null ≡ unset
+      if (typeof v !== 'string' || v.trim() === '') {
+        throw new ManifestError(`build.${k} must be a non-empty string`);
+      }
+      if (k === 'scheme') out.scheme = v.trim();
+      else out.configuration = v.trim();
+    }
   }
-  for (const [k, v] of Object.entries(build as Record<string, unknown>)) {
-    if (k !== 'scheme' && k !== 'configuration') {
-      throw new ManifestError(`unknown key "build.${k}" (allowed: scheme, configuration)`);
+  const prepare = top['prepare'];
+  if (prepare !== undefined && prepare != null) {
+    if (!Array.isArray(prepare)) throw new ManifestError('"prepare" must be a list');
+    for (const [i, item] of prepare.entries()) {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+        throw new ManifestError(`prepare[${i}] must be a mapping with a "run" key`);
+      }
+      const keys = Object.keys(item as Record<string, unknown>);
+      if (keys.length !== 1 || keys[0] !== 'run') {
+        throw new ManifestError(`prepare[${i}] must have exactly one key "run" (got: ${keys.join(', ') || 'none'})`);
+      }
+      const run = (item as { run: unknown }).run;
+      if (typeof run !== 'string' || run.trim() === '') {
+        throw new ManifestError(`prepare[${i}].run must be a non-empty string`);
+      }
+      prepareCommandPath(run); // validates path shape (existence checked at run)
+      out.prepare.push({ run: run.trim() });
     }
-    if (v === null || v === undefined) continue; // explicit null ≡ unset
-    if (typeof v !== 'string' || v.trim() === '') {
-      throw new ManifestError(`build.${k} must be a non-empty string`);
-    }
-    if (k === 'scheme') out.scheme = v.trim();
-    else out.configuration = v.trim();
   }
   return out;
 }

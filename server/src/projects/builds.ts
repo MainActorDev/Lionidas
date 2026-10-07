@@ -16,12 +16,13 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { getProject } from './store.ts';
 import { claimPackage } from './store.ts';
-import { readBuildManifest, type BuildManifest } from './manifest.ts';
+import { readBuildManifest, prepareCommandPath, type BuildManifest, type PrepareStep } from './manifest.ts';
 import { discoverAppInputs, type DiscoveredInputs } from './discovery.ts';
 import { packagesDir, projectWorkspace } from '../manual/packages.ts';
 import { readIpaIdentity } from '../manual/packages.ts';
 
 const BUILD_TIMEOUT_MS = 45 * 60_000;
+const PREPARE_TIMEOUT_MS = 15 * 60_000;
 
 export interface BuildRow {
   id: string; projectId: string; number: number;
@@ -161,7 +162,7 @@ export function startBuild(db: Database.Database, projectId: string): StartResul
     try {
       const ipaPath = transport === 'repo-lane'
         ? await runRepoLane(ws, log)
-        : await runGeneric(ws, scheme, configuration, log, (s) => safeDb(() => db.prepare('UPDATE builds SET scheme = ? WHERE id = ?').run(s, id)));
+        : await runGeneric(ws, scheme, configuration, log, (s) => safeDb(() => db.prepare('UPDATE builds SET scheme = ? WHERE id = ?').run(s, id)), manifest?.prepare ?? []);
       // platform guard parity: reject device/macos artifacts
       const idn = readIpaIdentity(ipaPath);
       if (!idn) throw new Error(`cannot read identity from built artifact ${ipaPath}`);
@@ -254,18 +255,47 @@ function hasXcodeproj(ws: string): boolean {
   try { return readdirSync(ws).some((f) => f.endsWith('.xcodeproj')); } catch { return false; }
 }
 
-async function runGeneric(ws: string, scheme: string | null, configuration: string | null, log: (l: string) => void, onScheme?: (s: string) => void): Promise<string> {
+async function runGeneric(ws: string, scheme: string | null, configuration: string | null, log: (l: string) => void, onScheme?: (s: string) => void, prepare: PrepareStep[] = []): Promise<string> {
   const conf = configuration ?? 'Debug';
-  // xcodegen FIRST: project.yml-only repos have no schemes until the
-  // .xcodeproj is generated (discovery before generate finds nothing).
-  if (existsSync(join(ws, 'project.yml')) && !hasXcodeproj(ws)) {
+  // PREPARE (manifest v2): the repo declares its own setup steps (spec
+  // surgery, scipio, bundler …). The repo owns setup knowledge — Lionidas
+  // runs what it declares, never re-implements. When prepare is declared it
+  // OWNS project generation: the engine's xcodegen fallback is skipped.
+  if (prepare.length > 0) {
+    for (const [i, step] of prepare.entries()) {
+      const scriptPath = prepareCommandPath(step.run);
+      if (!existsSync(join(ws, scriptPath))) {
+        throw new Error(`PREPARE_FAILED: prepare[${i}] run "${scriptPath}" not found in the repo`);
+      }
+      log(`$ prepare[${i}]: ${step.run}`);
+      try {
+        // repo scripts are usually committed +x; if not, execute via sh <path>
+        const target = join(ws, scriptPath);
+        const executable = (() => { try { return (statSync(target).mode & 0o111) !== 0; } catch { return false; } })();
+        if (executable) {
+          await runCommand('sh', ['-c', step.run], ws, log, PREPARE_TIMEOUT_MS);
+        } else {
+          await runCommand('sh', [scriptPath, ...step.run.trim().split(/\s+/).slice(1)], ws, log, PREPARE_TIMEOUT_MS);
+        }
+      } catch (e) {
+        throw new Error(`PREPARE_FAILED: prepare[${i}] (${step.run}) — ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  } else if (existsSync(join(ws, 'project.yml')) && !hasXcodeproj(ws)) {
+    // xcodegen fallback (no prepare declared): project.yml-only repos have
+    // no schemes until the .xcodeproj is generated.
     log('$ xcodegen generate');
     await runCommand('xcodegen', ['generate'], ws, log, 5 * 60_000);
-    if (!scheme) {
-      const d = discoverAppInputs(ws);
-      scheme = d.appSchemes.length === 1 ? d.appSchemes[0]! : null;
-      if (scheme) { log(`# scheme discovered: ${scheme}`); onScheme?.(scheme); }
-      else if (d.appSchemes.length > 1) throw new Error(`SCHEME_AMBIGUOUS: ${d.appSchemes.length} app schemes found (${d.appSchemes.join(', ')}) — pin one via lionidas.yml or the project's build inputs`);
+  }
+  // post-prepare discovery: a prepare step may have generated the project
+  if (!scheme) {
+    const d = discoverAppInputs(ws);
+    if (d.appSchemes.length === 1) {
+      scheme = d.appSchemes[0]!;
+      log(`# scheme discovered: ${scheme}`);
+      onScheme?.(scheme);
+    } else if (d.appSchemes.length > 1) {
+      throw new Error(`SCHEME_AMBIGUOUS: ${d.appSchemes.length} app schemes found (${d.appSchemes.join(', ')}) — pin one via lionidas.yml or the project's build inputs`);
     }
   }
   if (!scheme) throw new Error('no scheme discovered — xcodebuild -list returned nothing');

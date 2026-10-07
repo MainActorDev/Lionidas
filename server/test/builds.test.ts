@@ -186,6 +186,53 @@ describe('CI builds', () => {
     expect(b.repoShape).toBeTruthy();
   });
 
+  it('prepare: manifest run-steps execute before build (engine skips xcodegen fallback)', async () => {
+    const pid = mkClonedProject('prepapp');
+    const ws = join(repos, 'prepapp');
+    // prepare script generates a fake xcodeproj marker + prints; build then runs
+    mkdirSync(join(ws, 'scripts'), { recursive: true });
+    writeFileSync(join(ws, 'scripts', 'prepare.sh'), '#!/bin/sh\necho "prep-step-ran"\nexit 0\n');
+    writeFileSync(join(ws, 'lionidas.yml'), 'build:\n  scheme: App\nprepare:\n  - run: scripts/prepare.sh\n');
+    const r = await app.inject({ method: 'POST', url: `/api/projects/${pid}/builds`, payload: {} });
+    expect(r.statusCode).toBe(200);
+    const b0 = (r.json() as { build: { id: string } }).build;
+    await waitSettled(b0.id);
+    const b = ((await (await app.inject({ method: 'GET', url: `/api/builds/${b0.id}` })).json()) as { build: { status: string; error: string | null } }).build;
+    expect(b.status).toBe('passed');
+    // the log must show the prepare step ran
+    const log = await app.inject({ method: 'GET', url: `/api/builds/${b0.id}/log` });
+    expect(log.body).toContain('prepare[0]: scripts/prepare.sh');
+    expect(log.body).toContain('prep-step-ran');
+  });
+
+  it('prepare: failing step → PREPARE_FAILED naming the step', async () => {
+    const pid = mkClonedProject('prepfail');
+    const ws = join(repos, 'prepfail');
+    mkdirSync(join(ws, 'scripts'), { recursive: true });
+    writeFileSync(join(ws, 'scripts', 'prepare.sh'), '#!/bin/sh\necho "boom" >&2\nexit 3\n');
+    writeFileSync(join(ws, 'lionidas.yml'), 'build:\n  scheme: App\nprepare:\n  - run: scripts/prepare.sh\n');
+    const r = await app.inject({ method: 'POST', url: `/api/projects/${pid}/builds`, payload: {} });
+    expect(r.statusCode).toBe(200);
+    const b0 = (r.json() as { build: { id: string } }).build;
+    await waitSettled(b0.id);
+    const b = ((await (await app.inject({ method: 'GET', url: `/api/builds/${b0.id}` })).json()) as { build: { status: string; error: string | null } }).build;
+    expect(b.status).toBe('failed');
+    expect(b.error).toContain('PREPARE_FAILED');
+    expect(b.error).toContain('scripts/prepare.sh');
+  });
+
+  it('prepare: missing script → PREPARE_FAILED not-found', async () => {
+    const pid = mkClonedProject('prepmiss');
+    writeFileSync(join(repos, 'prepmiss', 'lionidas.yml'), 'build:\n  scheme: App\nprepare:\n  - run: scripts/does-not-exist.sh\n');
+    const r = await app.inject({ method: 'POST', url: `/api/projects/${pid}/builds`, payload: {} });
+    expect(r.statusCode).toBe(200);
+    const b0 = (r.json() as { build: { id: string } }).build;
+    await waitSettled(b0.id);
+    const b = ((await (await app.inject({ method: 'GET', url: `/api/builds/${b0.id}` })).json()) as { build: { status: string; error: string | null } }).build;
+    expect(b.status).toBe('failed');
+    expect(b.error).toContain('not found in the repo');
+  });
+
   it('generic path: discovers scheme, builds, zips sim ipa, claims package', async () => {
     const pid = mkClonedProject();
     const r = await app.inject({ method: 'POST', url: `/api/projects/${pid}/builds`, payload: {} });
