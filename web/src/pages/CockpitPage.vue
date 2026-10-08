@@ -6,6 +6,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import MenuBar from '../components/cockpit/MenuBar.vue';
+import InteractionOverlay from '../components/cockpit/InteractionOverlay.vue';
 import DeviceSwitcher, { type SwitcherDevice } from '../components/cockpit/DeviceSwitcher.vue';
 import StageBezel from '../components/cockpit/StageBezel.vue';
 import WatcherPanel from '../components/shared/WatcherPanel.vue';
@@ -594,7 +595,48 @@ const status = computed(() => ({
   deviceName: activeName.value,
   liveCount: devices.value.length,
 }));
-void live;
+// ── interaction overlay (sketch 030-B locked): WHERE the system interacts.
+// step.tap carries logical coords → fractions via logicalW/H; the label comes
+// from the same event's idx (last step.started name kept per run). Markers
+// fade in the overlay component; we keep the last few ids alive briefly.
+interface IaMarker { id: number; fx: number; fy: number; label: string; kind: 'tap' | 'type' }
+const iaMarkers = ref<IaMarker[]>([]);
+let iaSeq = 0;
+const stepNames = new Map<string, string>(); // runId → current step label
+const runDevices = new Map<string, string>(); // runId → udid (from run.started)
+// consume by timestamp (WatchPane pattern): the rolling window SPLICES from
+// the front once full, so length stalls at MAX_EVENTS — a length-watch would
+// never fire again. `at` is monotonic per event.
+let iaLastAt = 0;
+setInterval(() => {
+  for (const ev of live.events) {
+    if (ev.at <= iaLastAt) continue;
+    iaLastAt = ev.at;
+    const p = ev.payload as Record<string, unknown>;
+    if (ev.type === 'run.started') {
+      const rid = p['runId'] as string | undefined;
+      const udid = p['udid'] as string | undefined;
+      if (rid && udid) runDevices.set(rid, udid);
+    } else if (ev.type === 'step.started') {
+      const rid = p['runId'] as string | undefined;
+      const name = p['name'] as string | undefined;
+      if (rid && name) stepNames.set(rid, name);
+    } else if (ev.type === 'step.tap') {
+      const rid = p['runId'] as string | undefined;
+      const x = p['x'] as number; const y = p['y'] as number;
+      const w = p['logicalW'] as number; const h = p['logicalH'] as number;
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !w || !h) continue;
+      // only the ACTIVE device's run paints on this stage
+      const dev = rid ? runDevices.get(rid) : undefined;
+      if (dev && dev !== activeUdid.value) continue;
+      if (!dev && activeUdid.value === '') continue;
+      const label = stepNames.get(rid ?? '') ?? 'interaction';
+      iaMarkers.value = [...iaMarkers.value.slice(-4), { id: ++iaSeq, fx: x / w, fy: y / h, label, kind: 'tap' }];
+    }
+  }
+}, 500);
+live.connect();
+onBeforeUnmount(() => live.release());
 </script>
 
 <template>
@@ -608,7 +650,9 @@ void live;
         @session-state="onSessionState" @inspect-click="onInspectClick"
         @session-acquired="onSessionAcquired" @session-dropped="onSessionDropped"
         @exit-inspect="overlay = null; toolsOpen = false"
-        @abort-running="abortRunning" />
+        @abort-running="abortRunning">
+        <InteractionOverlay :markers="iaMarkers" />
+      </StageBezel>
       <div v-else class="empty">no booted devices — boot one from the device menu</div>
       <!-- toasts live INSIDE the device container area (stage column), top-left -->
       <div class="toast-stack" aria-live="polite">

@@ -405,6 +405,10 @@ defineExpose({
         :logical-w="overlayWC" :logical-h="overlayHC"
         :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
                   width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%` }" />
+      <!-- interaction overlay (sketch 030-B): WHERE the system taps/types —
+           same screen rect as the inspect overlays, transparent, no events -->
+      <div class="ia-slot" :style="{ left: `${bezelDef.screen.xPct}%`, top: `${bezelDef.screen.yPct}%`,
+                     width: `${bezelDef.screen.wPct}%`, height: `${bezelDef.screen.hPct}%` }"><slot /></div>
       <img v-for="b in bezelDef.buttons" :key="b.name" class="bezel-btn"
         :src="buttonSrc(b)" :alt="b.name" draggable="false"
         :style="buttonStyle(b)"
@@ -423,6 +427,7 @@ defineExpose({
     <div v-else class="bezel-bare">
       <div class="screen">
           <canvas v-show="stream.state.value !== 'idle'" :ref="stream.setCanvas" @click="onTap" />
+          <div class="ia-slot" style="inset: 0;"><slot /></div>
         <StreamShimmer :state="stream.state.value" />
         <div v-if="stream.state.value === 'failed'" class="failbox">
           <span>{{ stream.failure.value || 'stream failed' }}</span>
@@ -465,6 +470,7 @@ defineExpose({
 .restarting-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-ember); animation: restarting-pulse 1.1s infinite; }
 @keyframes restarting-pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
 @media (prefers-reduced-motion: reduce) { .restarting-dot { animation: none; } }
+.ia-slot { position: absolute; pointer-events: none; }
 .bezel-wrap {
   opacity: .5;
   transition: opacity .2s ease;
