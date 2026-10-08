@@ -37,8 +37,12 @@
   border-right: 1px solid var(--color-iron);
   padding: var(--s-4) 0;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 .nav-grp { margin-bottom: var(--s-5); }
+/* guide: standalone footer link — flush left (not nested under a group) */
+.nav-item.nav-guide { margin-top: auto; padding-left: var(--s-4); border-top: 1px solid var(--color-void); }
 .nav-grp-head {
   display: flex; align-items: center; gap: var(--s-2);
   width: 100%;
