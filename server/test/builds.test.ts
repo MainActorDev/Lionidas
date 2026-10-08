@@ -337,4 +337,39 @@ describe('CI builds', () => {
   });
 });
 
+describe('boot reconcile: orphaned builds', () => {
+  it("build stuck 'running' from a dead process → failed with an honest error", async () => {
+    const pid = createProject(db, { name: 'orphanapp', repoUrl: 'https://x/y.git', defaultBranch: 'main' }).id;
+    db.prepare(`INSERT INTO builds(id, project_id, number, status, transport, started_at, scheme, configuration)
+                VALUES ('b_orph', ?, 99, 'running', 'generic', ?, 'App', 'Debug')`).run(pid, Date.now());
+    const { bootReconcile } = await import('../src/alloy/reconcile.ts');
+    const { createEventBus } = await import('../src/ws/bus.ts');
+    type AppEvents = import('../src/ws/bus.ts').AppEvents;
+    const bus = createEventBus<AppEvents>();
+    db.prepare('DELETE FROM devices').run(); // skip the alloy-release loop (no device rows)
+    const rep = await bootReconcile(db, bus, {});
+    expect(rep.buildsFailed).toBe(1);
+    const row = db.prepare('SELECT status, error, finished_at FROM builds WHERE id = ?').get('b_orph') as { status: string; error: string; finished_at: number };
+    expect(row.status).toBe('failed');
+    expect(row.error).toContain('server restarted mid-build');
+    expect(row.finished_at).toBeGreaterThan(0);
+  });
+
+  it('terminal builds are never touched', async () => {
+    const pid = createProject(db, { name: 'doneapp', repoUrl: 'https://x/y.git', defaultBranch: 'main' }).id;
+    db.prepare(`INSERT INTO builds(id, project_id, number, status, transport, started_at, finished_at, scheme, configuration)
+                VALUES ('b_pass', ?, 98, 'passed', 'generic', ?, ?, 'App', 'Debug')`).run(pid, Date.now() - 5000, Date.now());
+    const { bootReconcile } = await import('../src/alloy/reconcile.ts');
+    const { createEventBus } = await import('../src/ws/bus.ts');
+    type AppEvents = import('../src/ws/bus.ts').AppEvents;
+    const bus = createEventBus<AppEvents>();
+    db.prepare('DELETE FROM devices').run();
+    const rep = await bootReconcile(db, bus, {});
+    expect(rep.buildsFailed).toBe(0);
+    const row = db.prepare('SELECT status, error FROM builds WHERE id = ?').get('b_pass') as { status: string; error: string | null };
+    expect(row.status).toBe('passed');
+    expect(row.error).toBeNull();
+  });
+});
+
 void execFileSync; void readdirSync; void writeFileSync; void mkdirSync;
