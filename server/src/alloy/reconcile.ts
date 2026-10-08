@@ -10,10 +10,11 @@ export interface ReconcileReport {
   sessionsClosed: number;
   queueAborted: number;
   deviceClaimsCleared: number;
+  buildsFailed: number;
 }
 
 export async function bootReconcile(db: Database.Database, bus: TypedEventBus<AppEvents>, dispatchDeps: unknown): Promise<ReconcileReport> {
-  const report: ReconcileReport = { sessionsClosed: 0, queueAborted: 0, deviceClaimsCleared: 0 };
+  const report: ReconcileReport = { sessionsClosed: 0, queueAborted: 0, deviceClaimsCleared: 0, buildsFailed: 0 };
   const alloy = crucibleAlloy();
 
   // 1. abort stale waiting queue rows (enqueued before this boot)
@@ -46,6 +47,18 @@ export async function bootReconcile(db: Database.Database, bus: TypedEventBus<Ap
   const orphanManual = db.prepare('SELECT id FROM manual_sessions WHERE finished_at IS NULL').all() as Array<{ id: string }>;
   for (const { id } of orphanManual) {
     db.prepare('UPDATE manual_sessions SET finished_at = ? WHERE id = ?').run(Date.now(), id);
+  }
+
+  // 5. builds stuck 'running' from a previous process → failed. The build
+  //    child (xcodebuild/xcbuddy) died with the old process tree — no
+  //    re-attach exists — so a surviving 'running' row is a display lie and
+  //    a retention anomaly. Mark honestly; log/console content is kept.
+  //    (No bus event: the builds page polls on interval.)
+  const orphanBuilds = db.prepare("SELECT id FROM builds WHERE status = 'running'").all() as Array<{ id: string }>;
+  for (const { id } of orphanBuilds) {
+    db.prepare(`UPDATE builds SET status = 'failed', finished_at = ?, error = ? WHERE id = ?`)
+      .run(Date.now(), 'server restarted mid-build — orphaned build reaped at boot', id);
+    report.buildsFailed++;
   }
 
   return report;
