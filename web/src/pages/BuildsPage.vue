@@ -12,8 +12,10 @@ interface Build {
   scheme: string | null; configuration: string | null; resolution: string | null; smoke: string | null;
   startedAt: number; finishedAt: number | null;
   artifactPath: string | null; error: string | null;
+  suite: { passed: number; failed: number; running: number; total: number; failedNames?: string[] } | null;
 }
 interface Project { id: string; name: string }
+interface Suite { id: string; name: string; appBundleId: string | null }
 interface BuildInputs {
   appSchemes: string[]; configurations: string[];
   pinned: { scheme: string | null; configuration: string | null };
@@ -39,6 +41,62 @@ let logPoll: ReturnType<typeof setInterval> | null = null;
 
 const pickOpen = ref(false);
 const starting = ref(false);
+// ▶ test modal (Phase 1 build→test)
+const testOpen = ref(false);
+const testBuild = ref<Build | null>(null);
+const suites = ref<Suite[]>([]);
+const devices = ref<Array<{ udid: string; name: string | null }>>([]);
+const testSuiteId = ref('');
+const testUdid = ref('');
+const testing = ref(false);
+
+async function openTest(b: Build): Promise<void> {
+  testBuild.value = b;
+  testSuiteId.value = ''; testUdid.value = ''; testing.value = false; error.value = '';
+  testOpen.value = true;
+  try {
+    const [sr, dr, pr] = await Promise.all([
+      fetch('/api/suites'),
+      fetch('/api/devices'),
+      fetch(`/api/projects/${b.projectId}`),
+    ]);
+    if (sr.ok) suites.value = ((await sr.json()) as { suites?: Suite[] }).suites ?? [];
+    if (dr.ok) devices.value = (((await dr.json()) as { devices?: Array<{ udid: string; name: string | null; state?: string; kind?: string }> }).devices ?? []).filter((d) => d.state === 'Booted' && d.kind === 'simulator');
+    if (pr.ok) {
+      const proj = ((await pr.json()) as { project?: { defaultSuiteId?: string | null } }).project;
+      testSuiteId.value = proj?.defaultSuiteId ?? suites.value.find((s) => s.appBundleId == null)?.id ?? '';
+    }
+    if (!testUdid.value && devices.value.length > 0) testUdid.value = devices.value[0]!.udid;
+  } catch { /* modal shows empties with reasons */ }
+}
+
+/** A suite can test this build when its bundle scope matches (or is open). */
+function suiteMatches(s: Suite): boolean {
+  if (!testBuild.value?.artifactPath) return s.appBundleId == null;
+  // the build's bundle id is derivable from the artifact name claim, but the
+  // server guards authoritatively; here we only grey obvious mismatches via
+  // the project's last-known bundle: rely on server 409 BUNDLE_MISMATCH.
+  return true; // server is the authority; keep all selectable
+}
+
+async function runTest(): Promise<void> {
+  const b = testBuild.value;
+  if (!b || testing.value) return;
+  testing.value = true; error.value = '';
+  try {
+    const r = await fetch(`/api/builds/${b.id}/test`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...(testSuiteId.value ? { suiteId: testSuiteId.value } : {}), ...(testUdid.value ? { udid: testUdid.value } : {}) }),
+    });
+    const j = (await r.json()) as { runIds?: string[]; batchId?: string; error?: string };
+    if (!r.ok) { error.value = j.error ?? `test failed (${r.status})`; return; }
+    testOpen.value = false; testBuild.value = null;
+    await load();
+    // evidence lives on the runs surface (batch highlight if supported)
+    void j.batchId;
+  } catch { error.value = 'test failed'; }
+  finally { testing.value = false; }
+}
 // picker step 2 (build inputs): loaded after choosing a project
 const pickProject = ref<Project | null>(null);
 const inputs = ref<BuildInputs | null>(null);
@@ -198,6 +256,11 @@ function smokeOf(b: Build): { glyph: string; cls: string; title: string } | null
   if (b.smoke === 'skipped') return { glyph: '⌁–', cls: 'smoke-skip', title: 'smoke probe skipped (no simulator)' };
   return null;
 }
+
+function canTest(b: Build): boolean {
+  // two-verdicts rule: only launch-verified artifacts are testable (Q3 edge)
+  return b.status === 'passed' && b.smoke === 'ok' && !!b.artifactPath;
+}
 </script>
 
 <template>
@@ -229,7 +292,13 @@ function smokeOf(b: Build): { glyph: string; cls: string; title: string } | null
             <template v-else-if="b.error">✕ {{ b.error.slice(0, 60) }}{{ b.error.length > 60 ? '…' : '' }}</template>
             <template v-else>—</template>
           </span>
-          <span class="b-meta">▤</span>
+          <span class="b-actions">
+            <span v-if="b.suite" class="suite-chip" :class="{ bad: b.suite.failed > 0, run: b.suite.running > 0 }" :title="(b.suite.failedNames ?? []).join('\n') || `suite: ${b.suite.passed}/${b.suite.total} passed`">
+              {{ b.suite.running > 0 ? `⏳ ${b.suite.passed}/${b.suite.total}` : `${b.suite.passed}/${b.suite.total}` }}
+            </span>
+            <button v-if="canTest(b)" class="btn btn-ghost b-test" title="install this build and run a suite against it" @click.stop="openTest(b)">▶ test</button>
+            <span class="b-meta" style="cursor:pointer;">▤</span>
+          </span>
         </div>
         <div v-if="openId === b.id" class="b-console">
           <pre class="b-log">{{ logText || '…' }}</pre>
@@ -280,6 +349,33 @@ function smokeOf(b: Build): { glyph: string; cls: string; title: string } | null
         </div>
       </div>
     </div>
+    <!-- ▶ test modal (Phase 1 build→test): suite + device pickers -->
+    <div v-if="testOpen" class="pk-backdrop" @click.self="testOpen = false">
+      <div class="pk-modal">
+        <div class="pk-head">
+          <span class="pk-title">test · build #{{ testBuild?.number }} {{ testBuild?.projectName }}</span>
+          <button class="pk-x" @click="testOpen = false">✕</button>
+        </div>
+        <div class="pk-body">
+          <div class="pk-field">
+            <label class="pk-label">suite</label>
+            <select v-model="testSuiteId" class="pk-select">
+              <option value="" disabled>{{ suites.length ? 'choose suite…' : 'no suites — record cases first' }}</option>
+              <option v-for="s in suites" :key="s.id" :value="s.id">{{ s.name }}{{ s.appBundleId ? ` · ${s.appBundleId}` : '' }}</option>
+            </select>
+          </div>
+          <div class="pk-field">
+            <label class="pk-label">device — booted sims (the build installs first)</label>
+            <select v-model="testUdid" class="pk-select">
+              <option value="" disabled>{{ devices.length ? 'choose device…' : 'no booted simulator' }}</option>
+              <option v-for="d in devices" :key="d.udid" :value="d.udid">{{ d.name ?? d.udid }}</option>
+            </select>
+          </div>
+          <div v-if="error" class="pk-err">{{ error }}</div>
+          <button class="btn btn-primary pk-start" :disabled="!testSuiteId || !testUdid || testing" @click="runTest">{{ testing ? 'starting…' : '▶ test' }}</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -324,4 +420,9 @@ function smokeOf(b: Build): { glyph: string; cls: string; title: string } | null
 .smoke-ok { color: var(--color-ember); }
 .smoke-crash { color: var(--color-paper); font-weight: bold; }
 .smoke-skip { color: var(--color-steel); }
+.b-actions { display: flex; gap: 6px; align-items: center; justify-content: flex-end; }
+.suite-chip { font-size: 11px; padding: 1px 6px; border: 1px solid var(--color-iron); color: var(--color-ember); white-space: nowrap; }
+.suite-chip.bad { color: var(--color-paper); border-color: var(--color-paper); }
+.suite-chip.run { color: var(--color-ash); }
+.b-test { font-size: 11px; padding: 2px 8px; }
 </style>

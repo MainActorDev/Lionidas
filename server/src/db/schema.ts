@@ -312,6 +312,10 @@ export function migrateM1(db: Database.Database): void {
     // honest label — never backfilled). Set membership replaces the 120s
     // timestamp-window guess suiteVerdicts uses for legacy rows.
     'ALTER TABLE runs ADD COLUMN batch_id TEXT',
+    // Phase 1 build→test loop: the run executed THIS build's binary
+    // (install-first guarantees it). Source of truth for build attribution;
+    // triggered_by 'build:#N' is display sugar, never parsed (review R4).
+    'ALTER TABLE runs ADD COLUMN build_id TEXT REFERENCES builds(id) ON DELETE SET NULL',
     // Build anchoring (run detail): CFBundleVersion stamped at run creation —
     // the marketing version (app_version) alone doesn't identify a build.
     'ALTER TABLE runs ADD COLUMN app_build TEXT',
@@ -323,6 +327,9 @@ export function migrateM1(db: Database.Database): void {
     'ALTER TABLE projects ADD COLUMN build_scheme TEXT',
     'ALTER TABLE projects ADD COLUMN build_configuration TEXT',
     'ALTER TABLE projects ADD COLUMN repo_shape TEXT',
+    // Phase 1 build→test loop (plan 20261008T083419Z): per-project default
+    // suite for ▶ test (Q1: pinned default + override in the picker)
+    'ALTER TABLE projects ADD COLUMN default_suite_id TEXT',
     // strict JSON {"scheme":"manifest|registry|discovered|null",
     // "configuration":…} — where THIS build's inputs came from (R4)
     'ALTER TABLE builds ADD COLUMN resolution TEXT',
@@ -353,6 +360,7 @@ export function migrateM1(db: Database.Database): void {
       build_scheme TEXT,
       build_configuration TEXT,
       repo_shape TEXT,
+      default_suite_id TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );

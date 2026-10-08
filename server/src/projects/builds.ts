@@ -49,12 +49,36 @@ function row(r: RawBuild): BuildRow {
   };
 }
 
-export function listBuilds(db: Database.Database, projectId?: string): Array<BuildRow & { projectName: string }> {
+export function listBuilds(db: Database.Database, projectId?: string): Array<BuildRow & { projectName: string; suite: { passed: number; failed: number; running: number; total: number; failedNames?: string[] } | null }> {
   const sql = projectId
     ? `SELECT b.*, p.name AS project_name FROM builds b JOIN projects p ON p.id = b.project_id WHERE b.project_id = ? ORDER BY b.started_at DESC`
     : `SELECT b.*, p.name AS project_name FROM builds b JOIN projects p ON p.id = b.project_id ORDER BY b.started_at DESC`;
   const rows = (projectId ? db.prepare(sql).all(projectId) : db.prepare(sql).all()) as Array<RawBuild & { project_name: string }>;
-  return rows.map((r) => ({ ...row(r), projectName: r.project_name }));
+  // Phase 1 build→test: suite verdict chip per build — one grouped pass
+  // (review R5: queued AND running both count as running). Failed-case names
+  // ride separately (first 5) for the chip tooltip.
+  const agg = db.prepare(`SELECT build_id,
+      SUM(CASE WHEN status = 'passed' THEN 1 ELSE 0 END) AS p,
+      SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS f,
+      SUM(CASE WHEN status IN ('queued','running') THEN 1 ELSE 0 END) AS r,
+      COUNT(*) AS t
+    FROM runs WHERE build_id IS NOT NULL GROUP BY build_id`).all() as Array<{ build_id: string; p: number; f: number; r: number; t: number }>;
+  const failNames = db.prepare(`SELECT r.build_id AS bid, t.name AS n FROM runs r JOIN templates t ON t.id = r.template_id
+    WHERE r.build_id IS NOT NULL AND r.status = 'failed'`).all() as Array<{ bid: string; n: string }>;
+  const aggBy = new Map(agg.map((a) => [a.build_id, a]));
+  const failsBy = new Map<string, string[]>();
+  for (const f of failNames) {
+    const list = failsBy.get(f.bid) ?? [];
+    if (list.length < 5) list.push(f.n);
+    failsBy.set(f.bid, list);
+  }
+  return rows.map((r) => {
+    const a = aggBy.get(r.id);
+    return {
+      ...row(r), projectName: r.project_name,
+      suite: a ? { passed: a.p, failed: a.f, running: a.r, total: a.t, ...(failsBy.has(r.id) ? { failedNames: failsBy.get(r.id)! } : {}) } : null,
+    };
+  });
 }
 
 export function getBuild(db: Database.Database, id: string): BuildRow | null {

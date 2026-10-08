@@ -21,6 +21,7 @@ interface ProjectBody {
   clearAuth?: boolean;
   buildScheme?: string | null;
   buildConfiguration?: string | null;
+  defaultSuiteId?: string | null;
 }
 
 function validUrlish(v: string): boolean {
@@ -79,6 +80,7 @@ export function registerProjectRoutes(app: FastifyInstance, db: Database.Databas
       ...(b.clearAuth ? { authToken: '' } : b.authToken !== undefined ? { authToken: b.authToken || '' } : {}),
       ...(b.buildScheme !== undefined ? { buildScheme: b.buildScheme || null } : {}),
       ...(b.buildConfiguration !== undefined ? { buildConfiguration: b.buildConfiguration || null } : {}),
+      ...(b.defaultSuiteId !== undefined ? { defaultSuiteId: b.defaultSuiteId || null } : {}),
     });
     if (!p) return reply.code(404).send({ error: 'project not found' });
     return { ok: true, project: p };

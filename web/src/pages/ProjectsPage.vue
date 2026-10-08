@@ -13,12 +13,15 @@ interface Project {
   localPath: string | null;
   defaultBranch: string | null;
   authSet: boolean;
+  defaultSuiteId: string | null;
   updatedAt: number;
 }
+interface SuiteOpt { id: string; name: string }
 interface WsStatus { exists: boolean; branch: string | null; head: string | null; dirty: number | null; manifest: { scheme: string | null; configuration: string | null; prepare: string[] } | 'invalid' | null; manifestRaw: string | null; manifestError: string | null }
 interface PackageRow { path: string; owner: { id: string; name: string } | null }
 
 const projects = ref<Project[]>([]);
+const suites = ref<SuiteOpt[]>([]);
 const wsStates = ref<Record<string, WsStatus>>({});
 const wsBusy = ref<Record<string, boolean>>({});
 const pkgOwners = ref<Map<string, string>>(new Map());
@@ -73,7 +76,19 @@ async function load(): Promise<void> {
     loaded.value = true;
   } catch { error.value = 'load failed'; }
 }
-onMounted(() => void load());
+onMounted(() => { void load(); void loadSuites(); });
+async function loadSuites(): Promise<void> {
+  try {
+    const r = await fetch('/api/suites');
+    if (r.ok) suites.value = ((await r.json()) as { suites?: SuiteOpt[] }).suites ?? [];
+  } catch { /* editor shows none */ }
+}
+function onDefaultSuite(e: Event): void {
+  if (!editing.value) return;
+  const v = (e.target as HTMLSelectElement).value;
+  editing.value = { ...editing.value, defaultSuiteId: v || null };
+  void fetch(`/api/projects/${editing.value.id}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ defaultSuiteId: v }) });
+}
 
 function claimsOf(id: string): string[] {
   return (pkgOwners.value.get(id) ?? '').split(' ').filter(Boolean);
@@ -240,6 +255,12 @@ const canCreate = computed(() => openId.value !== 'draft');
             <label class="ed-fld"><span>name</span><input v-model="edName" /></label>
             <label class="ed-fld"><span>repo url</span><input v-model="edRepoUrl" /></label>
             <label class="ed-fld"><span>default branch</span><input v-model="edBranch" /></label>
+            <label class="ed-fld"><span>default suite — ▶ test preselect</span>
+              <select :value="editing?.defaultSuiteId ?? ''" @change="onDefaultSuite" class="ed-select">
+                <option value="">none</option>
+                <option v-for="s in suites" :key="s.id" :value="s.id">{{ s.name }}</option>
+              </select>
+            </label>
             <label class="ed-fld ed-wide"><span>workspace path — derived</span>
               <input :value="workspacePath" readonly tabindex="-1" class="ed-readonly" />
               <span class="ed-hint">the clone lives in the centralized repos workspace — the system owns this path</span>
@@ -312,6 +333,7 @@ const canCreate = computed(() => openId.value !== 'draft');
 .ed-fld > span:first-child { font-size: var(--text-caption); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-steel); }
 .ed-fld input { background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-label); padding: 6px 8px; width: 100%; }
 input.ed-readonly { color: var(--color-ash); }
+.ed-select { background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-label); padding: 6px 8px; width: 100%; }
 .ed-wide { grid-column: 1 / -1; }
 .ed-hint { font-size: var(--text-caption); color: var(--color-steel); }
 .ed-foot { display: flex; align-items: center; gap: var(--s-2); margin-top: var(--s-4); }
