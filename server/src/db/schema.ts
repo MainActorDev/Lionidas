@@ -330,6 +330,10 @@ export function migrateM1(db: Database.Database): void {
     // Phase 1 build→test loop (plan 20261008T083419Z): per-project default
     // suite for ▶ test (Q1: pinned default + override in the picker)
     'ALTER TABLE projects ADD COLUMN default_suite_id TEXT',
+    // Phase 2 hygiene (plan 20261008T103310Z T1): keep-last-N artifacts.
+    // NULL = default 10. GC never touches run-referenced or newest-passing
+    // builds (evidence immunity) and never deletes build ROWS.
+    'ALTER TABLE projects ADD COLUMN retention INTEGER',
     // strict JSON {"scheme":"manifest|registry|discovered|null",
     // "configuration":…} — where THIS build's inputs came from (R4)
     'ALTER TABLE builds ADD COLUMN resolution TEXT',
@@ -361,6 +365,7 @@ export function migrateM1(db: Database.Database): void {
       build_configuration TEXT,
       repo_shape TEXT,
       default_suite_id TEXT,
+      retention INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );

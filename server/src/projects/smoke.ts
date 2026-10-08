@@ -78,6 +78,11 @@ function newestCrashReport(processName: string, sinceMs: number): string | null 
 
 /** Run the probe. Never throws — outcomes are data. */
 export function smokeTestArtifact(ipaPath: string, log: (line: string) => void): SmokeOutcome {
+  // seam (tests/CI hosts without sims): CRUCIBLE_SMOKE=0 skips the probe —
+  // the build verdict stays compile-only, smoke recorded as 'skipped'
+  if (process.env['CRUCIBLE_SMOKE'] === '0') {
+    return { result: 'skipped', detail: 'smoke: probe disabled (CRUCIBLE_SMOKE=0) — skipped', crashLine: null };
+  }
   const dev = resolveDevice();
   if (!dev) return { result: 'skipped', detail: 'smoke: no simulator available — skipped (verdict unchanged)', crashLine: null };
   const bid = bundleId(ipaPath);

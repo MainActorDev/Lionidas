@@ -14,6 +14,7 @@ interface Project {
   defaultBranch: string | null;
   authSet: boolean;
   defaultSuiteId: string | null;
+  retention: number | null;
   updatedAt: number;
 }
 interface SuiteOpt { id: string; name: string }
@@ -82,6 +83,13 @@ async function loadSuites(): Promise<void> {
     const r = await fetch('/api/suites');
     if (r.ok) suites.value = ((await r.json()) as { suites?: SuiteOpt[] }).suites ?? [];
   } catch { /* editor shows none */ }
+}
+function onRetention(e: Event): void {
+  if (!editing.value) return;
+  const raw = (e.target as HTMLInputElement).value;
+  const v = raw === '' ? null : Number(raw);
+  editing.value = { ...editing.value, retention: v != null && Number.isFinite(v) && v >= 0 ? v : null };
+  void fetch(`/api/projects/${editing.value.id}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ retention: editing.value.retention }) });
 }
 function onDefaultSuite(e: Event): void {
   if (!editing.value) return;
@@ -255,6 +263,9 @@ const canCreate = computed(() => openId.value !== 'draft');
             <label class="ed-fld"><span>name</span><input v-model="edName" /></label>
             <label class="ed-fld"><span>repo url</span><input v-model="edRepoUrl" /></label>
             <label class="ed-fld"><span>default branch</span><input v-model="edBranch" /></label>
+            <label class="ed-fld"><span>retention — keep last N artifacts</span>
+              <input :value="editing?.retention ?? ''" type="number" min="0" placeholder="10" @change="onRetention" class="ed-num" />
+            </label>
             <label class="ed-fld"><span>default suite — ▶ test preselect</span>
               <select :value="editing?.defaultSuiteId ?? ''" @change="onDefaultSuite" class="ed-select">
                 <option value="">none</option>
@@ -333,6 +344,8 @@ const canCreate = computed(() => openId.value !== 'draft');
 .ed-fld > span:first-child { font-size: var(--text-caption); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-steel); }
 .ed-fld input { background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-label); padding: 6px 8px; width: 100%; }
 input.ed-readonly { color: var(--color-ash); }
+input.ed-num { -moz-appearance: textfield; }
+input.ed-num::-webkit-outer-spin-button, input.ed-num::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .ed-select { background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-label); padding: 6px 8px; width: 100%; }
 .ed-wide { grid-column: 1 / -1; }
 .ed-hint { font-size: var(--text-caption); color: var(--color-steel); }

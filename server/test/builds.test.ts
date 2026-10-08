@@ -71,6 +71,7 @@ beforeEach(async () => {
   pkgs = mkdtempSync(join(tmpdir(), 'packages-'));
   process.env.PATH = `${bin}:${REAL_PATH}`;
   process.env['CRUCIBLE_REPOS_DIR'] = repos;
+  process.env['CRUCIBLE_SMOKE'] = '0'; // fake .app can't install — skip the probe
   process.env['CRUCIBLE_PACKAGES_DIR'] = pkgs;
   process.env['CRUCIBLE_ARTIFACTS_DIR'] = join(root, 'artifacts');
   fakeToolchain();
@@ -83,6 +84,7 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   delete process.env['CRUCIBLE_REPOS_DIR'];
+  delete process.env['CRUCIBLE_SMOKE'];
   delete process.env['CRUCIBLE_PACKAGES_DIR'];
   delete process.env['CRUCIBLE_ARTIFACTS_DIR'];
   delete process.env['CRUCIBLE_PRODUCTS'];
@@ -148,7 +150,9 @@ describe('CI builds', () => {
     expect(b0.configuration).toBe('Debug');
     expect(JSON.parse(b0.resolution)).toEqual({ scheme: 'discovered', configuration: 'discovered' });
     await waitSettled(b0.id);
-    // registry pin wins over discovery
+    // registry pin wins over discovery (wait for build 1 to settle first —
+    // the per-project serial queue 409s an overlap)
+    await waitSettled(b0.id);
     await app.inject({ method: 'PUT', url: `/api/projects/${pid}`, payload: { buildConfiguration: 'Staging' } });
     r = await app.inject({ method: 'POST', url: `/api/projects/${pid}/builds`, payload: {} });
     b0 = (r.json() as { build: { id: string; scheme: string | null; configuration: string | null; resolution: string } }).build;
@@ -156,6 +160,7 @@ describe('CI builds', () => {
     expect(JSON.parse(b0.resolution).configuration).toBe('registry');
     await waitSettled(b0.id);
     // manifest wins over everything
+    await waitSettled(b0.id);
     writeFileSync(join(repos, 'resapp', 'lionidas.yml'), 'build:\n  scheme: App\n  configuration: Production\n');
     r = await app.inject({ method: 'POST', url: `/api/projects/${pid}/builds`, payload: {} });
     b0 = (r.json() as { build: { id: string; scheme: string | null; configuration: string | null; resolution: string } }).build;

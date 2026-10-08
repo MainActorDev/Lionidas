@@ -40,6 +40,15 @@ if (process.env.CRUCIBLE_WATCHDOG !== '0') {
 try {
   await app.app.listen({ port: app.cfg.port, host: app.cfg.host });
   app.bus.emit('app.ready', { version: VERSION });
+  // Phase 2 T1: boot-time retention pass (review R2 — after migrations and
+  // routes, never blocks boot; failures logged and swallowed)
+  try {
+    const { enforceRetention } = await import('./projects/retention.ts');
+    const reports = enforceRetention(app.db.raw);
+    for (const r of reports) app.app.log.info(`retention: ${r.projectName} reclaimed ${r.deleted.length} artifact(s)`);
+  } catch (err) {
+    app.app.log.warn({ err }, 'boot retention pass failed (non-blocking)');
+  }
 } catch (err) {
   app.app.log.error(err, 'listen failed');
   await app.close();

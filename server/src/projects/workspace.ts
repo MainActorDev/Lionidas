@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { getProject, projectAuthToken } from './store.ts';
 import { MANIFEST_FILENAME, readBuildManifest } from './manifest.ts';
+import { envGithubToken } from '../secrets.ts';
 import { projectWorkspace } from '../manual/packages.ts';
 
 const execFileAsync = promisify(execFile);
@@ -85,7 +86,8 @@ export function cloneProject(db: Database.Database, id: string, opts: { pullIfEx
       if (opts.pullIfExists) return pullProject(db, id);
       return { ok: false, code: 'WORKSPACE_EXISTS', error: `workspace already exists at ${dest} — pull to refresh it` };
     }
-    const token = projectAuthToken(db, id);
+    // T3 auth precedence: per-project token (legacy) > CRUCIBLE_GITHUB_TOKEN env > ambient
+    const token = projectAuthToken(db, id) ?? envGithubToken();
     const useAskpass = Boolean(token && !proj.repoUrl.startsWith('https://'));
     const url = token && proj.repoUrl.startsWith('https://')
       ? httpsWithToken(proj.repoUrl, token)
@@ -116,7 +118,8 @@ export function pullProject(db: Database.Database, id: string): Promise<Workspac
     if (!proj) return { ok: false, code: 'GIT_FAILED', error: 'project not found' };
     const dest = projectWorkspace(proj.name);
     if (!existsSync(dest)) return { ok: false, code: 'WORKSPACE_MISSING', error: `no workspace at ${dest} — clone first` };
-    const token = projectAuthToken(db, id);
+    // T3 auth precedence: per-project token (legacy) > CRUCIBLE_GITHUB_TOKEN env > ambient
+    const token = projectAuthToken(db, id) ?? envGithubToken();
     // fetch with the token (https remote URL rewrite; ssh rides askpass)
     try {
       if (proj.repoUrl.startsWith('https://') && token) {
