@@ -23,6 +23,12 @@ import { isAbsolute, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 
 export const MANIFEST_FILENAME = 'lionidas.yml';
+/** Workspace-managed home for Lionidas-related setup: the manifest, prepare
+ *  scripts, and automation configs live in <repo>/.lionidas/ — kept untracked
+ *  in the app repo (git-excluded locally), so the repo itself stays clean of
+ *  CI-specific files. Resolution: .lionidas/lionidas.yml first, repo-root
+ *  lionidas.yml as legacy fallback. */
+export const MANIFEST_DIR = '.lionidas';
 
 export interface PrepareStep {
   run: string;
@@ -51,14 +57,20 @@ export function prepareCommandPath(cmd: string): string {
   return first;
 }
 
-/** Read + validate the manifest from a workspace clone. Absent → null. */
+/** Read + validate the manifest from a workspace clone. Absent → null.
+ *  Resolution: <ws>/.lionidas/lionidas.yml (workspace-managed home) first,
+ *  then <ws>/lionidas.yml (legacy repo-root). */
 export function readBuildManifest(ws: string): BuildManifest | null {
-  let raw: string;
-  try {
-    raw = readFileSync(join(ws, MANIFEST_FILENAME), 'utf8');
-  } catch {
-    return null; // absent — normal resolution path
+  let raw = '';
+  let resolved: string | null = null;
+  for (const candidate of [join(ws, MANIFEST_DIR, MANIFEST_FILENAME), join(ws, MANIFEST_FILENAME)]) {
+    try {
+      raw = readFileSync(candidate, 'utf8');
+      resolved = candidate;
+      break;
+    } catch { /* try next */ }
   }
+  if (!resolved) return null; // absent everywhere — normal resolution path
   let doc: unknown;
   try {
     doc = parseYaml(raw);

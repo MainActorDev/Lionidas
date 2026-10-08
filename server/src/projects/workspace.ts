@@ -13,7 +13,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { getProject, projectAuthToken } from './store.ts';
-import { MANIFEST_FILENAME, readBuildManifest } from './manifest.ts';
+import { MANIFEST_DIR, MANIFEST_FILENAME, readBuildManifest } from './manifest.ts';
 import { envGithubToken } from '../secrets.ts';
 import { projectWorkspace } from '../manual/packages.ts';
 
@@ -153,10 +153,14 @@ export async function workspaceStatus(db: Database.Database, id: string): Promis
   let manifest: WorkspaceStatus['manifest'] = null;
   let manifestRaw: string | null = null;
   let manifestError: string | null = null;
-  try {
-    manifestRaw = readFileSync(join(dest, MANIFEST_FILENAME), 'utf8');
-  } catch {
-    manifestRaw = null; // absent — normal
+  // same resolution as readBuildManifest: .lionidas/ home first, root fallback
+  for (const candidate of [join(dest, MANIFEST_DIR, MANIFEST_FILENAME), join(dest, MANIFEST_FILENAME)]) {
+    try {
+      manifestRaw = readFileSync(candidate, 'utf8');
+      break;
+    } catch {
+      manifestRaw = null; // try next
+    }
   }
   if (manifestRaw != null) {
     try {
