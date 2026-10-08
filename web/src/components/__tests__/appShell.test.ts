@@ -48,26 +48,25 @@ describe('app shell sidebar (025-A collapsible tree)', () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it('renders four collapsible groups plus the standalone guide (admin)', async () => {
+  it('renders four collapsible groups; guide hidden for now (admin)', async () => {
     const { wrapper } = await makeApp('/');
     const heads = wrapper.findAll('.nav-grp-head');
     // text() includes the caret glyph — compare normalized labels
     expect(heads.map(h => h.text().replace('▾', '').trim())).toEqual(['testing', 'ci', 'library', 'settings']);
     const items = wrapper.findAll('.nav-item');
-    expect(items).toHaveLength(13);
+    expect(items).toHaveLength(12);
     expect(items.map(i => i.text())).toEqual([
       'overview', 'suites', 'devices', 'runs',
       'projects', 'builds',
       'test cases', 'screens', 'env', 'network',
       'users', 'configs',
-      'guide', // standalone footer link, outside any group
+      // guide: hidden for now (2026-10-08) — link commented out in App.vue
     ]);
     // all groups expanded by default
     expect(wrapper.findAll('.nav-grp-kids')).toHaveLength(4);
     expect(wrapper.findAll('.nav-grp.closed')).toHaveLength(0);
-    // the guide link carries its own class and sits outside .nav-grp
-    const guide = items.find(i => i.text() === 'guide')!;
-    expect(guide.classes()).toContain('nav-guide');
+    // guide is hidden for now — nothing named 'guide' renders
+    expect(items.find(i => i.text() === 'guide')).toBeUndefined();
   });
 
   it('non-admins: no adminOnly items, ci+system groups hide entirely, guide stays', async () => {
@@ -76,7 +75,6 @@ describe('app shell sidebar (025-A collapsible tree)', () => {
     expect(items).toEqual([
       'overview', 'suites', 'devices', 'runs',
       'test cases', 'screens', 'env', 'network',
-      'guide', // visible to everyone
     ]);
     // users is adminOnly too — no dead 403 link for operators
     expect(items).not.toContain('users');

@@ -102,8 +102,8 @@ watch(() => route.name, () => {
           >{{ it.label }}</RouterLink>
         </div>
       </div>
-      <!-- help is not config: guide lives alone at the bottom, for everyone -->
-      <RouterLink to="/guide" class="nav-item nav-guide" :class="{ active: isActive('guide') }">guide</RouterLink>
+      <!-- guide hidden for now (user, 2026-10-08) — re-enable by uncommenting -->
+      <!-- <RouterLink to="/guide" class="nav-item nav-guide" :class="{ active: isActive('guide') }">guide</RouterLink> -->
     </nav>
 
     <div class="topbar">
