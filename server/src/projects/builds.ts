@@ -185,9 +185,12 @@ export function startBuild(db: Database.Database, projectId: string): StartResul
     // while a long build still settles — never let that throw unhandled.
     const safeDb = (fn: () => void): void => { try { fn(); } catch { /* db closed mid-build — status stays as-is */ } };
     try {
+      // T2 stamping contract: children may stamp CURRENT_PROJECT_VERSION
+      // from LIONIDAS_BUILD_NUMBER (prepare scripts / xcbuddy / xcodebuild)
+      const benv: Record<string, string> = { LIONIDAS_BUILD_NUMBER: String(number), LIONIDAS_BUILD_ID: id };
       const ipaPath = transport === 'repo-lane'
-        ? await runRepoLane(ws, log)
-        : await runGeneric(ws, scheme, configuration, log, (s) => safeDb(() => db.prepare('UPDATE builds SET scheme = ? WHERE id = ?').run(s, id)), manifest?.prepare ?? []);
+        ? await runRepoLane(ws, log, benv)
+        : await runGeneric(ws, scheme, configuration, log, (s) => safeDb(() => db.prepare('UPDATE builds SET scheme = ? WHERE id = ?').run(s, id)), manifest?.prepare ?? [], benv);
       // platform guard parity: reject device/macos artifacts
       const idn = readIpaIdentity(ipaPath);
       if (!idn) throw new Error(`cannot read identity from built artifact ${ipaPath}`);
@@ -225,6 +228,13 @@ export function startBuild(db: Database.Database, projectId: string): StartResul
       }
       safeDb(() => db.prepare(`UPDATE builds SET status = 'passed', finished_at = ?, artifact_path = ?, smoke = ? WHERE id = ?`)
         .run(Date.now(), dest, smokeCol ?? 'skipped', id));
+      // Phase 2 T1: retention pass after every settle — bounded disk with
+      // evidence immunity (this build is newest, so it is always kept)
+      try {
+        const { enforceRetention } = await import('./retention.ts');
+        const reports = enforceRetention(db, projectId);
+        for (const r of reports) log(`retention: reclaimed ${r.deleted.length} old artifact(s)`);
+      } catch { /* non-blocking */ }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log(`✕ ${msg}`);
@@ -250,9 +260,11 @@ function pickTransport(ws: string): 'repo-lane' | 'generic' {
   return 'generic';
 }
 
-async function runCommand(cmd: string, args: string[], cwd: string, log: (l: string) => void, timeoutMs = BUILD_TIMEOUT_MS): Promise<void> {
+async function runCommand(cmd: string, args: string[], cwd: string, log: (l: string) => void, timeoutMs = BUILD_TIMEOUT_MS, extraEnv: Record<string, string> = {}): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd });
+    // review R1: spread process.env FIRST — children keep PATH etc. — then
+    // the build-context vars (LIONIDAS_BUILD_NUMBER contract, plan T2)
+    const child = spawn(cmd, args, { cwd, env: { ...process.env, ...extraEnv } });
     let killed = false;
     let tail = '';
     const timer = setTimeout(() => { killed = true; child.kill('SIGKILL'); }, timeoutMs);
@@ -272,14 +284,14 @@ async function runCommand(cmd: string, args: string[], cwd: string, log: (l: str
   });
 }
 
-async function runRepoLane(ws: string, log: (l: string) => void): Promise<string> {
+async function runRepoLane(ws: string, log: (l: string) => void, benv: Record<string, string> = {}): Promise<string> {
   const script = join(ws, 'scripts', 'build-sim.sh');
   if (existsSync(script)) {
     log(`$ scripts/build-sim.sh`);
-    await runCommand('sh', [script], ws, log);
+    await runCommand('sh', [script], ws, log, BUILD_TIMEOUT_MS, benv);
   } else {
     log(`$ bundle exec fastlane build_sim`);
-    await runCommand('bundle', ['exec', 'fastlane', 'build_sim'], ws, log);
+    await runCommand('bundle', ['exec', 'fastlane', 'build_sim'], ws, log, BUILD_TIMEOUT_MS, benv);
   }
   // the lane contract: leaves a *.ipa (or the path) — find newest in <ws>/build
   const outDir = join(ws, 'build');
@@ -302,7 +314,7 @@ function hasXcodeproj(ws: string): boolean {
   try { return readdirSync(ws).some((f) => f.endsWith('.xcodeproj')); } catch { return false; }
 }
 
-async function runGeneric(ws: string, scheme: string | null, configuration: string | null, log: (l: string) => void, onScheme?: (s: string) => void, prepare: PrepareStep[] = []): Promise<string> {
+async function runGeneric(ws: string, scheme: string | null, configuration: string | null, log: (l: string) => void, onScheme?: (s: string) => void, prepare: PrepareStep[] = [], benv: Record<string, string> = {}): Promise<string> {
   const conf = configuration ?? 'Debug';
   // PREPARE (manifest v2): the repo declares its own setup steps (spec
   // surgery, scipio, bundler …). The repo owns setup knowledge — Lionidas
@@ -320,9 +332,9 @@ async function runGeneric(ws: string, scheme: string | null, configuration: stri
         const target = join(ws, scriptPath);
         const executable = (() => { try { return (statSync(target).mode & 0o111) !== 0; } catch { return false; } })();
         if (executable) {
-          await runCommand('sh', ['-c', step.run], ws, log, PREPARE_TIMEOUT_MS);
+          await runCommand('sh', ['-c', step.run], ws, log, PREPARE_TIMEOUT_MS, benv);
         } else {
-          await runCommand('sh', [scriptPath, ...step.run.trim().split(/\s+/).slice(1)], ws, log, PREPARE_TIMEOUT_MS);
+          await runCommand('sh', [scriptPath, ...step.run.trim().split(/\s+/).slice(1)], ws, log, PREPARE_TIMEOUT_MS, benv);
         }
       } catch (e) {
         throw new Error(`PREPARE_FAILED: prepare[${i}] (${step.run}) — ${e instanceof Error ? e.message : String(e)}`);
@@ -332,7 +344,7 @@ async function runGeneric(ws: string, scheme: string | null, configuration: stri
     // xcodegen fallback (no prepare declared): project.yml-only repos have
     // no schemes until the .xcodeproj is generated.
     log('$ xcodegen generate');
-    await runCommand('xcodegen', ['generate'], ws, log, 5 * 60_000);
+    await runCommand('xcodegen', ['generate'], ws, log, 5 * 60_000, benv);
   }
   // post-prepare discovery: a prepare step may have generated the project
   if (!scheme) {
@@ -351,7 +363,7 @@ async function runGeneric(ws: string, scheme: string | null, configuration: stri
   const pre = ['-showBuildSettings', '-scheme', scheme, '-sdk', 'iphonesimulator', '-configuration', conf];
   log(`$ xcodebuild ${pre.join(' ')} (preflight)`);
   try {
-    await runCommand('xcodebuild', pre, ws, () => undefined, 120_000);
+    await runCommand('xcodebuild', pre, ws, () => undefined, 120_000, benv);
     log('# preflight OK');
   } catch (e) {
     const avail = discoverAppInputs(ws);
@@ -364,7 +376,7 @@ async function runGeneric(ws: string, scheme: string | null, configuration: stri
   // warm .spm-clones, then the locked build is deterministic.
   const resolveArgs = ['-resolvePackageDependencies', '-clonedSourcePackagesDirPath', join(ws, '.spm-clones')];
   log(`$ xcodebuild ${resolveArgs.join(' ')}`);
-  await runCommand('xcodebuild', resolveArgs, ws, log, 15 * 60_000);
+  await runCommand('xcodebuild', resolveArgs, ws, log, 15 * 60_000, benv);
   // xcbuddy (Lionidas internal tool): a friendly xcodebuild wrapper that
   // auto-resolves the SPM graph, auto-injects isolated caches (.derived-data/
   // .spm-clones/ in the repo — exactly our convention), fuzzy-matches
@@ -375,7 +387,7 @@ async function runGeneric(ws: string, scheme: string | null, configuration: stri
   if (xcbuddy) {
     const args = ['build', '--scheme', scheme, '--json'];
     log(`$ xcbuddy ${args.join(' ')} (auto: isolated caches, sim destination; config via project defaults)`);
-    await runCommand(xcbuddy, args, ws, log);
+    await runCommand(xcbuddy, args, ws, log, BUILD_TIMEOUT_MS, benv);
   } else {
     const args = [
       '-scheme', scheme, '-sdk', 'iphonesimulator', '-configuration', conf,
@@ -385,7 +397,7 @@ async function runGeneric(ws: string, scheme: string | null, configuration: stri
       'build',
     ];
     log(`$ xcodebuild ${args.join(' ')}`);
-    await runCommand('xcodebuild', args, ws, log);
+    await runCommand('xcodebuild', args, ws, log, BUILD_TIMEOUT_MS, benv);
   }
   const products = join(dd, 'Build', 'Products', `${conf}-iphonesimulator`);
   let appDir: string | null = null;

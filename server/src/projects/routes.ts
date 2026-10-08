@@ -10,6 +10,7 @@ import { discoverAppInputs, probeRepoShape } from './discovery.ts';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { projectWorkspace } from '../manual/packages.ts';
+import { secretStatus } from '../secrets.ts';
 import { startBuild, listBuilds, getBuild, buildLog, logSize } from './builds.ts';
 
 interface ProjectBody {
@@ -22,6 +23,7 @@ interface ProjectBody {
   buildScheme?: string | null;
   buildConfiguration?: string | null;
   defaultSuiteId?: string | null;
+  retention?: number | null;
 }
 
 function validUrlish(v: string): boolean {
@@ -33,6 +35,10 @@ function validUrlish(v: string): boolean {
 export function registerProjectRoutes(app: FastifyInstance, db: Database.Database): void {
   // settings the projects surface consumes: the centralized repos workspace
   // root (display-only derivation — nobody types clone paths)
+  // Phase 2 T3: env-field secret status — presence booleans + key names ONLY
+  // (values never cross the wire; the mirror tells the operator what to set)
+  app.get('/api/settings/secrets', { preHandler: requireRole('admin') }, async () => secretStatus());
+
   app.get('/api/settings/repos-dir', { preHandler: requireRole('admin') }, async () => {
     return { dir: reposDir() };
   });
@@ -81,6 +87,9 @@ export function registerProjectRoutes(app: FastifyInstance, db: Database.Databas
       ...(b.buildScheme !== undefined ? { buildScheme: b.buildScheme || null } : {}),
       ...(b.buildConfiguration !== undefined ? { buildConfiguration: b.buildConfiguration || null } : {}),
       ...(b.defaultSuiteId !== undefined ? { defaultSuiteId: b.defaultSuiteId || null } : {}),
+      ...(b.retention !== undefined
+        ? (typeof b.retention === 'number' && b.retention >= 0 ? { retention: b.retention } : b.retention === null ? { retention: null } : reply.code(422).send({ error: 'retention must be a number >= 0 or null' }))
+        : {}),
     });
     if (!p) return reply.code(404).send({ error: 'project not found' });
     return { ok: true, project: p };
