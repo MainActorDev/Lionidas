@@ -59,10 +59,10 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
-    id: 'system', label: 'system',
+    id: 'settings', label: 'settings',
     items: [
       { to: '/users', label: 'users', names: ['users'], adminOnly: true },
-      { to: '/settings', label: 'settings', names: ['settings'], adminOnly: true },
+      { to: '/settings', label: 'configs', names: ['settings'], adminOnly: true },
     ],
   },
 ];

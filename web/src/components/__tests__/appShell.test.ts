@@ -52,14 +52,14 @@ describe('app shell sidebar (025-A collapsible tree)', () => {
     const { wrapper } = await makeApp('/');
     const heads = wrapper.findAll('.nav-grp-head');
     // text() includes the caret glyph — compare normalized labels
-    expect(heads.map(h => h.text().replace('▾', '').trim())).toEqual(['testing', 'ci', 'library', 'system']);
+    expect(heads.map(h => h.text().replace('▾', '').trim())).toEqual(['testing', 'ci', 'library', 'settings']);
     const items = wrapper.findAll('.nav-item');
     expect(items).toHaveLength(13);
     expect(items.map(i => i.text())).toEqual([
       'overview', 'suites', 'devices', 'runs',
       'projects', 'builds',
       'test cases', 'screens', 'env', 'network',
-      'users', 'settings',
+      'users', 'configs',
       'guide', // standalone footer link, outside any group
     ]);
     // all groups expanded by default
@@ -81,7 +81,7 @@ describe('app shell sidebar (025-A collapsible tree)', () => {
     // users is adminOnly too — no dead 403 link for operators
     expect(items).not.toContain('users');
     const heads = wrapper.findAll('.nav-grp-head').map(h => h.text().replace('▾', '').trim());
-    expect(heads).toEqual(['testing', 'library']); // ci & system emptied → hidden
+    expect(heads).toEqual(['testing', 'library']); // ci & settings groups emptied → hidden
   });
 
   it('toggles a group closed and hides its children', async () => {
@@ -109,7 +109,7 @@ describe('app shell sidebar (025-A collapsible tree)', () => {
 
   it('auto-expands a collapsed group when navigation lands inside it', async () => {
     const { wrapper, router } = await makeApp('/');
-    const head = wrapper.findAll('.nav-grp-head')[3]; // system
+    const head = wrapper.findAll('.nav-grp-head')[3]; // settings
     await head.trigger('click');
     expect(wrapper.findAll('.nav-grp')[3].classes()).toContain('closed');
     await router.push('/users');
