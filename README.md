@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/MainActorDev/Lionidas/actions/workflows/check.yml"><img src="https://img.shields.io/badge/CI-passing-brightgreen" alt="CI" /></a>
-  <img src="https://img.shields.io/badge/tests-1004%20passing-brightgreen" alt="tests" />
+  <img src="https://img.shields.io/badge/tests-1353%20passing-brightgreen" alt="tests" />
   <img src="https://img.shields.io/badge/node-24.12-blue" alt="node" />
   <img src="https://img.shields.io/badge/engine-Alloy%20%28in--process%29-blueviolet" alt="engine" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license" />
@@ -17,6 +17,7 @@
 <p align="center">
   <a href="#setup">Setup</a> ·
   <a href="#what-lionidas-does">What it does</a> ·
+  <a href="#projects--builds">Projects & builds</a> ·
   <a href="#the-four-nouns">Concepts</a> ·
   <a href="#the-yaml-grammar">YAML grammar</a> ·
   <a href="#env-seeded-runs">Env</a> ·
@@ -62,6 +63,30 @@ AX trees, network traffic — attached to every run.
   "pass" always means a live screen proved it.
 - **Sidelining, not hiding.** Flaky flows are detected and sidelined out of
   the pass-rate math instead of lying to the matrix.
+- **Builds what it tests.** Register an app repo, and Lionidas clones it,
+  resolves build inputs (repo `lionidas.yml` manifest > registry pins >
+  discovery — fail-fast on ambiguity), builds simulator IPAs via
+  [xcbuddy](https://github.com/MainActorDev/xcbuddy) (raw xcodebuild
+  fallback), smoke-tests every artifact (install → launch → 10s-alive on a
+  booted simulator — a crash fails the build and drops the artifact), stamps
+  `CFBundleVersion` with the build number, and plays suites against a chosen
+  build — two verdicts per row: *the artifact works* and *the code behaves*.
+
+## Projects & builds
+
+The `projects` page registers app repositories (clone/pull into a managed
+workspace; auth rides the `CRUCIBLE_GITHUB_TOKEN` env field — tokens are
+never typed into the UI or stored in the DB). The `builds` page is a
+Jenkins-style table: one row per build with status, scheme/configuration
+provenance, console drawer, and — for passing builds — a ▶ test action that
+plays a suite against that exact artifact, aggregating a suite verdict chip
+on the row.
+
+Build config lives **in your repo** as `lionidas.yml` (strict: scheme,
+configuration, a `prepare:` run list) — Lionidas never owns your build
+definition. Artifact retention keeps the last N per project (default 10)
+with evidence immunity: anything referenced by a run, plus the newest
+passing build, is never reclaimed.
 
 ## The four nouns
 
@@ -71,6 +96,8 @@ AX trees, network traffic — attached to every run.
 | **Screen** | A registered screen: entry, refresh, states | `screens` page |
 | **Run** | One immutable execution with evidence | `runs` page |
 | **Forge** | The network-condition layer (presets, scenarios) | `forge` page |
+| **Project** | A registered app repo: clone, manifest, builds | `projects` page |
+| **Build** | A compiled artifact: smoke-gated, stampable, testable | `builds` page |
 
 Login procedures are app-level (edited per app), env vars are scoped, and
 plans compose templates into ordered lanes.
@@ -133,6 +160,14 @@ Details: [docs/features/ci.md](docs/features/ci.md).
 
 ## Setup
 
+First run? The **setup wizard** handles it: start the server, open the app,
+and you're routed to `/setup` — create your admin account with the claim
+token printed on the server console (proof you control the machine; the
+window closes forever once claimed). Existing installs upgrade without
+seeing the wizard. Headless installs: set `CRUCIBLE_PIN` (auto-completes
+setup) or `CRUCIBLE_SETUP_MODE=off` (legacy behavior). Locked out?
+`pnpm --filter server cli -- admin reset-password <email>`.
+
 ```bash
 bash scripts/setup.sh
 ```
@@ -142,6 +177,23 @@ Installs what's missing and reports honestly at each step: Node 24.12
 [Alloy](https://github.com/MainActorDev/Alloy) engine as a sibling clone
 (`../alloy`), mitmproxy (the forge proxy), and checks Xcode/simctl. Safe to
 re-run; `pnpm doctor` is the check-only mode.
+
+### Operator environment
+
+Secrets are env fields, never app-stored: `CRUCIBLE_GITHUB_TOKEN` (repo
+clone/pull auth), `JIRA_TOKEN` + `CRUCIBLE_JIRA_CLIENT_ID/SECRET` (agent
+and SSO). The **settings** page mirrors their presence (never values) and
+runs a readiness checklist — tokens, storage dirs, Xcode, xcbuddy, smoke
+probe — with the exact fix per row.
+
+| Env | Purpose |
+|---|---|
+| `CRUCIBLE_DB_PATH` / `CRUCIBLE_REPOS_DIR` / `CRUCIBLE_ARTIFACTS_DIR` | storage locations |
+| `CRUCIBLE_GITHUB_TOKEN` | repo clone/pull auth (env, never UI) |
+| `CRUCIBLE_PIN` | headless admin bootstrap password |
+| `CRUCIBLE_SETUP_MODE=off` | disable the setup wizard (legacy) |
+| `CRUCIBLE_SMOKE=0` | skip the build smoke gate (hosts without simulators) |
+| `CRUCIBLE_API_TARGET` | point the dev web proxy at another API instance |
 
 ## Quick start
 
@@ -169,6 +221,8 @@ never a fake pass.
 - Engine-neutral by construction (CI signature scan, same as Alloy).
 - Credentials live in env scopes, never in templates or code.
 - Login is an app-level procedure; screens reference it, none own it.
+- Build config lives in the repo (`lionidas.yml`), never in Lionidas.
+- Secrets are env fields; the DB never stores token values.
 - Production-grade bar: structured logging, graceful shutdown, fail-fast
   config, validated inputs, no placeholder code shipped.
 
@@ -178,6 +232,8 @@ never a fake pass.
   (selector resolution), CI mode, inspect mode, location, tap overlay
 - [ADR-0001](docs/adr/ADR-0001-ios-first-platform-seams.md) — iOS-first
   platform seams (why the orchestrator is engine-blind)
+- [Testing the setup wizard](docs/testing-setup-wizard.md) — isolated
+  test-instance guide (port 9231, throwaway DB, upgrade path, recovery)
 - [The agent layer](docs/agent.md) — the embedded AI test-case authoring
   agent (reads everything, drafts through the real validator, never touches
   devices); MCP + conversation API, drill log in
