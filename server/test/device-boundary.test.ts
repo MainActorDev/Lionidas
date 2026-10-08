@@ -25,6 +25,9 @@ const ALLOWED: ReadonlySet<string> = new Set([
   'manual/app-install.ts',
   'manual/apps.ts',
   'manual/packages.ts',
+  // smoke gate (brainstorm 20261008T004500Z): post-build install/launch/alive
+  // probe — the one legitimate new simctl consumer, reviewed here
+  'projects/smoke.ts',
   'manual/keyboard-quiet.ts',
   'manual/location-tcc.ts',
   'manual/location.ts',

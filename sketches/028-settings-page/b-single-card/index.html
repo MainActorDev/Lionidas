@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>028-B · settings — single card, dense</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  body { background: var(--color-void); color: var(--color-paper); font-family: var(--font-mono); }
+  .page { max-width: 640px; margin: 0 auto; padding: var(--s-6); }
+  .ph { margin-bottom: var(--s-5); }
+  .ph-row1 { display: flex; align-items: center; gap: var(--s-4); padding-bottom: var(--s-2); }
+  .ph-title { font-size: var(--text-heading-sm); }
+  .ph-row2 { font-size: var(--text-label); color: var(--color-ash); padding: var(--s-2) 0; border-top: 1px solid var(--color-iron); }
+  .card { background: var(--color-carbon); border: 1px solid var(--color-iron); }
+  .sect-head { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-2) var(--s-4); font-size: var(--text-caption); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-steel); border-bottom: 1px solid var(--color-iron); }
+  .row { display: grid; grid-template-columns: 110px 1fr auto; gap: var(--s-3); align-items: center; padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--color-iron); font-size: var(--text-label); }
+  .row:last-child { border-bottom: none; }
+  .row .k { color: var(--color-fog); overflow: hidden; text-overflow: ellipsis; }
+  .row .v { color: var(--color-steel); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .btn { font-family: var(--font-mono); font-size: 11px; color: var(--color-paper); background: var(--color-carbon); border: 1px solid var(--color-iron); padding: 2px 10px; cursor: pointer; }
+  .btn:hover { background: var(--color-graphite); }
+  .btn.danger { color: var(--color-ember); }
+  .chip { font-size: 10px; padding: 1px 5px; border: 1px solid var(--color-iron); color: var(--color-ash); text-transform: uppercase; }
+  .chip.on { color: var(--color-ember); border-color: var(--color-ember-dim); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="ph">
+    <div class="ph-row1"><span class="ph-title">settings</span></div>
+    <div class="ph-row2">instance configuration · admin only</div>
+  </div>
+  <div class="card">
+    <div class="sect-head">credentials</div>
+    <div class="row"><span class="k">intl-app</span><span class="v"><span class="chip on">token</span> git-host credential · write-only</span><span><button class="btn">replace</button> <button class="btn danger">clear</button></span></div>
+    <div class="row"><span class="k">consumer</span><span class="v"><span class="chip">none</span> public repo</span><span><button class="btn">add</button></span></div>
+    <div class="sect-head">storage</div>
+    <div class="row"><span class="k">repos</span><span class="v">/…/server/repos</span><span class="v" style="color:var(--color-steel)">env</span></div>
+    <div class="row"><span class="k">packages</span><span class="v">/…/server/packages</span><span class="v" style="color:var(--color-steel)">env</span></div>
+  </div>
+</div>
+</body>
+</html>

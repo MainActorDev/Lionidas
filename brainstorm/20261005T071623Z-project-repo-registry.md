@@ -2,7 +2,33 @@
 
 - Source prompt: "in relation to this [the .ipa work], I feel the need that we should implement some kind of project/repo registry. This can be used for CI/CD pipeline and repo context for the build agentic AI." (with /hms-brainstorm-rough-ideas)
 - Created: 2026-10-05T07:16:23Z
-- Status: Exploring — questions open
+- Status: Direction selected — all questions closed (2026-10-05); ready to build
+
+## Decisions
+
+- **Q1 (user, 2026-10-05)**: one project = one repo; a project may own many
+  bundle ids (apps it produces).
+- **Q2 (user, 2026-10-05 — agent recommendation accepted)**: store BOTH — git
+  URL required (project identity; what CI clones), local path optional
+  (machine-specific working-copy pointer). Empty/missing local path never
+  invalidates the project.
+- **Q3 (user, 2026-10-05)**: a new **projects page** in the dashboard; visible
+  and editable by the **admin role only** (nav item renders for admins).
+- **Q4 (user, 2026-10-05)**: agent ingestion depth **deferred** — today's
+  single-repo seeding stays untouched this round; multi-repo ingest is a
+  follow-up decision.
+- **Q5 (user, 2026-10-05 — agent recommendation accepted)**: build pipelines
+  live **in the repo** (workflows/fastlane/Makefile — any host, versioned with
+  the code). Lionidas stores almost nothing about building: name, git URL,
+  local path, default branch. A future "build" button would run what the repo
+  declares, not config Lionidas owns.
+- **Credentials (user, 2026-10-05)**: each project carries an OPTIONAL
+  auth token (a GitHub PAT or any git-host credential — named generically,
+  not github-locked) for cloning private repos. Stored WRITE-ONLY: the API
+  returns only `auth_set`, never the value; blank on update keeps the stored
+  token (env-page blank-keeps-secret pattern); explicit flag clears it.
+  Admin-only like the rest of the page. Consumers (CI pull, agent clone)
+  arrive with the follow-ups.
 
 ## Goal and context
 

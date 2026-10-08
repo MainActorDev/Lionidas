@@ -16,3 +16,6 @@ __pycache__/
 
 # CI-dropped install packages (.ipa/.apk)
 server/packages/
+
+# CI workspace clones (repo workspaces + build caches)
+server/repos/

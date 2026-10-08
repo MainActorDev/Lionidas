@@ -2,7 +2,8 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
-import { createReadStream, statSync, rm, mkdirSync, writeFileSync } from 'node:fs';
+import { createReadStream, statSync, rm, mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { requireRole } from '../auth/roles.ts';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -14,9 +15,9 @@ import { fetchProbeViewtree, probeArmed, ProbeError } from '../manual/viewtree-p
 import { listSimulatorApps } from '../manual/apps.ts';
 import { installApp } from '../manual/app-install.ts';
 import { packagesDir, listPackages, readIpaIdentity, isSimulatorRunnable } from '../manual/packages.ts';
+import { packageOwners } from '../projects/store.ts';
 import { execFileAsync } from '../manual/apps.ts';
 import { dispatchWithHeal } from '../alloy/heal.ts';
-import { existsSync } from 'node:fs';
 import { runTemplatePlayback, PlaybackError } from '../manual/playback.ts';
 import type { ForgeState } from '../forge/proxy.ts';
 
@@ -593,9 +594,12 @@ export function registerManualRoutes(
   });
 
   // package discovery for the install picker: CI-dropped .ipa/.apk files in
-  // the configured packages dir, freshest first
+  // the configured packages dir, freshest first; owner names join in from
+  // the project registry's claims
   app.get('/api/packages', async () => {
-    return { dir: packagesDir(), packages: listPackages() };
+    const pkgs = listPackages();
+    const owners = packageOwners(db, pkgs.map((p) => p.path));
+    return { dir: packagesDir(), packages: pkgs.map((p) => ({ ...p, owner: owners.get(p.path) ?? null })) };
   });
 
   // ── package upload (picker's "choose file…"): raw octet-stream body,
@@ -695,7 +699,7 @@ export function registerManualRoutes(
   // Shared by play-all AND plans (one engine). ──
   // authenticated identity wins for attribution; body triggeredBy only for
   // bots/agents whose user IS the machine. Mirrors the manual-session rule.
-  async function runBatch(b: { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string>; cases?: Array<{ templateId: string; variantIds?: string[] | null }>; suiteId?: string; planId?: string; awaitSettle?: boolean }, reqUser?: { name: string } | null):
+  async function runBatch(b: { tags?: string; app?: string; udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string>; cases?: Array<{ templateId: string; variantIds?: string[] | null }>; suiteId?: string; planId?: string; awaitSettle?: boolean; buildId?: string }, reqUser?: { name: string } | null):
     Promise<{ ok: true; runIds: string[]; count: number; batchId?: string; queuedOnly?: boolean; lanes?: Array<{ device: { udid: string; name: string | null }; runIds: string[]; skipped: string[]; haltedAt?: string; haltedReason?: string }> } | { ok: false; code: 400 | 409; error: string; runIds: string[]; appBundleId?: string; booted?: Array<{ udid: string; name: string | null }>; lastArtifact?: { path: string; version: string | null; recordedAt: number } | null }> {
     const { selectTemplates } = await import('./templates.ts');
     const { planLanes } = await import('../manual/batch/plan.ts');
@@ -771,6 +775,7 @@ export function registerManualRoutes(
       ...(b.env !== undefined ? { env: b.env } : {}),
       ...(b.suiteId !== undefined ? { suiteId: b.suiteId } : {}),
       ...(b.planId !== undefined ? { planId: b.planId } : {}),
+      ...(b.buildId !== undefined ? { buildId: b.buildId } : {}),
       ...(multiLane ? { forgeAttribution: false } : {}), // proxy can't tell sims apart
     };
 
@@ -974,16 +979,16 @@ export function registerManualRoutes(
   //  from the suite's scope is SKIPPED with a named reason (no silent
   //  deletion, no blocked run) — surfaced in the response so the board can
   //  flag it. ──
-  app.post('/api/suites/:id/play', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const row = db.prepare('SELECT * FROM suites WHERE id = ?').get(id) as { id: string; name: string; app_bundle_id: string | null } | undefined;
-    if (!row) return reply.code(404).send({ error: 'not found' });
-    const members = (db.prepare('SELECT * FROM suite_members WHERE suite_id = ? ORDER BY position').all(id) as Array<{ template_id: string; variant_ids_json: string | null }>)
+  // Phase 1 build→test (plan 20261008T083419Z R1): suite-member resolution
+  // extracted — suite play AND builds/:id/test share the exact drift/
+  // deprecated/ghost-variant semantics. Ghost-pin partial-survivor mutation
+  // is intentional (plays survivors, names the dead).
+  function resolveSuiteMembers(suite: { id: string; app_bundle_id: string | null }): {
+    members: Array<{ templateId: string; variantIds: string[] | null }>;
+    drifted: string[]; deprecatedSkipped: string[]; ghostPins: Array<{ templateId: string; dead: string[] }>;
+  } {
+    const members = (db.prepare('SELECT * FROM suite_members WHERE suite_id = ? ORDER BY position').all(suite.id) as Array<{ template_id: string; variant_ids_json: string | null }>)
       .map((m) => ({ templateId: m.template_id, variantIds: m.variant_ids_json ? (JSON.parse(m.variant_ids_json) as string[]) : null }));
-    if (members.length === 0) return reply.code(400).send({ error: 'suite has no members' });
-    // drift filter: template bundles that no longer match the suite scope
-    // (Phase E) + deprecated members — skipped with a named reason, never a
-    // silent deletion. Same honest-response shape as bundle drift.
     const bundleOf = db.prepare('SELECT app_bundle_id AS b, status AS st FROM templates WHERE id = ?');
     const variantsOfTpl = db.prepare('SELECT variants_json FROM templates WHERE id = ?');
     const drifted: string[] = [];
@@ -993,12 +998,9 @@ export function registerManualRoutes(
       const t = (bundleOf.get(m.templateId) as { b: string | null; st: string | null } | undefined);
       if (t?.st === 'deprecated') { deprecatedSkipped.push(m.templateId); return false; }
       const b = t?.b ?? null;
-      const ok = row.app_bundle_id === null || b === row.app_bundle_id;
+      const ok = suite.app_bundle_id === null || b === suite.app_bundle_id;
       if (!ok) drifted.push(m.templateId);
       if (ok && m.variantIds != null) {
-        // dead-variant pin: pinned ids missing from the case's CURRENT vocab.
-        // All-dead → skip the member (never silently play a plain run);
-        // partial → play survivors, name the dead in the response.
         const vocab = (() => { try { return JSON.parse((variantsOfTpl.get(m.templateId) as { variants_json: string | null } | undefined)?.variants_json ?? 'null') as Array<{ id: string }> | null; } catch { return null; } })();
         const dead = m.variantIds.filter((v) => !(vocab ?? []).some((x) => x.id === v));
         if (dead.length > 0) {
@@ -1010,6 +1012,18 @@ export function registerManualRoutes(
       }
       return ok;
     });
+    return { members: inScope, drifted, deprecatedSkipped, ghostPins };
+  }
+
+  app.post('/api/suites/:id/play', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const row = db.prepare('SELECT * FROM suites WHERE id = ?').get(id) as { id: string; name: string; app_bundle_id: string | null } | undefined;
+    if (!row) return reply.code(404).send({ error: 'not found' });
+    const { members, drifted, deprecatedSkipped, ghostPins } = resolveSuiteMembers(row);
+    const inScope = members;
+    if (members.length === 0 && drifted.length + deprecatedSkipped.length + ghostPins.length === 0) {
+      return reply.code(400).send({ error: 'suite has no members' });
+    }
     if (ghostPins.length > 0) req.log.warn(`suite play ghost variant pins: ${JSON.stringify(ghostPins)}`);
     const allSkipped = inScope.length === 0;
     if (allSkipped) {
@@ -1065,5 +1079,75 @@ export function registerManualRoutes(
     }, req.user);
     if (!r.ok) return reply.code(r.code).send({ error: r.error, code: r.code === 409 ? 'DEVICE_BUSY' : undefined, runIds: r.runIds });
     return { runIds: r.runIds, count: r.count, batchId: r.batchId, ...(drifted.length > 0 ? { skippedDrifted: drifted } : {}), ...(deprecatedSkipped.length > 0 ? { skippedDeprecated: deprecatedSkipped } : {}), ...(ghostPins.length > 0 ? { skippedDeadVariants: ghostPins } : {}) };
+  });
+
+  // ── Phase 1 build→test loop (plan 20261008T083419Z T3): a passed·smoke-ok
+  // build flows into a suite run. Install-first guarantees the suite runs
+  // THIS binary. Runs carry runs.build_id (source of truth); triggeredBy
+  // 'build:#N' is display sugar. Two verdicts on one row: a suite failure
+  // NEVER flips the build status (Q3 decision).
+  app.post('/api/builds/:id/test', { preHandler: requireRole('admin') }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { suiteId?: string; udid?: string; awaitSettle?: boolean };
+    const b = db.prepare('SELECT * FROM builds WHERE id = ?').get(id) as
+      | { id: string; project_id: string; number: number; status: string; smoke: string | null; artifact_path: string | null }
+      | undefined;
+    if (!b) return reply.code(404).send({ error: 'build not found' });
+    if (b.status !== 'passed') return reply.code(409).send({ error: `build #${b.number} is ${b.status} — only passed builds can be tested`, code: 'BUILD_NOT_PASSED' });
+    if (b.smoke !== 'ok') return reply.code(409).send({ error: `build #${b.number} smoke is ${b.smoke ?? 'unprobed'} — only launch-verified builds can be tested`, code: 'SMOKE_NOT_OK' });
+    if (!b.artifact_path || !existsSync(b.artifact_path)) return reply.code(409).send({ error: 'artifact missing on disk — rebuild', code: 'ARTIFACT_MISSING' });
+
+    // suite: explicit > project default; neither is an honest 422
+    let suiteId = body.suiteId;
+    if (!suiteId) {
+      const proj = db.prepare('SELECT default_suite_id FROM projects WHERE id = ?').get(b.project_id) as { default_suite_id: string | null } | undefined;
+      suiteId = proj?.default_suite_id ?? undefined;
+    }
+    if (!suiteId) return reply.code(422).send({ error: 'no suite specified and the project has no default suite — pass suiteId or set one on the project', code: 'SUITE_UNSPECIFIED' });
+    const suite = db.prepare('SELECT * FROM suites WHERE id = ?').get(suiteId) as { id: string; name: string; app_bundle_id: string | null } | undefined;
+    if (!suite) return reply.code(404).send({ error: 'suite not found', code: 'SUITE_NOT_FOUND' });
+    const { members, drifted, deprecatedSkipped, ghostPins } = resolveSuiteMembers(suite);
+    if (members.length === 0) {
+      const code = drifted.length > 0 ? 'BUNDLE_DRIFT' : deprecatedSkipped.length > 0 ? 'DEPRECATED' : 'EMPTY_SUITE';
+      return reply.code(409).send({ error: `suite has no playable members (${code})`, code });
+    }
+
+    // bundle guard: the suite's scope must be the artifact's bundle
+    const idn = readIpaIdentity(b.artifact_path);
+    if (!idn) return reply.code(409).send({ error: 'cannot read the artifact identity', code: 'ARTIFACT_MISSING' });
+    if (suite.app_bundle_id != null && suite.app_bundle_id !== idn.bundleId) {
+      return reply.code(409).send({ error: `suite '${suite.name}' targets ${suite.app_bundle_id} but the build produced ${idn.bundleId}`, code: 'BUNDLE_MISMATCH' });
+    }
+
+    // device: explicit > first booted sim (same shape runBatch uses)
+    let udid = body.udid;
+    if (!udid) {
+      const booted = db.prepare(`SELECT udid FROM devices WHERE state = 'Booted' AND kind = 'simulator' ORDER BY udid LIMIT 1`).get() as { udid: string } | undefined;
+      if (!booted) return reply.code(409).send({ error: 'no booted simulator — boot one or pass udid', code: 'NO_DEVICE' });
+      udid = booted.udid;
+    }
+
+    // install-first: the suite provably runs THIS binary (review R2: raw
+    // simctl install of the .ipa — installApp expects .app)
+    try {
+      execFileSync('xcrun', ['simctl', 'install', udid, b.artifact_path], { timeout: 120_000 });
+      req.log.info(`[build-test] installed ${idn.bundleId} (${b.artifact_path}) on ${udid}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message.split('\n')[0] : String(e);
+      return reply.code(409).send({ error: `install of the build artifact failed on ${udid}: ${msg}`, code: 'INSTALL_FAILED' });
+    }
+
+    const r = await runBatch({
+      cases: members,
+      udid,
+      triggeredBy: `build:#${b.number}`,
+      suiteId: suite.id,
+      buildId: b.id,
+      // queue-time by default (the ▶ test modal must not hang for the suite);
+      // awaitSettle:true is the programmatic/CI form
+      awaitSettle: body.awaitSettle === true,
+    }, req.user);
+    if (!r.ok) return reply.code(r.code).send({ error: r.error, code: r.code === 409 ? 'DEVICE_BUSY' : undefined, runIds: r.runIds });
+    return { runIds: r.runIds, count: r.count, batchId: r.batchId, buildId: b.id, ...(drifted.length > 0 ? { skippedDrifted: drifted } : {}), ...(deprecatedSkipped.length > 0 ? { skippedDeprecated: deprecatedSkipped } : {}), ...(ghostPins.length > 0 ? { skippedDeadVariants: ghostPins } : {}) };
   });
 }

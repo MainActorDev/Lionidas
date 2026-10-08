@@ -56,6 +56,9 @@ const navGroups: NavGroup[] = [
     items: [
       { to: '/users', label: 'users', names: ['users'] },
       { to: '/guide', label: 'guide', names: ['guide'] },
+      { to: '/projects', label: 'projects', names: ['projects'] },
+      { to: '/builds', label: 'builds', names: ['builds'] },
+      { to: '/settings', label: 'settings', names: ['settings'] },
     ],
   },
 ];
@@ -63,6 +66,12 @@ const collapsed = reactive<Record<string, boolean>>({});
 const toggleGroup = (id: string): void => { collapsed[id] = !collapsed[id]; };
 const groupHasActive = (g: NavGroup): boolean =>
   g.items.some(it => it.names.some(isActive));
+// projects is admin-only (registry decision Q3) — the nav item renders for
+// admins; the route itself stays auth-guarded, the API enforces the role
+const visibleGroups = computed<NavGroup[]>(() =>
+  me.value?.role === 'admin'
+    ? navGroups
+    : navGroups.map(g => ({ ...g, items: g.items.filter(it => !it.names.includes('projects') && !it.names.includes('settings') && !it.names.includes('builds')) })));
 // navigating into a collapsed group expands it (active page must stay visible)
 watch(() => route.name, () => {
   for (const g of navGroups) if (groupHasActive(g)) collapsed[g.id] = false;
@@ -76,7 +85,7 @@ watch(() => route.name, () => {
     <div class="logo"><img class="logo-mark" src="/icons/lionidas-app-128.png" alt="" width="20" height="20" /> lionidas</div>
 
     <nav class="sidebar" aria-label="primary">
-      <div v-for="g in navGroups" :key="g.id" class="nav-grp" :class="{ closed: collapsed[g.id] }">
+      <div v-for="g in visibleGroups" :key="g.id" class="nav-grp" :class="{ closed: collapsed[g.id] }">
         <button type="button" class="nav-grp-head" :class="{ on: groupHasActive(g) }" :aria-expanded="!collapsed[g.id]" @click="toggleGroup(g.id)">
           <span class="caret">▾</span>{{ g.label }}
         </button>

@@ -9,6 +9,9 @@ import ForgePage from './pages/ForgePage.vue';
 import TestCasesPage from './pages/TestCasesPage.vue';
 import ScreensPage from './pages/ScreensPage.vue';
 import EnvPage from './pages/EnvPage.vue';
+import ProjectsPage from './pages/ProjectsPage.vue';
+import SettingsPage from './pages/SettingsPage.vue';
+import BuildsPage from './pages/BuildsPage.vue';
 import LoginPage from './pages/LoginPage.vue';
 import UsersPage from './pages/UsersPage.vue';
 import GuidePage from './pages/GuidePage.vue';
@@ -29,6 +32,9 @@ export const router = createRouter({
     { path: '/screens', name: 'screens', component: ScreensPage, meta: { title: 'screens' } },
     { path: '/env', name: 'env', component: EnvPage, meta: { title: 'env' } },
     { path: '/users', name: 'users', component: UsersPage, meta: { title: 'users' } },
+    { path: '/projects', name: 'projects', component: ProjectsPage, meta: { title: 'projects' } },
+    { path: '/builds', name: 'builds', component: BuildsPage, meta: { title: 'builds' } },
+    { path: '/settings', name: 'settings', component: SettingsPage, meta: { title: 'settings' } },
     { path: '/login', name: 'login', component: LoginPage, meta: { title: 'sign in', public: true } },
     { path: '/guide', name: 'guide', component: GuidePage, meta: { title: 'guide' } },
   ] satisfies RouteRecordRaw[],

@@ -312,12 +312,85 @@ export function migrateM1(db: Database.Database): void {
     // honest label — never backfilled). Set membership replaces the 120s
     // timestamp-window guess suiteVerdicts uses for legacy rows.
     'ALTER TABLE runs ADD COLUMN batch_id TEXT',
+    // Phase 1 build→test loop: the run executed THIS build's binary
+    // (install-first guarantees it). Source of truth for build attribution;
+    // triggered_by 'build:#N' is display sugar, never parsed (review R4).
+    'ALTER TABLE runs ADD COLUMN build_id TEXT REFERENCES builds(id) ON DELETE SET NULL',
     // Build anchoring (run detail): CFBundleVersion stamped at run creation —
     // the marketing version (app_version) alone doesn't identify a build.
     'ALTER TABLE runs ADD COLUMN app_build TEXT',
+    // Build-inputs round (plan 20261007T164500Z): production-grade input
+    // resolution — manifest > registry > discovery, provenance per build.
+    // Platform-neutral names: scheme → Gradle module/flavor (Android),
+    // configuration → variant. repo_shape records the probe result
+    // (xcodegen|xcodeproj|workspace|unknown) that drives the generic engine.
+    'ALTER TABLE projects ADD COLUMN build_scheme TEXT',
+    'ALTER TABLE projects ADD COLUMN build_configuration TEXT',
+    'ALTER TABLE projects ADD COLUMN repo_shape TEXT',
+    // Phase 1 build→test loop (plan 20261008T083419Z): per-project default
+    // suite for ▶ test (Q1: pinned default + override in the picker)
+    'ALTER TABLE projects ADD COLUMN default_suite_id TEXT',
+    // strict JSON {"scheme":"manifest|registry|discovered|null",
+    // "configuration":…} — where THIS build's inputs came from (R4)
+    'ALTER TABLE builds ADD COLUMN resolution TEXT',
+    // requested configuration (builds.scheme already exists) — the resolved
+    // config the compile used, null on repo-lane builds
+    'ALTER TABLE builds ADD COLUMN configuration TEXT',
+    // smoke gate (brainstorm 20261008T004500Z): post-build launch probe.
+    // 'ok' = installed+launched+alive 10s · 'crash' = died on launch (build
+    // is marked FAILED — a dead app is not a pass) · 'skipped' = probe could
+    // not run (no sim) — verdict unchanged, logged · NULL = not probed yet.
+    'ALTER TABLE builds ADD COLUMN smoke TEXT',
   ]) {
     try { db.exec(col); } catch { /* column exists */ }
   }
+  // ── project registry (plan 20261005T092500Z): one project = one repo,
+  // many bundle ids may hang off it later. auth_token is stored PLAINTEXT
+  // (review M1: future consumers must PRESENT it to git — a hash cannot);
+  // the store layer owns the projection and NEVER selects it into API
+  // responses. Local SQLite + admin-only surface, env_vars precedent. ──
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS projects(
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      repo_url TEXT NOT NULL,
+      local_path TEXT,
+      default_branch TEXT,
+      auth_token TEXT,
+      build_scheme TEXT,
+      build_configuration TEXT,
+      repo_shape TEXT,
+      default_suite_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    -- package attribution: packages are FILES, not rows — the claim maps an
+    -- exact packages-dir path to its owning project (re-claim after a rename
+    -- is one click; review L2)
+    CREATE TABLE IF NOT EXISTS package_owner(
+      package_path TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE
+    );
+    -- CI builds (plan 20261007T054500Z): one row per build attempt; numbers
+    -- monotonic PER PROJECT. Artifacts land in the packages dir + claim.
+    CREATE TABLE IF NOT EXISTS builds(
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      number INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('running','passed','failed')),
+      transport TEXT NOT NULL CHECK(transport IN ('repo-lane','generic')),
+      scheme TEXT,
+      configuration TEXT,
+      resolution TEXT,
+      smoke TEXT,
+      started_at INTEGER NOT NULL,
+      finished_at INTEGER,
+      log_path TEXT,
+      artifact_path TEXT,
+      error TEXT,
+      UNIQUE(project_id, number)
+    );
+  `);
   // Phase E: legacy rows must READ active, not NULL. ALTER DEFAULT only
   // covers new inserts; normalize once. Idempotent (WHERE status IS NULL —
   // explicit draft/deprecated survive re-migrates).

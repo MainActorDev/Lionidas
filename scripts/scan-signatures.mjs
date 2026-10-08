@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const SELF = fileURLToPath(import.meta.url);
-const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'coverage']);
+const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'coverage', 'repos']);
 
 const PATTERNS = [
   /argent/gi,
