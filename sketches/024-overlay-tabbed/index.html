@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>overlay — tabbed rail (B)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; background: #000; color: #eeeeee; height: 100vh; display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; }
+  .menubar { display: flex; align-items: center; gap: 2px; padding: 4px 10px; background: #000; border-bottom: 1px solid #202020; font-size: 12px; color: #b4b4b4; }
+  .menubar img { width: 18px; height: 18px; margin-right: 4px; }
+  .menubar button { background: none; border: 0; color: inherit; font: inherit; padding: 3px 8px; border-radius: 2px; cursor: pointer; }
+  .menubar button:hover, .menubar button.open { background: #111; color: #eeeeee; }
+  .tabs { display: flex; gap: 4px; padding: 6px 10px 0; background: #000; }
+  .tab { padding: 5px 12px; font-size: 12px; color: #b4b4b4; background: #111; border: 1px solid #202020; border-bottom: 0; border-radius: 6px 6px 0 0; display: flex; gap: 8px; align-items: center; }
+  .tab.on { color: #eeeeee; background: #191919; }
+  .tab .x { color: #606060; cursor: pointer; } .tab .x:hover { color: #da5c2c; }
+  .frame { flex: 1; display: grid; grid-template-columns: 1fr 320px; min-height: 0; background: #111; border-top: 1px solid #202020; }
+  .stage { position: relative; display: grid; place-items: center; background: radial-gradient(ellipse at 50% 40%, #151515 0%, #0a0a0a 70%); }
+  .bezel { width: 230px; height: 470px; border-radius: 34px; background: #1c1c1e; border: 3px solid #2c2c2e; position: relative; }
+  .bezel::after { content: ""; position: absolute; inset: 8px; border-radius: 26px; background: linear-gradient(160deg, #101418, #0a0d11); }
+  .fps { position: absolute; top: 10px; right: 12px; font-size: 9px; color: #b4b4b4; background: #111; border: 1px solid #202020; padding: 1px 6px; border-radius: 2px; }
+  /* ── B: overlay is a THIRD rail tab — watch · chat · inspect/env ── */
+  .rail { background: #0b0b0b; border-left: 1px solid #202020; display: flex; flex-direction: column; }
+  .rail-tabs { display: flex; border-bottom: 1px solid #202020; }
+  .rail-tab { flex: 1; text-align: center; padding: 7px 0; font-size: 12px; color: #7e7e7e; cursor: pointer; position: relative; }
+  .rail-tab.on { color: #da5c2c; border-bottom: 2px solid #da5c2c; }
+  /* transient tabs carry a close dot; persistent ones don't */
+  .rail-tab .tx { display: inline-block; margin-left: 6px; color: #606060; font-size: 10px; }
+  .rail-tab .tx:hover { color: #da5c2c; }
+  .body { padding: 10px; font-size: 12px; color: #b4b4b4; overflow-y: auto; flex: 1; }
+  .ev { padding: 4px 0; border-bottom: 1px dotted #202020; }
+  .ev b { color: #eeeeee; font-weight: 400; }
+  .scen { padding: 6px 8px; color: #b4b4b4; border-radius: 2px; cursor: pointer; }
+  .scen:hover { background: #202020; color: #eeeeee; }
+  .scen.on { color: #da5c2c; }
+  .scen .k { width: 12px; display: inline-block; }
+  .ghost { padding: 5px 0 12px; }
+  .ghost button { background: none; border: 1px solid #202020; color: #b4b4b4; padding: 2px 10px; border-radius: 2px; cursor: pointer; font: inherit; font-size: 12px; }
+  .hint { padding: 6px 10px; border-top: 1px solid #202020; font-size: 10px; color: #606060; }
+</style>
+</head>
+<body>
+  <div class="menubar">
+    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23da5c2c'/%3E%3Ctext x='16' y='22' font-size='16' text-anchor='middle' fill='%23fff' font-family='monospace'%3EL%3C/text%3E%3C/svg%3E" alt="">
+    <button>file</button><button>device</button><button class="open">view</button><button>run</button>
+    <span style="margin-left:auto; font-size:11px; color:#7e7e7e">MANUAL · 3m · iPhone 14 Plus</span>
+  </div>
+  <div class="tabs">
+    <div class="tab on">iPhone 14 Plus <span class="x">✕</span></div>
+    <div class="tab">iPhone 16 <span class="x">✕</span></div>
+  </div>
+  <div class="frame">
+    <div class="stage">
+      <div class="bezel"></div>
+      <div class="fps">live · 20fps</div>
+    </div>
+    <div class="rail">
+      <div class="rail-tabs">
+        <div class="rail-tab">watch</div>
+        <div class="rail-tab">chat</div>
+        <div class="rail-tab on">environment <span class="tx">✕</span></div>
+      </div>
+      <div class="body">
+        <div class="scen on"><span class="k">✓</span>lp1042-payment-error</div>
+        <div class="scen"><span class="k"></span>countries-empty</div>
+        <div class="scen"><span class="k"></span>countries-my</div>
+        <div class="scen"><span class="k"></span>countries-sg</div>
+        <div class="ghost"><button>clear scenario</button></div>
+      </div>
+      <div class="hint">transient tab — ✕ removes it; watch/chat are permanent</div>
+    </div>
+  </div>
+</body>
+</html>
