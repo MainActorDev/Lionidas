@@ -78,6 +78,10 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   });
 
   seedUsers(db.raw, process.env['CRUCIBLE_PIN'] || null);
+  // T0 backfill: pre-wizard installs get the stamp at boot so the wizard
+  // never reopens on upgrade; fresh DBs are unaffected (needsSetup still true).
+  const { backfillSetupStamp } = await import('./auth/setup.ts');
+  backfillSetupStamp(db.raw);
   registerUserResolution(app, db.raw);
   const { registerAuthCliRoutes } = await import('./routes/auth-cli.ts');
   registerAuthCliRoutes(app, db.raw);
@@ -85,10 +89,15 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
 
   // Hard read gate: with CRUCIBLE_REQUIRE_AUTH (default ON), every route except
   // the auth surface and health requires a session. Set CRUCIBLE_REQUIRE_AUTH=0
-  // to return to the open-read transition mode.
+  // to return to the open-read transition mode. During the first-run setup
+  // window the two setup routes are additionally public (wizard must be
+  // reachable before any account exists).
+  const { needsSetup, setupModeOff } = await import('./auth/setup.ts');
+  const setupWindowOpen = !setupModeOff(env) && needsSetup(db.raw);
   if ((env['CRUCIBLE_REQUIRE_AUTH'] ?? '1') === '1') { // env param wins (buildApp contract)
     app.addHook('onRequest', async (req, reply) => {
       const open = req.url.startsWith('/api/auth') || req.url.startsWith('/api/health') || req.url === '/'
+        || (setupWindowOpen && (req.url.startsWith('/api/setup/state') || req.url.startsWith('/api/setup/admin')))
         || (!req.url.startsWith('/api/') && !req.url.startsWith('/simdeck/')); // simdeck = authed device surface
       if (open || req.user) return;
       await reply.code(401).send({ error: 'sign in required' });
@@ -96,6 +105,17 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   }
 
   const forgeState = createForgeState();
+  // First-run setup surface: routes are self-gating (404 once claimed). The
+  // claim token prints to the console ONCE per window — only machine access
+  // can read it (skipped under vitest to keep test output clean).
+  const { registerSetupRoutes } = await import('./routes/setup.ts');
+  const { needsSetup: windowOpen, setupModeOff: wizardOff, ensureSetupToken } = await import('./auth/setup.ts');
+  registerSetupRoutes(app, db.raw);
+  if (!wizardOff(env) && windowOpen(db.raw) && process.env['VITEST'] !== 'true') {
+    const token = ensureSetupToken(db.raw);
+    console.warn(`[setup] first-run setup is OPEN — claim this instance at /setup`);
+    console.warn(`[setup] claim token (from this console only): ${token}`);
+  }
   registerForgeRoutes(app, db.raw, forgeState, bus);
   registerManualRoutes(app, db.raw, {
     bus,

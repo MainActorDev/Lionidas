@@ -12,14 +12,24 @@ interface SecretStatus { githubToken: boolean; jiraToken: boolean; keys: Record<
 const secrets = ref<SecretStatus | null>(null);
 const reposDir = ref('');
 const packagesDirVal = ref('');
+const readiness = ref<ReadinessRow[]>([]);
 const loaded = ref(false);
 const error = ref('');
 
-const openSections = ref(new Set<string>(['cred']));
+interface ReadinessRow { key: string; label: string; state: 'ok' | 'fail' | 'skip'; detail: string }
+
+const openSections = ref(new Set<string>(['cred', 'ready']));
 function toggleSec(k: string): void {
   const s = new Set(openSections.value);
   if (s.has(k)) s.delete(k); else s.add(k);
   openSections.value = s;
+}
+
+async function recheck(): Promise<void> {
+  try {
+    const r = await fetch('/api/setup/readiness');
+    if (r.ok) readiness.value = ((await r.json()) as { rows: ReadinessRow[] }).rows ?? [];
+  } catch { /* display-only */ }
 }
 
 async function load(): Promise<void> {
@@ -37,6 +47,7 @@ async function load(): Promise<void> {
     const r = await fetch('/api/packages');
     if (r.ok) packagesDirVal.value = ((await r.json()) as { dir?: string }).dir ?? '';
   } catch { /* display-only */ }
+  await recheck();
   loaded.value = true;
 }
 onMounted(() => void load());
@@ -52,6 +63,29 @@ onMounted(() => void load());
     <div v-if="!loaded && !error" class="st-empty">loading…</div>
 
     <div v-if="loaded" class="st-list a2-list">
+      <!-- environment readiness section (T2): re-checkable checklist -->
+      <div class="scope-block" :class="{ open: openSections.has('ready') }">
+        <div class="a2-group-head scope-head" @click="toggleSec('ready')">
+          <span class="caret">{{ openSections.has('ready') ? '▾' : '▸' }}</span>
+          <span class="tag">readiness</span>
+          <span class="owner">environment checklist — tokens, storage, toolchain</span>
+          <span class="cnt">{{ readiness.filter(r => r.state === 'ok').length }}/{{ readiness.length || '…' }}</span>
+        </div>
+        <div class="scope-body">
+          <div class="st-thead"><span>check</span><span>state</span><span>detail</span></div>
+          <div v-for="r in readiness" :key="r.key" class="st-row">
+            <span class="st-key">{{ r.label }}</span>
+            <span class="st-val" :class="r.state === 'ok' ? 'ok' : r.state === 'skip' ? 'dim' : 'bad'">{{ r.state === 'ok' ? '✓ ok' : r.state === 'skip' ? '◌ skip' : '✗ fail' }}</span>
+            <span class="st-meta wide">{{ r.detail }}</span>
+          </div>
+          <div class="st-row">
+            <span class="st-key">re-check</span>
+            <span></span>
+            <span class="st-meta"><button class="btn-link" @click="recheck">run checks again</button></span>
+          </div>
+        </div>
+      </div>
+
       <!-- environment secrets section: read-only env-status mirror -->
       <div class="scope-block" :class="{ open: openSections.has('cred') }">
         <div class="a2-group-head scope-head" @click="toggleSec('cred')">
@@ -117,6 +151,10 @@ onMounted(() => void load());
 .st-val { color: var(--color-fog); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .st-val.ok { color: var(--color-ember); }
 .st-val.dim { color: var(--color-steel); }
+.st-val.bad { color: #d64545; }
+.st-meta.wide { white-space: normal; overflow: visible; text-overflow: unset; font-size: 10px; }
+.btn-link { background: none; border: none; color: var(--color-fog); font-size: 10px; text-decoration: underline; cursor: pointer; padding: 0; }
+.btn-link:hover { color: var(--color-paper); }
 .st-meta { color: var(--color-steel); font-size: 10px; white-space: nowrap; justify-self: end; }
 .st-err { color: var(--color-ember); font-size: var(--text-label); margin-bottom: var(--s-3); }
 .st-empty { color: var(--color-steel); font-size: var(--text-label); }

@@ -4,6 +4,38 @@ import { awaitRuns, fetchFailedStep, mapExitCode, type InfraError, type RunSumma
 import { junitXml } from './junit.ts';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { randomBytes } from 'node:crypto';
+
+// ── lionidas admin reset-password <email> — locked-out-admin recovery.
+// Operates DIRECTLY on the DB file (server may be stopped): prints a one-time
+// password; the operator signs in and changes it. Never reopens the wizard.
+async function adminResetPassword(email: string): Promise<number> {
+  const dbPath = process.env.CRUCIBLE_DB_PATH ?? './crucible.db';
+  let db: import('better-sqlite3').Database;
+  try {
+    const Database = (await import('better-sqlite3')).default;
+    db = new Database(dbPath);
+  } catch (err) {
+    console.error(`lionidas: cannot open ${dbPath} (${err instanceof Error ? err.message : String(err)})`);
+    return 2;
+  }
+  try {
+    const row = db.prepare('SELECT id, email, active FROM users WHERE email = ?').get(email.toLowerCase().trim()) as { id: string; email: string; active: number } | undefined;
+    if (!row) { console.error(`lionidas: no user with email ${email}`); return 2; }
+    if (!row.active) { console.error(`lionidas: ${email} is deactivated — activate the account first (users page)`); return 2; }
+    const { hashPassword } = await import('../auth/users.ts');
+    const oneTime = randomBytes(9).toString('base64url');
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(oneTime), row.id);
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(row.id); // reset forces re-login
+    db.prepare('INSERT INTO auth_log(at, email, user_id, event, detail) VALUES (?, ?, ?, ?, ?)')
+      .run(Date.now(), row.email, row.id, 'password_reset', 'one-time password via lionidas admin reset-password');
+    console.log(`one-time password for ${row.email}: ${oneTime}`);
+    console.log('sign in and change it — it is shown once.');
+    return 0;
+  } finally {
+    db.close();
+  }
+}
 
 interface Args {
   tags?: string; app?: string; udid?: string; boot?: string;
@@ -60,6 +92,11 @@ function fail2(msg: string): never {
 
 async function main(): Promise<number> {
   const argv = process.argv.slice(2);
+  if (argv[0] === 'admin' && argv[1] === 'reset-password') {
+    const email = argv[2];
+    if (!email) { console.error('usage: lionidas admin reset-password <email>'); return 2; }
+    return adminResetPassword(email);
+  }
   if (argv[0] === 'run') argv.shift(); // subcommand form: lionidas run --flags
   const a = parseArgs(argv);
   if (a.help) { console.log(USAGE); return 0; }
