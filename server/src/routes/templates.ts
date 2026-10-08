@@ -561,11 +561,21 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     const { variant } = req.query as { variant?: string };
     const run = latestFinishedRun(db, id, variant);
     if (!run) return reply.code(404).send({ error: 'template has no finished run' });
-    const anchor = (db.prepare('SELECT video_started_at AS v FROM runs WHERE id = ?').get(run.id) as { v: number | null }).v;
+    const row = db.prepare(`SELECT video_started_at AS v, video_anchor_ms AS va, overlay_offset_ms AS ro, device_udid AS udid FROM runs WHERE id = ?`).get(run.id) as
+      { v: number | null; va: number | null; ro: number | null; udid: string | null };
+    const anchor = row.va ?? row.v;
     if (anchor == null) return reply.code(404).send({ error: 'no video for latest run — overlay unavailable' });
+    // effective offset: per-run wins; else the device-remembered default
+    // (plan "both" persistence — the player shows which source applied)
+    let offsetMs: number = row.ro ?? 0;
+    let offsetSource: 'run' | 'device' = 'run';
+    if ((row.ro ?? null) == null && row.udid) {
+      const d = db.prepare('SELECT offset_ms FROM device_overlay_defaults WHERE udid = ?').get(row.udid) as { offset_ms: number } | undefined;
+      if (d) { offsetMs = d.offset_ms; offsetSource = 'device'; }
+    }
     const taps = tapsForRun(db, run.id);
     reply.header('cache-control', 'no-store');
-    return { runId: run.id, videoStartedAt: anchor, taps };
+    return { runId: run.id, videoStartedAt: anchor, anchor, offsetMs, offsetSource, taps };
   });
 
   /** Latest-evidence resolver: newest finished run of this template → its

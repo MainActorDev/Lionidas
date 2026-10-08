@@ -87,7 +87,7 @@ None — closed by the decision log above.
 ## Engine facts (verified in source, 2026-10-09)
 
 Chain: Lionidas → alloy (tool registry, registrations.ts:307 alloy_video) →
-**argent tool-server** (`packages/tool-server/src/tools/video-recording/`) →
+the **tool engine** (video-recording tools, engine repo) →
 `simctl io recordVideo`.
 
 - `start-video-recording` spawns simctl, waits a 1500ms early-error window,
@@ -101,7 +101,7 @@ Chain: Lionidas → alloy (tool registry, registrations.ts:307 alloy_video) →
 
 ## Corrected design (engine-measured anchor + manual residual)
 
-**Engine change (argent tool-server, upstream PR):**
+**Engine change (tool engine, upstream PR):**
 - `stop-video-recording` additionally parses mvhd duration → returns
   `mediaDurationMs` alongside wall-clock `durationMs`.
 - Why most correct: the wall-vs-media delta IS the accumulated
@@ -119,7 +119,7 @@ Chain: Lionidas → alloy (tool registry, registrations.ts:307 alloy_video) →
 align buttons for the honest last mile (player/decode side); per-device
 remembered default (A+) auto-applies to new runs.
 
-**Cross-repo note:** argent is the tool engine — the change lands as an
+**Cross-repo note:** the tool engine owns this — the change lands as an
 upstream PR; alloy passes the new result field through untouched
 (envelope-transparent); Lionidas consumes.
 

@@ -111,12 +111,25 @@ export class EvidenceRecorder {
     } catch { /* best-effort */ }
     if (this.videoStarted) {
       try {
+        const startedWall = (this.deps.db.prepare('SELECT video_started_at AS v FROM runs WHERE id = ?').get(this.runId) as { v: number | null }).v;
         const stop = (await this.deps.dispatch('alloy_video', { udid: this.udid, action: 'stop', label: this.runId }, this.deps.dispatchDeps).catch(() => null)) as
-          | { ok: boolean; result?: { video?: { hostPath?: string } } } | null;
+          | { ok: boolean; result?: { video?: { hostPath?: string }; durationMs?: number; mediaDurationMs?: number } } | null;
         const hostPath = stop?.result?.video?.hostPath;
         if (stop?.ok && hostPath) {
           const ev = ingestEvidence(this.deps, this.runId, this.runId, 'video', hostPath);
           if (ev) this.deps.db.prepare(`UPDATE runs SET video_path = ? WHERE id = ?`).run(ev.path, this.runId);
+        }
+        // Precision anchor (plan 20261009T000000Z T2, review F1/F2): the
+        // engine's mediaDurationMs (mvhd) vs wall duration exposes the
+        // startup/frame-drop error; true first-frame epoch = stop − media.
+        // stopEpoch prefers the engine's own wall duration (clock-consistent)
+        // over a post-await Date.now() (which would bake in stop latency).
+        const wall = typeof stop?.result?.durationMs === 'number' && startedWall != null
+          ? startedWall + stop!.result!.durationMs!
+          : Date.now();
+        const media = stop?.result?.mediaDurationMs;
+        if (typeof media === 'number' && media > 0 && media <= wall - (startedWall ?? 0) + 2000 && startedWall != null) {
+          this.deps.db.prepare('UPDATE runs SET video_anchor_ms = ? WHERE id = ?').run(Math.round(wall - media), this.runId);
         }
       } catch { /* best-effort */ }
     }

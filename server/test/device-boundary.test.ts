@@ -23,6 +23,7 @@ const ALLOWED: ReadonlySet<string> = new Set([
   'forge/routes.ts',
   'forge/sim-routing.ts',
   'manual/app-install.ts',
+  'manual/app-uninstall.ts',
   'manual/apps.ts',
   'manual/packages.ts',
   // smoke gate (brainstorm 20261008T004500Z): post-build install/launch/alive

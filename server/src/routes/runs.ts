@@ -270,6 +270,29 @@ export function registerRunRoutes(app: FastifyInstance, db: Database.Database, b
     return { rerunId };
   });
 
+  // Evidence overlay fine-align (plan 20261009T000000Z T2.3): per-run
+  // offset + per-device remembered default (operator decision "both").
+  // Admin-gated (destructive-ish: rewrites replay alignment), clamp ±10s.
+  app.patch('/api/runs/:id/overlay-offset', { preHandler: requireRole('admin') }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = (req.body ?? {}) as { offsetMs?: number };
+    if (typeof b.offsetMs !== 'number' || !Number.isFinite(b.offsetMs)) {
+      return reply.code(422).send({ error: 'offsetMs (number) required' });
+    }
+    const CLAMP = 10_000;
+    const offsetMs = Math.max(-CLAMP, Math.min(CLAMP, Math.round(b.offsetMs)));
+    const run = db.prepare('SELECT id, device_udid FROM runs WHERE id = ?').get(id) as { id: string; device_udid: string | null } | undefined;
+    if (!run) return reply.code(404).send({ error: 'run not found' });
+    db.prepare('UPDATE runs SET overlay_offset_ms = ? WHERE id = ?').run(offsetMs, id);
+    // seed/refresh the device default (skipped when the run has no udid — F3)
+    if (run.device_udid) {
+      db.prepare(`INSERT INTO device_overlay_defaults(udid, offset_ms, updated_at) VALUES (?, ?, ?)
+                  ON CONFLICT(udid) DO UPDATE SET offset_ms = excluded.offset_ms, updated_at = excluded.updated_at`)
+        .run(run.device_udid, offsetMs, Date.now());
+    }
+    return { ok: true, offsetMs, source: 'run' as const };
+  });
+
   app.get('/api/runs/:id/steps', async (req, reply) => {
     const { id } = req.params as { id: string };
     const run = db.prepare('SELECT id FROM runs WHERE id = ?').get(id);

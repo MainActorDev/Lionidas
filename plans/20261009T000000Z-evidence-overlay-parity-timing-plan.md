@@ -5,7 +5,7 @@
   most correct way"; offset persistence per-run AND per-device)
 - Status: **Ready**
 - Branch: continue `chore/sidebar-regroup-2` (PR #26) for the Lionidas leg;
-  argent engine change on its own upstream PR.
+  tool-engine engine change on its own upstream PR.
 
 ## Objective & completion conditions
 
@@ -31,7 +31,7 @@
 - Route: `/api/templates/:id/run-taps` (templates.ts:559) returns
   `{runId, videoStartedAt, taps}`; steps route exists (runs.ts:273) for the
   idx→name join.
-- Engine: argent `stop-video-recording` (stop.ts) already scans mp4 bytes
+- Engine: the tool engine's `stop-video-recording` (stop.ts) already scans mp4 bytes
   for moov (both layouts); wall-clock `durationMs` from `session.startedAt`.
 - Schema: runs migration pattern at schema.ts:292 (`ALTER TABLE ADD COLUMN`).
 
@@ -85,14 +85,14 @@
    device-default upsert), run-taps response shape. Shared tests:
    offset-aware overlayAt math (marker appears exactly at tap−offset).
 
-### T3 — engine change (argent, upstream PR — separate repo/branch)
+### T3 — engine change (tool engine, upstream PR — separate repo/branch)
 
-1. `stop.ts`: parse mvhd duration (find 'mvhd' box — walk top-level atoms
+1. `stop.ts` (engine repo): parse mvhd duration (find 'mvhd' box — walk top-level atoms
    from ftyp; timescale+duration fields; h264 fast-start AND hevc tail
    moov both covered since we scan atom table not byte windows) →
    `mediaDurationMs` in the result + test fixture mp4s (generate minimal
    boxes).
-2. PR to argent upstream (fork branch `feat/video-media-duration`), same
+2. PR to the engine upstream (fork branch `feat/video-media-duration`), same
    discipline as the butler skipDirs thread. Lionidas consumes
    opportunistically — T2 already works without it.
 
@@ -112,6 +112,6 @@
 
 ## Sequencing rationale
 
-Lionidas-first (T1+T2 ship value alone: parity + manual align), argent T3
-parallel/follows, T4 drills the union. If the argent PR stalls upstream,
+Lionidas-first (T1+T2 ship value alone: parity + manual align), engine T3
+parallel/follows, T4 drills the union. If the engine PR stalls upstream,
 nothing blocks — the fallback anchor + manual align stand alone.

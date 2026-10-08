@@ -5,8 +5,8 @@
   both persistence scopes) + source reads: TapOverlayVideo.vue,
   InteractionOverlay.vue, shared/src/tap-overlay.ts,
   evidence-recorder.ts (:59, :114-121), routes/templates.ts:559,
-  routes/runs.ts:273, schema.ts:292 migration pattern, argent
-  tool-server video-recording start.ts/stop.ts.
+  routes/runs.ts:273, schema.ts:292 migration pattern, the tool
+  engine's video-recording start.ts/stop.ts.
 - Verdict: **Ready for implementation** — 4 findings folded, 1 disclosed
 
 ## Findings
@@ -59,11 +59,11 @@
 
 - Decisions trace to operator answers (engine-first, both scopes).
 - Backward-compat chain explicit (engine field optional → fallback anchor).
-- Cross-repo sequencing honest (Lionidas ships alone; argent PR follows).
+- Cross-repo sequencing honest (Lionidas ships alone; tool-engine PR follows).
 - Tests: parity, offset math, route auth/clamp/upsert, anchor fallback.
 
 ## Cannot certify on paper
 
-Frame-level accuracy claims (needs the T4 live drill + real mp4), argent
+Frame-level accuracy claims (needs the T4 live drill + real mp4), tool-engine
 PR acceptance (upstream), and browser rVFC seek semantics across Safari
 versions (drill covers the dev browser).
