@@ -180,6 +180,7 @@ function onMenuEvent(event: string): void {
   if (event === 'restart') void power('restart');
   if (event === 'shutdown') void power('shutdown');
   if (event === 'install') void openInstall();
+  if (event === 'uninstall') void openUninstall();
   if (event === 'run-app') void openRunApp();
   if (event === 'toggle-inspect') { overlay.value = overlay.value === 'inspect' ? null : 'inspect'; toolsOpen.value = overlay.value === 'inspect'; }
   if (event === 'play-case') void pickPlayCase();
@@ -308,6 +309,45 @@ async function runInstall(pkgPath?: string): Promise<void> {
   } catch { installErr.value = 'install request failed'; }
   finally { installBusy.value = false; }
 }
+// ── uninstall modal (app menu, plan 20261008T160648Z): non-system apps of
+// the ACTIVE simulator; server refuses com.apple.* regardless (defense in
+// depth — the filter below is UX, the API is the gate) ──
+const uninstallOpen = ref(false);
+const uninstallApps = ref<InstalledApp[]>([]);
+const uninstallLoaded = ref(false);
+const uninstallPick = ref('');
+const uninstallBusy = ref(false);
+const uninstallErr = ref('');
+async function openUninstall(): Promise<void> {
+  uninstallOpen.value = true; uninstallErr.value = ''; uninstallPick.value = '';
+  uninstallLoaded.value = false;
+  try {
+    const r = await fetch(`/api/devices/${encodeURIComponent(activeUdid.value)}/apps`);
+    const b = (await r.json()) as { apps?: InstalledApp[]; error?: string };
+    if (!r.ok || b.error) { uninstallErr.value = b.error ?? 'app catalog failed'; return; }
+    // user apps only (com.apple.* never uninstallable — server enforces too)
+    uninstallApps.value = (b.apps ?? []).filter((a) => !a.bundleId.startsWith('com.apple.'));
+    uninstallLoaded.value = true;
+  } catch { uninstallErr.value = 'app catalog failed'; }
+}
+async function runUninstall(): Promise<void> {
+  if (!uninstallPick.value || uninstallBusy.value) return;
+  uninstallBusy.value = true; uninstallErr.value = '';
+  try {
+    const r = await fetch(`/api/devices/${encodeURIComponent(activeUdid.value)}/uninstall`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ bundleId: uninstallPick.value }),
+    });
+    const b = (await r.json()) as { ok?: boolean; error?: string };
+    if (b.ok) {
+      const name = uninstallApps.value.find((a) => a.bundleId === uninstallPick.value)?.name ?? uninstallPick.value;
+      uninstallOpen.value = false;
+      flash(`uninstalled ${name}`);
+    } else uninstallErr.value = b.error ?? 'uninstall failed';
+  } catch { uninstallErr.value = 'uninstall request failed'; }
+  finally { uninstallBusy.value = false; }
+}
+
 function ageOf(ms: number): string {
   const h = Math.floor((Date.now() - ms) / 3600_000);
   if (h < 1) return `${Math.max(1, Math.floor((Date.now() - ms) / 60_000))}m ago`;
@@ -687,6 +727,34 @@ void live;
       </div>
     </div>
 
+    <!-- uninstall modal (non-system apps only; destructive → two-step) -->
+    <div v-if="uninstallOpen" class="modal-scrim" @click.self="uninstallOpen = false">
+      <div class="modal wide">
+        <h3>uninstall app on {{ activeName }}</h3>
+        <div class="modal-body">
+          <div v-if="!uninstallLoaded && !uninstallErr" class="k">reading installed apps…</div>
+          <template v-if="uninstallLoaded && uninstallApps.length === 0">
+            <div class="k">no user apps installed</div>
+          </template>
+          <div v-for="a in uninstallApps" :key="a.bundleId" class="pick-row" :class="{ picked: uninstallPick === a.bundleId }" @click="uninstallPick = a.bundleId">
+            <span>
+              {{ a.name }}
+              <span v-if="a.running" class="running-dot" title="running — will be terminated">●</span>
+            </span>
+            <span class="k">{{ a.version ?? '—' }}</span>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="m-btn" @click="uninstallOpen = false">cancel</button>
+          <button
+            v-if="uninstallPick" class="m-btn danger"
+            :disabled="uninstallBusy" @click="runUninstall"
+          >{{ uninstallBusy ? 'uninstalling…' : `uninstall ${uninstallApps.find(a => a.bundleId === uninstallPick)?.name ?? uninstallPick}` }}</button>
+        </div>
+        <div v-if="uninstallErr" class="hint-err">{{ uninstallErr }}</div>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -746,6 +814,8 @@ void live;
 .m-btn { font-family: inherit; background: none; border: 1px solid var(--color-iron); color: var(--color-fog); padding: 4px 14px; cursor: pointer; font-size: var(--text-caption); border-radius: var(--r); }
 .m-btn:hover:not(:disabled) { border-color: var(--color-slate); color: var(--color-paper); }
 .m-btn.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: var(--weight-bold); }
+.m-btn.danger { background: none; border-color: #d64545; color: #d64545; font-weight: var(--weight-bold); }
+.m-btn.danger:hover:not(:disabled) { background: #d64545; color: #fff; }
 .m-btn:disabled { opacity: .5; cursor: default; }
 .hint-ok { color: var(--color-paper); font-size: var(--text-caption); margin-top: 8px; }
 .hint-err { color: var(--color-paper); font-size: var(--text-caption); margin-top: 8px; border-left: 2px solid var(--color-ember); padding-left: 8px; overflow-wrap: anywhere; white-space: pre-wrap; max-height: 84px; overflow-y: auto; flex: none; }
