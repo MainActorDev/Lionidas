@@ -1,179 +1,123 @@
-/** Project workspace management: clone/pull/status for registered projects
- *  into the centralized repos workspace (reposDir()/projectWorkspace — the
- *  system owns the layout; nobody types a path).
- *
- *  Auth: the per-project token (write-only in the DB) is injected at CALL
- *  time only — https URLs get https://x-access-token:<tok>@host, ssh remotes
- *  get a one-shot GIT_ASKPASS helper (token never in argv, script deleted in
- *  finally). Errors are token-redacted before they leave this module. */
-import type Database from 'better-sqlite3';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { getProject, projectAuthToken } from './store.ts';
-import { MANIFEST_FILENAME, readBuildManifest } from './manifest.ts';
-import { envGithubToken } from '../secrets.ts';
-import { projectWorkspace } from '../manual/packages.ts';
+<script setup lang="ts">
+/** Settings page (028, env-page anatomy): admin-only instance configuration.
+ *  Sections: environment secrets (read-only env-status mirror — values live
+ *  in env vars per the Phase 2 secrets decision, NEVER in the DB), storage
+ *  locations (read-only, env-derived). Collapsible scope blocks inside one
+ *  a2-list, env-page rhythm — future settings land as more sections. */
+import { onMounted, ref } from 'vue';
+import PageHeader from '../components/PageHeader.vue';
 
-const execFileAsync = promisify(execFile);
-const GIT_TIMEOUT_MS = 10 * 60_000;
+interface SecretStatus { githubToken: boolean; jiraToken: boolean; keys: Record<string, string> }
 
-export type WorkspaceResult =
-  | { ok: true; kind: 'cloned' | 'pulled'; path: string }
-  | { ok: false; code: 'WORKSPACE_EXISTS' | 'WORKSPACE_MISSING' | 'GIT_FAILED'; error: string };
+const secrets = ref<SecretStatus | null>(null);
+const reposDir = ref('');
+const packagesDirVal = ref('');
+const loaded = ref(false);
+const error = ref('');
 
-export interface WorkspaceStatus {
-  exists: boolean;
-  branch: string | null;
-  head: string | null;
-  dirty: number | null;
-  /** repo-declared build manifest (lionidas.yml) — cheap file read, shown on
-   *  the projects row. 'invalid' = present but failed strict validation. */
-  manifest: { scheme: string | null; configuration: string | null; prepare: string[] } | 'invalid' | null;
-  /** raw file content (the editor shows the actual yml — repo-owned, read-only) */
-  manifestRaw: string | null;
-  /** strict-validation failure text when manifest === 'invalid' */
-  manifestError: string | null;
+const openSections = ref(new Set<string>(['cred']));
+function toggleSec(k: string): void {
+  const s = new Set(openSections.value);
+  if (s.has(k)) s.delete(k); else s.add(k);
+  openSections.value = s;
 }
 
-/** https URL → token-injected URL; ssh remote → null (askpass path handles it). */
-function httpsWithToken(url: string, token: string): string {
-  const m = /^https:\/\/([^/]+)(\/.*)$/.exec(url);
-  if (!m) return url;
-  return `https://x-access-token:${token}@${m[1]}${m[2]}`;
-}
-
-interface GitOpts { token?: string | null }
-async function git(args: string[], cwd: string | undefined, opts: GitOpts): Promise<string> {
-  const env: Record<string, string> = { ...process.env as Record<string, string> };
-  let askpassDir: string | null = null;
-  if (opts.token && !env['GIT_ASKPASS']) {
-    // ssh remotes: git invokes GIT_ASKPASS for credentials; the helper prints
-    // the token. Lives only for this call.
-    askpassDir = mkdtempSync(join(tmpdir(), 'askpass-'));
-    const p = join(askpassDir, 'ap');
-    writeFileSync(p, `#!/bin/sh\necho ${JSON.stringify(opts.token)}\n`);
-    chmodSync(p, 0o700);
-    env['GIT_ASKPASS'] = p;
-    env['GIT_TERMINAL_PROMPT'] = '0';
-    env['SSH_ASKPASS'] = p;
-  }
+async function load(): Promise<void> {
+  error.value = '';
   try {
-    const r = await execFileAsync('git', args, { cwd, timeout: GIT_TIMEOUT_MS, env });
-    return r.stdout.trim();
-  } catch (err) {
-    const e = err as { stderr?: string; message?: string };
-    let msg = (e.stderr ?? e.message ?? 'git failed').trim();
-    if (opts.token) msg = msg.split(opts.token).join('***');
-    throw new Error(msg);
-  } finally {
-    if (askpassDir) rmSync(askpassDir, { recursive: true, force: true });
-  }
-}
-
-const inFlight = new Map<string, Promise<WorkspaceResult>>();
-
-export function cloneProject(db: Database.Database, id: string, opts: { pullIfExists?: boolean } = {}): Promise<WorkspaceResult> {
-  const existing = inFlight.get(id);
-  if (existing) return existing;
-  const p = (async (): Promise<WorkspaceResult> => {
-    const proj = getProject(db, id);
-    if (!proj) return { ok: false, code: 'GIT_FAILED', error: 'project not found' };
-    const dest = projectWorkspace(proj.name);
-    if (existsSync(dest)) {
-      if (opts.pullIfExists) return pullProject(db, id);
-      return { ok: false, code: 'WORKSPACE_EXISTS', error: `workspace already exists at ${dest} — pull to refresh it` };
-    }
-    // T3 auth precedence: per-project token (legacy) > CRUCIBLE_GITHUB_TOKEN env > ambient
-    const token = projectAuthToken(db, id) ?? envGithubToken();
-    const useAskpass = Boolean(token && !proj.repoUrl.startsWith('https://'));
-    const url = token && proj.repoUrl.startsWith('https://')
-      ? httpsWithToken(proj.repoUrl, token)
-      : proj.repoUrl;
-    const args = ['clone', '--depth', '50'];
-    if (proj.defaultBranch) args.push('--branch', proj.defaultBranch);
-    args.push(url, dest);
-    try {
-      await git(args, undefined, { token: useAskpass ? token : null });
-      return { ok: true, kind: 'cloned', path: dest };
-    } catch (err) {
-      // redact BOTH the bare token and any token-bearing URL we constructed
-      let msg = err instanceof Error ? err.message : 'clone failed';
-      if (token) msg = msg.split(token).join('***');
-      return { ok: false, code: 'GIT_FAILED', error: msg };
-    }
-  })();
-  inFlight.set(id, p);
-  void p.finally(() => { inFlight.delete(id); });
-  return p;
-}
-
-export function pullProject(db: Database.Database, id: string): Promise<WorkspaceResult> {
-  const existing = inFlight.get(id);
-  if (existing) return existing;
-  const p = (async (): Promise<WorkspaceResult> => {
-    const proj = getProject(db, id);
-    if (!proj) return { ok: false, code: 'GIT_FAILED', error: 'project not found' };
-    const dest = projectWorkspace(proj.name);
-    if (!existsSync(dest)) return { ok: false, code: 'WORKSPACE_MISSING', error: `no workspace at ${dest} — clone first` };
-    // T3 auth precedence: per-project token (legacy) > CRUCIBLE_GITHUB_TOKEN env > ambient
-    const token = projectAuthToken(db, id) ?? envGithubToken();
-    // fetch with the token (https remote URL rewrite; ssh rides askpass)
-    try {
-      if (proj.repoUrl.startsWith('https://') && token) {
-        await git(['fetch', '--prune', httpsWithToken(proj.repoUrl, token), '+refs/heads/*:refs/remotes/origin/*'], dest, {});
-      } else if (token) {
-        // ssh remote cloned with askpass: origin keeps the clean ssh URL —
-        // plain fetch rides GIT_ASKPASS for credentials
-        await git(['fetch', '--prune', 'origin'], dest, { token });
-      } else {
-        await git(['fetch', '--prune', 'origin'], dest, {});
-      }
-      if (proj.defaultBranch) {
-        await git(['checkout', proj.defaultBranch], dest, {});
-        await git(['reset', '--hard', `origin/${proj.defaultBranch}`], dest, {});
-      }
-      return { ok: true, kind: 'pulled', path: dest };
-    } catch (err) {
-      return { ok: false, code: 'GIT_FAILED', error: err instanceof Error ? err.message : 'pull failed' };
-    }
-  })();
-  inFlight.set(id, p);
-  void p.finally(() => { inFlight.delete(id); });
-  return p;
-}
-
-export async function workspaceStatus(db: Database.Database, id: string): Promise<WorkspaceStatus> {
-  const proj = getProject(db, id);
-  if (!proj) return { exists: false, branch: null, head: null, dirty: null, manifest: null, manifestRaw: null, manifestError: null };
-  const dest = projectWorkspace(proj.name);
-  if (!existsSync(join(dest, '.git'))) return { exists: false, branch: null, head: null, dirty: null, manifest: null, manifestRaw: null, manifestError: null };
-  let manifest: WorkspaceStatus['manifest'] = null;
-  let manifestRaw: string | null = null;
-  let manifestError: string | null = null;
+    const r = await fetch('/api/settings/secrets');
+    if (!r.ok) { error.value = r.status === 403 ? 'admin only' : `load failed (${r.status})`; loaded.value = true; return; }
+    secrets.value = (await r.json()) as SecretStatus;
+  } catch { error.value = 'load failed'; }
   try {
-    manifestRaw = readFileSync(join(dest, MANIFEST_FILENAME), 'utf8');
-  } catch {
-    manifestRaw = null; // absent — normal
-  }
-  if (manifestRaw != null) {
-    try {
-      const m = readBuildManifest(dest);
-      manifest = m ? { scheme: m.scheme, configuration: m.configuration, prepare: m.prepare.map((s) => s.run) } : null;
-    } catch (e) {
-      manifest = 'invalid'; // present but fails strict validation — surfaced, not hidden
-      manifestError = e instanceof Error ? e.message : String(e);
-    }
-  }
+    const r = await fetch('/api/settings/repos-dir');
+    if (r.ok) reposDir.value = ((await r.json()) as { dir?: string }).dir ?? '';
+  } catch { /* display-only */ }
   try {
-    const branch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'], dest, {})) || null;
-    const head = (await git(['rev-parse', '--short', 'HEAD'], dest, {})) || null;
-    const st = await git(['status', '--porcelain'], dest, {});
-    const dirty = st ? st.split('\n').filter(Boolean).length : 0;
-    return { exists: true, branch, head, dirty, manifest, manifestRaw, manifestError };
-  } catch {
-    return { exists: true, branch: null, head: null, dirty: null, manifest, manifestRaw, manifestError };
-  }
+    const r = await fetch('/api/packages');
+    if (r.ok) packagesDirVal.value = ((await r.json()) as { dir?: string }).dir ?? '';
+  } catch { /* display-only */ }
+  loaded.value = true;
 }
+onMounted(() => void load());
+</script>
+
+<template>
+  <div>
+    <PageHeader title="settings">
+      <span class="ph-desc">instance configuration — environment, storage · admin only</span>
+    </PageHeader>
+
+    <div v-if="error" class="st-err">{{ error }}</div>
+    <div v-if="!loaded && !error" class="st-empty">loading…</div>
+
+    <div v-if="loaded" class="st-list a2-list">
+      <!-- environment secrets section: read-only env-status mirror -->
+      <div class="scope-block" :class="{ open: openSections.has('cred') }">
+        <div class="a2-group-head scope-head" @click="toggleSec('cred')">
+          <span class="caret">{{ openSections.has('cred') ? '▾' : '▸' }}</span>
+          <span class="tag">environment</span>
+          <span class="owner">secrets read from env vars · read-only mirror</span>
+          <span class="cnt">{{ secrets ? (Number(secrets.githubToken) + Number(secrets.jiraToken)) : '…' }}/2</span>
+        </div>
+        <div class="scope-body">
+          <div class="st-thead"><span>secret</span><span>status</span><span></span></div>
+          <div class="st-row">
+            <span class="st-key">github token</span>
+            <span class="st-val" :class="secrets?.githubToken ? 'ok' : 'dim'">{{ secrets?.githubToken ? '✓ set' : '✗ unset' }}</span>
+            <span class="st-meta">{{ secrets?.keys.githubToken ?? 'CRUCIBLE_GITHUB_TOKEN' }} · set in env</span>
+          </div>
+          <div class="st-row">
+            <span class="st-key">jira token</span>
+            <span class="st-val" :class="secrets?.jiraToken ? 'ok' : 'dim'">{{ secrets?.jiraToken ? '✓ set' : '✗ unset' }}</span>
+            <span class="st-meta">{{ secrets?.keys.jiraToken ?? 'JIRA_TOKEN' }} · set in env</span>
+          </div>
+          <div class="st-row empty">values never enter the database — set them where the server runs and restart</div>
+        </div>
+      </div>
+
+      <!-- storage section -->
+      <div class="scope-block" :class="{ open: openSections.has('store') }">
+        <div class="a2-group-head scope-head" @click="toggleSec('store')">
+          <span class="caret">{{ openSections.has('store') ? '▾' : '▸' }}</span>
+          <span class="tag">storage</span>
+          <span class="owner">where the system keeps clones and packages</span>
+          <span class="cnt">2</span>
+        </div>
+        <div class="scope-body">
+          <div class="st-thead"><span>what</span><span>location</span><span></span></div>
+          <div class="st-row">
+            <span class="st-key">repos workspace</span>
+            <span class="st-val" :title="reposDir">{{ reposDir || '—' }}</span>
+            <span class="st-meta">CRUCIBLE_REPOS_DIR · read-only</span>
+          </div>
+          <div class="st-row">
+            <span class="st-key">packages dir</span>
+            <span class="st-val" :title="packagesDirVal">{{ packagesDirVal || '—' }}</span>
+            <span class="st-meta">CRUCIBLE_PACKAGES_DIR · read-only</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.st-list { background: var(--color-carbon); border: 1px solid var(--color-iron); }
+.scope-head .tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-fog); border: 1px solid var(--color-slate); border-radius: var(--r-sm); padding: 1px var(--s-2); }
+.scope-head .cnt { color: var(--color-steel); font-size: var(--text-caption); border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 0 var(--s-2); }
+.scope-body { display: none; }
+.scope-block.open .scope-body { display: block; }
+.st-thead, .st-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr) minmax(0, 220px); gap: var(--s-2); align-items: center; padding: 8px 12px; }
+.st-thead { position: sticky; top: 0; z-index: 2; background: var(--color-graphite); font-size: 10px; color: var(--color-steel); text-transform: uppercase; letter-spacing: 0.08em; }
+.st-row { border-bottom: 1px solid var(--color-iron); min-height: 44px; }
+.st-row:hover { background: var(--color-graphite); }
+.st-row.empty { color: var(--color-steel); font-size: var(--text-caption); }
+.st-key { color: var(--color-paper); font-weight: var(--weight-bold); font-size: var(--text-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-val { color: var(--color-fog); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-val.ok { color: var(--color-ember); }
+.st-val.dim { color: var(--color-steel); }
+.st-meta { color: var(--color-steel); font-size: 10px; white-space: nowrap; justify-self: end; }
+.st-err { color: var(--color-ember); font-size: var(--text-label); margin-bottom: var(--s-3); }
+.st-empty { color: var(--color-steel); font-size: var(--text-label); }
+</style>
