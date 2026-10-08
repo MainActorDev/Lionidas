@@ -40,6 +40,13 @@ export function seedUsers(db: Database.Database, adminBootstrapPassword: string 
   upsert.run('usr_botlioc', 'lioclaw@bot.local', 'lioclaw', 'bot', null, 'bot', now);
   upsert.run('usr_botguvn', 'guvnor@bot.local', 'guvnor', 'bot', null, 'bot', now);
   if (!adminBootstrapPassword) {
+    // Wizard-aware seeding (setup-wizard round): in the wizard era (default)
+    // the generate-and-print fallback NEVER fires — an unclaimed instance
+    // keeps the window open (boot prints the claim token), a claimed one has
+    // its admin already; locked-out recovery is the reset-password CLI, not a
+    // printed credential. Legacy generate-and-print only when explicitly
+    // disabled via CRUCIBLE_SETUP_MODE=off (headless/legacy installs).
+    if (process.env['CRUCIBLE_SETUP_MODE'] !== 'off') return;
     // no PIN env: generate a one-time password ONLY when admin has no password
     // yet (first boot). Later boots keep the existing hash — regenerating every
     // restart would silently invalidate the credential mid-stream (found live:

@@ -15,6 +15,7 @@ const redirectError = route.query.error === 'pending'
   : route.query.error === 'deactivated' ? 'this account has been deactivated by an admin' : '';
 const busy = ref(false);
 const jiraReady = ref(false);
+const setupOpen = ref(false);
 
 onMounted(async () => {
   try {
@@ -23,6 +24,11 @@ onMounted(async () => {
     jiraReady.value = b.jiraConfigured;
     if (b.user) router.replace((route.query.redirect as string) ?? '/');
   } catch { /* server down — form still renders */ }
+  // first-run: instance unclaimed → point the operator at the wizard
+  try {
+    const r = await fetch('/api/setup/state');
+    if (r.ok) setupOpen.value = true;
+  } catch { /* closed/absent — normal */ }
 });
 
 async function signIn(): Promise<void> {
@@ -68,7 +74,8 @@ async function signIn(): Promise<void> {
         ◈ continue with Jira
       </a>
 
-      <div class="foot">first time? ask an admin to provision your account<br />local accounts only — no self-registration</div>
+      <div class="foot" v-if="setupOpen">first run? <a href="/setup">set up this instance →</a><br />claim it with the token printed on the server console</div>
+      <div class="foot" v-else>first time? ask an admin to provision your account<br />local accounts only — no self-registration</div>
     </div>
   </div>
 </template>

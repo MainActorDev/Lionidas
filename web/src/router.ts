@@ -13,6 +13,7 @@ import ProjectsPage from './pages/ProjectsPage.vue';
 import SettingsPage from './pages/SettingsPage.vue';
 import BuildsPage from './pages/BuildsPage.vue';
 import LoginPage from './pages/LoginPage.vue';
+import SetupPage from './pages/SetupPage.vue';
 import UsersPage from './pages/UsersPage.vue';
 import GuidePage from './pages/GuidePage.vue';
 import SuitesPage from './pages/SuitesPage.vue';
@@ -36,6 +37,7 @@ export const router = createRouter({
     { path: '/builds', name: 'builds', component: BuildsPage, meta: { title: 'builds' } },
     { path: '/settings', name: 'settings', component: SettingsPage, meta: { title: 'settings' } },
     { path: '/login', name: 'login', component: LoginPage, meta: { title: 'sign in', public: true } },
+    { path: '/setup', name: 'setup', component: SetupPage, meta: { title: 'first-run setup', public: true } },
     { path: '/guide', name: 'guide', component: GuidePage, meta: { title: 'guide' } },
   ] satisfies RouteRecordRaw[],
 });
@@ -43,12 +45,19 @@ export const router = createRouter({
 
 // Auth guard: pages require a session; /login is public. The API's own 401s
 // remain the enforcement — this is the UX layer (redirect instead of empty pages).
+// Setup-window aware: while the instance is unclaimed, /setup stays reachable
+// (the wizard runs BEFORE any account exists — otherwise login↔setup loop).
 router.beforeEach(async (to) => {
   if (to.meta.public) return true;
   try {
     const r = await fetch('/api/auth/me');
     const b = await r.json() as { user: unknown | null };
     if (b.user) return true;
+    // unclaimed instance: the only meaningful destination is the wizard
+    try {
+      const s = await fetch('/api/setup/state');
+      if (s.ok && to.path !== '/setup') return { path: '/setup' };
+    } catch { /* setup closed — normal */ }
     return { path: '/login', query: { redirect: to.fullPath } };
   } catch {
     return true; // server unreachable — let the page render its own error state
