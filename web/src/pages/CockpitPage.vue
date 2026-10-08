@@ -275,13 +275,16 @@ async function openRunApp(): Promise<void> {
 }
 async function launchApp(): Promise<void> {
   if (!runAppPick.value || runAppBusy.value) return;
+  const name = runAppApps.value.find((a) => a.bundleId === runAppPick.value)?.name ?? runAppPick.value;
+  runAppOpen.value = false; // instant close (modal contract: click = committed)
+  flash(`launching ${name}…`);
   runAppBusy.value = true; runAppErr.value = ''; runAppMsg.value = '';
   try {
     const r = await fetch(`/api/devices/${encodeURIComponent(activeUdid.value)}/apps/${encodeURIComponent(runAppPick.value)}/launch`, { method: 'POST' });
     const b = (await r.json()) as { ok?: boolean; error?: string };
-    if (b.ok) { runAppOpen.value = false; flash(`running ${runAppApps.value.find((a) => a.bundleId === runAppPick.value)?.name ?? runAppPick.value}`); }
-    else runAppErr.value = b.error ?? 'launch failed';
-  } catch { runAppErr.value = 'launch request failed'; }
+    if (b.ok) flash(`running ${name}`);
+    else flash(b.error ?? 'launch failed', 'err');
+  } catch { flash('launch request failed', 'err'); }
   finally { runAppBusy.value = false; }
 }
 
@@ -297,6 +300,8 @@ async function runInstall(pkgPath?: string): Promise<void> {
   const target = pkgPath ?? installPick.value;
   if (!target || installBusy.value) return;
   installPick.value = target;
+  installOpen.value = false; // instant close (modal contract: click = committed)
+  flash('installing…');
   installBusy.value = true; installErr.value = '';
   try {
     const r = await fetch(`/api/devices/${encodeURIComponent(activeUdid.value)}/install`, {
@@ -304,9 +309,9 @@ async function runInstall(pkgPath?: string): Promise<void> {
       body: JSON.stringify({ packagePath: target }),
     });
     const b = (await r.json()) as { ok?: boolean; version?: string; error?: string };
-    if (b.ok) { installOpen.value = false; flash(`installed${b.version ? ` · ${b.version}` : ''}`); }
-    else installErr.value = b.error ?? 'install failed';
-  } catch { installErr.value = 'install request failed'; }
+    if (b.ok) flash(`installed${b.version ? ` · ${b.version}` : ''}`);
+    else flash(b.error ?? 'install failed', 'err');
+  } catch { flash('install request failed', 'err'); }
   finally { installBusy.value = false; }
 }
 // ── uninstall modal (app menu, plan 20261008T160648Z): non-system apps of
@@ -332,6 +337,9 @@ async function openUninstall(): Promise<void> {
 }
 async function runUninstall(): Promise<void> {
   if (!uninstallPick.value || uninstallBusy.value) return;
+  const name = uninstallApps.value.find((a) => a.bundleId === uninstallPick.value)?.name ?? uninstallPick.value;
+  uninstallOpen.value = false; // instant close (modal contract: click = committed)
+  flash(`uninstalling ${name}…`);
   uninstallBusy.value = true; uninstallErr.value = '';
   try {
     const r = await fetch(`/api/devices/${encodeURIComponent(activeUdid.value)}/uninstall`, {
@@ -339,12 +347,9 @@ async function runUninstall(): Promise<void> {
       body: JSON.stringify({ bundleId: uninstallPick.value }),
     });
     const b = (await r.json()) as { ok?: boolean; error?: string };
-    if (b.ok) {
-      const name = uninstallApps.value.find((a) => a.bundleId === uninstallPick.value)?.name ?? uninstallPick.value;
-      uninstallOpen.value = false;
-      flash(`uninstalled ${name}`);
-    } else uninstallErr.value = b.error ?? 'uninstall failed';
-  } catch { uninstallErr.value = 'uninstall request failed'; }
+    if (b.ok) flash(`uninstalled ${name}`);
+    else flash(b.error ?? 'uninstall failed', 'err');
+  } catch { flash('uninstall request failed', 'err'); }
   finally { uninstallBusy.value = false; }
 }
 
@@ -368,6 +373,7 @@ async function pickBootDevice(): Promise<void> {
 }
 async function bootSelected(): Promise<void> {
   if (!bootSel.value || bootBusy.value) return;
+  bootOpen.value = false; // instant close (modal contract: click = committed)
   bootBusy.value = true; bootErr.value = '';
   try {
     const r = await fetch(`/api/devices/${encodeURIComponent(bootSel.value)}/power`, {
@@ -375,7 +381,6 @@ async function bootSelected(): Promise<void> {
     });
     const b = (await r.json()) as { ok?: boolean; error?: string };
     if (b.ok) {
-      bootOpen.value = false;
       flash('booting — switching when ready');
       const bootedUdid = bootSel.value;
       // poll until the boot lands (sim boot takes seconds), then switch to it
@@ -399,8 +404,8 @@ async function bootSelected(): Promise<void> {
         }
       };
       void waitBoot();
-    } else bootErr.value = b.error ?? 'boot failed';
-  } catch { bootErr.value = 'boot request failed'; }
+    } else flash(b.error ?? 'boot failed', 'err');
+  } catch { flash('boot request failed', 'err'); }
   finally { bootBusy.value = false; }
 }
 
@@ -432,6 +437,8 @@ async function openSuite(): Promise<void> {
 }
 async function playSuite(): Promise<void> {
   if (!suitePickId.value || suiteBusy.value) return;
+  suiteOpen.value = false; // instant close (modal contract: click = committed)
+  flash('queueing suite…');
   suiteBusy.value = true; suiteErr.value = '';
   try {
     const r = await fetch(`/api/suites/${encodeURIComponent(suitePickId.value)}/play`, {
@@ -441,19 +448,17 @@ async function playSuite(): Promise<void> {
     const b = (await r.json()) as { runIds?: string[]; count?: number; batchId?: string; queuedOnly?: boolean; error?: string };
     if (b.queuedOnly || b.batchId) {
       // queue-time response: runIds are empty by design (runs spawn async)
-      suiteOpen.value = false;
       lastBatchId.value = b.batchId ?? null; // abort = batch-abort (all lanes)
       flash(`suite · ${b.count ?? '…'} runs queued`);
       railTab.value = 'watch';
     }
     else if (b.runIds && b.runIds.length > 0) {
-      suiteOpen.value = false;
       lastBatchId.value = b.batchId ?? null;
       flash(`suite · ${b.count ?? b.runIds.length} runs queued`);
       railTab.value = 'watch';
     }
-    else suiteErr.value = b.error ?? 'suite play failed';
-  } catch { suiteErr.value = 'suite request failed'; }
+    else flash(b.error ?? 'suite play failed', 'err');
+  } catch { flash('suite request failed', 'err'); }
   finally { suiteBusy.value = false; }
 }
 const playFiltered = computed((): Array<{ id: string; name: string; desc: string | null; ticket: string | null; steps: number }> => {
@@ -487,6 +492,8 @@ async function pickPlayCase(): Promise<void> {
   } catch { flash('case list failed', 'err'); }
 }
 async function playCase(id: string): Promise<void> {
+  playOpen.value = false; // instant close (modal contract: click = committed)
+  flash('starting run…');
   playBusy.value = true;
   try {
     const r = await fetch(`/api/templates/${encodeURIComponent(id)}/play`, {
@@ -495,12 +502,11 @@ async function playCase(id: string): Promise<void> {
     });
     const b = (await r.json()) as { runId?: string; fanOut?: boolean; count?: number; runs?: Array<{ runId?: string; error?: string }>; error?: string };
     if (b.fanOut) {
-      playOpen.value = false;
       const ok = (b.runs ?? []).filter((x) => x.runId).length;
       lastBatchId.value = null; // fan-out is per-device runs, not a batch — abort = run-abort
       flash(`queued on ${ok}/${b.count ?? '?'} devices`);
       railTab.value = 'watch';
-    } else if (b.runId) { playOpen.value = false; lastBatchId.value = null; flash(`run started · ${String(b.runId).slice(0, 14)}`); railTab.value = 'watch'; }
+    } else if (b.runId) { lastBatchId.value = null; flash(`run started · ${String(b.runId).slice(0, 14)}`); railTab.value = 'watch'; }
     else flash(b.error ?? 'play failed', 'err');
   } catch { flash('play request failed', 'err'); }
   finally { playBusy.value = false; }
@@ -646,7 +652,7 @@ void live;
         </div>
         <div class="modal-actions">
           <button class="m-btn" @click="bootOpen = false">cancel</button>
-          <button class="m-btn primary" :disabled="!bootSel || bootBusy" @click="bootSelected">{{ bootBusy ? 'booting…' : 'boot' }}</button>
+          <button class="m-btn primary" :disabled="!bootSel || bootBusy" @click="bootSelected">boot</button>
         </div>
         <div v-if="bootErr" class="hint-err">{{ bootErr }}</div>
       </div>
@@ -720,7 +726,7 @@ void live;
         </div>
         <div class="modal-actions">
           <button class="m-btn" @click="runAppOpen = false">cancel</button>
-          <button class="m-btn primary" :disabled="!runAppPick || runAppBusy" @click="launchApp">{{ runAppBusy ? 'launching…' : 'run' }}</button>
+          <button class="m-btn primary" :disabled="!runAppPick || runAppBusy" @click="launchApp">run</button>
         </div>
         <div v-if="runAppMsg" class="hint-ok">{{ runAppMsg }}</div>
         <div v-if="runAppErr" class="hint-err">{{ runAppErr }}</div>
@@ -749,7 +755,7 @@ void live;
           <button
             v-if="uninstallPick" class="m-btn danger"
             :disabled="uninstallBusy" @click="runUninstall"
-          >{{ uninstallBusy ? 'uninstalling…' : `uninstall ${uninstallApps.find(a => a.bundleId === uninstallPick)?.name ?? uninstallPick}` }}</button>
+          >uninstall {{ uninstallApps.find(a => a.bundleId === uninstallPick)?.name ?? uninstallPick }}</button>
         </div>
         <div v-if="uninstallErr" class="hint-err">{{ uninstallErr }}</div>
       </div>
