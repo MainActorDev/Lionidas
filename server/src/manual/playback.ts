@@ -245,6 +245,16 @@ function hierarchySig(nodes: SnapNode[]): string {
  *  its full budget (drill 2026-09-25: tap settle paid 8s/step for that alone).
  *  Layout/structure churn (navigation, content streaming, node add/remove)
  *  still changes this signature — only same-shape text mutation passes. */
+/** Overlay dims priority (reliability round): step snapshot > run gate-time
+ *  dims > template dims. Returns the first pair with BOTH > 0, else 0/0
+ *  (recordTap keeps its guard as the last line of defense). */
+function overlayDims(snapW: number | null, snapH: number | null, runW: number | null, runH: number | null, tplW: number | null, tplH: number | null): { w: number; h: number } {
+  if (snapW && snapH && snapW > 0 && snapH > 0) return { w: snapW, h: snapH };
+  if (runW && runH && runW > 0 && runH > 0) return { w: runW, h: runH };
+  if (tplW && tplH && tplW > 0 && tplH > 0) return { w: tplW, h: tplH };
+  return { w: 0, h: 0 };
+}
+
 function structureSig(nodes: SnapNode[]): string {
   return (nodes ?? [])
     .map((n) => `${n.type ?? ''}|${n.identifier ?? ''}`)
@@ -776,7 +786,17 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       } catch { /* dims best-effort */ }
       const scaleX = targetW && t.logical_w && t.logical_w > 0 ? targetW / t.logical_w : 1;
       const scaleY = targetH && t.logical_h && t.logical_h > 0 ? targetH / t.logical_h : 1;
+      // persist the run's resolved dims (overlay-reliability round): later
+      // steps whose own pre-snapshot missed fall back to these instead of
+      // emitting logicalW/H = 0 (which silently dropped the tap overlay)
+      if (targetW && targetH) {
+        deps.db.prepare('UPDATE runs SET logical_w = ?, logical_h = ? WHERE id = ?').run(Math.round(targetW), Math.round(targetH), runId);
+      }
 
+      // run dims row (overlay-reliability): refreshed each emit via a tiny
+      // getter — the gate-time UPDATE may land AFTER this closure captured
+      const runDims = (): { logical_w: number | null; logical_h: number | null } =>
+        deps.db.prepare('SELECT logical_w, logical_h FROM runs WHERE id = ?').get(runId) as { logical_w: number | null; logical_h: number | null };
       // run-scoped dead-reckoning memory (plan A): selector → last resolved rect.
       // `valid` flips false on ANY scroll (delta unknowable) or navigation
       // action; expect steps keep entries (they don't move UI).
@@ -1709,13 +1729,15 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // settle:false — the engine's fixed ~2.4s settle is replaced by the
             // state-based wait below (next-step selector poll / UI-stability)
             input = { udid, action: 'press', target: { x: tx, y: ty }, settle: false };
-            // run panel overlay: where this tap lands, in logical pts
-            // (targetW/H — same dims the scaling math uses, null pre-snapshot)
+            // run panel overlay: where this tap lands, in logical pts.
+            // Dims priority (overlay-reliability round): this step's snapshot
+            // > the run's gate-time dims > the template's recorded dims — a
+            // missed pre-snapshot must NOT silently drop the tap overlay.
             if (tx !== undefined && ty !== undefined) {
-              deps.bus.emit('step.tap', { runId, idx: s.idx, x: tx, y: ty, logicalW: targetW ?? 0, logicalH: targetH ?? 0 });
-              // Tier 2.2 — persist for the evidence-player overlay (guards
-              // inside recordTap reject zero-dims pre-snapshot rows)
-              recordTap(deps.db, { runId, idx: s.idx, x: tx, y: ty, logicalW: targetW ?? 0, logicalH: targetH ?? 0 }, Date.now());
+              const dims = overlayDims(targetW, targetH, runDims().logical_w, runDims().logical_h, t.logical_w, t.logical_h);
+              deps.bus.emit('step.tap', { runId, idx: s.idx, x: tx, y: ty, logicalW: dims.w, logicalH: dims.h });
+              // Tier 2.2 — persist for the evidence-player overlay
+              recordTap(deps.db, { runId, idx: s.idx, x: tx, y: ty, logicalW: dims.w, logicalH: dims.h }, Date.now());
             }
           }
           else if (s.action === 'scroll') input = { udid, action: 'scroll', direction: s.direction, settle: false };
@@ -1723,7 +1745,8 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           // Tier 2.2 — fills are tap-positioned acts: record them too
           // (typing lands at a spot; the overlay shows where)
           if (s.action === 'type' && tx !== undefined && ty !== undefined) {
-            recordTap(deps.db, { runId, idx: s.idx, x: tx, y: ty, logicalW: targetW ?? 0, logicalH: targetH ?? 0 }, Date.now());
+            const dims = overlayDims(targetW, targetH, runDims().logical_w, runDims().logical_h, t.logical_w, t.logical_h);
+            recordTap(deps.db, { runId, idx: s.idx, x: tx, y: ty, logicalW: dims.w, logicalH: dims.h }, Date.now());
           }
           const r = (await withWatchdog(runId, alloy.dispatch('alloy_act', input, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, stepName(s))) as { ok: boolean; error?: { message: string } };
           if (!r.ok) throw new Error(r.error?.message ?? 'engine error');
