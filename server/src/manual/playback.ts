@@ -1201,6 +1201,14 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 appBundleId: appToLaunch,
                 runId,
                 udid,
+                // overlay-reliability: sub-pipeline presses (arrive/refresh/
+                // swap entries) paint like main-loop taps — same event, same
+                // dims fallback chain, same run_taps persistence
+                onTap: (pt) => {
+                  const dims = overlayDims(targetW, targetH, runDims().logical_w, runDims().logical_h, t.logical_w, t.logical_h);
+                  deps.bus.emit('step.tap', { runId, idx: s.idx, x: Math.round(pt.x), y: Math.round(pt.y), logicalW: dims.w, logicalH: dims.h });
+                  recordTap(deps.db, { runId, idx: s.idx, x: Math.round(pt.x), y: Math.round(pt.y), logicalW: dims.w, logicalH: dims.h }, Date.now());
+                },
                 dispatch: (tool, input) => alloy.dispatch(tool, input, deps.dispatchDeps) as never,
                 forgeActivate: (rows) => svc.activateScenario(rows),
                 // push-based GUARD 1: the typed bus emits forge.traffic.hit at
@@ -1273,6 +1281,15 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // to the origin tab (popToRoot semantics), so verification runs
             // against the entry screen's tree.
             const cfgRaw = s.ensureLogin!;
+            // overlay-reliability: ensure-login presses/fills paint on the
+            // overlay like main-loop interactions (idx = this step)
+            const emitLoginTap = (x: number, y: number, kind: 'tap' | 'type' = 'tap'): void => {
+              const dims = overlayDims(targetW, targetH, runDims().logical_w, runDims().logical_h, t.logical_w, t.logical_h);
+              if (dims.w > 0 && dims.h > 0) {
+                deps.bus.emit('step.tap', { runId, idx: s.idx, x: Math.round(x), y: Math.round(y), logicalW: dims.w, logicalH: dims.h });
+                if (kind === 'tap') recordTap(deps.db, { runId, idx: s.idx, x: Math.round(x), y: Math.round(y), logicalW: dims.w, logicalH: dims.h }, Date.now());
+              }
+            };
             // screen-form (plan rev 2 S4.2): selectors resolve from the
             // screens registry login_json. Unknown screen / missing recipe /
             // partial recipe → explicit step failure, never silent skip.
@@ -1447,6 +1464,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                       tx = hit.x; ty = hit.y;
                     }
                     if (tx == null || ty == null) throw new Error('ensure login: entry step has neither on: nor x/y');
+                    emitLoginTap(tx, ty);
                     const rStep = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: tx, y: ty }, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message?: string } }>, 'ensure login: entry step')) as { ok: boolean; error?: { message?: string } };
                     if (!rStep.ok) throw new Error(rStep.error?.message ?? 'ensure login: entry step tap failed');
                     await new Promise((res2) => setTimeout(res2, 400)); // settle between taps
@@ -1469,6 +1487,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 } else {
                   const entryPt = await settleFind(cfgResolved.entry);
                   if (!entryPt) throw new Error(`ensure login: entry ${JSON.stringify(cfgResolved.entry)} never appeared`);
+                  emitLoginTap(entryPt.x, entryPt.y);
                   const r1 = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: entryPt.x, y: entryPt.y }, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message?: string } }>, 'ensure login: open form')) as { ok: boolean; error?: { message?: string } };
                   if (!r1.ok) throw new Error(r1.error?.message ?? 'ensure login: entry tap failed');
                 }
@@ -1482,6 +1501,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               // reset) and then tolerated.
               const resilientFill = async (x: number, y: number, text: string, what: string): Promise<void> => {
                 for (let attempt = 0; attempt < 2; attempt++) {
+                  emitLoginTap(x, y, 'type');
                   const r = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'fill', target: { x, y }, text, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message?: string } }>, `ensure login: ${what}`)) as { ok: boolean; error?: { message?: string } };
                   if (r.ok) return;
                   const msg = r.error?.message ?? '';
@@ -1538,6 +1558,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                   const pt = await settleFind(onR);
                   if (!pt) throw new Error(`ensure login: recipe step ${si + 1} target ${JSON.stringify(onR)} never appeared`);
                   if (kind === 'tap') {
+                    emitLoginTap(pt.x, pt.y);
                     const rr = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: pt.x, y: pt.y }, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message?: string } }>, `ensure login: recipe step ${si + 1} (tap)`)) as { ok: boolean; error?: { message?: string } };
                     if (!rr.ok) throw new Error(rr.error?.message ?? `ensure login: recipe step ${si + 1} tap failed`);
                   } else if (kind === 'type') {
@@ -1560,6 +1581,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               await dismissKeyboard();
               const submit = await settleFind(cfgResolved.submit);
               if (!submit) throw new Error(`ensure login: submit ${JSON.stringify(cfgResolved.submit)} never appeared`);
+              emitLoginTap(submit.x, submit.y);
               const r4 = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: submit.x, y: submit.y }, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, 'ensure login: submit')) as { ok: boolean; error?: { message: string } };
               if (!r4.ok) throw new Error(r4.error?.message ?? 'ensure login: submit failed');
               }
@@ -1593,6 +1615,15 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // session indicator is GONE. All resolution is live — no
             // recorded points, cross-device safe by construction.
             let cfg = s.ensureLogout! as typeof s.ensureLogout & { back?: string };
+            // overlay-reliability: ensure-logout presses paint too (via taps,
+            // sheet confirms)
+            const emitLogoutTap = (x: number, y: number): void => {
+              const dims = overlayDims(targetW, targetH, runDims().logical_w, runDims().logical_h, t.logical_w, t.logical_h);
+              if (dims.w > 0 && dims.h > 0) {
+                deps.bus.emit('step.tap', { runId, idx: s.idx, x: Math.round(x), y: Math.round(y), logicalW: dims.w, logicalH: dims.h });
+                recordTap(deps.db, { runId, idx: s.idx, x: Math.round(x), y: Math.round(y), logicalW: dims.w, logicalH: dims.h }, Date.now());
+              }
+            };
             // registry (bare) form: resolve the app's recipe from app_logout
             // (plan 20260929T080249Z). Inline keys win over the registry —
             // a case-level override of the shared procedure. Fail-closed on
@@ -1668,6 +1699,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             } else {
               const btn = nodes ? findOne(nodes, cfgButton) : null;
               if (!btn) throw new Error(`ensure logout: session indicator ${JSON.stringify(cfg.button)} vanished between reads`);
+              emitLogoutTap(btn.x, btn.y);
               const r1 = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: btn.x, y: btn.y }, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, 'ensure logout: open sheet')) as { ok: boolean; error?: { message: string } };
               if (!r1.ok) throw new Error(r1.error?.message ?? 'ensure logout: sheet tap failed');
               // wait for the confirm control (poll, bounded by the step watchdog)

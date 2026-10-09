@@ -31,6 +31,11 @@ export interface ScreenRunnerDeps {
   onTrafficHit?: (cb: (e: { runId: string | null; matchedPresetId: string | null }) => void) => () => void;
   /** dispatch an alloy tool (snapshot / tap / screenshot) */
   dispatch: (tool: string, input: Record<string, unknown>) => Promise<{ ok: boolean; result?: unknown; error?: { message?: string } }>;
+  /** overlay-reliability round: fired for every PRESS this runner performs
+   *  (arrive/refresh/swap entries, login entry hops) — same shape the main
+   *  step loop emits, so sub-pipeline interactions paint on the overlay
+   *  too instead of vanishing. Absent (legacy callers/tests) → no-op. */
+  onTap?: (point: { x: number; y: number }) => void;
   /** activate a preset set on the forge; returns previous set for restore */
   forgeActivate?: (presetRows: Array<Record<string, unknown>>) => void;
   /** read the forge's current active preset rows (for swap bookkeeping) */
@@ -126,6 +131,12 @@ export class ScreenRunner {
   }
 
   private async act(input: Record<string, unknown>): Promise<{ ok: boolean; error?: { message?: string } }> {
+    if (input['action'] === 'press') {
+      const t = input['target'] as { x?: number; y?: number } | undefined;
+      if (t && typeof t.x === 'number' && typeof t.y === 'number') {
+        try { this.d.onTap?.({ x: t.x, y: t.y }); } catch { /* overlay must never break a verb */ }
+      }
+    }
     return this.d.dispatch('alloy_act', { udid: this.d.udid, ...input }) as Promise<{ ok: boolean; error?: { message?: string } }>;
   }
 
