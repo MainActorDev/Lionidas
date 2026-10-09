@@ -15,6 +15,7 @@ import BuildsPage from './pages/BuildsPage.vue';
 import LoginPage from './pages/LoginPage.vue';
 import SetupPage from './pages/SetupPage.vue';
 import UsersPage from './pages/UsersPage.vue';
+import AuditPage from './pages/AuditPage.vue';
 import GuidePage from './pages/GuidePage.vue';
 import SuitesPage from './pages/SuitesPage.vue';
 
@@ -33,6 +34,7 @@ export const router = createRouter({
     { path: '/screens', name: 'screens', component: ScreensPage, meta: { title: 'screens' } },
     { path: '/env', name: 'env', component: EnvPage, meta: { title: 'env' } },
     { path: '/users', name: 'users', component: UsersPage, meta: { title: 'users' } },
+    { path: '/audit', name: 'audit', component: AuditPage, meta: { title: 'audit log' } },
     { path: '/projects', name: 'projects', component: ProjectsPage, meta: { title: 'projects' } },
     { path: '/builds', name: 'builds', component: BuildsPage, meta: { title: 'builds' } },
     { path: '/settings', name: 'settings', component: SettingsPage, meta: { title: 'settings' } },

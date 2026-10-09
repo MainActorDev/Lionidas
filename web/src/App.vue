@@ -68,7 +68,8 @@ const navGroups: NavGroup[] = [
   {
     id: 'settings', label: 'settings',
     items: [
-      { to: '/users', label: 'users', names: ['users'], adminOnly: true },
+      { to: '/users', label: 'users', names: ['users'], supervisorOnly: true }, // supervisor+ (directory + account mgmt)
+      { to: '/audit', label: 'audit log', names: ['audit'], supervisorOnly: true },
       { to: '/settings', label: 'configs', names: ['settings'], adminOnly: true },
     ],
   },
