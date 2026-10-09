@@ -2,18 +2,20 @@
 /** MenuBar — T1 word-menus (locked sketch verbatim). Pure UI: emits semantic
  *  events; the PAGE owns side effects. Click-outside + Escape close; one open
  *  menu at a time; accelerators right-aligned; act items ember. */
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 
-export interface MenuItem { label: string; accel?: string; act?: boolean; event?: string; separator?: boolean }
+export interface MenuItem { label: string; accel?: string; act?: boolean; event?: string; separator?: boolean; disabled?: boolean }
 
 const props = defineProps<{
   status: { sessionLabel: string | null; deviceName: string; liveCount: number };
 }>();
+/** input-verbs items are session-gated: the page renders them disabled when
+ *  take-control isn't active (operator directive 2026-10-09 — no auto-take). */
 const emit = defineEmits<{ (e: 'menu-event', event: string): void }>();
 
 const open = ref<string | null>(null);
 
-const MENUS: Array<{ id: string; label: string; items: MenuItem[] }> = [
+const MENUS = computed<Array<{ id: string; label: string; items: MenuItem[] }>>(() => [
   { id: 'app', label: 'app', items: [
     { label: 'run app', event: 'run-app' },
     { label: 'install app', event: 'install' },
@@ -26,10 +28,10 @@ const MENUS: Array<{ id: string; label: string; items: MenuItem[] }> = [
     { label: 'take screenshot', accel: '⌘1', event: 'screenshot' },
     { label: 'environment', event: 'env-scenario' },
     { label: '', separator: true },
-    { label: 'input: double-tap…', event: 'input-double-tap' },
-    { label: 'input: long-press…', event: 'input-long-press' },
-    { label: 'input: shake', event: 'input-shake' },
-    { label: 'input: paste…', event: 'input-paste' },
+    { label: 'input: double-tap…', event: 'input-double-tap', disabled: !props.status.sessionLabel },
+    { label: 'input: long-press…', event: 'input-long-press', disabled: !props.status.sessionLabel },
+    { label: 'input: shake', event: 'input-shake', disabled: !props.status.sessionLabel },
+    { label: 'input: paste…', event: 'input-paste', disabled: !props.status.sessionLabel },
     { label: '', separator: true },
     { label: 'restart', event: 'restart' },
     { label: 'shutdown', event: 'shutdown' },
@@ -41,10 +43,11 @@ const MENUS: Array<{ id: string; label: string; items: MenuItem[] }> = [
   { id: 'view', label: 'view', items: [
     { label: 'inspect elements', accel: '⌘I', event: 'toggle-inspect' },
   ] },
-];
+]);
 
 function toggle(id: string): void { open.value = open.value === id ? null : id; }
 function pick(item: MenuItem): void {
+  if (item.disabled) return; // gate visual + behavioral
   open.value = null;
   if (item.event) emit('menu-event', item.event);
 }
@@ -63,7 +66,7 @@ void props;
       <div class="dropdown" @click.stop>
         <template v-for="(item, i) in m.items" :key="i">
           <hr v-if="item.separator" />
-          <div v-else class="item" :class="{ act: item.act }" @click="pick(item)">
+          <div v-else class="item" :class="{ act: item.act, disabled: item.disabled }" @click="pick(item)">
             <span>{{ item.label }}</span>
             <span v-if="item.accel" class="accel">{{ item.accel }}</span>
           </div>
@@ -89,6 +92,8 @@ void props;
 .menu.open .dropdown { display: block; }
 .item { display: flex; justify-content: space-between; gap: 14px; padding: 5px 10px; color: var(--color-fog); font-size: var(--text-caption); cursor: pointer; border-radius: var(--r); }
 .item:hover { background: var(--color-iron); color: var(--color-paper); }
+.item.disabled { opacity: .35; cursor: default; }
+.item.disabled:hover { background: transparent; color: var(--color-fog); }
 .item.act { color: var(--color-ember); }
 .item .accel { color: var(--color-steel); }
 hr { border: none; border-top: 1px solid var(--color-iron); margin: 4px 0; }
