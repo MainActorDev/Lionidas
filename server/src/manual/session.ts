@@ -7,6 +7,7 @@
  *  preview reads the same array, and "save as template" copies it out. */
 import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { dispatchWithHeal } from '../alloy/heal.ts';
 import { fetchEngineTree } from '../alloy/engine-tree.ts';
@@ -14,7 +15,7 @@ import { quietKeyboard } from './keyboard-quiet.ts';
 import { armProbe, disarmProbe, probeArmed } from './viewtree-probe.ts';
 import { captureSelectorAt, countMatches } from './selector.ts';
 import type { StepSelector, SnapNode } from './selector.ts';
-import { engineInput } from './engine-input.ts';
+import { engineInput, doubleTapSim, longPressSim, shakeSim, pasteTextSim } from './engine-input.ts';
 
 export interface ManualDeps {
   db: Database.Database;
@@ -51,7 +52,13 @@ export type StepInput =
   | { action: 'tap'; x: number; y: number; selector?: StepSelector | null }
   | { action: 'scroll'; direction: 'up' | 'down' | 'left' | 'right'; selector?: StepSelector | null }
   | { action: 'swipe'; startX: number; startY: number; endX: number; endY: number; selector?: StepSelector | null }
-  | { action: 'type'; x: number; y: number; text: string; selector?: StepSelector | null };
+  | { action: 'type'; x: number; y: number; text: string; selector?: StepSelector | null }
+  // Stage-1 input verbs (plan 20261009T001703Z): recorded when the manual
+  // recorder is on; save-as-template copies them out as case steps (T4 kinds).
+  | { action: 'doubleTap'; x: number; y: number; selector?: StepSelector | null }
+  | { action: 'longPress'; x: number; y: number; dwellMs: number; selector?: StepSelector | null }
+  | { action: 'shake' }
+  | { action: 'paste'; text: string; press: boolean };
 
 async function recordStep(deps: ManualDeps, sessionId: string, step: StepInput): Promise<RecordedStep | null> {
   const state = readRecording(deps, sessionId);
@@ -63,8 +70,9 @@ async function recordStep(deps: ManualDeps, sessionId: string, step: StepInput):
       | { ok: false };
     if (r.ok) thumb = r.result.path;
   } catch { /* thumbnail is best-effort */ }
-  const { selector, ...rest } = step;
-  const full: RecordedStep = { ...rest, idx: state.steps.length, ts: Date.now(), thumb, ...(step.action !== 'scroll' ? { selector: selector ?? null } : {}) } as RecordedStep;
+  const { selector, ...rest } = step as { selector?: StepSelector | null } & Record<string, unknown>;
+  const skipSelector = step.action === 'scroll' || step.action === 'shake' || step.action === 'paste';
+  const full: RecordedStep = { ...rest, idx: state.steps.length, ts: Date.now(), thumb, ...(skipSelector ? {} : { selector: selector ?? null }) } as RecordedStep;
   state.steps.push(full);
   writeRecording(deps, sessionId, state);
   deps.bus.emit('manual.session.step', { sessionId, step: full });
@@ -220,6 +228,49 @@ export async function manualTap(deps: ManualDeps, sessionId: string, x: number, 
   deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
   await recordStep(deps, sessionId, { action: 'tap', x, y, selector });
   deps.bus.emit('manual.session.tap', { sessionId, x, y });
+}
+
+// ---------------------------------------------------------------------------
+// Stage-1 input verbs (plan 20261009T001703Z): double-tap, long-press,
+// shake, paste. Engine-direct via the child wire (no alloy fallback for the
+// timed sequences — the cadence contract lives on the child path; busy acks
+// surface verbatim, F2: no blind retries).
+
+/** dims for the live session (child wants device points on positional kinds). */
+function sessionDims(s: { logical_w?: number | null; logical_h?: number | null }): { logicalW: number; logicalH: number } {
+  return { logicalW: s.logical_w ?? 0, logicalH: s.logical_h ?? 0 };
+}
+
+export async function manualDoubleTap(deps: ManualDeps, sessionId: string, x: number, y: number): Promise<void> {
+  const s = liveSession(deps, sessionId);
+  await doubleTapSim(s.udid, x, y, sessionDims(s));
+  deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
+  await recordStep(deps, sessionId, { action: 'doubleTap', x, y });
+  deps.bus.emit('manual.session.tap', { sessionId, x, y }); // marker: same crosshair event as tap
+}
+
+export async function manualLongPress(deps: ManualDeps, sessionId: string, x: number, y: number, dwellMs: number): Promise<void> {
+  const s = liveSession(deps, sessionId);
+  await longPressSim(s.udid, x, y, dwellMs, sessionDims(s));
+  deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
+  await recordStep(deps, sessionId, { action: 'longPress', x, y, dwellMs });
+  deps.bus.emit('manual.session.tap', { sessionId, x, y }); // marker: press origin
+}
+
+export async function manualShake(deps: ManualDeps, sessionId: string): Promise<void> {
+  const s = liveSession(deps, sessionId);
+  await shakeSim(s.udid);
+  deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
+  await recordStep(deps, sessionId, { action: 'shake' });
+  deps.bus.emit('manual.session.shake', { sessionId });
+}
+
+export async function manualPaste(deps: ManualDeps, sessionId: string, text: string, press: boolean): Promise<void> {
+  const s = liveSession(deps, sessionId);
+  await pasteTextSim(s.udid, text, execFile, press);
+  deps.db.prepare('UPDATE manual_sessions SET last_activity = ? WHERE id = ?').run(Date.now(), sessionId);
+  await recordStep(deps, sessionId, { action: 'paste', text, press });
+  deps.bus.emit('manual.session.paste', { sessionId, len: text.length, press });
 }
 
 /** Engine-direct input with alloy escape hatch: one gesture, logged

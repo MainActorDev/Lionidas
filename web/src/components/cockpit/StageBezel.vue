@@ -24,7 +24,7 @@ const props = defineProps<{
   caseRunning?: boolean;
   /** durable per-device session handle from the page's map — a returning tab
    *  adopts this instead of showing idle (plan F6/:key remount shape) */
-  session?: { sessionId: string; startedAt: number } | null;
+  session?: { sessionId: string; startedAt: number; dims?: { w: number | null; h: number | null } } | null;
   overlayNodes?: Array<Record<string, unknown>>;
   overlayW?: number | null;
   overlayH?: number | null;
@@ -119,10 +119,18 @@ watch(() => props.udid, async (u) => {
   sessionId.value = adopt?.sessionId ?? null;
   startedAt.value = adopt?.startedAt ?? null;
   // adoption must reach the page too: sessionOn drives ToolsDrawer (inspect)
-  // and tab-close cleanup. Without this emit, a session adopted at mount (e.g.
-  // page reload with a live session) was invisible to the page — inspect's
-  // tree never enabled (found live: badge stuck '· off', 0 /tree fetches).
-  if (adopt) emit('session-acquired', { sessionId: adopt.sessionId, startedAt: adopt.startedAt });
+  // and tab-close cleanup. BOTH events fire — session-acquired AND
+  // session-state. session-state is the page's sessionOn mirror; adoption
+  // firing only session-acquired left sessionOn null in adopting tabs
+  // (live 2026-10-09: menu enabled via the polled label, shake handler
+  // refused). Same lifecycle as takeControl: one adoption path, all
+  // listeners fed.
+  if (adopt) {
+    emit('session-acquired', { sessionId: adopt.sessionId, startedAt: adopt.startedAt });
+    emit('session-state', { sessionId: adopt.sessionId, dims: { w: adopt.dims?.w ?? null, h: adopt.dims?.h ?? null } });
+  } else {
+    emit('session-state', { sessionId: null });
+  }
   logicalW.value = null;
   lost.value = false;
   screenState.value = '—';
@@ -280,11 +288,64 @@ async function fastPathFrame(): Promise<void> {
   } catch { /* fast-path only */ }
 }
 
+// ── Stage-1 input verbs (plan 20261009T001703Z T2) ──
+// 2x / hold arm the NEXT canvas click (tap-modifiers); shake + paste fire
+// directly from the verb pad.
+const tapMode = ref<'tap' | 'double' | 'hold'>('tap');
+
+/** menu entry: arm a tap modifier (next canvas click fires it) */
+function armTapMode(mode: 'tap' | 'double' | 'hold'): void { tapMode.value = mode; }
+
+async function dispatchVerb(kind: 'double' | 'hold', x: number, y: number): Promise<void> {
+  if (!sessionId.value) return;
+  const path = kind === 'double' ? 'double-tap' : 'long-press';
+  const body = kind === 'double' ? { x, y } : { x, y, dwellMs: 800 };
+  const r = await api(`${sessionId.value}/${path}`, body);
+  if (r['error']) {
+    error.value = String(r['error']);
+    if (String(r['code']) === 'LEASE_LOST' || String(r['code']) === 'SESSION_NOT_FOUND') endSession();
+  } else await fastPathFrame();
+}
+
+async function doShake(): Promise<void> {
+  if (!sessionId.value || busy.value) return;
+  busy.value = true; error.value = '';
+  try {
+    const r = await api(`${sessionId.value}/shake`);
+    if (r['error']) {
+      error.value = String(r['error']);
+      if (String(r['code']) === 'LEASE_LOST' || String(r['code']) === 'SESSION_NOT_FOUND') endSession();
+    } else await fastPathFrame();
+  } finally { busy.value = false; }
+}
+
+const pasteBusy = ref(false);
+async function doPaste(text?: string): Promise<void> {
+  if (!sessionId.value || pasteBusy.value) return;
+  const body = typeof text === 'string' && text ? text : window.prompt('paste text into the focused field:');
+  if (!body) return;
+  pasteBusy.value = true; error.value = '';
+  try {
+    const r = await api(`${sessionId.value}/paste`, { text: body, press: true });
+    if (r['error']) {
+      error.value = String(r['error']);
+      if (String(r['code']) === 'LEASE_LOST' || String(r['code']) === 'SESSION_NOT_FOUND') endSession();
+    } else await fastPathFrame();
+  } finally { pasteBusy.value = false; }
+}
+
 async function onTap(e: MouseEvent): Promise<void> {
   if (!sessionId.value || !(e.target instanceof HTMLCanvasElement)) return;
   if (inspect.value) { emit('inspect-click', e); return; } // select, never dispatch
   const canvas = e.target;
   const { x, y } = canvasPointToLogical(canvas, e.clientX, e.clientY, logicalW.value, logicalH.value);
+  if (tapMode.value !== 'tap') {
+    const mode = tapMode.value;
+    tapMode.value = 'tap'; // one-shot: modifiers arm the next click only
+    busy.value = true; error.value = '';
+    try { await dispatchVerb(mode, x, y); } finally { busy.value = false; }
+    return;
+  }
   busy.value = true; error.value = '';
   try {
     const r = await api(`${sessionId.value}/tap`, { x, y });
@@ -358,6 +419,9 @@ const sessionLabel = computed((): string | null => {
 });
 defineExpose({
   takeControl, release, sessionLabel, screenState, zoomIn, zoomOut, runLocked,
+  // input-verbs stage 1: menu-driven access (page routes menu events here)
+  armTapMode, doShake, doPaste,
+
   dismissRunLock: (): void => { runLocked.value = false; if (watchRetry) { clearInterval(watchRetry); watchRetry = undefined; } },
   setScreenState: (s: string): void => { screenState.value = s; },
   setInspect, inspect,

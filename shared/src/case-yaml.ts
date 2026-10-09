@@ -19,10 +19,14 @@ import { parseVariants, type YamlVariant } from './yaml-variants.js';
 export interface YamlSelector { identifier?: string; label?: string; labelContains?: string; ignoreCase?: boolean; type?: string }
 export interface YamlStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin' | 'doubleTap' | 'longPress' | 'shake' | 'paste';
   x?: number; y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
   text?: string;
+  /** long-press dwell in ms (default 800 at playback) */
+  dwellMs?: number;
+  /** paste: false = pasteboard-only (apps reading UIPasteboard directly) */
+  press?: boolean;
   optional?: boolean;
   selector?: YamlSelector;
   templateId?: string;
@@ -85,7 +89,7 @@ export interface YamlError { line: number; message: string }
 const DROPPED_KEYS = new Set(['ts', 'thumb']); // capture artifacts — not semantics
 const STEP_KEYS = new Set(['action', 'x', 'y', 'direction', 'text', 'optional', 'selector', 'templateId', 'flow', 'count', 'atLeast']);
 const DIRECTIONS = new Set(['up', 'down', 'left', 'right']);
-const ACTIONS = new Set(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert', 'location', 'arrive', 'refresh', 'swap', 'world', 'expect screen', 'ensure logout', 'ensure login']);
+const ACTIONS = new Set(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert', 'location', 'arrive', 'refresh', 'swap', 'world', 'expect screen', 'ensure logout', 'ensure login', 'double-tap', 'long-press', 'shake', 'paste']);
 const SCREEN_ID_RE = /^[a-z][a-z0-9-]*$/;
 /** runFlow references: name → id resolution is the CALLER's job (needs the DB);
  * the validator accepts both shapes and reports unresolved names. */
@@ -628,6 +632,8 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
       }
       for (const bk of Object.keys(b)) {
         const known = ['point', 'on', 'text', 'optional', 'id', 'name', 'contains', 'ignoreCase', 'when', 'at'];
+        if (action === 'long-press') known.push('dwell');
+        if (action === 'paste') known.push('press');
         if (action === 'expect') known.push('count', 'atLeast'); // cardinality is expect-only (A9)
         if (!known.includes(bk)) {
           errors.push({ line: 1, message: `${prefix(i)}: unknown key "${bk}" in ${action} — did you mean optional/on/point/text?` });
@@ -656,6 +662,58 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
         if (opt(b)) step.optional = true;
         attachWhen(step, b, section, prefix, i, errors);
         stepsOut.push(step);
+        continue;
+      }
+      if (action === 'double-tap' || action === 'long-press') {
+        // same targeting contract as tap: point and/or on — plus dwell for long-press
+        const step: YamlStep = { idx: stepsOut.length, action: action === 'double-tap' ? 'doubleTap' : 'longPress' };
+        const point = b['point'];
+        const slEarly = sel(b);
+        if (Array.isArray(point) && point.length === 2 && typeof point[0] === 'number' && typeof point[1] === 'number') {
+          step.x = point[0]; step.y = point[1];
+        } else if (!slEarly) {
+          errors.push({ line: 1, message: `${prefix(i)}: ${action} needs point: [x, y] or on: <label or id>` });
+          continue;
+        }
+        if (action === 'long-press') {
+          const dwell = b['dwell'];
+          if (dwell !== undefined) {
+            if (typeof dwell !== 'number' || !Number.isInteger(dwell) || dwell <= 0 || dwell > 10000) {
+              errors.push({ line: 1, message: `${prefix(i)}: dwell must be a positive integer of milliseconds (1..10000)` });
+              continue;
+            }
+            step.dwellMs = dwell;
+          }
+        }
+        const sl = sel(b);
+        if (sl) step.selector = sl;
+        stepsOut.push(step);
+        continue;
+      }
+      if (action === 'shake') {
+        // scalar verb — no body keys beyond narrate (already lifted)
+        if (body !== null && typeof body === 'object') {
+          errors.push({ line: 1, message: `${prefix(i)}: shake takes no body — write it as a bare \`- shake\`` });
+          continue;
+        }
+        stepsOut.push({ idx: stepsOut.length, action: 'shake' });
+        continue;
+      }
+      if (action === 'paste') {
+        if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+          errors.push({ line: 1, message: `${prefix(i)}: paste needs { text: <string> } (press: false optional for pasteboard-only)` });
+          continue;
+        }
+        if (typeof b['text'] !== 'string' || !b['text']) {
+          errors.push({ line: 1, message: `${prefix(i)}: paste needs text: <string> — any unicode; ${'${env.KEY}'} resolves at playback` });
+          continue;
+        }
+        const press = b['press'];
+        if (press !== undefined && press !== false) {
+          errors.push({ line: 1, message: `${prefix(i)}: press only accepts false (pasteboard-only); default true needs no key` });
+          continue;
+        }
+        stepsOut.push({ idx: stepsOut.length, action: 'paste', text: b['text'], ...(press === false ? { press: false } : {}) });
         continue;
       }
       // expect
@@ -814,6 +872,24 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       const wh = whenSuffix(s['when']);
       if (wh) parts.push(wh.replace(/^, /, ''));
       lines.push(`  - tap: { ${parts.join(', ')}${narrateSuffix(s['narrate'])} }`);
+    } else if (action === 'doubleTap') {
+      const parts: string[] = [];
+      if (s['x'] !== undefined && s['y'] !== undefined) parts.push(`point: [${s['x']}, ${s['y']}]`);
+      const onSel = on(s['selector']);
+      if (onSel) parts.push(onSel);
+      lines.push(`  - double-tap: { ${parts.join(', ')}${narrateSuffix(s['narrate'])} }`);
+    } else if (action === 'longPress') {
+      const parts: string[] = [];
+      if (s['x'] !== undefined && s['y'] !== undefined) parts.push(`point: [${s['x']}, ${s['y']}]`);
+      parts.push(`dwell: ${s['dwellMs'] ?? 800}`);
+      const onSel = on(s['selector']);
+      if (onSel) parts.push(onSel);
+      lines.push(`  - long-press: { ${parts.join(', ')}${narrateSuffix(s['narrate'])} }`);
+    } else if (action === 'shake') {
+      if (typeof s['narrate'] === 'string' && s['narrate']) { lines.push('  - shake'); lines.push(`    narrate: ${yamlScalar(s['narrate'])}`); } else lines.push('  - shake');
+    } else if (action === 'paste') {
+      const press = s['press'] === false ? ', press: false' : '';
+      lines.push(`  - paste: { text: ${yamlScalar(String(s['text'] ?? ''))}${press}${narrateSuffix(s['narrate'])} }`);
     } else if (action === 'scroll') {
       if (typeof s['narrate'] === 'string' && s['narrate']) { lines.push(`  - scroll: ${s['direction']}`); lines.push(`    narrate: ${yamlScalar(s['narrate'])}`); } else lines.push(`  - scroll: ${s['direction']}`);
     } else if (action === 'alert') {

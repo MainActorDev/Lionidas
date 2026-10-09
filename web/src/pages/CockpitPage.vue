@@ -186,6 +186,32 @@ function onMenuEvent(event: string): void {
   if (event === 'toggle-inspect') { overlay.value = overlay.value === 'inspect' ? null : 'inspect'; toolsOpen.value = overlay.value === 'inspect'; }
   if (event === 'play-case') void pickPlayCase();
   if (event === 'play-suite') void openSuite();
+  // input-verbs stage 1 (device menu): the ONLY entry (verb pad removed per
+  // operator directive 2026-10-09). Menu items are disabled without an
+  // active session — reaching here sessionless is a race; fail honestly
+  // rather than silently taking control.
+  if (event === 'input-double-tap') void inputVerbMenu('double');
+  if (event === 'input-long-press') void inputVerbMenu('hold');
+  if (event === 'input-shake') void inputVerbMenu('shake');
+  if (event === 'input-paste') void inputVerbMenu('paste');
+}
+
+async function inputVerbMenu(verb: 'double' | 'hold' | 'shake' | 'paste'): Promise<void> {
+  const st = stage.value as unknown as {
+    armTapMode: (m: 'tap' | 'double' | 'hold') => void;
+    doShake: () => Promise<void>;
+    doPaste: (text?: string) => Promise<void>;
+  } | null;
+  if (!st || !activeUdid.value) { flash('no active device', 'err'); return; }
+  // INVARIANT: check EXACTLY what the menu gate checks (status.sessionLabel).
+  // A tab that ADOPTED an existing session on mount never re-emits
+  // session-state, so sessionOn alone misses it (live: chip said MANUAL · 2m
+  // while sessionOn was null). Same expression ⇒ clickable ⇒ never refused.
+  if (!status.value.sessionLabel) { flash('take control first — input verbs need an active session', 'err'); return; }
+  if (verb === 'double') { st.armTapMode('double'); flash('double-tap armed — click a spot on the screen'); }
+  else if (verb === 'hold') { st.armTapMode('hold'); flash('long-press armed — click a spot on the screen'); }
+  else if (verb === 'shake') await st.doShake();
+  else if (verb === 'paste') await st.doPaste(); // prompts for the text
 }
 
 /** screenshot: canvas → PNG download (same as the sidebar's camera tool) */
@@ -525,9 +551,10 @@ let ovTimer = setInterval(() => {
 }, 500);
 onBeforeUnmount(() => clearInterval(ovTimer));
 let ssTimer = setInterval(() => {
-  const st = stage.value as unknown as { screenState?: { value: string }; sessionLabel?: { value: string | null } } | null;
+  const st = stage.value as unknown as { screenState?: { value: string }; sessionLabel?: string | { value: string | null } } | null;
   if (st?.screenState) screenState.value = st.screenState.value;
-  if (st?.sessionLabel) menuSessionLabel.value = st.sessionLabel.value;
+  const sl = st?.sessionLabel;
+  menuSessionLabel.value = (typeof sl === 'object' && sl !== null && 'value' in sl ? sl.value : sl) ?? null;
 }, 1000);
 onBeforeUnmount(() => clearInterval(ssTimer));
 
@@ -591,7 +618,8 @@ function onSessionState(s: { sessionId: string | null; dims?: { w: number | null
 }
 
 const status = computed(() => ({
-  sessionLabel: menuSessionLabel.value,
+  // gate truth: the live mirror first (instant), the polled label as polish
+  sessionLabel: menuSessionLabel.value || (sessionOn.value ? 'MANUAL' : null),
   deviceName: activeName.value,
   liveCount: devices.value.length,
 }));

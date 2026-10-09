@@ -24,6 +24,7 @@ const execFileAsync = promisify(execFile);
 import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { crucibleAlloy } from '../alloy/client.ts';
 import { dispatchWithHeal } from '../alloy/heal.ts';
+import { shakeSim, pasteTextSim } from './engine-input.ts';
 import type { ForgeState } from '../forge/proxy.ts';
 import { substituteStep, expandEnvText } from './template-env.ts';
 import { resolveEnv } from './env-store.ts';
@@ -83,11 +84,15 @@ export interface PlaybackDeps {
 
 export interface PlaybackStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin' | 'doubleTap' | 'longPress' | 'shake' | 'paste';
   x?: number;
   y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
   text?: string;
+  /** longPress dwell in ms (default 800, T0(d)-proven) */
+  dwellMs?: number;
+  /** paste press:false = pasteboard-only (apps reading UIPasteboard directly) */
+  press?: boolean;
   /** Maestro-style soft step: a dispatch miss records skip, run stays green
    *  (interstitial popups, "dismiss if shown"). Missing env still hard-fails. */
   optional?: boolean;
@@ -138,6 +143,10 @@ function stepName(s: PlaybackStep): string {
   if (s.action === 'expect') return `expect ${selectorLabel(s.selector ?? {})}`;
   if (s.action === 'runFlow') return `run flow ${s.templateId ?? '?'}`;
   if (s.action === 'tap') return s.x !== undefined ? `tap ${s.x},${s.y}` : `tap ${s.selector ? (s.selector.label ?? s.selector.identifier ?? 'selector') : '?'}`;
+  if (s.action === 'doubleTap') return s.x !== undefined ? `double-tap ${s.x},${s.y}` : `double-tap ${s.selector ? (s.selector.label ?? s.selector.identifier ?? 'selector') : '?'}`;
+  if (s.action === 'longPress') return `long-press ${s.x ?? '?'},${s.y ?? '?'} ${s.dwellMs ?? 800}ms`;
+  if (s.action === 'shake') return 'shake';
+  if (s.action === 'paste') return `paste ${(s.text ?? '').slice(0, 24)}${s.press === false ? ' (pasteboard only)' : ''}`;
   if (s.action === 'scroll') return `scroll ${s.direction}`;
   if (s.action === 'ensureLogout') return `ensure logout (${s.ensureLogout?.button ?? '?'})`;
   if (s.action === 'ensureLogin') return `ensure login (${s.ensureLogin?.screen ? `screen ${s.ensureLogin.screen}` : s.ensureLogin?.entry ?? '?'})`;
@@ -967,7 +976,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           // No in-step retry in either path: a miss is caught by the NEXT
           // verifying step (operator decision 2026-09-26).
           let projected: { x: number; y: number; by: 'projected-point' | 'projected-rect' } | null = null;
-          if ((s.action === 'tap' || s.action === 'type') && s.selector && (s.selector.identifier || s.selector.label)) {
+          if ((s.action === 'tap' || s.action === 'type' || s.action === 'doubleTap' || s.action === 'longPress') && s.selector && (s.selector.identifier || s.selector.label)) {
             const selKey = JSON.stringify(Object.keys(s.selector).sort().reduce<Record<string, unknown>>((acc, k) => { acc[k] = (s.selector as Record<string, unknown>)[k]; return acc; }, {}));
             const prevStep = si > 0 ? execSteps[si - 1]! : null;
             const afterScroll = prevStep?.action === 'scroll';
@@ -1263,6 +1272,33 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               const msg = err instanceof Error ? err.message : String(err);
               runStatus = 'failed';
               insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', msg, t0, Date.now() - t0, '[]', JSON.stringify({ action: 'location', latitude: loc.latitude, longitude: loc.longitude }), s.narrate ?? null);
+              for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
+                insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null, rest.narrate ?? null);
+              }
+              break;
+            }
+            continue;
+          }
+          // shake / paste steps (input-verbs Stage 1): child-wire verbs, no
+          // snapshot/settle machinery (shake changes no UI the AX tree sees;
+          // paste lands in whatever field is first-responder — the case doc
+          // rule is tap-the-field-first). Non-positional: no tap marker.
+          if (s.action === 'shake' || s.action === 'paste') {
+            try {
+              const audit: Record<string, unknown> = { action: s.action };
+              if (s.action === 'shake') {
+                await shakeSim(udid);
+              } else {
+                const text = resolved.text;
+                if (typeof text !== 'string' || text.length === 0) throw new Error('paste requires text');
+                await pasteTextSim(udid, text, execFile, s.press !== false);
+                audit['len'] = text.length; audit['press'] = s.press !== false;
+              }
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, t0, Date.now() - t0, '[]', JSON.stringify(audit), s.narrate ?? null);
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              runStatus = 'failed';
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', msg, t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action }), s.narrate ?? null);
               for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
                 insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null, rest.narrate ?? null);
               }
@@ -1747,7 +1783,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           // included) — a tap that only changes text IS a change worth
           // surfacing; only the WAIT gates use the churn-immune structureSig.
           let sigBefore: string | null = null;
-          if (s.action === 'tap' || s.action === 'type') {
+          if (s.action === 'tap' || s.action === 'type' || s.action === 'doubleTap' || s.action === 'longPress') {
             if (lastSettleNodes) {
               sigBefore = hierarchySig(lastSettleNodes);
             } else {
@@ -1769,6 +1805,22 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               const dims = overlayDims(targetW, targetH, runDims().logical_w, runDims().logical_h, t.logical_w, t.logical_h);
               deps.bus.emit('step.tap', { runId, idx: s.idx, x: tx, y: ty, logicalW: dims.w, logicalH: dims.h });
               // Tier 2.2 — persist for the evidence-player overlay
+              recordTap(deps.db, { runId, idx: s.idx, x: tx, y: ty, logicalW: dims.w, logicalH: dims.h }, Date.now());
+            }
+          }
+          else if (s.action === 'doubleTap') {
+            input = { udid, action: 'press', target: { x: tx, y: ty }, settle: false, doubleTap: true };
+            if (tx !== undefined && ty !== undefined) {
+              const dims = overlayDims(targetW, targetH, runDims().logical_w, runDims().logical_h, t.logical_w, t.logical_h);
+              deps.bus.emit('step.tap', { runId, idx: s.idx, x: tx, y: ty, logicalW: dims.w, logicalH: dims.h });
+              recordTap(deps.db, { runId, idx: s.idx, x: tx, y: ty, logicalW: dims.w, logicalH: dims.h }, Date.now());
+            }
+          }
+          else if (s.action === 'longPress') {
+            input = { udid, action: 'longpress', target: { x: tx, y: ty }, settle: false, durationMs: s.dwellMs ?? 800 };
+            if (tx !== undefined && ty !== undefined) {
+              const dims = overlayDims(targetW, targetH, runDims().logical_w, runDims().logical_h, t.logical_w, t.logical_h);
+              deps.bus.emit('step.tap', { runId, idx: s.idx, x: tx, y: ty, logicalW: dims.w, logicalH: dims.h });
               recordTap(deps.db, { runId, idx: s.idx, x: tx, y: ty, logicalW: dims.w, logicalH: dims.h }, Date.now());
             }
           }

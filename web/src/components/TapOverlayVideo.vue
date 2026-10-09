@@ -37,17 +37,21 @@ function draw(playheadMs: number): void {
   ctx.clearRect(0, 0, cv.width, cv.height);
   // offset shifts the playhead: positive = markers later, negative = earlier
   const markers = overlayAt(taps, anchor, playheadMs - offsetMs, FADE_MS);
-  // chip metrics tuned at 550px height — scale so labels stay readable at
-  // any player size (evidence videos are typically ~390-780px wide)
-  const scale = cv.height / 550;
+  // parity with the live overlay (InteractionOverlay): metrics are tuned in
+  // CSS px and the live canvas is CSS-sized. The earlier cv.height/550 scale
+  // read the BACKING height (syncSize bakes in devicePixelRatio), so the
+  // factor double-counted DPR — markers rendered ~1.5x the live overlay's
+  // at typical player heights ("kinda zoomed"). Scale by DPR only and draw
+  // in CSS dimensions: pixel-identical to live at the same rendered size.
+  const dpr = window.devicePixelRatio || 1;
   ctx.save();
-  ctx.scale(scale, scale);
+  ctx.scale(dpr, dpr);
   for (const m of markers) {
     const name = m.idx != null ? (stepNames.get(m.idx) ?? null) : null;
     drawInteractionMarker(
       ctx,
       { fx: m.fx, fy: m.fy, label: name ? `tap · ${name}` : 'interaction', kind: 'tap', opacity: m.opacity },
-      cv.width / scale, cv.height / scale,
+      cv.width / dpr, cv.height / dpr,
     );
   }
   ctx.restore();
@@ -109,11 +113,27 @@ watch(() => [props.templateId, props.variant] as const, async ([id, variant]) =>
     // the variantless lane) scopes taps to that lane's run
     const qs = variant === undefined ? '' : `?variant=${encodeURIComponent(variant)}`;
     const r = await fetch(`/api/templates/${id}/run-taps${qs}`);
-    if (!r.ok) return;                       // no anchor / no run ⇒ no overlay
-    const b = (await r.json()) as {
-      runId: string; videoStartedAt: number; anchor?: number; offsetMs?: number; offsetSource?: 'run' | 'device';
-      taps: OverlayTap[];
-    };
+    if (!r.ok) {
+      // RETRY once after a short delay: a 401 here is usually the session
+      // cookie expiring mid-viewing — the app's global 401 interceptor
+      // bounces to /login, the operator re-logs, returns... and this
+      // component already gave up (fetch ran once at mount, failure left
+      // the overlay permanently off — "no tap overlay at all", live
+      // 2026-10-09). One delayed retry covers the bounce; a second failure
+      // stays silent (overlay is best-effort — never block the player).
+      await new Promise((res) => setTimeout(res, 800));
+      const r2 = await fetch(`/api/templates/${id}/run-taps${qs}`);
+      if (!r2.ok) return;
+      return void applyRunTaps(await r2.json());
+    }
+    return void applyRunTaps(await r.json());
+  } catch { /* overlay is best-effort — never block the player */ }
+}, { immediate: true });
+
+async function applyRunTaps(b: {
+  runId: string; videoStartedAt: number; anchor?: number; offsetMs?: number; offsetSource?: 'run' | 'device';
+  taps: OverlayTap[];
+}): Promise<void> {
     runId = b.runId;
     anchor = b.anchor ?? b.videoStartedAt;   // engine-measured first frame when present
     offsetMs = b.offsetMs ?? 0;
@@ -128,8 +148,7 @@ watch(() => [props.templateId, props.variant] as const, async ([id, variant]) =>
       }
     } catch { /* labels best-effort — chip falls back to 'interaction' */ }
     requestAnimationFrame(syncSize);
-  } catch { /* overlay is best-effort — never block the player */ }
-}, { immediate: true });
+}
 
 onMounted(() => {
   const v = videoEl.value as (HTMLVideoElement & { requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number }) => void) => number }) | null;
