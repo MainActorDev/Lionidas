@@ -287,6 +287,9 @@ const tapMode = ref<'tap' | 'double' | 'hold'>('tap');
 const pasteText = ref('');
 const pasteBusy = ref(false);
 
+/** menu entry: arm a tap modifier (next canvas click fires it) */
+function armTapMode(mode: 'tap' | 'double' | 'hold'): void { tapMode.value = mode; }
+
 async function dispatchVerb(kind: 'double' | 'hold', x: number, y: number): Promise<void> {
   if (!sessionId.value) return;
   const path = kind === 'double' ? 'double-tap' : 'long-press';
@@ -407,6 +410,9 @@ const sessionLabel = computed((): string | null => {
 });
 defineExpose({
   takeControl, release, sessionLabel, screenState, zoomIn, zoomOut, runLocked,
+  // input-verbs stage 1: menu-driven access (page routes menu events here)
+  armTapMode, doShake, doPaste,
+
   dismissRunLock: (): void => { runLocked.value = false; if (watchRetry) { clearInterval(watchRetry); watchRetry = undefined; } },
   setScreenState: (s: string): void => { screenState.value = s; },
   setInspect, inspect,
