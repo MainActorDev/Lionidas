@@ -503,7 +503,7 @@ export function migrateM1(db: Database.Database): void {
       id TEXT PRIMARY KEY,
       email TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL,
-      role TEXT NOT NULL CHECK(role IN ('viewer','operator','admin','bot')),
+      role TEXT NOT NULL CHECK(role IN ('viewer','operator','supervisor','admin','bot')),
       password_hash TEXT,
       auth_source TEXT NOT NULL DEFAULT 'local',
       jira_subject TEXT,
@@ -571,6 +571,59 @@ export function migrateM1(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_suite_members_suite ON suite_members(suite_id, position);
   `);
+  // RBAC round (plan 20261009T102032Z): the users role CHECK gains 'supervisor'.
+  // SQLite CHECK constraints are immutable — old DBs need a guarded table
+  // rebuild (fresh DBs already carry the widened CHECK from the CREATE above).
+  {
+    const roleCheck = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get() as { sql: string } | undefined)?.sql ?? '';
+    if (roleCheck.includes("CHECK(role IN ('viewer','operator','admin','bot'))")) {
+      db.prepare('BEGIN IMMEDIATE').run();
+      try {
+        db.exec(`CREATE TABLE users_rbac(
+          id TEXT PRIMARY KEY,
+          email TEXT NOT NULL UNIQUE,
+          name TEXT NOT NULL,
+          role TEXT NOT NULL CHECK(role IN ('viewer','operator','supervisor','admin','bot')),
+          password_hash TEXT,
+          auth_source TEXT NOT NULL DEFAULT 'local',
+          jira_subject TEXT,
+          active INTEGER NOT NULL DEFAULT 1,
+          approved INTEGER NOT NULL DEFAULT 1,
+          created_at INTEGER NOT NULL,
+          last_login_at INTEGER
+        )`);
+        db.exec('INSERT INTO users_rbac SELECT id, email, name, role, password_hash, auth_source, jira_subject, active, approved, created_at, last_login_at FROM users');
+        db.exec('DROP TABLE users');
+        db.exec('ALTER TABLE users_rbac RENAME TO users');
+        db.prepare('COMMIT').run();
+      } catch (err) {
+        db.prepare('ROLLBACK').run();
+        throw err;
+      }
+    }
+  }
+
+  // RBAC T4 (plan 20261009T102032Z): user-FK attribution + assignment.
+  // Nullable by design: legacy rows backfill by unambiguous name match
+  // below; ambiguous/unmatched stay NULL (honest — never guess).
+  {
+    const runCols = db.prepare("SELECT name FROM pragma_table_info('runs')").all() as Array<{ name: string }>;
+    if (!runCols.some((c) => c.name === 'triggered_by_user')) db.prepare('ALTER TABLE runs ADD COLUMN triggered_by_user TEXT REFERENCES users(id)').run();
+    if (!runCols.some((c) => c.name === 'assigned_to_user')) db.prepare('ALTER TABLE runs ADD COLUMN assigned_to_user TEXT REFERENCES users(id)').run();
+    const tplColsRb = db.prepare("SELECT name FROM pragma_table_info('templates')").all() as Array<{ name: string }>;
+    if (!tplColsRb.some((c) => c.name === 'created_by_user')) db.prepare('ALTER TABLE templates ADD COLUMN created_by_user TEXT REFERENCES users(id)').run();
+    if (!tplColsRb.some((c) => c.name === 'assigned_to')) db.prepare('ALTER TABLE templates ADD COLUMN assigned_to TEXT REFERENCES users(id)').run();
+    // backfill: unambiguous name matches only (name → exactly one user row)
+    db.prepare(`UPDATE runs SET triggered_by_user = (
+      SELECT u.id FROM users u WHERE u.name = runs.triggered_by
+      AND (SELECT COUNT(*) FROM users u2 WHERE u2.name = runs.triggered_by) = 1
+    ) WHERE triggered_by_user IS NULL AND triggered_by IS NOT NULL`).run();
+    db.prepare(`UPDATE templates SET created_by_user = (
+      SELECT u.id FROM users u WHERE u.name = templates.created_by
+      AND (SELECT COUNT(*) FROM users u2 WHERE u2.name = templates.created_by) = 1
+    ) WHERE created_by_user IS NULL AND created_by IS NOT NULL`).run();
+  }
+
   // additive auth-era columns (older DBs migrate in place)
   const cols = db.prepare("SELECT name FROM pragma_table_info('templates')").all() as Array<{ name: string }>;
   const has = (c: string): boolean => cols.some((x) => x.name === c);

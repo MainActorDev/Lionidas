@@ -11,7 +11,9 @@ import { initAlloyRuntime } from '../alloy/runtime.ts';
 import { parseCaseYaml, caseToYaml } from '@crucible/shared/case-yaml';
 import { VARIANT_ID_RE as VARIANT_ID_RE_LOCAL, variantScenarioNames } from '@crucible/shared/yaml-variants';
 import { zipSync, unzipSync } from 'fflate';
-import { requireRole } from '../auth/roles.ts';
+import { requireRole, requireRoleAtLeast } from '../auth/roles.ts';
+import { capabilitiesFor } from '../auth/capabilities.ts';
+import type { Role } from '../auth/users.ts';
 import { tapsForRun } from '../evidence/taps-store.ts';
 
 interface TemplateRow {
@@ -277,6 +279,23 @@ export function resolveCaseRefs(db: Database.Database, c: { name: string; app?: 
 }
 
 export function registerTemplateRoutes(app: FastifyInstance, db: Database.Database, dispatchDeps?: unknown): void {
+  // RBAC T4 (plan 20261009T102032Z): case assignment — supervisor assigns
+  // anyone; operator self-assigns; viewer cannot (gated). Nullable user FK.
+  app.patch('/api/templates/:id/assign', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = req.body as { userId: string | null } | null;
+    const caps = capabilitiesFor((req.user?.role ?? 'viewer') as Role);
+    if (!caps.authorCases) return reply.code(403).send({ error: 'viewers cannot assign cases' });
+    if (b?.userId !== null && b?.userId !== undefined) {
+      const u = db.prepare('SELECT id, role FROM users WHERE id = ? AND active = 1').get(b.userId) as { id: string; role: string } | undefined;
+      if (!u) return reply.code(404).send({ error: 'user not found' });
+      // operator self-assign only (matrix: assignment of OTHERS is supervisor+)
+      if (b.userId !== req.user?.id && !caps.manageAccounts) return reply.code(403).send({ error: 'assigning others requires supervisor' });
+    }
+    db.prepare('UPDATE templates SET assigned_to = ? WHERE id = ?').run(b?.userId ?? null, id);
+    return { ok: true, assignedTo: b?.userId ?? null };
+  });
+
   app.get('/api/templates', async (req) => {
     const q = req.query as { ticket?: string; tags?: string; app?: string; status?: string };
     let rows: TemplateRow[];

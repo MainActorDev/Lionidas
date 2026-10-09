@@ -3,7 +3,8 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { randomUUID as cryptoRandomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { createSession, destroySession, hashPassword, jiraConfigured, newUserId, userByEmail, userByJiraSubject, verifyPassword, type Role, type UserRow } from '../auth/users.ts';
-import { requireRole, SESSION_COOKIE } from '../auth/roles.ts';
+import { requireRole, requireRoleAtLeast, SESSION_COOKIE } from '../auth/roles.ts';
+import { capabilitiesFor } from '../auth/capabilities.ts';
 
 
 /** OAuth origin = the origin the browser is actually on (Host header), so the
@@ -136,6 +137,13 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
     return { ok: true };
   });
 
+  // RBAC capabilities (plan 20261009T102032Z T1): the caller's permission map —
+  // the web's single source of truth (sidebar, guards, action buttons read
+  // this; no role logic duplicated client-side).
+  app.get('/api/me/capabilities', async (req) => {
+    return { role: req.user?.role ?? null, capabilities: capabilitiesFor((req.user?.role ?? 'viewer') as Role) };
+  });
+
   // self-activity: any signed-in user — their own runs, manual sessions, logins.
   // Server scopes rows by req.user; non-admins never see other users' data.
   app.get('/api/me/activity', async (req) => {
@@ -151,15 +159,20 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
     return { me: publicUser(me), runs, manual, logins };
   });
 
-  app.get('/api/users', { preHandler: requireRole('admin') }, async () => {
+  app.get('/api/users', { preHandler: requireRoleAtLeast('supervisor') }, async () => {
     const rows = db.prepare('SELECT * FROM users ORDER BY created_at').all() as UserRow[];
     return { users: rows.map(publicUser) };
   });
 
-  app.post('/api/users', { preHandler: requireRole('admin') }, async (req, reply) => {
+  app.post('/api/users', { preHandler: requireRoleAtLeast('supervisor') }, async (req, reply) => {
+    // supervisor may provision accounts but never admins (matrix: role
+    // assignment is admin-only; creation with an admin role IS assignment)
+    if (!capabilitiesFor((req.user?.role ?? 'viewer') as Role).adminOnly && (req.body as { role?: string } | null)?.role === 'admin') {
+      return reply.code(403).send({ error: 'creating admin accounts requires admin' });
+    }
     const b = req.body as { email?: string; name?: string; role?: Role; password?: string } | null;
-    if (!b?.email || !b.name || !b.role || !['viewer', 'operator', 'admin'].includes(b.role)) {
-      return reply.code(400).send({ error: 'email, name, role (viewer|operator|admin) required' });
+    if (!b?.email || !b.name || !b.role || !['viewer', 'operator', 'supervisor', 'admin'].includes(b.role)) {
+      return reply.code(400).send({ error: 'email, name, role (viewer|operator|supervisor|admin) required' });
     }
     if (!b.password || b.password.length < 8) return reply.code(400).send({ error: 'password (min 8 chars) required' });
     const email = b.email.toLowerCase().trim();
@@ -171,11 +184,17 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
     return { user: publicUser(userByEmail(db, email)!) };
   });
 
-  app.patch('/api/users/:id', { preHandler: requireRole('admin') }, async (req, reply) => {
+  app.patch('/api/users/:id', { preHandler: requireRoleAtLeast('supervisor') }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const b = req.body as { role?: Role; active?: boolean; approved?: boolean; password?: string; botToken?: string } | null;
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
     if (!user) return reply.code(404).send({ error: 'not found' });
+    // RBAC split (plan 20261009T102032Z matrix): supervisors manage accounts
+    // (password/active/botToken); role + approved changes are ADMIN-ONLY.
+    const actorCaps = capabilitiesFor((req.user?.role ?? 'viewer') as Role);
+    if (!actorCaps.adminOnly && (b?.role !== undefined || b?.approved !== undefined)) {
+      return reply.code(403).send({ error: 'role and approval changes require admin' });
+    }
     // audit trail: admin credential/account mutations leave a named trace.
     // actor = the admin session that did it; target = the user row changed.
     // (found live: a silent password rotation left no way to answer "who changed it")
@@ -183,7 +202,7 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
       db.prepare('INSERT INTO auth_log(at, email, user_id, event, detail) VALUES (?, ?, ?, ?, ?)')
         .run(Date.now(), user.email, id, event, `${detail} by ${req.user?.name ?? 'unknown'}`);
     };
-    if (b?.role && ['viewer', 'operator', 'admin'].includes(b.role)) {
+    if (b?.role && ['viewer', 'operator', 'supervisor', 'admin'].includes(b.role)) {
       if (b.role !== user.role) audit('role_changed', `role ${user.role} → ${b.role}`);
       db.prepare('UPDATE users SET role = ? WHERE id = ?').run(b.role, id);
     }

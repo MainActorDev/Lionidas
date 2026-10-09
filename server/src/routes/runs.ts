@@ -10,6 +10,10 @@ import { alloyDispatchDepsSync } from '../alloy/runtime.ts';
 import { scanFlowSet } from '../domain/acs.ts';
 import { diskState } from '../gc/retention.ts';
 import { requireRole } from '../auth/roles.ts';
+import { capabilitiesFor } from '../auth/capabilities.ts';
+import { auditWrite, auditDenial, auditList as auditListImport } from '../auth/audit.ts';
+import { requireRoleAtLeast } from '../auth/roles.ts';
+import type { Role } from '../auth/users.ts';
 
 interface RunRow {
   id: string; ticket_key: string; kind: string; status: string; triggered_by: string;
@@ -105,12 +109,23 @@ export function registerRunRoutes(app: FastifyInstance, db: Database.Database, b
     return { aborted: true };
   });
 
+  // audit log read (RBAC T3): supervisor+ only; denial-flood-controlled writes
+  app.get('/api/audit', { preHandler: requireRoleAtLeast('supervisor') }, async (req) => {
+    return auditListImport(db, req.query as { actor?: string; event?: string; before?: string; limit?: string });
+  });
+
   app.get('/api/runs', async (req) => {
-    const q = req.query as { ticket?: string; limit?: string; template?: string; app_version?: string; suite?: string; variant?: string; status?: string; before?: string };
+    const q = req.query as { ticket?: string; limit?: string; template?: string; app_version?: string; suite?: string; variant?: string; status?: string; before?: string; assignee?: string };
     const limit = Math.min(Number.parseInt(q.limit ?? '50', 10) || 50, 200);
     const where: string[] = [];
     const params: unknown[] = [];
     if (q.ticket) { where.push('ticket_key = ?'); params.push(q.ticket); }
+    // RBAC T4: assignment filter (a FILTER, never the boundary — review F3)
+    if (q.assignee === 'unassigned') where.push('assigned_to_user IS NULL');
+    else if (q.assignee) {
+      where.push('assigned_to_user = (SELECT id FROM users WHERE name = ?)');
+      params.push(q.assignee);
+    }
     if (q.template) { where.push('template_id = ?'); params.push(q.template); }
     if (q.app_version) { where.push('app_version = ?'); params.push(q.app_version); }
     // status: exact match, plus two pseudo-statuses — 'active' (running OR
@@ -191,8 +206,23 @@ export function registerRunRoutes(app: FastifyInstance, db: Database.Database, b
   // run record terminates and the device frees (B5 guard reads status).
   app.post('/api/runs/:id/abort', async (req, reply) => {
     const { id } = req.params as { id: string };
+    // RBAC (plan 20261009T102032Z T2): abort was COMPLETELY UNGATED before —
+    // any signed-in user (viewer included) could abort any run. Matrix:
+    // supervisor+ any; operator own-only (string match on triggered_by for
+    // now — the FK lands in T4); viewer never.
+    const caps = capabilitiesFor((req.user?.role ?? 'viewer') as Role);
+    if (caps.abortDelete === 'none') { auditDenial(db, req, `/api/runs/${id}/abort`, 'viewer'); return reply.code(403).send({ error: 'viewer role cannot abort runs' }); }
+    if (caps.abortDelete === 'own') {
+      // T4 predicate: FK first, string fallback for legacy rows the backfill
+      // left NULL (ambiguous names, display sugar like 'build:#N')
+      const run = db.prepare('SELECT triggered_by, triggered_by_user FROM runs WHERE id = ?').get(id) as { triggered_by: string; triggered_by_user: string | null } | undefined;
+      if (!run) return reply.code(404).send({ error: 'run not found' });
+      const own = (run.triggered_by_user !== null && run.triggered_by_user === req.user?.id) || (run.triggered_by_user === null && run.triggered_by === (req.user?.name ?? ''));
+      if (!own) { auditDenial(db, req, `/api/runs/${id}/abort`, 'not owner'); return reply.code(403).send({ error: 'operators may abort only their own runs' }); }
+    }
     try {
       const res = abortRun(db, id, bus);
+      auditWrite(db, req, 'run_abort', `run ${id}`);
       return res;
     } catch (err) {
       return reply.code(404).send({ error: err instanceof Error ? err.message : String(err) });

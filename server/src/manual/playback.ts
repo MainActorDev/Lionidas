@@ -314,7 +314,14 @@ async function withWatchdog<T>(runId: string, dispatch: Promise<T>, stepNameForE
 }
 
 
-export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; scenarioId?: string; bundleId?: string; env?: Record<string, string>; forgeAttribution?: boolean; variant?: YamlVariant | null; suiteId?: string | null; batchId?: string | null; planId?: string | null; buildId?: string | null }): Promise<{ runId: string; udid: string; done: Promise<void> }> {
+/** FK-safe attribution: stamp the user id only when the row exists — a
+ *  dangling actor reference (synthetic harness users, deleted accounts)
+ *  must NOT fail the run INSERT; attribution degrades to NULL + string. */
+function userExists(db: import('better-sqlite3').Database, id: string): boolean {
+  return db.prepare('SELECT 1 FROM users WHERE id = ?').get(id) !== undefined;
+}
+
+export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string, opts: { udid?: string; triggeredBy?: string; triggeredByUser?: string | null; scenarioId?: string; bundleId?: string; env?: Record<string, string>; forgeAttribution?: boolean; variant?: YamlVariant | null; suiteId?: string | null; batchId?: string | null; planId?: string | null; buildId?: string | null }): Promise<{ runId: string; udid: string; done: Promise<void> }> {
   const t = deps.db.prepare('SELECT id, name, ticket_key, udid, steps_json, setup_json, alerts_policy, app_bundle_id, logical_w, logical_h FROM templates WHERE id = ?').get(templateId) as TemplateRow | undefined;
   if (!t) throw new Error(`template ${templateId} not found`);
   const tpl: TemplateRow = t;
@@ -440,9 +447,9 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
     throw new PlaybackError('VERSION_SNAPSHOT_FAILED', `case-version snapshot failed: ${err instanceof Error ? err.message : String(err)}`, { appBundleId: appToLaunch, udid });
   }
   deps.db
-    .prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, device_udid, started_at, note, template_id, app_version, app_build, case_version_id, scenario_id, scenario_sha, variant_id, suite_id, batch_id, build_id)
-              VALUES (?, ?, 'manual', 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(runId, t.ticket_key ?? '-', opts.triggeredBy ?? 'qa', udid, Date.now(), `template:${templateId} ${t.name}${opts.variant ? ` / ${opts.variant.id}` : ''}${opts.variant?.network ? ` · net:${opts.variant.network}` : ''}`, templateId, appVersion, appBuild, version.id, scenarioChoice, version.scenarioSha, opts.variant?.id ?? null, opts.suiteId ?? null, opts.batchId ?? null, opts.buildId ?? null);
+    .prepare(`INSERT INTO runs(id, ticket_key, kind, status, triggered_by, triggered_by_user, device_udid, started_at, note, template_id, app_version, app_build, case_version_id, scenario_id, scenario_sha, variant_id, suite_id, batch_id, build_id)
+              VALUES (?, ?, 'manual', 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(runId, t.ticket_key ?? '-', opts.triggeredBy ?? 'qa', (opts.triggeredByUser && userExists(deps.db, opts.triggeredByUser)) ? opts.triggeredByUser : null, udid, Date.now(), `template:${templateId} ${t.name}${opts.variant ? ` / ${opts.variant.id}` : ''}${opts.variant?.network ? ` · net:${opts.variant.network}` : ''}`, templateId, appVersion, appBuild, version.id, scenarioChoice, version.scenarioSha, opts.variant?.id ?? null, opts.suiteId ?? null, opts.batchId ?? null, opts.buildId ?? null);
   // the runner just observed this bundle's INSTALLED version — write it
   // through so the cases list always shows the last runner context, not a
   // value frozen at record/create time

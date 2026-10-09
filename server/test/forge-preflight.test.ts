@@ -24,6 +24,7 @@ beforeEach(async () => {
   migrateM1(db);
   const { default: Fastify } = await import('fastify');
   app = Fastify();
+  app.addHook('onRequest', async (req: import('fastify').FastifyRequest) => { (req as unknown as { user: unknown }).user = { name: 'test-op', role: 'operator', id: 'usr_test_op' }; });
   registerManualRoutes(app, db, { bus: { emit: () => undefined }, artifactsDir: tmp, forgeState: { activeRunId: null }, dispatchDeps: null } as never);
   await app.ready();
 });
