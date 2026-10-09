@@ -30,7 +30,7 @@ const isBare = computed(() => isPublic.value || route.meta.fullscreen === true);
 watch(() => route.fullPath, () => void loadMe());
 
 // ── collapsible nav groups (025-A) ──
-interface NavEntry { to: string; label: string; names: string[] }
+interface NavEntry { to: string; label: string; names: string[]; adminOnly?: boolean }
 interface NavGroup { id: string; label: string; items: NavEntry[] }
 const navGroups: NavGroup[] = [
   {
@@ -43,6 +43,13 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    id: 'ci', label: 'ci',
+    items: [
+      { to: '/projects', label: 'projects', names: ['projects'], adminOnly: true },
+      { to: '/builds', label: 'builds', names: ['builds'], adminOnly: true },
+    ],
+  },
+  {
     id: 'library', label: 'library',
     items: [
       { to: '/templates', label: 'test cases', names: ['templates'] },
@@ -52,13 +59,10 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
-    id: 'system', label: 'system',
+    id: 'settings', label: 'settings',
     items: [
-      { to: '/users', label: 'users', names: ['users'] },
-      { to: '/guide', label: 'guide', names: ['guide'] },
-      { to: '/projects', label: 'projects', names: ['projects'] },
-      { to: '/builds', label: 'builds', names: ['builds'] },
-      { to: '/settings', label: 'settings', names: ['settings'] },
+      { to: '/users', label: 'users', names: ['users'], adminOnly: true },
+      { to: '/settings', label: 'configs', names: ['settings'], adminOnly: true },
     ],
   },
 ];
@@ -66,12 +70,14 @@ const collapsed = reactive<Record<string, boolean>>({});
 const toggleGroup = (id: string): void => { collapsed[id] = !collapsed[id]; };
 const groupHasActive = (g: NavGroup): boolean =>
   g.items.some(it => it.names.some(isActive));
-// projects is admin-only (registry decision Q3) — the nav item renders for
-// admins; the route itself stays auth-guarded, the API enforces the role
-const visibleGroups = computed<NavGroup[]>(() =>
-  me.value?.role === 'admin'
-    ? navGroups
-    : navGroups.map(g => ({ ...g, items: g.items.filter(it => !it.names.includes('projects') && !it.names.includes('settings') && !it.names.includes('builds')) })));
+// adminOnly items render for admins only (the route itself stays auth-guarded,
+// the API enforces the role); groups that empty out hide entirely
+const visibleGroups = computed<NavGroup[]>(() => {
+  if (me.value?.role === 'admin') return navGroups;
+  return navGroups
+    .map(g => ({ ...g, items: g.items.filter(it => !it.adminOnly) }))
+    .filter(g => g.items.length > 0);
+});
 // navigating into a collapsed group expands it (active page must stay visible)
 watch(() => route.name, () => {
   for (const g of navGroups) if (groupHasActive(g)) collapsed[g.id] = false;
@@ -96,6 +102,8 @@ watch(() => route.name, () => {
           >{{ it.label }}</RouterLink>
         </div>
       </div>
+      <!-- guide hidden for now (user, 2026-10-08) — re-enable by uncommenting -->
+      <!-- <RouterLink to="/guide" class="nav-item nav-guide" :class="{ active: isActive('guide') }">guide</RouterLink> -->
     </nav>
 
     <div class="topbar">

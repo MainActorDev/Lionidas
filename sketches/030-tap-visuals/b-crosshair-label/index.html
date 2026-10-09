@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>030 b — crosshair + label</title>
+<link rel="stylesheet" href="../tokens/tokens.css" />
+<style>
+  body { margin: 0; background: var(--color-void); color: var(--color-fog); font-family: var(--font-mono); display: grid; place-items: center; min-height: 100vh; }
+  .wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .phone { position: relative; width: 320px; height: 640px; background: linear-gradient(160deg, #16324a 0%, #0e1e2e 45%, #10151c 100%); border: 1px solid var(--color-slate); border-radius: 28px; overflow: hidden; }
+  .statusbar { position: absolute; top: 0; left: 0; right: 0; height: 26px; display: flex; justify-content: space-between; padding: 6px 16px 0; font-size: 9px; color: #cfd8e3; }
+  .app-ui { position: absolute; inset: 26px 0 0 0; padding: 18px; }
+  .hero { height: 92px; border-radius: 8px; background: #ffffff10; margin-bottom: 14px; }
+  .row { height: 44px; border-radius: 6px; background: #ffffff0d; margin-bottom: 8px; }
+  .cta { position: absolute; right: 18px; bottom: 74px; width: 120px; height: 40px; border-radius: 6px; background: #e8662f; }
+  .field { position: absolute; left: 18px; bottom: 130px; width: 200px; height: 34px; border-radius: 6px; background: #ffffff16; border: 1px solid #ffffff22; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .caption { font-size: var(--text-caption); color: var(--color-steel); }
+  .caption b { color: var(--color-ember); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span>▲ ●●</span></div>
+      <div class="app-ui"><div class="hero"></div><div class="row"></div><div class="row"></div><div class="row"></div></div>
+      <div class="field"></div>
+      <div class="cta"></div>
+      <canvas id="cv"></canvas>
+    </div>
+    <div class="caption"><b>b — crosshair + label</b> · says WHAT and WHERE · step name from step.started</div>
+  </div>
+<script>
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const FADE = 1400;
+  let taps = [];
+  const seq = [
+    { x: 230, y: 560, kind: 'tap', label: 'tap · submit' },
+    { x: 100, y: 500, kind: 'type', label: 'type · phone field' },
+    { x: 260, y: 330, kind: 'tap', label: 'expect · account-legal' },
+    { x: 90, y: 180, kind: 'tap', label: 'tap · hero card' },
+  ];
+  let seqIdx = 0;
+  setInterval(() => { taps.push({ ...seq[seqIdx % seq.length], t: performance.now() }); seqIdx++; }, 1600);
+  function loop(now) {
+    const r = cv.parentElement.getBoundingClientRect();
+    if (cv.width !== Math.floor(r.width)) { cv.width = r.width; cv.height = r.height; }
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    taps = taps.filter(t => now - t.t < FADE + 400);
+    for (const t of taps) {
+      const age = now - t.t;
+      if (age > FADE) continue;
+      const alpha = 1 - Math.min(1, age / FADE);
+      // crosshair: full-bleed guides + center ring
+      ctx.strokeStyle = `rgba(234,110,52,${alpha * 0.35})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, t.y); ctx.lineTo(cv.width, t.y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(t.x, 0); ctx.lineTo(t.x, cv.height); ctx.stroke();
+      ctx.strokeStyle = `rgba(234,110,52,${alpha})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(t.x, t.y, 9, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(t.x, t.y, 1.5, 0, Math.PI * 2); ctx.fillStyle = `rgba(234,110,52,${alpha})`; ctx.fill();
+      // label chip beside the point (never offscreen)
+      const label = `${t.idx ? t.idx + ' ' : ''}${t.label}`;
+      ctx.font = '10px ui-monospace, Menlo, monospace';
+      const w = ctx.measureText(label).width + 12;
+      let lx = t.x + 14; if (lx + w > cv.width) lx = t.x - 14 - w;
+      let ly = t.y - 24; if (ly < 30) ly = t.y + 16;
+      ctx.fillStyle = `rgba(0,0,0,${0.7 * alpha})`;
+      ctx.fillRect(lx, ly, w, 16);
+      ctx.strokeStyle = `rgba(234,110,52,${alpha * 0.6})`;
+      ctx.strokeRect(lx, ly, w, 16);
+      ctx.fillStyle = `rgba(238,238,238,${alpha})`;
+      ctx.fillText(label, lx + 6, ly + 11.5);
+    }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+</script>
+</body>
+</html>

@@ -14,6 +14,7 @@ import { dumpViewtree, ViewtreeError, acquireViewtreeLock, releaseViewtreeLock }
 import { fetchProbeViewtree, probeArmed, ProbeError } from '../manual/viewtree-probe.ts';
 import { listSimulatorApps } from '../manual/apps.ts';
 import { installApp } from '../manual/app-install.ts';
+import { uninstallApp } from '../manual/app-uninstall.ts';
 import { packagesDir, listPackages, readIpaIdentity, isSimulatorRunnable } from '../manual/packages.ts';
 import { packageOwners } from '../projects/store.ts';
 import { execFileAsync } from '../manual/apps.ts';
@@ -591,6 +592,41 @@ export function registerManualRoutes(
       return reply.code(code).send({ error: r.error, code: r.code });
     }
     return { ok: true, version: r.version, durationMs: r.durationMs };
+  });
+
+  // ── uninstall (cockpit app menu, plan 20261008T160648Z): simctl uninstall
+  //  of ONE non-system app. Destructive → layered guards: server-side
+  //  system-app allowlist (com.apple.* → 403, even for crafted requests),
+  //  Booted check, busy guard (run/manual session — same 409 class as
+  //  install/power: uninstalling the app under test poisons settle polls and
+  //  watchdogs). Session-only (D5/B: matches the app-ops family). Audit line
+  //  records who removed what from which device (review F2). ──
+  app.post('/api/devices/:udid/uninstall', async (req, reply) => {
+    const { udid } = req.params as { udid: string };
+    const b = (req.body ?? {}) as { bundleId?: string };
+    if (!b.bundleId || !b.bundleId.trim()) return reply.code(422).send({ error: 'bundleId required', code: 'BUNDLE_ID_REQUIRED' });
+    const bundleId = b.bundleId.trim();
+    // THE gate: every Apple system app carries the com.apple. prefix; user
+    // apps never do. Stricter and simpler than a display classifier.
+    if (bundleId.startsWith('com.apple.')) {
+      return reply.code(403).send({ error: `${bundleId} is a system app — system apps cannot be uninstalled`, code: 'SYSTEM_APP' });
+    }
+    // shape sanity: bundle ids are dot-separated identifiers
+    if (!/^[A-Za-z0-9][A-Za-z0-9.-]+$/.test(bundleId)) return reply.code(422).send({ error: 'invalid bundleId', code: 'BUNDLE_ID_INVALID' });
+    const st = db.prepare('SELECT state FROM devices WHERE udid = ?').get(udid) as { state: string | null } | undefined;
+    if (!st || st.state !== 'Booted') return reply.code(409).send({ error: 'device not booted', code: 'DEVICE_NOT_BOOTED' });
+    const busy = db.prepare(`SELECT 1 FROM runs WHERE device_udid = ? AND status IN ('queued','running') LIMIT 1`).get(udid)
+      ?? db.prepare('SELECT 1 FROM manual_sessions WHERE udid = ? AND finished_at IS NULL LIMIT 1').get(udid);
+    if (busy) return reply.code(409).send({ error: 'a run or manual session is active on this device — wait or abort it', code: 'DEVICE_BUSY' });
+    const r = await uninstallApp(udid, bundleId);
+    if (!r.ok) {
+      // honest failure: simctl's stderr names the real cause (app gone,
+      // device shut down mid-call, …) — surface it, never guess
+      return reply.code(502).send({ error: r.error, code: r.code });
+    }
+    db.prepare('INSERT INTO auth_log(at, email, user_id, event, detail) VALUES (?, ?, ?, ?, ?)')
+      .run(Date.now(), req.user?.email ?? null, req.user?.id ?? null, 'app_uninstalled', `uninstalled ${bundleId} from ${udid.slice(0, 8)}`);
+    return { ok: true, durationMs: r.durationMs };
   });
 
   // package discovery for the install picker: CI-dropped .ipa/.apk files in

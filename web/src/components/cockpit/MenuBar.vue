@@ -17,6 +17,7 @@ const MENUS: Array<{ id: string; label: string; items: MenuItem[] }> = [
   { id: 'app', label: 'app', items: [
     { label: 'run app', event: 'run-app' },
     { label: 'install app', event: 'install' },
+    { label: 'uninstall app', event: 'uninstall' },
     { label: '', separator: true },
     { label: 'exit to console', accel: '⌘E', event: 'exit-console' },
   ] },

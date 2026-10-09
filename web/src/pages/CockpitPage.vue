@@ -6,6 +6,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import MenuBar from '../components/cockpit/MenuBar.vue';
+import InteractionOverlay from '../components/cockpit/InteractionOverlay.vue';
 import DeviceSwitcher, { type SwitcherDevice } from '../components/cockpit/DeviceSwitcher.vue';
 import StageBezel from '../components/cockpit/StageBezel.vue';
 import WatcherPanel from '../components/shared/WatcherPanel.vue';
@@ -180,6 +181,7 @@ function onMenuEvent(event: string): void {
   if (event === 'restart') void power('restart');
   if (event === 'shutdown') void power('shutdown');
   if (event === 'install') void openInstall();
+  if (event === 'uninstall') void openUninstall();
   if (event === 'run-app') void openRunApp();
   if (event === 'toggle-inspect') { overlay.value = overlay.value === 'inspect' ? null : 'inspect'; toolsOpen.value = overlay.value === 'inspect'; }
   if (event === 'play-case') void pickPlayCase();
@@ -274,13 +276,16 @@ async function openRunApp(): Promise<void> {
 }
 async function launchApp(): Promise<void> {
   if (!runAppPick.value || runAppBusy.value) return;
+  const name = runAppApps.value.find((a) => a.bundleId === runAppPick.value)?.name ?? runAppPick.value;
+  runAppOpen.value = false; // instant close (modal contract: click = committed)
+  flash(`launching ${name}…`);
   runAppBusy.value = true; runAppErr.value = ''; runAppMsg.value = '';
   try {
     const r = await fetch(`/api/devices/${encodeURIComponent(activeUdid.value)}/apps/${encodeURIComponent(runAppPick.value)}/launch`, { method: 'POST' });
     const b = (await r.json()) as { ok?: boolean; error?: string };
-    if (b.ok) { runAppOpen.value = false; flash(`running ${runAppApps.value.find((a) => a.bundleId === runAppPick.value)?.name ?? runAppPick.value}`); }
-    else runAppErr.value = b.error ?? 'launch failed';
-  } catch { runAppErr.value = 'launch request failed'; }
+    if (b.ok) flash(`running ${name}`);
+    else flash(b.error ?? 'launch failed', 'err');
+  } catch { flash('launch request failed', 'err'); }
   finally { runAppBusy.value = false; }
 }
 
@@ -296,6 +301,8 @@ async function runInstall(pkgPath?: string): Promise<void> {
   const target = pkgPath ?? installPick.value;
   if (!target || installBusy.value) return;
   installPick.value = target;
+  installOpen.value = false; // instant close (modal contract: click = committed)
+  flash('installing…');
   installBusy.value = true; installErr.value = '';
   try {
     const r = await fetch(`/api/devices/${encodeURIComponent(activeUdid.value)}/install`, {
@@ -303,11 +310,50 @@ async function runInstall(pkgPath?: string): Promise<void> {
       body: JSON.stringify({ packagePath: target }),
     });
     const b = (await r.json()) as { ok?: boolean; version?: string; error?: string };
-    if (b.ok) { installOpen.value = false; flash(`installed${b.version ? ` · ${b.version}` : ''}`); }
-    else installErr.value = b.error ?? 'install failed';
-  } catch { installErr.value = 'install request failed'; }
+    if (b.ok) flash(`installed${b.version ? ` · ${b.version}` : ''}`);
+    else flash(b.error ?? 'install failed', 'err');
+  } catch { flash('install request failed', 'err'); }
   finally { installBusy.value = false; }
 }
+// ── uninstall modal (app menu, plan 20261008T160648Z): non-system apps of
+// the ACTIVE simulator; server refuses com.apple.* regardless (defense in
+// depth — the filter below is UX, the API is the gate) ──
+const uninstallOpen = ref(false);
+const uninstallApps = ref<InstalledApp[]>([]);
+const uninstallLoaded = ref(false);
+const uninstallPick = ref('');
+const uninstallBusy = ref(false);
+const uninstallErr = ref('');
+async function openUninstall(): Promise<void> {
+  uninstallOpen.value = true; uninstallErr.value = ''; uninstallPick.value = '';
+  uninstallLoaded.value = false;
+  try {
+    const r = await fetch(`/api/devices/${encodeURIComponent(activeUdid.value)}/apps`);
+    const b = (await r.json()) as { apps?: InstalledApp[]; error?: string };
+    if (!r.ok || b.error) { uninstallErr.value = b.error ?? 'app catalog failed'; return; }
+    // user apps only (com.apple.* never uninstallable — server enforces too)
+    uninstallApps.value = (b.apps ?? []).filter((a) => !a.bundleId.startsWith('com.apple.'));
+    uninstallLoaded.value = true;
+  } catch { uninstallErr.value = 'app catalog failed'; }
+}
+async function runUninstall(): Promise<void> {
+  if (!uninstallPick.value || uninstallBusy.value) return;
+  const name = uninstallApps.value.find((a) => a.bundleId === uninstallPick.value)?.name ?? uninstallPick.value;
+  uninstallOpen.value = false; // instant close (modal contract: click = committed)
+  flash(`uninstalling ${name}…`);
+  uninstallBusy.value = true; uninstallErr.value = '';
+  try {
+    const r = await fetch(`/api/devices/${encodeURIComponent(activeUdid.value)}/uninstall`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ bundleId: uninstallPick.value }),
+    });
+    const b = (await r.json()) as { ok?: boolean; error?: string };
+    if (b.ok) flash(`uninstalled ${name}`);
+    else flash(b.error ?? 'uninstall failed', 'err');
+  } catch { flash('uninstall request failed', 'err'); }
+  finally { uninstallBusy.value = false; }
+}
+
 function ageOf(ms: number): string {
   const h = Math.floor((Date.now() - ms) / 3600_000);
   if (h < 1) return `${Math.max(1, Math.floor((Date.now() - ms) / 60_000))}m ago`;
@@ -328,6 +374,7 @@ async function pickBootDevice(): Promise<void> {
 }
 async function bootSelected(): Promise<void> {
   if (!bootSel.value || bootBusy.value) return;
+  bootOpen.value = false; // instant close (modal contract: click = committed)
   bootBusy.value = true; bootErr.value = '';
   try {
     const r = await fetch(`/api/devices/${encodeURIComponent(bootSel.value)}/power`, {
@@ -335,7 +382,6 @@ async function bootSelected(): Promise<void> {
     });
     const b = (await r.json()) as { ok?: boolean; error?: string };
     if (b.ok) {
-      bootOpen.value = false;
       flash('booting — switching when ready');
       const bootedUdid = bootSel.value;
       // poll until the boot lands (sim boot takes seconds), then switch to it
@@ -359,8 +405,8 @@ async function bootSelected(): Promise<void> {
         }
       };
       void waitBoot();
-    } else bootErr.value = b.error ?? 'boot failed';
-  } catch { bootErr.value = 'boot request failed'; }
+    } else flash(b.error ?? 'boot failed', 'err');
+  } catch { flash('boot request failed', 'err'); }
   finally { bootBusy.value = false; }
 }
 
@@ -392,6 +438,8 @@ async function openSuite(): Promise<void> {
 }
 async function playSuite(): Promise<void> {
   if (!suitePickId.value || suiteBusy.value) return;
+  suiteOpen.value = false; // instant close (modal contract: click = committed)
+  flash('queueing suite…');
   suiteBusy.value = true; suiteErr.value = '';
   try {
     const r = await fetch(`/api/suites/${encodeURIComponent(suitePickId.value)}/play`, {
@@ -401,19 +449,17 @@ async function playSuite(): Promise<void> {
     const b = (await r.json()) as { runIds?: string[]; count?: number; batchId?: string; queuedOnly?: boolean; error?: string };
     if (b.queuedOnly || b.batchId) {
       // queue-time response: runIds are empty by design (runs spawn async)
-      suiteOpen.value = false;
       lastBatchId.value = b.batchId ?? null; // abort = batch-abort (all lanes)
       flash(`suite · ${b.count ?? '…'} runs queued`);
       railTab.value = 'watch';
     }
     else if (b.runIds && b.runIds.length > 0) {
-      suiteOpen.value = false;
       lastBatchId.value = b.batchId ?? null;
       flash(`suite · ${b.count ?? b.runIds.length} runs queued`);
       railTab.value = 'watch';
     }
-    else suiteErr.value = b.error ?? 'suite play failed';
-  } catch { suiteErr.value = 'suite request failed'; }
+    else flash(b.error ?? 'suite play failed', 'err');
+  } catch { flash('suite request failed', 'err'); }
   finally { suiteBusy.value = false; }
 }
 const playFiltered = computed((): Array<{ id: string; name: string; desc: string | null; ticket: string | null; steps: number }> => {
@@ -447,6 +493,8 @@ async function pickPlayCase(): Promise<void> {
   } catch { flash('case list failed', 'err'); }
 }
 async function playCase(id: string): Promise<void> {
+  playOpen.value = false; // instant close (modal contract: click = committed)
+  flash('starting run…');
   playBusy.value = true;
   try {
     const r = await fetch(`/api/templates/${encodeURIComponent(id)}/play`, {
@@ -455,12 +503,11 @@ async function playCase(id: string): Promise<void> {
     });
     const b = (await r.json()) as { runId?: string; fanOut?: boolean; count?: number; runs?: Array<{ runId?: string; error?: string }>; error?: string };
     if (b.fanOut) {
-      playOpen.value = false;
       const ok = (b.runs ?? []).filter((x) => x.runId).length;
       lastBatchId.value = null; // fan-out is per-device runs, not a batch — abort = run-abort
       flash(`queued on ${ok}/${b.count ?? '?'} devices`);
       railTab.value = 'watch';
-    } else if (b.runId) { playOpen.value = false; lastBatchId.value = null; flash(`run started · ${String(b.runId).slice(0, 14)}`); railTab.value = 'watch'; }
+    } else if (b.runId) { lastBatchId.value = null; flash(`run started · ${String(b.runId).slice(0, 14)}`); railTab.value = 'watch'; }
     else flash(b.error ?? 'play failed', 'err');
   } catch { flash('play request failed', 'err'); }
   finally { playBusy.value = false; }
@@ -548,7 +595,48 @@ const status = computed(() => ({
   deviceName: activeName.value,
   liveCount: devices.value.length,
 }));
-void live;
+// ── interaction overlay (sketch 030-B locked): WHERE the system interacts.
+// step.tap carries logical coords → fractions via logicalW/H; the label comes
+// from the same event's idx (last step.started name kept per run). Markers
+// fade in the overlay component; we keep the last few ids alive briefly.
+interface IaMarker { id: number; fx: number; fy: number; label: string; kind: 'tap' | 'type' }
+const iaMarkers = ref<IaMarker[]>([]);
+let iaSeq = 0;
+const stepNames = new Map<string, string>(); // runId → current step label
+const runDevices = new Map<string, string>(); // runId → udid (from run.started)
+// consume by timestamp (WatchPane pattern): the rolling window SPLICES from
+// the front once full, so length stalls at MAX_EVENTS — a length-watch would
+// never fire again. `at` is monotonic per event.
+let iaLastAt = 0;
+setInterval(() => {
+  for (const ev of live.events) {
+    if (ev.at <= iaLastAt) continue;
+    iaLastAt = ev.at;
+    const p = ev.payload as Record<string, unknown>;
+    if (ev.type === 'run.started') {
+      const rid = p['runId'] as string | undefined;
+      const udid = p['udid'] as string | undefined;
+      if (rid && udid) runDevices.set(rid, udid);
+    } else if (ev.type === 'step.started') {
+      const rid = p['runId'] as string | undefined;
+      const name = p['name'] as string | undefined;
+      if (rid && name) stepNames.set(rid, name);
+    } else if (ev.type === 'step.tap') {
+      const rid = p['runId'] as string | undefined;
+      const x = p['x'] as number; const y = p['y'] as number;
+      const w = p['logicalW'] as number; const h = p['logicalH'] as number;
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !w || !h) continue;
+      // only the ACTIVE device's run paints on this stage
+      const dev = rid ? runDevices.get(rid) : undefined;
+      if (dev && dev !== activeUdid.value) continue;
+      if (!dev && activeUdid.value === '') continue;
+      const label = stepNames.get(rid ?? '') ?? 'interaction';
+      iaMarkers.value = [...iaMarkers.value.slice(-4), { id: ++iaSeq, fx: x / w, fy: y / h, label, kind: 'tap' }];
+    }
+  }
+}, 500);
+live.connect();
+onBeforeUnmount(() => live.release());
 </script>
 
 <template>
@@ -562,7 +650,9 @@ void live;
         @session-state="onSessionState" @inspect-click="onInspectClick"
         @session-acquired="onSessionAcquired" @session-dropped="onSessionDropped"
         @exit-inspect="overlay = null; toolsOpen = false"
-        @abort-running="abortRunning" />
+        @abort-running="abortRunning">
+        <InteractionOverlay :markers="iaMarkers" />
+      </StageBezel>
       <div v-else class="empty">no booted devices — boot one from the device menu</div>
       <!-- toasts live INSIDE the device container area (stage column), top-left -->
       <div class="toast-stack" aria-live="polite">
@@ -606,7 +696,7 @@ void live;
         </div>
         <div class="modal-actions">
           <button class="m-btn" @click="bootOpen = false">cancel</button>
-          <button class="m-btn primary" :disabled="!bootSel || bootBusy" @click="bootSelected">{{ bootBusy ? 'booting…' : 'boot' }}</button>
+          <button class="m-btn primary" :disabled="!bootSel || bootBusy" @click="bootSelected">boot</button>
         </div>
         <div v-if="bootErr" class="hint-err">{{ bootErr }}</div>
       </div>
@@ -680,10 +770,38 @@ void live;
         </div>
         <div class="modal-actions">
           <button class="m-btn" @click="runAppOpen = false">cancel</button>
-          <button class="m-btn primary" :disabled="!runAppPick || runAppBusy" @click="launchApp">{{ runAppBusy ? 'launching…' : 'run' }}</button>
+          <button class="m-btn primary" :disabled="!runAppPick || runAppBusy" @click="launchApp">run</button>
         </div>
         <div v-if="runAppMsg" class="hint-ok">{{ runAppMsg }}</div>
         <div v-if="runAppErr" class="hint-err">{{ runAppErr }}</div>
+      </div>
+    </div>
+
+    <!-- uninstall modal (non-system apps only; destructive → two-step) -->
+    <div v-if="uninstallOpen" class="modal-scrim" @click.self="uninstallOpen = false">
+      <div class="modal wide">
+        <h3>uninstall app on {{ activeName }}</h3>
+        <div class="modal-body">
+          <div v-if="!uninstallLoaded && !uninstallErr" class="k">reading installed apps…</div>
+          <template v-if="uninstallLoaded && uninstallApps.length === 0">
+            <div class="k">no user apps installed</div>
+          </template>
+          <div v-for="a in uninstallApps" :key="a.bundleId" class="pick-row" :class="{ picked: uninstallPick === a.bundleId }" @click="uninstallPick = a.bundleId">
+            <span>
+              {{ a.name }}
+              <span v-if="a.running" class="running-dot" title="running — will be terminated">●</span>
+            </span>
+            <span class="k">{{ a.version ?? '—' }}</span>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="m-btn" @click="uninstallOpen = false">cancel</button>
+          <button
+            v-if="uninstallPick" class="m-btn danger"
+            :disabled="uninstallBusy" @click="runUninstall"
+          >uninstall {{ uninstallApps.find(a => a.bundleId === uninstallPick)?.name ?? uninstallPick }}</button>
+        </div>
+        <div v-if="uninstallErr" class="hint-err">{{ uninstallErr }}</div>
       </div>
     </div>
 
@@ -746,6 +864,8 @@ void live;
 .m-btn { font-family: inherit; background: none; border: 1px solid var(--color-iron); color: var(--color-fog); padding: 4px 14px; cursor: pointer; font-size: var(--text-caption); border-radius: var(--r); }
 .m-btn:hover:not(:disabled) { border-color: var(--color-slate); color: var(--color-paper); }
 .m-btn.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: var(--weight-bold); }
+.m-btn.danger { background: none; border-color: #d64545; color: #d64545; font-weight: var(--weight-bold); }
+.m-btn.danger:hover:not(:disabled) { background: #d64545; color: #fff; }
 .m-btn:disabled { opacity: .5; cursor: default; }
 .hint-ok { color: var(--color-paper); font-size: var(--text-caption); margin-top: 8px; }
 .hint-err { color: var(--color-paper); font-size: var(--text-caption); margin-top: 8px; border-left: 2px solid var(--color-ember); padding-left: 8px; overflow-wrap: anywhere; white-space: pre-wrap; max-height: 84px; overflow-y: auto; flex: none; }

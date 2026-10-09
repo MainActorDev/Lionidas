@@ -12,6 +12,7 @@
     "./yaml-completions": "./src/yaml-completions.ts",
     "./alert-policy": "./src/alert-policy.ts",
     "./tap-overlay": "./src/tap-overlay.ts",
+    "./interaction-marker": "./src/interaction-marker.ts",
     "./ax-tree": "./src/ax-tree.ts",
     "./engine-tree": "./src/engine-tree.ts",
     "./inspect-geometry": "./src/inspect-geometry.ts",

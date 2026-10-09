@@ -334,6 +334,17 @@ export function migrateM1(db: Database.Database): void {
     // NULL = default 10. GC never touches run-referenced or newest-passing
     // builds (evidence immunity) and never deletes build ROWS.
     'ALTER TABLE projects ADD COLUMN retention INTEGER',
+    // Evidence overlay precision (plan 20261009T000000Z T2): engine-measured
+    // true first-frame epoch (stopEpoch − mvhd mediaDuration; NULL = legacy
+    // start-stamp fallback) + per-run operator fine-align offset.
+    // Overlay-reliability round (2026-10-09): persist the run's resolved
+    // logical dims at gate time — the step.tap emit + run_taps guards fall
+    // back to these when the pre-snapshot misses (taps stopped vanishing).
+    'ALTER TABLE runs ADD COLUMN logical_w INTEGER',
+    'ALTER TABLE runs ADD COLUMN logical_h INTEGER',
+    'ALTER TABLE runs ADD COLUMN video_anchor_ms INTEGER',
+    'ALTER TABLE runs ADD COLUMN overlay_offset_ms INTEGER DEFAULT 0',
+    'CREATE TABLE IF NOT EXISTS device_overlay_defaults(udid TEXT PRIMARY KEY, offset_ms INTEGER NOT NULL, updated_at INTEGER NOT NULL)',
     // strict JSON {"scheme":"manifest|registry|discovered|null",
     // "configuration":…} — where THIS build's inputs came from (R4)
     'ALTER TABLE builds ADD COLUMN resolution TEXT',
