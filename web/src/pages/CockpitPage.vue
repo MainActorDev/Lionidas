@@ -198,13 +198,16 @@ function onMenuEvent(event: string): void {
 
 async function inputVerbMenu(verb: 'double' | 'hold' | 'shake' | 'paste'): Promise<void> {
   const st = stage.value as unknown as {
-    sessionLabel: { value: string | null };
     armTapMode: (m: 'tap' | 'double' | 'hold') => void;
     doShake: () => Promise<void>;
     doPaste: (text?: string) => Promise<void>;
   } | null;
   if (!st || !activeUdid.value) { flash('no active device', 'err'); return; }
-  if (!st.sessionLabel.value) { flash('take control first — input verbs need an active session', 'err'); return; }
+  // INVARIANT: check EXACTLY what the menu gate checks (status.sessionLabel).
+  // A tab that ADOPTED an existing session on mount never re-emits
+  // session-state, so sessionOn alone misses it (live: chip said MANUAL · 2m
+  // while sessionOn was null). Same expression ⇒ clickable ⇒ never refused.
+  if (!status.value.sessionLabel) { flash('take control first — input verbs need an active session', 'err'); return; }
   if (verb === 'double') { st.armTapMode('double'); flash('double-tap armed — click a spot on the screen'); }
   else if (verb === 'hold') { st.armTapMode('hold'); flash('long-press armed — click a spot on the screen'); }
   else if (verb === 'shake') await st.doShake();
