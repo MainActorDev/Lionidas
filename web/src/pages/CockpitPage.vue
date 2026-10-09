@@ -548,9 +548,10 @@ let ovTimer = setInterval(() => {
 }, 500);
 onBeforeUnmount(() => clearInterval(ovTimer));
 let ssTimer = setInterval(() => {
-  const st = stage.value as unknown as { screenState?: { value: string }; sessionLabel?: { value: string | null } } | null;
+  const st = stage.value as unknown as { screenState?: { value: string }; sessionLabel?: string | { value: string | null } } | null;
   if (st?.screenState) screenState.value = st.screenState.value;
-  if (st?.sessionLabel) menuSessionLabel.value = st.sessionLabel.value;
+  const sl = st?.sessionLabel;
+  menuSessionLabel.value = (typeof sl === 'object' && sl !== null && 'value' in sl ? sl.value : sl) ?? null;
 }, 1000);
 onBeforeUnmount(() => clearInterval(ssTimer));
 
@@ -614,7 +615,8 @@ function onSessionState(s: { sessionId: string | null; dims?: { w: number | null
 }
 
 const status = computed(() => ({
-  sessionLabel: menuSessionLabel.value,
+  // gate truth: the live mirror first (instant), the polled label as polish
+  sessionLabel: menuSessionLabel.value || (sessionOn.value ? 'MANUAL' : null),
   deviceName: activeName.value,
   liveCount: devices.value.length,
 }));
