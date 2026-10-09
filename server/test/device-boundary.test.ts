@@ -29,6 +29,9 @@ const ALLOWED: ReadonlySet<string> = new Set([
   // smoke gate (brainstorm 20261008T004500Z): post-build install/launch/alive
   // probe — the one legitimate new simctl consumer, reviewed here
   'projects/smoke.ts',
+  // input-verbs stage 1 (plan 20261009T001703Z F1): paste composes pbcopy +
+  // Cmd+V on the child wire — same class as the other manual-input modules
+  'manual/engine-input.ts',
   'manual/keyboard-quiet.ts',
   'manual/location-tcc.ts',
   'manual/location.ts',

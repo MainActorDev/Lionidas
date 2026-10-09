@@ -44,7 +44,7 @@
    loopback RTT ≪ the 250 ms recognizer window — cadence is generated
    server-side with sleeps. T0 proves this live before building on it.
 5. **Double-tap + long-press (case path)**: engine A's `press` command accepts a
-   `doubleTap` boolean (`agent-device/src/daemon/session-event-action.ts:376`
+   `doubleTap` boolean (`the tool runner/src/daemon/session-event-action.ts:376`
    touchSafeFlagSpec booleans; `daemon-runtime-port.ts:156` passes
    `doubleTap: true`). Alloy registers `longpress` already but its adapter type
    lacks `doubleTap` (`../alloy/src/adapter-a.ts:48-49`). Alloy needs a 2-line

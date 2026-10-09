@@ -280,11 +280,60 @@ async function fastPathFrame(): Promise<void> {
   } catch { /* fast-path only */ }
 }
 
+// ── Stage-1 input verbs (plan 20261009T001703Z T2) ──
+// 2x / hold arm the NEXT canvas click (tap-modifiers); shake + paste fire
+// directly from the verb pad.
+const tapMode = ref<'tap' | 'double' | 'hold'>('tap');
+const pasteText = ref('');
+const pasteBusy = ref(false);
+
+async function dispatchVerb(kind: 'double' | 'hold', x: number, y: number): Promise<void> {
+  if (!sessionId.value) return;
+  const path = kind === 'double' ? 'double-tap' : 'long-press';
+  const body = kind === 'double' ? { x, y } : { x, y, dwellMs: 800 };
+  const r = await api(`${sessionId.value}/${path}`, body);
+  if (r['error']) {
+    error.value = String(r['error']);
+    if (String(r['code']) === 'LEASE_LOST' || String(r['code']) === 'SESSION_NOT_FOUND') endSession();
+  } else await fastPathFrame();
+}
+
+async function doShake(): Promise<void> {
+  if (!sessionId.value || busy.value) return;
+  busy.value = true; error.value = '';
+  try {
+    const r = await api(`${sessionId.value}/shake`);
+    if (r['error']) {
+      error.value = String(r['error']);
+      if (String(r['code']) === 'LEASE_LOST' || String(r['code']) === 'SESSION_NOT_FOUND') endSession();
+    } else await fastPathFrame();
+  } finally { busy.value = false; }
+}
+
+async function doPaste(): Promise<void> {
+  if (!sessionId.value || pasteBusy.value || !pasteText.value) return;
+  pasteBusy.value = true; error.value = '';
+  try {
+    const r = await api(`${sessionId.value}/paste`, { text: pasteText.value, press: true });
+    if (r['error']) {
+      error.value = String(r['error']);
+      if (String(r['code']) === 'LEASE_LOST' || String(r['code']) === 'SESSION_NOT_FOUND') endSession();
+    } else { pasteText.value = ''; await fastPathFrame(); }
+  } finally { pasteBusy.value = false; }
+}
+
 async function onTap(e: MouseEvent): Promise<void> {
   if (!sessionId.value || !(e.target instanceof HTMLCanvasElement)) return;
   if (inspect.value) { emit('inspect-click', e); return; } // select, never dispatch
   const canvas = e.target;
   const { x, y } = canvasPointToLogical(canvas, e.clientX, e.clientY, logicalW.value, logicalH.value);
+  if (tapMode.value !== 'tap') {
+    const mode = tapMode.value;
+    tapMode.value = 'tap'; // one-shot: modifiers arm the next click only
+    busy.value = true; error.value = '';
+    try { await dispatchVerb(mode, x, y); } finally { busy.value = false; }
+    return;
+  }
   busy.value = true; error.value = '';
   try {
     const r = await api(`${sessionId.value}/tap`, { x, y });
@@ -381,6 +430,14 @@ defineExpose({
       <button v-else-if="!sessionId" class="session-btn primary" :disabled="busy" @click="takeControl">take control</button>
       <button v-else class="session-btn danger" :disabled="busy" @click="release">release</button>
       <button v-if="inspect" type="button" class="inspect-chip" title="exit inspect (⌘I)" @click.stop="emit('exit-inspect')">⌖ inspecting · ⌘I to exit</button>
+      <div v-if="sessionId" class="verb-pad">
+        <button type="button" class="verb-chip" :class="{ armed: tapMode === 'double' }" title="arm double-tap for the next click" @click="tapMode = tapMode === 'double' ? 'tap' : 'double'">2×</button>
+        <button type="button" class="verb-chip" :class="{ armed: tapMode === 'hold' }" title="arm long-press for the next click" @click="tapMode = tapMode === 'hold' ? 'tap' : 'hold'">hold</button>
+        <button type="button" class="verb-chip" :disabled="busy" title="deliver a motion shake" @click="doShake">shake</button>
+        <input v-model="pasteText" class="paste-in" placeholder="paste text…" :disabled="pasteBusy"
+          @keydown.enter.prevent="doPaste" @keydown.stop />
+        <button type="button" class="verb-chip" :disabled="pasteBusy || !pasteText" title="pasteboard + ⌘V into the focused field" @click="doPaste">paste</button>
+      </div>
       <div v-if="stream.state.value === 'live'" class="fps-chip">{{ fpsLabel }}</div>
     </div>
 
@@ -496,4 +553,12 @@ defineExpose({
 
 .statechip { margin-top: 8px; font-size: 10px; color: var(--color-fog); border: 1px solid var(--color-iron); background: rgba(0, 0, 0, .72); padding: 1px 8px; white-space: nowrap; }
 .err { color: var(--color-paper); font-size: var(--text-caption); }
+
+/* Stage-1 input verb pad */
+.verb-pad { display: flex; gap: 4px; align-items: center; background: var(--color-carbon); border: 1px solid var(--color-line); border-radius: var(--r); padding: 4px; }
+.verb-chip { font-size: 11px; letter-spacing: .04em; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--color-line); background: transparent; color: var(--color-ink); cursor: pointer; }
+.verb-chip:hover:not(:disabled) { border-color: var(--color-ember); }
+.verb-chip.armed { background: var(--color-ember); color: #fff; border-color: var(--color-ember); }
+.verb-chip:disabled { opacity: .4; cursor: default; }
+.paste-in { width: 110px; font-size: 11px; padding: 4px 6px; border-radius: 4px; border: 1px solid var(--color-line); background: transparent; color: var(--color-ink); }
 </style>

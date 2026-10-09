@@ -1,8 +1,8 @@
 # Review — Input verbs Stage-1 plan
 
 - Plan reviewed: `plans/20261009T001703Z-baguette-cockpit-parity-plan.md` (Ready, 2026-10-09)
-- Evidence: baguette source (`../baguette/Sources/...`), agent-device source
-  (`../agent-device/src/...`), alloy source, Lionidas source — all read
+- Evidence: baguette source (`../baguette/Sources/...`), the tool runner source
+  (`../the tool runner/src/...`), alloy source, Lionidas source — all read
   2026-10-09. Brainstorm `20261009T001703Z-baguette-cockpit-parity.md` + its
   decision log.
 - Verdict: **Needs revision** — one High finding (paste path disproven from

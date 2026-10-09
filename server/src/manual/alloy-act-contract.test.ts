@@ -30,6 +30,13 @@ const MIRRORED_ACT_CONTRACT = {
   noTarget: ['scroll', 'keyboardDismiss'] as const,
   /** coordinate form is target:{x,y} — never bare x/y at the top level */
   forbiddenTopLevel: ['x', 'y'] as const,
+  /** action-scoped optional fields (alloy PR #2): press.doubleTap,
+   *  longpress.durationMs. Anything else the mirror sees fails the
+   *  strict-schema tier below. */
+  actionFields: {
+    press: ['doubleTap'],
+    longpress: ['durationMs'],
+  } as Record<string, readonly string[]>,
 } as const;
 
 interface ActPayload {

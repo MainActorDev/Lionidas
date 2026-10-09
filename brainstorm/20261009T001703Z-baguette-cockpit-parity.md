@@ -28,18 +28,18 @@ sets, not code quality.
 
 ## Engine availability matrix (verified in source, 2026-10-09)
 
-How each verb can reach Lionidas. "A" = agent-device engine (via alloy
+How each verb can reach Lionidas. "A" = the tool runner engine (via alloy
 `client.interactions.*`); "B" = engine-B flow path (`callBTool`).
 
 | Verb | Underlying capability | Path | Effort |
 |---|---|---|---|
-| **Double-tap** | agent-device `sequence` command, kind `doubleTap` (RunnerTests+SequenceExecution.swift:12,194) | A-sequence via new alloy registration | alloy + Lionidas |
+| **Double-tap** | the tool runner `sequence` command, kind `doubleTap` (RunnerTests+SequenceExecution.swift:12,194) | A-sequence via new alloy registration | alloy + Lionidas |
 | **Long-press** | `interactions.longPress` already registered (registrations.ts:210) | **already wired in alloy** | Lionidas only |
 | **Edge gestures (swipe-home, app switcher, NC, lock)** | baguette `IOHIDDigitizerDispatch` slow-drag recipes (touches.md:157-159) | needs HID dispatch on engine side | engine + alloy + Lionidas |
 | **Streaming touch** | baguette `Touch1` phases + `edge` hint | engine-side streaming API | engine + alloy + Lionidas |
 | **Shake** | `simctl spawn … notifyutil` motion-shake signal (MotionShake via SimctlPasteboard-style subprocess; baguette ShakeCommand.swift) | A: add `shake` as an alloy_act action calling simctl spawn | simctl-native, cheap |
 | **Paste** | `simctl pbcopy` (SimctlPasteboard.swift:32) + Cmd+V press | A: `paste` alloy_act action | simctl-native, cheap |
-| **Pinch** | agent-device? none found — baguette `Pinch.swift` gesture on HID | engine-side | engine work |
+| **Pinch** | the tool runner? none found — baguette `Pinch.swift` gesture on HID | engine-side | engine work |
 | **Host keyboard** | baguette `Keyboard.swift` host-key events | engine-side keyboard session | engine work |
 
 Key structural fact: alloy's `alloy_act` today only forwards press/fill/scroll/
@@ -113,7 +113,7 @@ accepted):
 
 1. **Packaging**: one big round, or staged? My proposal (not accepted):
    - **Stage 1 (Lionidas + alloy only, no engine work)**: double-tap via
-     agent-device `sequence{doubleTap}` registration, long-press (already in
+     the tool runner `sequence{doubleTap}` registration, long-press (already in
      alloy), shake + paste (simctl-native — no engine changes).
    - **Stage 2 (engine work)**: streaming touch + edge gestures (HID
      dispatch), pinch, host-keyboard passthrough.

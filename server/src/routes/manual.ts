@@ -8,7 +8,7 @@ import { requireRole } from '../auth/roles.ts';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, manualProbeSelector, manualTree, finishManualSession, setRecording, getRecording, deleteRecordedStep, recordExpectStep, manualGesture, touchSessionActivity, ManualSessionError } from '../manual/session.ts';
+import { startManualSession, manualTap, manualScroll, manualType, manualSnapshot, manualProbeSelector, manualTree, finishManualSession, setRecording, getRecording, deleteRecordedStep, recordExpectStep, manualGesture, touchSessionActivity, ManualSessionError, manualDoubleTap, manualLongPress, manualShake, manualPaste } from '../manual/session.ts';
 import { inspectSample } from '../manual/inspect-route-fns.ts';
 import { dumpViewtree, ViewtreeError, acquireViewtreeLock, releaseViewtreeLock } from '../manual/viewtree.ts';
 import { fetchProbeViewtree, probeArmed, ProbeError } from '../manual/viewtree-probe.ts';
@@ -99,6 +99,61 @@ export function registerManualRoutes(
     } catch (err) {
       if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
       throw err;
+    }
+  });
+
+  // Stage-1 input verbs (plan 20261009T001703Z) — engine-direct child wire.
+  app.post('/api/manual/:id/double-tap', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = req.body as { x?: number; y?: number };
+    if (typeof b.x !== 'number' || typeof b.y !== 'number') return reply.code(400).send({ error: 'x,y required' });
+    try {
+      await manualDoubleTap({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id, b.x, b.y);
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
+      const msg = err instanceof Error ? err.message : String(err);
+      return reply.code(503).send({ error: `input unavailable: ${msg}`, retryable: false });
+    }
+  });
+
+  app.post('/api/manual/:id/long-press', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = req.body as { x?: number; y?: number; dwellMs?: number };
+    if (typeof b.x !== 'number' || typeof b.y !== 'number') return reply.code(400).send({ error: 'x,y required' });
+    try {
+      await manualLongPress({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id, b.x, b.y, b.dwellMs ?? 0);
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
+      const msg = err instanceof Error ? err.message : String(err);
+      return reply.code(503).send({ error: `input unavailable: ${msg}`, retryable: false });
+    }
+  });
+
+  app.post('/api/manual/:id/shake', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    try {
+      await manualShake({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id);
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
+      const msg = err instanceof Error ? err.message : String(err);
+      return reply.code(503).send({ error: `input unavailable: ${msg}`, retryable: false });
+    }
+  });
+
+  app.post('/api/manual/:id/paste', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = req.body as { text?: string; press?: boolean };
+    if (typeof b.text !== 'string' || b.text.length === 0) return reply.code(400).send({ error: 'text required' });
+    try {
+      await manualPaste({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id, b.text, b.press !== false);
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof ManualSessionError) return reply.code(410).send({ error: err.message, code: err.code });
+      const msg = err instanceof Error ? err.message : String(err);
+      return reply.code(503).send({ error: `input unavailable: ${msg}`, retryable: false });
     }
   });
 
