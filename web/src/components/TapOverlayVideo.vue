@@ -37,17 +37,21 @@ function draw(playheadMs: number): void {
   ctx.clearRect(0, 0, cv.width, cv.height);
   // offset shifts the playhead: positive = markers later, negative = earlier
   const markers = overlayAt(taps, anchor, playheadMs - offsetMs, FADE_MS);
-  // chip metrics tuned at 550px height — scale so labels stay readable at
-  // any player size (evidence videos are typically ~390-780px wide)
-  const scale = cv.height / 550;
+  // parity with the live overlay (InteractionOverlay): metrics are tuned in
+  // CSS px and the live canvas is CSS-sized. The earlier cv.height/550 scale
+  // read the BACKING height (syncSize bakes in devicePixelRatio), so the
+  // factor double-counted DPR — markers rendered ~1.5x the live overlay's
+  // at typical player heights ("kinda zoomed"). Scale by DPR only and draw
+  // in CSS dimensions: pixel-identical to live at the same rendered size.
+  const dpr = window.devicePixelRatio || 1;
   ctx.save();
-  ctx.scale(scale, scale);
+  ctx.scale(dpr, dpr);
   for (const m of markers) {
     const name = m.idx != null ? (stepNames.get(m.idx) ?? null) : null;
     drawInteractionMarker(
       ctx,
       { fx: m.fx, fy: m.fy, label: name ? `tap · ${name}` : 'interaction', kind: 'tap', opacity: m.opacity },
-      cv.width / scale, cv.height / scale,
+      cv.width / dpr, cv.height / dpr,
     );
   }
   ctx.restore();
