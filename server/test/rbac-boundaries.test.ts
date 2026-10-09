@@ -15,6 +15,7 @@ import { registerRunRoutes } from '../src/routes/runs.ts';
 import { registerManualRoutes } from '../src/routes/manual.ts';
 import { registerEnvVarRoutes } from '../src/routes/env-vars.ts';
 import { registerTemplateRoutes } from '../src/routes/templates.ts';
+import { registerProjectRoutes } from '../src/projects/routes.ts';
 import { hashPassword } from '../src/auth/users.ts';
 import { capabilitiesFor } from '../src/auth/capabilities.ts';
 
@@ -65,6 +66,7 @@ beforeEach(async () => {
   registerRunRoutes(app, db, { emit: () => undefined } as never);
   registerEnvVarRoutes(app, db);
   registerTemplateRoutes(app, db, null);
+  registerProjectRoutes(app, db);
   registerManualRoutes(app, db, { bus: { emit: () => undefined } as never, artifactsDir: tmp, forgeState: { activeRunId: null } as never, dispatchDeps: null } as never);
   await app.ready();
 });
@@ -208,5 +210,23 @@ describe('assignment routes', () => {
     expect(other.statusCode).toBe(403);
     const sup = await app.inject({ method: 'PATCH', url: '/api/templates/tpl_a/assign', ...as('u_supervisor'), payload: { userId: 'u_operator2' } });
     expect(sup.statusCode).toBe(200);
+  });
+});
+
+describe('drill-found gaps (2026-10-09 thorough pass)', () => {
+  it('viewer cannot uninstall apps (device-actions class)', async () => {
+    const r = await app.inject({ method: 'POST', url: '/api/devices/SIM/uninstall', ...as('u_viewer'), payload: { bundleId: 'com.x.y' } });
+    expect(r.statusCode).toBe(403);
+  });
+  it('viewer READS the builds list (overview class)', async () => {
+    const r = await app.inject({ method: 'GET', url: '/api/builds', ...as('u_viewer') });
+    expect(r.statusCode).toBe(200);
+  });
+  it('viewer cannot AUTHOR cases (patch/create/delete/yaml class)', async () => {
+    db.prepare(`INSERT INTO templates(id, name, ticket_key, udid, steps_json, created_by, created_at, updated_at) VALUES ('tpl_v', 'V', 'T', 'SIM', '[]', 'qa', 0, 0)`).run();
+    for (const [m, u] of [['PATCH', '/api/templates/tpl_v'], ['POST', '/api/templates'], ['DELETE', '/api/templates/tpl_v'], ['PUT', '/api/templates/tpl_v/yaml']] as const) {
+      const r = await app.inject({ method: m, url: u, ...as('u_viewer'), payload: {} });
+      expect(r.statusCode, `${m} ${u}`).toBe(403);
+    }
   });
 });

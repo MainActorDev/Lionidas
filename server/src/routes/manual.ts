@@ -661,7 +661,7 @@ export function registerManualRoutes(
   //  install/power: uninstalling the app under test poisons settle polls and
   //  watchdogs). Session-only (D5/B: matches the app-ops family). Audit line
   //  records who removed what from which device (review F2). ──
-  app.post('/api/devices/:udid/uninstall', async (req, reply) => {
+  app.post('/api/devices/:udid/uninstall', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
     const { udid } = req.params as { udid: string };
     const b = (req.body ?? {}) as { bundleId?: string };
     if (!b.bundleId || !b.bundleId.trim()) return reply.code(422).send({ error: 'bundleId required', code: 'BUNDLE_ID_REQUIRED' });

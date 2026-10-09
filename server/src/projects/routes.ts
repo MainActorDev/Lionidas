@@ -185,7 +185,7 @@ export function registerProjectRoutes(app: FastifyInstance, db: Database.Databas
     return { ok: true, build: r.build };
   });
 
-  app.get('/api/builds', { preHandler: requireRole('admin') }, async (req) => {
+  app.get('/api/builds', async (req) => { /* RBAC matrix: builds READ is overview-class (viewer ok); TRIGGER stays gated */
     const q = req.query as { project?: string };
     return { builds: listBuilds(db, q.project) };
   });
