@@ -24,7 +24,7 @@ const props = defineProps<{
   caseRunning?: boolean;
   /** durable per-device session handle from the page's map — a returning tab
    *  adopts this instead of showing idle (plan F6/:key remount shape) */
-  session?: { sessionId: string; startedAt: number } | null;
+  session?: { sessionId: string; startedAt: number; dims?: { w: number | null; h: number | null } } | null;
   overlayNodes?: Array<Record<string, unknown>>;
   overlayW?: number | null;
   overlayH?: number | null;
@@ -119,10 +119,18 @@ watch(() => props.udid, async (u) => {
   sessionId.value = adopt?.sessionId ?? null;
   startedAt.value = adopt?.startedAt ?? null;
   // adoption must reach the page too: sessionOn drives ToolsDrawer (inspect)
-  // and tab-close cleanup. Without this emit, a session adopted at mount (e.g.
-  // page reload with a live session) was invisible to the page — inspect's
-  // tree never enabled (found live: badge stuck '· off', 0 /tree fetches).
-  if (adopt) emit('session-acquired', { sessionId: adopt.sessionId, startedAt: adopt.startedAt });
+  // and tab-close cleanup. BOTH events fire — session-acquired AND
+  // session-state. session-state is the page's sessionOn mirror; adoption
+  // firing only session-acquired left sessionOn null in adopting tabs
+  // (live 2026-10-09: menu enabled via the polled label, shake handler
+  // refused). Same lifecycle as takeControl: one adoption path, all
+  // listeners fed.
+  if (adopt) {
+    emit('session-acquired', { sessionId: adopt.sessionId, startedAt: adopt.startedAt });
+    emit('session-state', { sessionId: adopt.sessionId, dims: { w: adopt.dims?.w ?? null, h: adopt.dims?.h ?? null } });
+  } else {
+    emit('session-state', { sessionId: null });
+  }
   logicalW.value = null;
   lost.value = false;
   screenState.value = '—';
