@@ -52,7 +52,7 @@ async function openSession(id: string): Promise<void> {
   const b = (await r.json()) as { session: { title: string | null }; messages: Array<{ role: string; content: string | null }> };
   title.value = b.session.title ?? id;
   messages.value = b.messages
-    .filter((m) => m.role === 'user' || m.role === 'assistant')
+    .filter((m) => (m.role === 'user' || m.role === 'assistant') && (m.content ?? '').trim())
     .map((m) => ({ role: m.role as 'user' | 'assistant', text: m.content ?? '' }));
   runId.value = boundRun(id);
   void panel.value?.refresh();

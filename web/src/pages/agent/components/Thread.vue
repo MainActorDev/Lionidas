@@ -18,7 +18,7 @@ defineProps<{ messages: Msg[]; title: string; live: boolean; waiting: boolean }>
     </div>
     <div class="scroll">
       <div class="inner">
-        <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
+        <div v-for="(m, i) in messages.filter((x) => (x.text ?? '').trim())" :key="i" class="msg" :class="m.role">
           <template v-if="m.role === 'user'">
             <div class="body">
               <div class="txt" v-html="renderMarkdown(m.text)"></div>
