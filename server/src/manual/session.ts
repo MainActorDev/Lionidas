@@ -125,7 +125,7 @@ async function captureSelector(deps: ManualDeps, udid: string, x: number, y: num
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 
 export class ManualSessionError extends Error {
-  constructor(public code: 'QUEUE_ACTIVE' | 'SESSION_NOT_FOUND' | 'SESSION_FINISHED' | 'LEASE_LOST' | 'BAD_RECT' | 'BAD_SAMPLE', message: string) {
+  constructor(public code: 'QUEUE_ACTIVE' | 'DEVICE_HELD' | 'SESSION_NOT_FOUND' | 'SESSION_FINISHED' | 'LEASE_LOST' | 'BAD_RECT' | 'BAD_SAMPLE', message: string) {
     super(message);
   }
 }
@@ -133,16 +133,29 @@ export class ManualSessionError extends Error {
 export async function startManualSession(deps: ManualDeps, udid: string, operator: string, appBundleId?: string): Promise<{ sessionId: string; logicalW: number | null; logicalH: number | null }> {
   return (async () => {
     // Blocks on ANY active TESTCASE (template runs incl. cockpit plays — they
-    // carry kind=manual with template_id set — plus queue/batch kinds). Manual
-    // SESSION rows (template_id NULL) don't block: a second session on a free
-    // device replaces cleanly. Operator 2026-10-04: take control must be
-    // unavailable while a testcase runs — driving mid-case poisons its steps
-    // (verified live: drill taps made a selector never resolve).
+    // carry kind=manual with template_id set — plus queue/batch kinds).
+    // Operator 2026-10-04: take control must be unavailable while a testcase
+    // runs — driving mid-case poisons its steps (verified live: drill taps
+    // made a selector never resolve).
+    //
+    // Operator 2026-10-10 (plan 20261010T023941Z): a device held by a LIVE
+    // MANUAL SESSION is ALSO unavailable — NOBODY takes over. This REVERSES
+    // the 2026-10-04 "second session replaces cleanly" convenience: a live
+    // 2-user drill proved two concurrent sessions co-drive silently (both
+    // taps dispatch, both recordings look solo). Release or wait for the
+    // 5-min idle watchdog; presence surfaces show the holder's name.
     const busy = deps.db
       .prepare(`SELECT 1 FROM runs WHERE device_udid = ? AND status IN ('queued','running') AND template_id IS NOT NULL LIMIT 1`)
       .get(udid);
     if (busy) throw new ManualSessionError('QUEUE_ACTIVE', 'a test case is running on this device — take control unlocks when it finishes');
     // waiting queue entries are fine (dispatcher serializes); only ACTIVE runs block
+    const held = deps.db
+      .prepare(`SELECT id, operator, started_at FROM manual_sessions WHERE udid = ? AND finished_at IS NULL LIMIT 1`)
+      .get(udid) as { id: string; operator: string; started_at: number } | undefined;
+    if (held) {
+      const mins = Math.max(1, Math.round((Date.now() - held.started_at) / 60000));
+      throw new ManualSessionError('DEVICE_HELD', `driven by ${held.operator} · ${mins}m — nobody takes over (release or wait, auto-releases after 5 min idle)`);
+    }
 
     // QA keyboard quieting (simulator-only, best-effort): autocorrect/prediction
     // animations starve XCTest's idle-wait during rapid typing taps.

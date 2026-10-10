@@ -6,7 +6,7 @@ import DeviceMiniPreview from '../components/DeviceMiniPreview.vue';
 import { useLiveEvents } from '../stores/live.ts';
 import { useRouter } from 'vue-router';
 
-interface DeviceRow { udid: string; name: string | null; state: string | null; platform: string | null; kind: string | null; os_version: string | null; resolution: string | null; lease_holder: string | null; lease_engine: string | null; lease_display?: string | null; pinned?: boolean; lastUsed?: number | null; memoryRss?: number | null }
+interface DeviceRow { udid: string; name: string | null; state: string | null; platform: string | null; kind: string | null; os_version: string | null; resolution: string | null; lease_holder: string | null; lease_engine: string | null; lease_display?: string | null; last_power_by?: string | null; pinned?: boolean; lastUsed?: number | null; memoryRss?: number | null }
 interface QueueRow { id: string; state: string; priority: number; requested_by: string }
 interface RunRow { id: string; ticket_key: string; status: string; kind: string }
 
@@ -247,7 +247,8 @@ onUnmounted(() => {
               <td><span v-if="isPending(d.udid) === 'restart'" class="restarting-chip"><span class="restarting-dot" />restarting</span><span v-else style="color: var(--color-steel);">on</span></td>
               <td :style="{ color: (d.memoryRss ?? 0) > 1024 * 1024 * 1024 ? 'var(--color-ember)' : 'var(--color-fog)' }" title="host memory: every process referencing this device">{{ fmtBytes(d.memoryRss) }}</td>
               <td>
-                <b v-if="d.lease_holder?.startsWith('manual:')" style="color: var(--color-ember);" :title="d.lease_display ?? 'manual'">{{ d.lease_display && d.lease_display !== 'manual' ? d.lease_display : 'manual' }}</b>
+                <b v-if="d.lease_holder?.startsWith('manual:')" class="holder-chip" :title="`driven by ${d.lease_display} — nobody takes over`">● {{ d.lease_display && d.lease_display !== 'manual' ? d.lease_display : 'manual' }}</b>
+                <span v-if="d.last_power_by" class="booted-by" :title="`last powered by ${d.last_power_by}`">⏻ {{ d.last_power_by }}</span>
                 <b v-else-if="d.lease_holder">{{ d.lease_holder }}</b>
                 <span v-else style="color: var(--color-steel);">free</span>
               </td>
@@ -360,4 +361,6 @@ th.pcol .ic-h { width:12px; height:12px; fill:none; stroke:currentColor; stroke-
 .restarting-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-ember); animation: restarting-pulse 1.1s infinite; }
 @keyframes restarting-pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
 @media (prefers-reduced-motion: reduce) { .restarting-dot { animation: none; } }
+.holder-chip { color: var(--color-ember); font-weight: 600; }
+.booted-by { color: var(--color-fog); font-size: 10px; margin-left: 6px; }
 </style>

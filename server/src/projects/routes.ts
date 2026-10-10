@@ -1,5 +1,6 @@
 /** Project registry routes — admin-only surface (brainstorm Q3). */
 import type { FastifyInstance } from 'fastify';
+import { auditWrite } from '../auth/audit.ts';
 import type Database from 'better-sqlite3';
 import { requireRole } from '../auth/roles.ts';
 import { reposDir } from '../manual/packages.ts';
@@ -176,6 +177,7 @@ export function registerProjectRoutes(app: FastifyInstance, db: Database.Databas
 
   // ── CI builds (admin) ──
   app.post('/api/projects/:id/builds', { preHandler: requireRole('admin') }, async (req, reply) => {
+    auditWrite(db, req, 'build_trigger', `project ${(req.params as { id: string }).id}`);
     const { id } = req.params as { id: string };
     const r = startBuild(db, id);
     if (!r.ok) {

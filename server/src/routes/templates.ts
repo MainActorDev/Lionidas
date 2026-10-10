@@ -2,6 +2,7 @@
  *  CRUD + save-from-session (copies recording steps out of a manual session).
  *  Templates are plain data — playback (2d) interprets steps_json against a device. */
 import type { FastifyInstance } from 'fastify';
+import { auditWrite } from '../auth/audit.ts';
 import type Database from 'better-sqlite3';
 import { randomUUID, createHash } from 'node:crypto';
 import { rmSync } from 'node:fs';
@@ -526,6 +527,16 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     const b = (req.body ?? {}) as { name?: string; description?: string | null; ticketKey?: string | null; defaultPresetId?: string | null; steps?: unknown[]; setup?: unknown[] | null; alerts?: unknown | null; tags?: string[]; appBundleId?: string | null; status?: string; folderId?: string | null };
     const row = db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
+    // collision-safety T3 (review F1): optimistic concurrency scoped to CONTENT
+    // writes (steps/setup/name) — the fields where lost work happens. Metadata
+    // flips (status/tags/folder) stay tokenless last-writer-wins by nature.
+    const isContent = b?.steps !== undefined || b?.setup !== undefined || b?.name !== undefined;
+    let conflictToken: number | null = null;
+    if (isContent) {
+      const tok = (req.body as { expectedUpdatedAt?: unknown } | null)?.expectedUpdatedAt;
+      if (typeof tok !== 'number') return reply.code(400).send({ error: 'expectedUpdatedAt required for content edits (steps/setup/name) — load the case, then save with its updated_at', code: 'TOKEN_REQUIRED' });
+      conflictToken = tok;
+    }
     if (b.name !== undefined && !b.name.trim()) return reply.code(400).send({ error: 'name cannot be empty' });
     // Phase E: lifecycle validation at the API seam (ALTER'd legacy tables
     // carry no CHECK — this is the one write gate).
@@ -551,7 +562,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     db.prepare(
       `UPDATE templates SET
          name = ?, description = ?, ticket_key = ?, default_preset_id = ?, steps_json = ?, setup_json = ?, alerts_policy = ?, tags_json = ?, app_bundle_id = ?, status = ?, folder_id = ?, updated_at = ?, updated_by = ?
-       WHERE id = ?`,
+       WHERE id = ?${conflictToken !== null ? ' AND updated_at = ?' : ''}`,
     ).run(
       b.name !== undefined ? b.name.trim() : row.name,
       b.description !== undefined ? b.description : row.description,
@@ -567,7 +578,13 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
       Date.now(),
       req.user?.name ?? null,
       id,
+      ...(conflictToken !== null ? [conflictToken] : []),
     );
+    if (conflictToken !== null && (db.prepare('SELECT changes() as n').get() as { n: number }).n === 0) {
+      const cur = db.prepare('SELECT updated_by, updated_at FROM templates WHERE id = ?').get(id) as { updated_by: string | null; updated_at: number };
+      return reply.code(409).send({ error: `edited by ${cur.updated_by ?? 'someone'} since you loaded — reload and re-apply`, code: 'EDIT_CONFLICT', updatedBy: cur.updated_by, updatedAt: cur.updated_at });
+    }
+    auditWrite(db, req, 'case_edit', `case ${id}`);
     return rowToTemplate(db, db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow);
   });
 
@@ -901,6 +918,9 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
    *  subflows. What the panel validated before saving is EXACTLY what this
    *  enforces — one validator, no drift. */
   app.put('/api/templates/:id/yaml', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
+    // collision-safety T3: yaml is content — token always required (F1)
+    const tok = (req.body as { expectedUpdatedAt?: unknown } | null)?.expectedUpdatedAt;
+    if (typeof tok !== 'number') return reply.code(400).send({ error: 'expectedUpdatedAt required for yaml edits — load the case, then save with its updated_at', code: 'TOKEN_REQUIRED' });
     const { id } = req.params as { id: string };
     const row = db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });
@@ -923,8 +943,13 @@ const peekPut = parseCaseYaml(b.yaml ?? '');
       if (clash) return reply.code(409).send({ errors: [{ line: 1, message: `a case named "${r.case.name}" already exists` }] });
     }
     db.prepare(
-      `UPDATE templates SET name = ?, steps_json = ?, setup_json = ?, alerts_policy = ?, variants_json = ?, tags_json = ?, app_bundle_id = COALESCE(?, app_bundle_id), entry_json = ?, updated_at = ?, updated_by = ? WHERE id = ?`,
-    ).run(r.case.name, JSON.stringify(r.case.steps), r.case.setup ? JSON.stringify(r.case.setup) : null, r.case.alerts ? JSON.stringify(r.case.alerts) : null, r.case.variants ? JSON.stringify(r.case.variants) : (r.case.swaps ? JSON.stringify(r.case.swaps) : (r.case.worlds ? JSON.stringify(r.case.worlds) : null)), tagsToJson(r.case.tags), r.case.app ?? null, r.case.entry ? JSON.stringify(r.case.entry) : null, Date.now(), req.user?.name ?? null, id);
+      `UPDATE templates SET name = ?, steps_json = ?, setup_json = ?, alerts_policy = ?, variants_json = ?, tags_json = ?, app_bundle_id = COALESCE(?, app_bundle_id), entry_json = ?, updated_at = ?, updated_by = ? WHERE id = ? AND updated_at = ?`,
+    ).run(r.case.name, JSON.stringify(r.case.steps), r.case.setup ? JSON.stringify(r.case.setup) : null, r.case.alerts ? JSON.stringify(r.case.alerts) : null, r.case.variants ? JSON.stringify(r.case.variants) : (r.case.swaps ? JSON.stringify(r.case.swaps) : (r.case.worlds ? JSON.stringify(r.case.worlds) : null)), tagsToJson(r.case.tags), r.case.app ?? null, r.case.entry ? JSON.stringify(r.case.entry) : null, Date.now(), req.user?.name ?? null, id, tok);
+    if ((db.prepare('SELECT changes() as n').get() as { n: number }).n === 0) {
+      const cur = db.prepare('SELECT updated_by, updated_at FROM templates WHERE id = ?').get(id) as { updated_by: string | null; updated_at: number };
+      return reply.code(409).send({ error: `edited by ${cur.updated_by ?? 'someone'} since you loaded — reload and re-apply`, code: 'EDIT_CONFLICT', updatedBy: cur.updated_by, updatedAt: cur.updated_at });
+    }
+    auditWrite(db, req, 'case_edit', `case ${id} (yaml)`);
     return rowToTemplate(db, db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow);
   });
 

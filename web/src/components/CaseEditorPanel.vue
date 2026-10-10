@@ -175,8 +175,19 @@ async function save(): Promise<void> {
     if (!meta.ok) { msg.value = `metadata save failed (${meta.status})`; return; }
     const yamlText = ed.getValue();
     const res = await fetch(`/api/templates/${props.templateId}/yaml`, {
-      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ yaml: yamlText }),
+      // collision-safety T3: yaml is content — the save carries the token the
+      // case was loaded with; a mismatch = someone else edited meanwhile.
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ yaml: yamlText, ...(props.updatedAt ? { expectedUpdatedAt: props.updatedAt } : {}) }),
     });
+    if (res.status === 409) {
+      const b = (await res.json().catch(() => ({}))) as { code?: string; updatedBy?: string | null };
+      if (b.code === 'EDIT_CONFLICT') {
+        msg.value = `edited by ${b.updatedBy ?? 'someone'} since you loaded — reloading (your yaml is still in the editor; re-apply after reviewing)`;
+        emit('saved', props.templateId); // reloads the case underneath; editor text kept
+        dirty.value = true;
+        return;
+      }
+    }
     if (res.status === 422 || res.status === 409) {
       const b = (await res.json()) as { errors: Array<{ line: number; message: string }> };
       errors.value = b.errors ?? [];

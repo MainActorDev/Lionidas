@@ -942,6 +942,7 @@ const suiteSummary = computed(() => {
           <span v-else class="col-sel"><svg class="doc-glyph" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5h7l3 3v12H5v-15z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M11.5 2.7V6h3.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></span>
 <span class="col-case">
             <span class="a2-name">{{ t.name }}</span>
+            <span v-if="t.createdBy" class="a2-by" :title="`created by ${t.createdBy}`">by {{ t.createdBy }}</span>
             <span v-if="t.status === 'draft'" class="lifecycle-pill lifecycle-draft" title="draft — unfinished; still runs in batches">draft</span>
             <span v-else-if="t.status === 'deprecated'" class="lifecycle-pill lifecycle-deprecated" title="deprecated — skipped by run filtered + suites; manual run still allowed">deprecated</span>
             <span v-if="t.ticketKey" class="a2-ticket">{{ t.ticketKey }}</span>
@@ -1268,6 +1269,7 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 /* verdict pill ellipsizes inside its track at extreme narrow widths (the
    pill is the unbreakable floor: mono text can't wrap) */
 .col-evidence { display: flex; align-items: center; overflow: visible; }
+.a2-by { color: var(--color-fog); font-size: 10px; margin-left: 6px; }
 .a2-evidence-thumb { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; cursor: zoom-in; flex: none; border: 1px solid var(--color-line, #333); display: block; }
 .a2-evidence-thumb:hover { border-color: var(--color-accent, #e5484d); }
 .a2-evidence-none { color: var(--color-steel); }
