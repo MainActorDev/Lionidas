@@ -77,6 +77,10 @@ defineProps<{ messages: Msg[]; title: string; live: boolean }>();
 .txt :deep(pre) { background: var(--ag-panel); border: 1px solid var(--ag-line); border-radius: var(--r-sm); padding: var(--s-2); overflow-x: auto; margin: 0 0 6px; }
 .txt :deep(pre code) { background: none; border: none; padding: 0; font-size: var(--text-caption); }
 .txt :deep(a) { color: var(--color-ember); }
+.txt :deep(table) { border-collapse: collapse; margin: 0 0 8px; max-width: 100%; display: block; overflow-x: auto; font-size: var(--text-caption); }
+.txt :deep(th), .txt :deep(td) { border: 1px solid var(--ag-line); padding: 4px 10px; text-align: left; }
+.txt :deep(th) { background: var(--ag-panel); color: var(--color-paper); font-weight: var(--weight-bold); white-space: nowrap; }
+.txt :deep(td) { color: var(--color-fog); }
 .txt :deep(strong) { color: var(--color-paper); }
 .status { display: inline-flex; align-items: center; gap: 8px; font-size: var(--text-caption); color: var(--color-steel); border: 1px solid var(--ag-line); border-radius: var(--r-sm); padding: 1px var(--s-2); margin-bottom: 6px; }
 .atts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: var(--s-2); }
