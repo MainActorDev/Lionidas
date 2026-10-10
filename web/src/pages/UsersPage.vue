@@ -191,6 +191,7 @@ onMounted(() => {
       </select>
       <input v-model="form.password" type="password" placeholder="starting password (min 8)" style="min-width: 180px;">
       <button class="btn btn-primary btn-sm" :disabled="creating || !form.email || !form.name || form.password.length < 8" @click="creating = true; create().finally(() => { creating = false; })">create</button>
+      <button class="btn btn-sm" style="margin-left: auto;" title="close" @click="showForm = false">✕</button>
     </div>
 
     <!-- segmented switch between the tables (sketch 031 a2 follow-up).
@@ -205,56 +206,59 @@ onMounted(() => {
     <div v-if="err" class="meta-row" style="color: var(--color-ember); margin-bottom: 10px;">{{ err }}</div>
     <div v-if="msg" class="meta-row" style="color: var(--color-fog); margin-bottom: 10px;">{{ msg }}</div>
 
-    <!-- role-grouped directory (sketch 031 a2): ONE list box, sticky thead,
-         .a2-group-head rows carry digest + health + count -->
+    <!-- role-grouped directory (sketch 031 a2): the house div-list anatomy
+         (screens/cases pattern) — sticky GRID thead, plain-div group heads,
+         rows share the same column template. No <table>: group heads and
+         rows are siblings in one scroll box. -->
     <div v-if="isDirectory && tab === 'directory'" class="a2-list" style="margin-bottom: var(--s-4);">
-      <table>
-        <thead>
-          <tr><th>user</th><th style="width: 120px;">role</th><th style="width: 80px;">source</th><th style="width: 150px;">status</th><th style="width: 130px;">last login</th><th style="width: 250px; text-align: right;">actions</th></tr>
-        </thead>
-        <tbody>
-          <template v-for="g in groups" :key="g.role">
-            <tr class="a2-group-head" :class="{ 'grp-collapsed': collapsed.has(g.role) }" @click="toggleGroup(g.role)">
-              <span class="caret" :class="collapsed.has(g.role) ? 'closed' : 'open'"></span>
-              <span class="role-name">{{ g.role }}</span>
-              <span class="caps" :title="CAPS[g.role] ?? ''">{{ CAPS[g.role] ?? '' }}</span>
-              <span class="health">
-                <span v-if="g.members.filter(m => !m.active).length" class="dim">{{ g.members.filter(m => !m.active).length }} off</span>
-                <span v-if="g.members.filter(m => !m.approved).length" class="warn">{{ g.members.filter(m => !m.approved).length }} pending</span>
-              </span>
-              <span class="n">{{ g.members.length }}</span>
-            </tr>
-            <tr v-for="u in g.members" :key="u.id" v-show="!collapsed.has(g.role)" class="u-row" :class="{ inactive: !u.active }">
-              <td>
-                <div class="u-name">{{ u.name }}<span v-if="u.email === me?.email" class="you">you</span></div>
-                <div class="u-email">{{ u.email }}</div>
-              </td>
-              <td>
-                <span v-if="u.role === 'bot'" style="color: var(--color-fog);">bot</span>
-                <span v-else-if="rowLocked(u)" class="admin-locked" title="admin accounts — role changes are admin-only">admin</span>
-                <select v-else :value="u.role" @change="patch(u.id, { role: ($event.target as HTMLSelectElement).value }, `role updated — ${u.email}`)">
-                  <option v-for="r in assignableRoles" :key="r" :value="r">{{ r }}</option>
-                </select>
-              </td>
-              <td><span class="badge">{{ u.auth_source }}</span></td>
-              <td>
-                <span v-if="!u.approved" class="status-pending">pending approval</span>
-                <span v-else :style="u.active ? 'font-size: var(--text-caption);' : 'font-size: var(--text-caption); color: var(--color-steel);'">{{ u.active ? 'active' : 'deactivated' }}</span>
-              </td>
-              <td class="when">{{ when(u.last_login_at) }}</td>
-              <td style="text-align: right; white-space: nowrap;">
-                <template v-if="u.role !== 'bot'">
-                  <button v-if="!u.approved" class="btn btn-sm btn-primary" @click="approve(u.id, true)">approve</button>
-                  <button class="btn btn-sm" @click="resetPassword(u)">reset pw</button>
-                  <button class="btn btn-sm" @click="patch(u.id, { active: !u.active }, u.active ? `deactivated — ${u.email}` : `reactivated — ${u.email}`)">{{ u.active ? 'deactivate' : 'reactivate' }}</button>
-                  <button class="btn btn-sm btn-danger" @click="removeUser(u)">delete</button>
-                </template>
-                <span v-else style="font-size: 9px; color: var(--color-steel);">tokens</span>
-              </td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
+      <div class="u-thead">
+        <span>user</span>
+        <span>role</span>
+        <span>source</span>
+        <span>status</span>
+        <span>last login</span>
+        <span style="text-align: right;"></span>
+      </div>
+      <template v-for="g in groups" :key="g.role">
+        <div class="a2-group-head" @click="toggleGroup(g.role)" :title="CAPS[g.role] ?? ''">
+          <span class="caret">{{ collapsed.has(g.role) ? '▸' : '▾' }}</span>
+          <span class="owner">{{ g.role }}</span>
+          <span class="caps">{{ CAPS[g.role] ?? '' }}</span>
+          <span class="health">
+            <span v-if="g.members.filter(m => !m.active).length" class="dim">{{ g.members.filter(m => !m.active).length }} off</span>
+            <span v-if="g.members.filter(m => !m.approved).length" class="warn">{{ g.members.filter(m => !m.approved).length }} pending</span>
+          </span>
+          <span class="n">{{ g.members.length }}</span>
+        </div>
+        <div v-for="u in g.members" v-show="!collapsed.has(g.role)" :key="u.id" class="u-row" :class="{ inactive: !u.active }">
+          <span class="col-user">
+            <span class="u-name">{{ u.name }}<span v-if="u.email === me?.email" class="you">you</span></span>
+            <span class="u-email">{{ u.email }}</span>
+          </span>
+          <span>
+            <span v-if="u.role === 'bot'" style="color: var(--color-fog);">bot</span>
+            <span v-else-if="rowLocked(u)" class="admin-locked" title="admin accounts — role changes are admin-only">admin</span>
+            <select v-else :value="u.role" @change="patch(u.id, { role: ($event.target as HTMLSelectElement).value }, `role updated — ${u.email}`)">
+              <option v-for="r in assignableRoles" :key="r" :value="r">{{ r }}</option>
+            </select>
+          </span>
+          <span><span class="badge">{{ u.auth_source }}</span></span>
+          <span>
+            <span v-if="!u.approved" class="status-pending">pending approval</span>
+            <span v-else :style="u.active ? 'font-size: var(--text-caption);' : 'font-size: var(--text-caption); color: var(--color-steel);'">{{ u.active ? 'active' : 'deactivated' }}</span>
+          </span>
+          <span class="when">{{ when(u.last_login_at) }}</span>
+          <span class="u-acts">
+            <template v-if="u.role !== 'bot'">
+              <button v-if="!u.approved" class="btn btn-sm btn-primary" @click="approve(u.id, true)">approve</button>
+              <button class="btn btn-sm" @click="resetPassword(u)">reset pw</button>
+              <button class="btn btn-sm" @click="patch(u.id, { active: !u.active }, u.active ? `deactivated — ${u.email}` : `reactivated — ${u.email}`)">{{ u.active ? 'deactivate' : 'reactivate' }}</button>
+              <button class="btn btn-sm btn-danger" @click="removeUser(u)">delete</button>
+            </template>
+            <span v-else style="font-size: 9px; color: var(--color-steel);">tokens</span>
+          </span>
+        </div>
+      </template>
     </div>
 
     <!-- self view (below supervisor) -->
@@ -381,20 +385,19 @@ onMounted(() => {
 .status-pending { color: var(--color-ember); font-size: var(--text-caption); }
 .admin-locked { color: var(--color-fog); cursor: default; }
 .u-row.inactive { opacity: 0.45; }
-thead th { position: sticky; top: 0; background: var(--color-carbon); z-index: 1; }
-/* group head (sketch 031 a2): aligned grid — caret | role | digest | health | count */
-.a2-group-head { grid-column: 1 / -1; display: grid; grid-template-columns: 12px 90px 1fr auto auto; align-items: center; column-gap: var(--s-2); padding: 7px 12px; border-top: 1px solid var(--color-iron); background: var(--color-void); cursor: pointer; user-select: none; font-size: 11px; letter-spacing: 0.04em; color: var(--color-pewter); }
-.a2-group-head:first-of-type { border-top: none; }
-.a2-group-head:hover { color: var(--color-paper); background: var(--color-graphite); }
-.a2-group-head .caret { width: 12px; color: var(--color-steel); flex: none; }
-.caret.closed::before { content: '▸'; }
-.caret.open::before { content: '▾'; }
-.a2-group-head .role-name { color: var(--color-paper); text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px; }
-.a2-group-head .caps { color: var(--color-steel); font-size: 10px; letter-spacing: 0.02em; white-space: normal; line-height: 1.5; }
-.a2-group-head .health { display: inline-flex; gap: var(--s-2); font-size: 10px; color: var(--color-steel); }
+/* directory grid (screens/cases anatomy): thead + rows share one template */
+.u-thead, .u-row { display: grid; grid-template-columns: minmax(0, 1fr) 120px 80px 150px 130px 250px; gap: var(--s-2); align-items: center; padding: 6px 12px; }
+.u-thead { position: sticky; top: 0; z-index: 1; background: var(--color-carbon); border-bottom: 1px solid var(--color-iron); font-size: var(--text-caption); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-steel); }
+.u-row { border-bottom: 1px solid var(--color-iron); font-size: var(--text-body); }
+.u-row:hover { background: var(--color-graphite); }
+.col-user { display: flex; flex-direction: column; min-width: 0; }
+.u-acts { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+/* group head rides the GLOBAL .a2-group-head (components.css) — flex:
+   caret + owner + caps (wraps, never ellipsizes) + health + n (auto-right) */
+.a2-group-head .caps { color: var(--color-steel); font-size: 10px; letter-spacing: 0.02em; white-space: normal; line-height: 1.5; margin-right: var(--s-2); }
+.a2-group-head .health { display: inline-flex; gap: var(--s-2); font-size: 10px; color: var(--color-steel); margin-right: var(--s-2); }
 .a2-group-head .health .warn { color: var(--color-ember); }
 .a2-group-head .health .dim { color: var(--color-ash); }
-.a2-group-head .n { color: var(--color-pewter); }
 .tok-name { flex: 1; background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 6px var(--s-2); }
 .tok-fresh { display: flex; align-items: center; gap: var(--s-2); border: 1px dashed var(--color-ember); border-radius: var(--r-sm); padding: var(--s-2) var(--s-3); font-size: var(--text-caption); }
 .tok-fresh code { font-family: var(--font-mono); color: var(--color-paper); overflow-wrap: anywhere; }
