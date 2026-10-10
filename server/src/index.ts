@@ -43,6 +43,8 @@ import { forgeStateService } from './forge/state.ts';
 import { registerForgeRoutes } from './forge/routes.ts';
 import { buildAgentContext } from './agent/context.ts';
 import { registerAgentRoutes } from './agent/routes.ts';
+import { buildPipeline } from './agent/pipeline.ts';
+import { registerPipelineRoutes } from './agent/pipeline-routes.ts';
 
 export interface App {
   app: FastifyInstance<import('node:http').Server<typeof import('node:http').IncomingMessage, typeof import('node:http').ServerResponse>, import('node:http').IncomingMessage, import('node:http').ServerResponse<import('node:http').IncomingMessage>, FastifyBaseLogger>;
@@ -134,6 +136,7 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
     syncPresets: () => forgeStateService({ db: db.raw, forgeState }).sync(),
   });
   registerAgentRoutes(app, agent, bus);
+  registerPipelineRoutes(app, agent, buildPipeline(agent, db.raw, env, bus));
   registerFolderRoutes(app, db.raw);
   registerScenarioFolderRoutes(app, db.raw);
   registerPresetFolderRoutes(app, db.raw);
