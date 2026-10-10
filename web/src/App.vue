@@ -37,7 +37,7 @@ const isBare = computed(() => isPublic.value || route.meta.fullscreen === true);
 watch(() => route.fullPath, () => void loadMe());
 
 // ── collapsible nav groups (025-A) ──
-interface NavEntry { to: string; label: string; names: string[]; adminOnly?: boolean; supervisorOnly?: boolean }
+interface NavEntry { to: string; label: string; names: string[]; adminOnly?: boolean; supervisorOnly?: boolean; operatorOnly?: boolean }
 interface NavGroup { id: string; label: string; items: NavEntry[] }
 const navGroups: NavGroup[] = [
   {
@@ -54,6 +54,12 @@ const navGroups: NavGroup[] = [
     items: [
       { to: '/projects', label: 'projects', names: ['projects'], adminOnly: true },
       { to: '/builds', label: 'builds', names: ['builds'], adminOnly: true },
+    ],
+  },
+  {
+    id: 'agent', label: 'agent',
+    items: [
+      { to: '/agent', label: 'chat', names: ['agentChat'], operatorOnly: true }, // operator+ (the server gates /api/agent/*)
     ],
   },
   {
@@ -89,6 +95,7 @@ const visibleGroups = computed<NavGroup[]>(() => {
     .map(g => ({ ...g, items: g.items.filter(it => {
       if (it.adminOnly) return me.value?.role === 'admin';
       if (it.supervisorOnly) return isSupervisor;
+      if (it.operatorOnly) return ['admin', 'supervisor', 'operator'].includes(me.value?.role ?? '');
       return true;
     }) }))
     .filter(g => g.items.length > 0);
