@@ -165,6 +165,8 @@ async function send(text: string, refs: PipelineRef[], appBundle: string): Promi
         else if (t?.error) {
           const aborted = t.code === 'ABORTED' || /abort/i.test(t.error);
           if (aborted) markAborted(flightIdx);
+          // keep any partial stream as a visible (muted) assistant bubble, then the verdict
+          if (streaming.value) messages.value = [...messages.value, { role: 'assistant', text: streaming.value }];
           messages.value = [...messages.value, { role: 'system', text: aborted ? 'turn aborted' : `turn failed: ${t.error}` }];
         }
         else messages.value = [...messages.value, { role: 'system', text: 'turn returned no answer' }];
@@ -174,6 +176,7 @@ async function send(text: string, refs: PipelineRef[], appBundle: string): Promi
     }
   } finally {
     sending.value = false;
+    streaming.value = null; // rev12: never leave a frozen stream bubble
     void sidebar.value?.load();
     const q = queued.value;
     if (q) {
