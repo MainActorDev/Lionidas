@@ -7,8 +7,8 @@ interface Msg { role: 'user' | 'assistant' | 'system'; text: string; refs?: Ref[
 import { ref, watch, nextTick } from 'vue';
 import { renderMarkdown } from '../markdown.ts';
 
-const props = defineProps<{ messages: Msg[]; title: string; live: boolean; waiting: boolean }>();
-const emit = defineEmits<{ resend: [msg: { role: 'user' | 'assistant' | 'system'; text: string; refs?: Array<{ kind: string; name: string }>; toolTrace?: string; status?: string; aborted?: boolean }] }>();
+const props = defineProps<{ messages: Msg[]; title: string; live: boolean; waiting: boolean; streaming: string | null }>();
+const emit = defineEmits<{ resend: [msg: Msg] }>();
 const scrollEl = ref<HTMLElement | null>(null);
 
 /** rev7: keep the newest message in view — on send, while the indicator
@@ -27,6 +27,7 @@ watch(() => props.messages.length, () => { stickToBottom(true); });
 // 2. loading indicator appears / 3. response replaces it
 watch(() => props.waiting, (now) => { if (now) stickToBottom(true); });
 watch(() => props.messages[props.messages.length - 1]?.text, (t, was) => { if (t && t !== was) stickToBottom(); });
+watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom(); }); // rev10: follow the stream
 </script>
 
 <template>
@@ -63,6 +64,7 @@ watch(() => props.messages[props.messages.length - 1]?.text, (t, was) => { if (t
             <div class="sys">{{ m.text }}</div>
           </template>
         </div>
+        <div v-if="streaming !== null" class="msg assistant streaming"><div class="body"><div class="txt" v-html="renderMarkdown(streaming)"></div><span class="cursor"></span></div></div>
         <div v-if="waiting" class="msg assistant waiting"><div class="body"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div>
       </div>
       <slot></slot>
@@ -106,6 +108,9 @@ watch(() => props.messages[props.messages.length - 1]?.text, (t, was) => { if (t
 .msg.assistant .txt { color: var(--color-fog); }
 /* loading dots (#3) — same bubble anatomy, three pulsing dots */
 .msg.waiting .body { display: inline-flex; gap: 5px; align-items: center; padding: 10px 14px; }
+.msg.streaming .body { display: flex; align-items: flex-end; }
+.msg.streaming .cursor { display: inline-block; width: 7px; height: 14px; margin-left: 4px; background: var(--color-ember); animation: agblink 0.9s infinite; }
+@keyframes agblink { 50% { opacity: 0; } }
 .msg.waiting .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-steel); animation: agbounce 1.2s infinite; }
 .msg.waiting .dot:nth-child(2) { animation-delay: .15s; }
 .msg.waiting .dot:nth-child(3) { animation-delay: .3s; }

@@ -52,6 +52,9 @@ export async function registerEventsWs(app: FastifyInstance, bus: TypedEventBus<
       'manual.session.finish',
       'flow.quarantined',
       'forge.traffic.hit',
+      // agent surface (P3): live turn lifecycle + streaming deltas, run panel
+      'agent.turn',
+      'agent.workflow',
     ] as const) {
       forward(t);
     }

@@ -24,6 +24,8 @@ const sending = ref(false);
 // rev8 #2: single-slot queue — one pending send waits for the live turn
 // (the server 409s concurrent turns anyway; this makes the wait invisible)
 const queued = ref<{ text: string; refs: PipelineRef[]; appBundle: string } | null>(null);
+// rev10: live streaming — deltas accumulate into a growing assistant bubble
+const streaming = ref<string | null>(null);
 const sidebar = ref<InstanceType<typeof ChatSidebar> | null>(null);
 const panel = ref<InstanceType<typeof RunPanel> | null>(null);
 const runId = ref<string | null>(null);
@@ -132,6 +134,7 @@ async function send(text: string, refs: PipelineRef[], appBundle: string): Promi
   if (!sessionId.value) await newChat();
   const sid = sessionId.value!;
   sending.value = true;
+  streaming.value = null;
   const prettyRefs = refs.map((r) => ({ kind: r.kind, name: r.locator }));
   messages.value = [...messages.value, { role: 'user', text, refs: prettyRefs }];
   const flightIdx = messages.value.length - 1; // the user bubble just appended
@@ -208,14 +211,20 @@ function connectWs(): void {
   ws = new WebSocket(`${proto}://${location.host}/api/events`);
   ws.onmessage = (ev) => {
     try {
-      const e = JSON.parse(ev.data as string) as { event: string; payload: { runId?: string; sessionId?: string; type?: string } };
-      if (e.event === 'agent.workflow' && e.payload.runId && e.payload.runId === runId.value) void panel.value?.refresh();
+      const e = JSON.parse(ev.data as string) as { type: string; payload: { runId?: string; sessionId?: string; type?: string } };
+      if (e.type === 'agent.workflow' && e.payload.runId && e.payload.runId === runId.value) void panel.value?.refresh();
       // rev9 E1: a turn just ENDED on the open chat (any client) → refetch so
       // the answer/abort state appears without a manual reload
-      if (e.event === 'agent.turn' && e.payload.sessionId === sessionId.value
+      if (e.type === 'agent.turn' && e.payload.sessionId === sessionId.value
           && (e.payload.type === 'turn.end' || e.payload.type === 'turn.error')
           && sessionId.value) {
+        streaming.value = null; // rev10: bubble completes via refetch
         void openSession(sessionId.value);
+      }
+      // rev10: live delta → grow the streaming bubble
+      if (e.type === 'agent.turn' && e.payload.sessionId === sessionId.value && e.payload.type === 'turn.delta') {
+        const d = (e.payload as { detail?: { delta?: string } }).detail?.delta ?? '';
+        streaming.value = (streaming.value ?? '') + d;
       }
     } catch { /* non-json frame */ }
   };
@@ -249,7 +258,7 @@ onBeforeUnmount(() => { ws?.close(); if (pollTimer) clearInterval(pollTimer); })
   <div v-else class="ag-root">
     <ChatSidebar ref="sidebar" :me="me" :active-id="sessionId" @select="openSession" @new-chat="newChat" @renamed="onRenamed" @deleted="onDeleted" />
     <div class="mid">
-      <Thread :messages="messages" :title="title" :live="panel?.live ?? false" :waiting="sending" @resend="resend">
+      <Thread :messages="messages" :title="title" :live="panel?.live ?? false" :waiting="sending && !streaming" :streaming="streaming" @resend="resend">
         <Composer :busy="sending" @send="send" @abort="abortTurn" />
       </Thread>
     </div>
