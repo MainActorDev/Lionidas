@@ -20,12 +20,6 @@
   .badge { display: inline-block; padding: 1px var(--s-2); border: 1px solid var(--color-iron); border-radius: var(--r-sm); font-size: var(--text-caption); color: var(--color-fog); white-space: nowrap; }
 
   /* stance switch */
-  .stance { display: inline-flex; border: 1px solid var(--color-iron); border-radius: var(--r-sm); overflow: hidden; margin-bottom: var(--s-3); }
-  .stance button { appearance: none; border: none; border-right: 1px solid var(--color-iron); background: transparent; padding: 6px 14px; cursor: pointer; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-pewter); }
-  .stance button:last-child { border-right: none; }
-  .stance button.on { color: var(--color-ember); background: var(--color-graphite); }
-  .stance button:hover { color: var(--color-paper); }
-
   /* provision row (admin only) */
   .prov { display: flex; gap: var(--s-2); flex-wrap: wrap; align-items: center; border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); padding: var(--s-3); margin-bottom: var(--s-3); }
   .prov input, .prov select {
@@ -79,7 +73,6 @@
   .status-off { color: var(--color-steel); font-size: var(--text-caption); }
   .when { font-size: 10px; color: var(--color-steel); white-space: nowrap; }
 
-  .no-role-sel { color: var(--color-fog); }
   select.role-sel { background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 3px 6px; }
   select.role-sel:disabled { opacity: 0.5; cursor: not-allowed; }
   .sup-hidden { display: none; }
@@ -94,11 +87,6 @@
     <button id="ph-create" class="btn btn-primary btn-sm" onclick="toggleProv()">create user</button>
   </div>
 
-  <div class="stance" title="what you see depends on your role — supervisor sees the directory without role/approve/delete powers">
-    <button id="st-admin" class="on" onclick="setStance('admin')">admin view</button>
-    <button id="st-sup" onclick="setStance('sup')">supervisor view</button>
-  </div>
-
   <div class="prov" id="prov" hidden>
     <input type="email" placeholder="email" style="min-width:200px;">
     <input placeholder="display name" style="min-width:140px;">
@@ -110,7 +98,6 @@
     </select>
     <input type="password" placeholder="starting password (min 8)" style="min-width:180px;">
     <button class="btn btn-primary btn-sm">create</button>
-    <span class="badge" id="prov-note" style="margin-left:auto; color: var(--color-steel);">admin role needs admin stance</span>
   </div>
 
   <div class="a2-list">
@@ -142,14 +129,13 @@ const USERS = [
 ];
 const CAPS = {
   admin:      'everything · roles · settings · audit',
-  supervisor: 'drive · author · any-abort · accounts · audit',
+  supervisor: 'drive · author · any-abort · accounts · roles · audit',
   operator:   'drive · author · own-abort',
   viewer:     'read-only',
   bot:        'engine identity — tokens',
 };
 const ORDER = ['admin','supervisor','operator','viewer','bot'];
 const COLLAPSED = new Set(['bot']);
-let stance = 'admin';
 
 function when(ts) {
   if (!ts) return 'never';
@@ -162,7 +148,7 @@ function when(ts) {
 function render() {
   const tb = document.getElementById('rows');
   tb.innerHTML = '';
-  const meEmail = stance === 'admin' ? 'drill@local' : 'rbacsup@rbac.test';
+  const meEmail = 'drill@local';
   for (const role of ORDER) {
     const members = USERS.filter(u => u.role === role);
     if (!members.length) continue;
@@ -188,24 +174,19 @@ function render() {
       const tr = document.createElement('tr');
       tr.className = 'u-row' + (u.active ? '' : ' inactive');
       const isMe = u.email === meEmail;
-      // role cell: admin stance = select (all four roles); supervisor = plain text
-      const roleCell = stance === 'admin'
-        ? `<select class="role-sel" ${u.role === 'bot' ? 'disabled' : ''}>` +
-          ['viewer','operator','supervisor','admin'].map(r => `<option value="${r}" ${r === u.role ? 'selected' : ''}>${r}</option>`).join('') + `</select>`
-        : `<span class="no-role-sel">${u.role}</span>`;
+      // role cell: full select for both admin and supervisor (users-domain parity)
+      const roleCell = `<select class="role-sel" ${u.role === 'bot' ? 'disabled' : ''}>` +
+        ['viewer','operator','supervisor','admin'].map(r => `<option value="${r}" ${r === u.role ? 'selected' : ''}>${r}</option>`).join('') + `</select>`;
       const status = !u.approved
         ? `<span class="status-pending">pending approval</span>`
         : (u.active ? `<span style="font-size:var(--text-caption);">active</span>` : `<span class="status-off">deactivated</span>`);
-      // actions: supervisor = reset pw / deactivate only (role/approve/delete are admin-only)
+      // actions: identical for admin and supervisor (user decision 2026-10-10 — users-domain parity)
       const acts = u.role === 'bot'
         ? `<span style="font-size:10px;color:var(--color-steel);">token only</span>`
-        : stance === 'admin'
-          ? `${!u.approved ? '<button class="btn btn-sm btn-primary">approve</button>' : ''}` +
-            `<button class="btn btn-sm">reset pw</button>` +
-            `<button class="btn btn-sm">${u.active ? 'deactivate' : 'reactivate'}</button>` +
-            `<button class="btn btn-sm btn-danger">delete</button>`
-          : `<button class="btn btn-sm">reset pw</button>` +
-            `<button class="btn btn-sm">${u.active ? 'deactivate' : 'reactivate'}</button>`;
+        : `${!u.approved ? '<button class="btn btn-sm btn-primary">approve</button>' : ''}` +
+          `<button class="btn btn-sm">reset pw</button>` +
+          `<button class="btn btn-sm">${u.active ? 'deactivate' : 'reactivate'}</button>` +
+          `<button class="btn btn-sm btn-danger">delete</button>`;
       tr.innerHTML = `
         <td><div class="u-name">${u.name}${isMe ? '<span class="you">you</span>' : ''}</div><div class="u-email">${u.email}</div></td>
         <td>${roleCell}</td>
@@ -221,17 +202,6 @@ function render() {
 function toggleProv() {
   const p = document.getElementById('prov');
   p.hidden = !p.hidden;
-}
-function setStance(s) {
-  stance = s;
-  document.getElementById('st-admin').classList.toggle('on', s === 'admin');
-  document.getElementById('st-sup').classList.toggle('on', s === 'sup');
-  document.getElementById('me-badge').textContent = s;
-  // admin-only affordances: the create-user button exists only at admin
-  // stance; the form it reveals closes when leaving the stance
-  document.getElementById('ph-create').style.display = s === 'admin' ? '' : 'none';
-  document.getElementById('prov').hidden = true;
-  render();
 }
 render();
 </script>

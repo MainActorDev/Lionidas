@@ -1,9 +1,9 @@
 # 031 A2 — head-refined (refinement of picked A)
 
-## Variant: aligned grid head + health marks
+## Variant: aligned grid head + health marks · supervisor parity
 
 ### Design stance
-Same role-grouped directory as A; the group head rebuilt as an aligned grid so the five heads read as columns of one ledger, and each head now carries its group's health.
+Same role-grouped directory as A; the group head rebuilt as an aligned grid so the five heads read as columns of one ledger, each head carrying its group's health. **One uniform view — no stance switch** (user decision 2026-10-10: supervisor has the same users-domain capability as admin).
 
 ### What changed vs A
 - **Aligned grid head**: `caret | role (90px = 'supervisor') | digest (1fr) | health | count` — digests and counts line up across all groups (verified: every digest starts at x=269 in the drill)
