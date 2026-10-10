@@ -162,8 +162,9 @@ onBeforeUnmount(() => { ws?.close(); if (pollTimer) clearInterval(pollTimer); })
   <div v-else class="ag-root">
     <ChatSidebar ref="sidebar" :me="me" :active-id="sessionId" @select="openSession" @new-chat="newChat" />
     <div class="mid">
-      <Thread :messages="messages" :title="title" :live="panel?.live ?? false" />
-      <Composer :busy="sending" @send="send" />
+      <Thread :messages="messages" :title="title" :live="panel?.live ?? false">
+        <Composer :busy="sending" @send="send" />
+      </Thread>
     </div>
     <RunPanel ref="panel" :run-id="runId" />
   </div>

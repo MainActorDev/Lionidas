@@ -40,6 +40,7 @@ defineProps<{ messages: Msg[]; title: string; live: boolean }>();
           </template>
         </div>
       </div>
+      <slot></slot>
     </div>
   </section>
 </template>
@@ -57,12 +58,18 @@ defineProps<{ messages: Msg[]; title: string; live: boolean }>();
 .scroll { flex: 1; overflow-y: auto; }
 /* fix #10: bottom padding clears the floating composer (120px + gap) — the
    last bubble never hides under the input */
-.inner { max-width: 720px; margin: 0 auto; padding: var(--s-4) var(--s-4) 160px; display: flex; flex-direction: column; gap: var(--s-4); }
+/* alignment (fix #2): inner and the composer share ONE box rule — width
+   calc(100% - 2*s-4), capped 720, centered — so the AI bubble's left edge
+   and the user bubble's right edge sit exactly on the composer's edges */
+.inner { width: calc(100% - 2 * var(--s-4)); max-width: 720px; margin: 0 auto; padding: var(--s-4) 0 var(--s-4); display: flex; flex-direction: column; gap: var(--s-4); }
 .msg { display: flex; gap: var(--s-3); }
 .msg.user { justify-content: flex-end; }
 .who { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-steel); margin-bottom: 4px; }
 .body { max-width: 82%; min-width: 0; }
-.msg.user .body { background: var(--ag-surface); border: 1px solid var(--ag-line); border-radius: var(--r-sm); border-bottom-right-radius: 0; padding: var(--s-2) var(--s-3); }
+.msg.user .body { background: var(--color-ember); border: 1px solid var(--color-ember); border-radius: var(--r-sm); border-bottom-right-radius: 0; padding: var(--s-2) var(--s-3); }
+.msg.user .txt { color: var(--color-paper); }
+.msg.user .txt :deep(code) { background: rgba(0,0,0,.25); border-color: rgba(0,0,0,.25); }
+.msg.user .txt :deep(a) { color: var(--color-paper); text-decoration: underline; }
 .msg.assistant .body { max-width: 88%; background: #222; border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); border-bottom-left-radius: 0; padding: var(--s-2) var(--s-3); }
 .msg.assistant .txt { color: var(--color-fog); }
 .txt { font-size: var(--text-body); color: var(--color-paper); overflow-wrap: break-word; }
