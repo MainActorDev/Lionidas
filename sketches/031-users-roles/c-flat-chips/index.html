@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>031 C — flat table, role chips (control)</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-mono); font-size: var(--text-body); color: var(--color-paper);
+    background: var(--color-void); line-height: 1.5; padding: 24px; max-width: 1060px; margin: 0 auto;
+  }
+  .ph { display: flex; align-items: baseline; gap: var(--s-3); margin-bottom: var(--s-4); }
+  .ph h1 { font-size: var(--text-heading); font-weight: var(--weight-bold); letter-spacing: 0.02em; }
+  .ph .ph-desc { color: var(--color-steel); font-size: var(--text-caption); }
+  .ph .badge { margin-left: auto; }
+  .badge { display: inline-block; padding: 1px var(--s-2); border: 1px solid var(--color-iron); border-radius: var(--r-sm); font-size: var(--text-caption); color: var(--color-fog); white-space: nowrap; }
+
+  .prov { display: flex; gap: var(--s-2); flex-wrap: wrap; align-items: center; border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); padding: var(--s-3); margin-bottom: var(--s-3); }
+  .prov input, .prov select { background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-body); padding: 5px 8px; }
+  .prov input::placeholder { color: var(--color-steel); }
+
+  .btn { display: inline-flex; align-items: center; border: 1px solid var(--color-slate); border-radius: var(--r-sm); background: var(--color-carbon); color: var(--color-fog); font-family: var(--font-mono); font-size: var(--text-body); padding: 5px 12px; min-height: 28px; cursor: pointer; white-space: nowrap; }
+  .btn:hover { background: var(--color-graphite); color: var(--color-paper); }
+  .btn-primary { background: var(--color-ember); border-color: var(--color-ember); color: var(--color-paper); font-weight: var(--weight-bold); }
+  .btn-sm { min-height: 24px; padding: 2px var(--s-2); font-size: var(--text-caption); }
+
+  .a2-list { border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); overflow-x: hidden; }
+  table { width: 100%; border-collapse: collapse; font-size: var(--text-body); }
+  th, td { text-align: left; padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--color-iron); }
+  thead th { position: sticky; top: 0; color: var(--color-steel); font-weight: var(--weight-regular); font-size: var(--text-caption); text-transform: uppercase; letter-spacing: 0.06em; }
+  tbody tr { transition: background 90ms ease; }
+  tbody tr:hover { background: var(--color-graphite); }
+  tr.inactive { opacity: 0.45; }
+
+  .u-name { color: var(--color-paper); }
+  .u-email { font-size: 10px; color: var(--color-steel); }
+  .when { font-size: 10px; color: var(--color-steel); white-space: nowrap; }
+  .status-pending { color: var(--color-ember); font-size: var(--text-caption); }
+  .status-off { color: var(--color-steel); font-size: var(--text-caption); }
+
+  /* the role chip — hover reveals capabilities (title attr + css fallback detail) */
+  .role-chip { position: relative; display: inline-block; padding: 1px 8px; border: 1px solid var(--color-iron); border-radius: var(--r-sm); font-size: var(--text-caption); color: var(--color-fog); cursor: default; }
+  .role-chip.r-admin { border-color: var(--color-ember-dim); color: var(--color-ember); }
+  .role-chip.r-supervisor { border-color: var(--color-slate); color: var(--color-paper); }
+  .role-wrap { position: relative; display: inline-block; margin-left: 8px; }
+  .caps-pop { display: none; position: absolute; left: 0; top: calc(100% + 4px); z-index: 5; min-width: 240px; background: var(--color-graphite); border: 1px solid var(--color-slate); border-radius: var(--r-sm); padding: 8px 10px; font-size: 11px; color: var(--color-fog); line-height: 1.7; white-space: nowrap; text-align: left; }
+  .caps-pop .k { color: var(--color-steel); }
+  .role-wrap:hover .caps-pop { display: block; }
+  select.role-sel { background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 3px 6px; }
+  select.role-sel:disabled { opacity: 0.5; }
+</style>
+</head>
+<body>
+  <div class="ph">
+    <h1>users</h1>
+    <span class="ph-desc">provisioned accounts · hover a role for its capabilities</span>
+    <span class="badge">admin</span>
+  </div>
+
+  <div class="prov">
+    <input type="email" placeholder="email" style="min-width:200px;">
+    <input placeholder="display name" style="min-width:140px;">
+    <select>
+      <option value="viewer">viewer</option>
+      <option value="operator" selected>operator</option>
+      <option value="supervisor">supervisor</option>
+      <option value="admin">admin</option>
+    </select>
+    <input type="password" placeholder="starting password (min 8)" style="min-width:180px;">
+    <button class="btn btn-primary btn-sm">create</button>
+  </div>
+
+  <div class="a2-list">
+    <table>
+      <thead><tr><th>user</th><th style="width:130px;">role</th><th style="width:80px;">source</th><th style="width:140px;">status</th><th style="width:100px;">last login</th><th style="width:230px; text-align:right;">actions</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+<script>
+const USERS = [
+  { name:'admin', email:'admin@lionparcel.com', role:'admin', src:'local', active:true, approved:true, last:1791599504296 },
+  { name:'drill', email:'drill@local', role:'admin', src:'local', active:true, approved:true, last:1791619167930 },
+  { name:'tmpadm', email:'tmpadm@rbac.test', role:'admin', src:'local', active:false, approved:true, last:null },
+  { name:'rbacsup', email:'rbacsup@rbac.test', role:'supervisor', src:'local', active:true, approved:true, last:1791556767537 },
+  { name:'Bayu Kurniawan', email:'kurniawan.bayu@hotmail.com', role:'operator', src:'jira', active:true, approved:true, last:1790072223311 },
+  { name:'uitest', email:'uitest@local', role:'operator', src:'local', active:true, approved:true, last:1789192733193 },
+  { name:'rbacoperator', email:'rbacoperator@rbac.test', role:'operator', src:'local', active:true, approved:true, last:1791621297705 },
+  { name:'supmade', email:'supmade@rbac.test', role:'operator', src:'local', active:false, approved:true, last:null },
+  { name:'op2', email:'rbacop2@rbac.test', role:'operator', src:'local', active:true, approved:true, last:1791619367357 },
+  { name:'viewer one', email:'viewer1@lionparcel.com', role:'viewer', src:'local', active:false, approved:true, last:1788847187200 },
+  { name:'rbacviewer', email:'rbacviewer@rbac.test', role:'viewer', src:'local', active:true, approved:true, last:1791599568108 },
+  { name:'lioclaw', email:'lioclaw@bot.local', role:'bot', src:'bot', active:true, approved:true, last:null },
+  { name:'guvnor', email:'guvnor@bot.local', role:'bot', src:'bot', active:true, approved:true, last:null },
+];
+const CAPS = {
+  admin:      ['everything', 'roles · approve · settings', 'audit'],
+  supervisor: ['drive · author', 'any-abort', 'accounts · audit'],
+  operator:   ['drive · author', 'own-abort'],
+  viewer:     ['read-only'],
+  bot:        ['engine identity — tokens'],
+};
+function when(ts) {
+  if (!ts) return 'never';
+  const s = Math.round((Date.now() - ts) / 1000);
+  if (s < 3600) return `${Math.max(1, Math.round(s/60))}m ago`;
+  if (s < 86400) return `${Math.round(s/3600)}h ago`;
+  return new Date(ts).toISOString().slice(0,10);
+}
+const tb = document.getElementById('rows');
+for (const u of USERS) {
+  const tr = document.createElement('tr');
+  tr.className = u.active ? '' : 'inactive';
+  const caps = CAPS[u.role].map(c => `<span class="k">·</span> ${c}`).join('<br>');
+  const roleCell = u.role === 'bot'
+    ? `<span class="role-chip">${u.role}</span>`
+    : `<select class="role-sel">${['viewer','operator','supervisor','admin'].map(r => `<option ${r===u.role?'selected':''}>${r}</option>`).join('')}</select>`;
+  const chipCell = `<span class="role-chip r-${u.role}">ⓘ</span><span class="caps-pop">${caps}</span>`;
+  tr.innerHTML = `
+    <td><div class="u-name">${u.name}</div><div class="u-email">${u.email}</div></td>
+    <td>${roleCell}</td>
+    <td><span class="badge">${u.src}</span></td>
+    <td>${!u.approved ? '<span class="status-pending">pending approval</span>' : (u.active ? '<span style="font-size:12px;">active</span>' : '<span class="status-off">deactivated</span>')}</td>
+    <td class="when">${when(u.last)}</td>
+    <td style="text-align:right; white-space:nowrap;">
+      ${u.role === 'bot' ? '<span style="font-size:10px;color:var(--color-steel);">token only</span>' :
+        `${!u.approved ? '<button class="btn btn-sm btn-primary">approve</button>' : ''}<button class="btn btn-sm">reset pw</button><button class="btn btn-sm">${u.active ? 'deactivate' : 'reactivate'}</button><button class="btn btn-sm">delete</button>`}
+    </td>`;
+  // the ⓘ chip carries the hover capabilities (keep select separate so changing role doesn't need hover)
+  const roleTd = tr.children[1];
+  const pop = document.createElement('span');
+  pop.className = 'role-wrap';
+  pop.innerHTML = chipCell;
+  roleTd.appendChild(pop);
+  tb.appendChild(tr);
+}
+</script>
+</body>
+</html>
