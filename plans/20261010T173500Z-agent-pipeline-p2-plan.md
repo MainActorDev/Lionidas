@@ -16,6 +16,7 @@
 | L4 | References: Jira subtask, GitHub PR/commit, attached doc, codebase — merged via Butler sources into ONE knowledge artifact (kind `knowledge`), then consumed by stages | brainstorm (accepted direction) |
 | L5 | Pipeline outputs = validating draft cases/suites (existing seam) + artifacts: `scope` doc, `breakdown` table, `knowledge` doc — durable, listed, referenceable | brainstorm (accepted direction) |
 | L6 | a11y inspector is NOT in P2 (P4: branch+PR, human merges, existing builds) | operator Q3 answer |
+| L7 | **Knowledge is a persistent per-app wiki, not per-run** (operator "fold that" 2026-10-10, LLM-wiki pattern): refs integrate INTO maintained `app:<bundle>` knowledge pages that compound across runs; each run also saves an immutable snapshot artifact for provenance. Contradictions with prior knowledge are FLAGGED (refined/refuted reasons ride Butler's C2b supersession), never silently overwritten | this round; depends on Butler P1 D6/D7 |
 
 ## Objective
 
@@ -24,8 +25,8 @@ An operator (or later the chat UI) can start an author-pipeline run against a se
 ## Completion conditions
 
 1. Butler pinned at `v0.3.0` (`@mainactordev/butler@git+…#v0.3.0`); `pnpm check` green.
-2. **Profiles** (`server/src/agent/profiles.ts`): `planner`, `breaker`, `author` — each: system prompt (planner = scope/AC extraction + question-asking contract; breaker = organization/dedupe vs existing cases; author = the EXISTING LIONIDAS_SYSTEM_PROMPT), tool subsets (planner: reads+sources+notes; breaker: reads+notes; author: reads+draft+notes), DRAFT policy, executor from env (`AGENT_PLANNER_PROVIDER` etc., default openai-compat glm), budgets per stage.
-3. **Reference intake + knowledge stage**: `POST /api/agent/pipeline` with `{ refs: [{kind:'jira'|'github-pr'|'github-commit'|'doc'|'repo', locator, …}] }` → each ref ingested via existing connectors → a **knowledge artifact** compiled (per-ref provenance sections, contradictions/open-assumptions section) — stored via Butler artifacts, id returned.
+2. **Profiles** (`server/src/agent/profiles.ts`): `planner`, `breaker`, `author` — each: system prompt (planner = scope/AC extraction + question-asking contract; breaker = organization/dedupe vs existing cases; author = the EXISTING LIONIDAS_SYSTEM_PROMPT), tool subsets (planner: reads+sources+notes; breaker: reads+notes; author: reads+draft+notes), DRAFT policy, executor from env (`AGENT_PLANNER_PROVIDER` etc., default openai-compat glm), budgets per stage. **Memory scopes per profile (Butler D6a):** planner reads `app:<bundle>/*` conventions + pitfalls (compounding knowledge feeds planning); breaker reads the same; author additionally reads `app:<bundle>/screen:*` selector-trust notes. **Distillation (Butler D6b):** the author stage's `onStageComplete` writes back `selector-trust`/`convention` notes provenance-linked to the run + stage — run N's discoveries are run N+1's planner context.
+3. **Reference intake + knowledge stage**: `POST /api/agent/pipeline` with `{ refs: [{kind:'jira'|'github-pr'|'github-commit'|'doc'|'repo', locator, …}] }` → each ref ingested via existing connectors → **knowledge integration (L7)**: the compile step reads the app's CURRENT knowledge page (versioned artifact, kind `knowledge`), integrates the new refs into it (per-ref provenance sections, contradictions vs prior knowledge flagged with refined/refuted reasons via Butler C2b), saves the new version, and ALSO saves an immutable per-run snapshot artifact — the living page compounds; the snapshot proves what THIS run saw.
 4. **Pipeline mount**: the three-stage Butler workflow wired: knowledge → planner (may PAUSE with questions) → breaker → author (saves cases via `case.draft.save`, folders via existing folder tools, selector notes). Run rows visible via `GET /api/agent/pipeline/:id` (stage states, artifacts, draft case ids); `POST /api/agent/pipeline/:id/answer` resumes a paused run. All routes operator-gated (existing hook).
 5. **Events**: pipeline/stage/artifact/question transitions emitted on the existing bus as typed `agent.*` events (extends the shipped agent event bridge) — WS test proves a pause→answer cycle reaches a subscriber.
 6. **Artifacts surface (API-only)**: `GET /api/agent/artifacts?runId=&kind=` list + `GET /api/agent/artifacts/:id` fetch (versioned). (No UI — P3.)
@@ -60,7 +61,7 @@ server/src/agent/
 
 ## Validation
 
-- Contract tests: profile resolution w/ env executors; knowledge compile from fixture refs (provenance sections asserted); workflow pause/resume via API; artifacts versioning; event bridge.
+- Contract tests: profile resolution w/ env executors; **scope-filtered note injection per profile**; knowledge compile from fixture refs (provenance sections asserted); **two-run compounding — run 2's knowledge page contains run 1's integrated knowledge + the new refs, contradictions flagged not overwritten**; workflow pause/resume via API; artifacts versioning; event bridge.
 - Live drill per C7 on the real server (mock + glm legs), logged.
 - Gates: server tsc + full suite green; web untouched (40/40 stays).
 
