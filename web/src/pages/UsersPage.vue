@@ -64,6 +64,7 @@ const users = ref<U[]>([]);
 const err = ref('');
 const msg = ref('');
 const showForm = ref(false);
+const tab = ref<'directory' | 'sessions' | 'log'>('directory'); // segmented switch between the admin tables
 const form = ref({ email: '', name: '', role: 'operator', password: '' });
 const creating = ref(false);
 
@@ -189,12 +190,19 @@ onMounted(() => {
       <button class="btn btn-primary btn-sm" :disabled="creating || !form.email || !form.name || form.password.length < 8" @click="creating = true; create().finally(() => { creating = false; })">create</button>
     </div>
 
+    <!-- segmented switch between the directory tables (sketch 031 a2 follow-up) -->
+    <div v-if="isDirectory" class="a2-tabs" style="margin-bottom: var(--s-3);">
+      <button class="a2-tab" :class="{ on: tab === 'directory' }" @click="tab = 'directory'">directory <span class="n">{{ users.length }}</span></button>
+      <button class="a2-tab" :class="{ on: tab === 'sessions' }" @click="tab = 'sessions'">sessions <span class="n">{{ sessions.length }}</span></button>
+      <button class="a2-tab" :class="{ on: tab === 'log' }" @click="tab = 'log'">auth log <span class="n">{{ log.length }}</span></button>
+    </div>
+
     <div v-if="err" class="meta-row" style="color: var(--color-ember); margin-bottom: 10px;">{{ err }}</div>
     <div v-if="msg" class="meta-row" style="color: var(--color-fog); margin-bottom: 10px;">{{ msg }}</div>
 
     <!-- role-grouped directory (sketch 031 a2): ONE list box, sticky thead,
          .a2-group-head rows carry digest + health + count -->
-    <div v-if="isDirectory" class="a2-list" style="margin-bottom: var(--s-4);">
+    <div v-if="isDirectory && tab === 'directory'" class="a2-list" style="margin-bottom: var(--s-4);">
       <table>
         <thead>
           <tr><th>user</th><th style="width: 120px;">role</th><th style="width: 80px;">source</th><th style="width: 150px;">status</th><th style="width: 130px;">last login</th><th style="width: 250px; text-align: right;">actions</th></tr>
@@ -329,8 +337,7 @@ onMounted(() => {
     </div>
 
     <template v-if="isDirectory">
-      <div class="section-label" style="margin-top: var(--s-4);"><span>active sessions</span></div>
-      <div class="a2-list" v-if="sessions.length > 0">
+      <div class="a2-list" v-if="tab === 'sessions' && sessions.length > 0">
         <table>
           <thead><tr><th>user</th><th>last seen</th><th>expires</th><th style="text-align: right;"></th></tr></thead>
           <tbody>
@@ -344,8 +351,7 @@ onMounted(() => {
         </table>
       </div>
 
-      <div class="section-label" style="margin-top: var(--s-4);"><span>auth log</span></div>
-      <div class="a2-list" v-if="log.length > 0">
+      <div class="a2-list" v-if="tab === 'log' && log.length > 0">
         <table>
           <thead><tr><th>when</th><th>who</th><th>event</th><th>detail</th></tr></thead>
           <tbody>
