@@ -60,7 +60,7 @@ async function openSession(id: string): Promise<void> {
 
 async function newChat(): Promise<void> {
   // create the butler session up-front so the run binds immediately
-  const r = await fetch('/api/agent/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: null }) });
+  const r = await fetch('/api/agent/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: null, userId: me.value?.id ?? null }) });
   if (r.ok) {
     const b = (await r.json()) as { session: { id: string } };
     sessionId.value = b.session.id;
@@ -71,12 +71,30 @@ async function newChat(): Promise<void> {
   }
 }
 
+/** fix #8 — once per chat: derive a human title from the first user message. */
+function maybeAutoTitle(text: string): void {
+  if (title.value !== 'new chat' || text.trim().length < 4) return;
+  const stripped = text
+    .replace(/^\s*(please\s+)?(draft|write|create|make|generate|prepare)\s+/i, '')
+    .replace(/^(test|check|verification)\s+cases?\s*/i, '')
+    .replace(/\s+(test|check|verification)\s+cases?\s*$/i, '')
+    .replace(/\s+(for|of|from|about)\s+/i, ' ')
+    .trim()
+    .slice(0, 48)
+    .trim();
+  if (!stripped) return;
+  const nice = stripped.charAt(0).toUpperCase() + stripped.slice(1);
+  title.value = nice;
+  if (sessionId.value) void fetch(`/api/agent/sessions/${sessionId.value}/title`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: nice }) }).then(() => sidebar.value?.load());
+}
+
 async function send(text: string, refs: PipelineRef[], appBundle: string): Promise<void> {
   if (!sessionId.value) await newChat();
   const sid = sessionId.value!;
   sending.value = true;
   const prettyRefs = refs.map((r) => ({ kind: r.kind, name: r.locator }));
   messages.value = [...messages.value, { role: 'user', text, refs: prettyRefs }];
+  maybeAutoTitle(text);
   try {
     // deterministic rule (plan F4): refs ⇒ pipeline + chat turn; else chat only
     if (refs.length) {

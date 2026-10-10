@@ -1,22 +1,26 @@
-/* ═══ Agent chat surface — scoped theme (rev 3: house Axiom, per operator
- *   direction 2026-10-10 "refine to match the whole ecosystem").
- *   The chat stays inside the shell's .main grid area; it fills that pane
- *   edge-to-edge and speaks the house language: void canvas, carbon
- *   surfaces, iron hairlines, ember accent used sparingly (live state,
- *   questions, drafts), mono type, 2px corners, no glows, no serif. */
+/* ═══ Agent chat surface — scoped theme (rev 4, operator direction 2026-10-10):
+ *   keep the house STRUCTURE (mono type, 2px corners, flat borders, ember
+ *   accent, hairline column separation) but soften the canvas — dark gray,
+ *   not full black (#9). Scoped to /agent only. */
 
 .ag-root {
+  /* soft-dark neutrals (page-scoped) */
+  --ag-bg: #141414;        /* chat canvas — dark gray, not #000 */
+  --ag-panel: #181818;     /* sidebar + run panel */
+  --ag-surface: #1f1f1f;   /* cards, bubbles, composer */
+  --ag-line: #2a2a2a;      /* hairlines */
+  --ag-line-2: #3a3a3a;    /* control borders */
+  --ag-head-h: 48px;       /* shared header band (fix #4) */
+
   font-family: var(--font-mono);
   font-size: var(--text-body);
   line-height: 1.6;
   color: var(--color-paper);
-  background: var(--color-void);
+  background: var(--ag-bg);
   height: calc(100vh - var(--topbar-h));
   display: flex;
   flex-direction: row;
   min-height: 0;
-  /* cancel .main's padding so the chat owns the full pane (three columns
-   * separated by hairlines, like the shell's own surfaces) */
   margin: calc(-1 * var(--s-6));
   width: calc(100% + 2 * var(--s-6));
 }

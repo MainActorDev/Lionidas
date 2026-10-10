@@ -67,20 +67,20 @@ function onKey(e: KeyboardEvent): void {
 
 <style scoped>
 .wrap { position: absolute; bottom: 0; left: 0; right: 0; pointer-events: none; padding: 0 var(--s-4); }
-.composer { pointer-events: auto; max-width: 720px; margin: 0 auto var(--s-3); border: 1px solid var(--color-slate); border-radius: var(--r-sm); padding: var(--s-2) var(--s-3); background: var(--color-carbon); }
+.composer { pointer-events: auto; max-width: 720px; margin: 0 auto var(--s-3); border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); padding: var(--s-2) var(--s-3); background: var(--ag-surface); }
 .composer:focus-within { border-color: var(--color-ember-dim); }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: var(--s-2); align-items: center; }
-.chip { border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 1px var(--s-2); font-size: var(--text-caption); color: var(--color-fog); background: var(--color-void); cursor: pointer; font-family: var(--font-mono); }
+.chip { border: 1px solid var(--ag-line); border-radius: var(--r-sm); padding: 1px var(--s-2); font-size: var(--text-caption); color: var(--color-fog); background: var(--ag-panel); cursor: pointer; font-family: var(--font-mono); }
 .chip.jira { color: var(--color-ember); border-color: var(--color-ember-dim); }
 .chip:hover { background: var(--color-graphite); }
 .picker { display: inline-flex; gap: 6px; align-items: center; }
-.picker select, .picker input, .bundle { background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); outline: none; color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 3px var(--s-2); }
+.picker select, .picker input, .bundle { background: var(--ag-panel); border: 1px solid var(--ag-line); border-radius: var(--r-sm); outline: none; color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 3px var(--s-2); }
 .picker input { width: 190px; }
-.mini { border: 1px solid var(--color-slate); border-radius: var(--r-sm); background: var(--color-carbon); color: var(--color-fog); font-family: var(--font-mono); font-size: var(--text-caption); padding: 2px var(--s-2); cursor: pointer; }
+.mini { border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); background: var(--ag-surface); color: var(--color-fog); font-family: var(--font-mono); font-size: var(--text-caption); padding: 2px var(--s-2); cursor: pointer; }
 .mini:hover { color: var(--color-paper); }
 textarea { width: 100%; background: none; border: none; outline: none; color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-body); resize: none; min-height: 30px; }
 .row { display: flex; align-items: center; gap: var(--s-2); margin-top: 6px; }
-.icon { min-height: 24px; padding: 2px var(--s-2); border: 1px solid var(--color-slate); border-radius: var(--r-sm); background: var(--color-carbon); color: var(--color-fog); cursor: pointer; font-size: var(--text-caption); font-family: var(--font-mono); }
+.icon { min-height: 24px; padding: 2px var(--s-2); border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); background: var(--ag-surface); color: var(--color-fog); cursor: pointer; font-size: var(--text-caption); font-family: var(--font-mono); }
 .icon:hover { background: var(--color-graphite); color: var(--color-paper); }
 .bundle { width: 220px; }
 .hint { font-size: var(--text-caption); color: var(--color-steel); }

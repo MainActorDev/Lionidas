@@ -29,6 +29,10 @@ async function mountPage(role = 'operator'): Promise<ReturnType<typeof mount>> {
   fetchMock.mockImplementation((url: string, init?: { method?: string }) => {
     if (url === '/api/auth/me') return Promise.resolve(jsonOk(me(role)));
     if (url === '/api/agent/sessions' && init?.method === 'POST') return Promise.resolve(jsonOk({ session: { id: 's_new' } }));
+    if (url === '/api/agent/chats') return Promise.resolve(jsonOk({ chats: [
+      { id: 's1', title: 'DEMO-101 cases', status: 'active', updatedAt: Date.now() - 60_000, owner: 'Bayu', ownerRole: 'operator' },
+      { id: 's2', title: 'payments sweep', status: 'ended', updatedAt: Date.now() - 3_600_000, owner: 'Bayu', ownerRole: 'operator' },
+    ] }));
     if (url === '/api/agent/sessions') return Promise.resolve(jsonOk({ sessions: [
       { id: 's1', title: 'DEMO-101 cases', user_id: 'u1', status: 'active', created_at: 1, updated_at: Date.now() - 60_000 },
       { id: 's2', title: 'payments sweep', user_id: 'u1', status: 'ended', created_at: 1, updated_at: Date.now() - 3_600_000 },

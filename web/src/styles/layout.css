@@ -7,7 +7,7 @@
   grid-template-areas:
     "logo  topbar"
     "nav   main";
-  min-height: 100vh;
+  height: 100vh;
   background: var(--color-void);
 }
 
