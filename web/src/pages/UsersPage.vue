@@ -191,7 +191,7 @@ onMounted(() => {
       </select>
       <input v-model="form.password" type="password" placeholder="starting password (min 8)" style="min-width: 180px;">
       <button class="btn btn-primary btn-sm" :disabled="creating || !form.email || !form.name || form.password.length < 8" @click="creating = true; create().finally(() => { creating = false; })">create</button>
-      <button class="btn btn-sm" style="margin-left: auto;" title="close" @click="showForm = false">✕</button>
+      <button class="btn btn-sm" title="close without saving" @click="showForm = false">cancel</button>
     </div>
 
     <!-- segmented switch between the tables (sketch 031 a2 follow-up).
