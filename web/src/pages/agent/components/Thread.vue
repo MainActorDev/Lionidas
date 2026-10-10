@@ -18,7 +18,6 @@ defineProps<{ messages: Msg[]; title: string; live: boolean; waiting: boolean }>
     </div>
     <div class="scroll">
       <div class="inner">
-        <div v-if="waiting" class="msg assistant waiting"><div class="body"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div>
         <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
           <template v-if="m.role === 'user'">
             <div class="body">
@@ -40,6 +39,7 @@ defineProps<{ messages: Msg[]; title: string; live: boolean; waiting: boolean }>
             <div class="sys">{{ m.text }}</div>
           </template>
         </div>
+        <div v-if="waiting" class="msg assistant waiting"><div class="body"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div>
       </div>
       <slot></slot>
     </div>
@@ -56,13 +56,13 @@ defineProps<{ messages: Msg[]; title: string; live: boolean; waiting: boolean }>
 .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--color-ember); animation: agpulse 1.3s infinite; }
 @keyframes agpulse { 50% { opacity: .3; } }
 
-.scroll { flex: 1; overflow-y: auto; }
+.scroll { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
 /* fix #10: bottom padding clears the floating composer (120px + gap) — the
    last bubble never hides under the input */
 /* alignment (fix #2): inner and the composer share ONE box rule — width
    calc(100% - 2*s-4), capped 720, centered — so the AI bubble's left edge
    and the user bubble's right edge sit exactly on the composer's edges */
-.inner { width: calc(100% - 2 * var(--s-4)); max-width: 720px; margin: 0 auto; padding: var(--s-4) 0 var(--s-4); display: flex; flex-direction: column; gap: var(--s-4); }
+.inner { flex: 1; width: calc(100% - 2 * var(--s-4)); max-width: 720px; margin: 0 auto; padding: var(--s-4) 0 var(--s-4); display: flex; flex-direction: column; justify-content: flex-end; gap: var(--s-4); }
 .msg { display: flex; gap: var(--s-3); }
 .msg.user { justify-content: flex-end; }
 .who { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-steel); margin-bottom: 4px; }

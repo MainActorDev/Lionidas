@@ -41,7 +41,7 @@ async function mountPage(role = 'operator'): Promise<ReturnType<typeof mount>> {
       { role: 'user', content: 'draft cases' },
       { role: 'assistant', content: 'on it' },
     ] }));
-    if (url.includes('/messages')) return Promise.resolve(jsonOk({ answer: 'mock reply' }));
+    if (url.includes('/messages')) return Promise.resolve(jsonOk({ turn: { ok: true, answer: 'mock reply' } }));
     if (url === '/api/agent/pipeline') return Promise.resolve(jsonOk({ runId: 'wfr_new', status: 'done', stages: [] }));
     return Promise.resolve(jsonOk({}));
   });

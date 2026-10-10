@@ -131,8 +131,13 @@ async function send(text: string, refs: PipelineRef[], appBundle: string): Promi
     } else {
       const r = await fetch(`/api/agent/sessions/${sid}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: text }) });
       if (r.ok) {
-        const b = (await r.json()) as { answer?: string };
-        messages.value = [...messages.value, { role: 'assistant', text: b.answer ?? '(no answer)' }];
+        // butler contract: { turn: { ok, answer?, error? } } — the request can
+        // succeed while the turn failed (outcome carries the verdict)
+        const b = (await r.json()) as { turn?: { ok?: boolean; answer?: string; error?: string } };
+        const t = b.turn;
+        if (t?.answer) messages.value = [...messages.value, { role: 'assistant', text: t.answer }];
+        else if (t?.error) messages.value = [...messages.value, { role: 'system', text: `turn failed: ${t.error}` }];
+        else messages.value = [...messages.value, { role: 'system', text: 'turn returned no answer' }];
       } else {
         messages.value = [...messages.value, { role: 'system', text: 'turn failed' }];
       }
