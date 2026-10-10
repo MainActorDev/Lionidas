@@ -133,7 +133,7 @@ describe('POST /api/devices/:udid/uninstall', () => {
     expect(db.prepare("SELECT 1 FROM auth_log WHERE event = 'app_uninstalled'").get()).toBeFalsy();
   });
 
-  it('session-only (D5/B): viewer role passes — matches the app-ops family', async () => {
+  it('viewer role is 403 — app-ops are operator+ since the RBAC round', async () => {
     fakeXcrun();
     seedDevice(U, 'Booted');
     const viewerApp = Fastify();
@@ -141,7 +141,7 @@ describe('POST /api/devices/:udid/uninstall', () => {
     registerManualRoutes(viewerApp, db, { bus: { emit: () => undefined } as never, artifactsDir: root, forgeState: { activeRunId: null } as never, dispatchDeps: null } as never);
     await viewerApp.ready();
     const r = await viewerApp.inject({ method: 'POST', url: `/api/devices/${U}/uninstall`, payload: { bundleId: APP } });
-    expect(r.statusCode).toBe(200);
+    expect(r.statusCode).toBe(403);
     await viewerApp.close();
   });
 });

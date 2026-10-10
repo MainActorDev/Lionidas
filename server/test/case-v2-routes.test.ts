@@ -22,6 +22,7 @@ beforeEach(() => {
   db = new Database(join(tmp, 't.db'));
   migrateM1(db);
   app = Fastify();
+  app.addHook('onRequest', async (req: import('fastify').FastifyRequest) => { (req as unknown as { user: unknown }).user = { name: 'test-op', role: 'operator', id: 'usr_t' }; });
   registerTemplateRoutes(app, db, { emit: () => undefined } as never);
   // seed a registry screen: tracking { loading, loaded, error }
   db.prepare('INSERT INTO app_screens(app_bundle_id, screen_id, entry_json, refresh_json, states_json, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
@@ -35,7 +36,14 @@ afterEach(() => {
   rmSync(tmp, { recursive: true, force: true });
 });
 
-const put = (yaml: string) => app.inject({ method: 'PUT', url: '/api/templates/tpl_v2/yaml', payload: { yaml } });
+// collision-safety: yaml saves carry the conflict token (load → save)
+const tok = async (): Promise<number> => {
+  const g = await app.inject({ method: 'GET', url: '/api/templates/tpl_v2/yaml' });
+  const row = db.prepare('SELECT updated_at FROM templates WHERE id = ?').get('tpl_v2') as { updated_at: number };
+  void g;
+  return row.updated_at;
+};
+const put = async (yaml: string) => app.inject({ method: 'PUT', url: '/api/templates/tpl_v2/yaml', payload: { yaml, expectedUpdatedAt: await tok() } });
 
 describe('S4 — save resolution', () => {
   beforeEach(() => {

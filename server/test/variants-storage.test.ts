@@ -9,6 +9,15 @@ import { join } from 'node:path';
 import { buildApp } from '../src/index.ts';
 import { migrateM1 } from '../src/db/schema.ts';
 
+// collision-safety: content PUTs carry the row's CURRENT updated_at token
+async function tokOf(id: string): Promise<number> {
+  const r = (db.prepare('SELECT updated_at FROM templates WHERE id = ?').get(id) as { updated_at: number } | undefined);
+  return r?.updated_at ?? 0;
+}
+
+
+
+
 let db: Database.Database;
 let tmp: string;
 let app: Awaited<ReturnType<typeof buildApp>>;
@@ -49,7 +58,7 @@ steps:
 
 describe('variants storage round-trip', () => {
   it('PUT yaml persists variants_json; GET yaml returns them; table carries ids', async () => {
-    const put = await app.app.inject({ method: 'PUT', url: '/api/templates/tpl_v/yaml', payload: { yaml: YAML_3 } });
+    const put = await app.app.inject({ method: 'PUT', url: '/api/templates/tpl_v/yaml', payload: { yaml: YAML_3, expectedUpdatedAt: await tokOf('tpl_v') } });
     expect(put.statusCode).toBe(200);
     const stored = db.prepare('SELECT variants_json FROM templates WHERE id = ?').get('tpl_v') as { variants_json: string | null };
     expect(stored.variants_json).toBeTruthy();
@@ -69,7 +78,7 @@ describe('variants storage round-trip', () => {
 
   it('unknown scenario → 422 naming variant + scenario; nothing persisted', async () => {
     const bad = YAML_3.replace('account-active', 'no-such-scenario');
-    const put = await app.app.inject({ method: 'PUT', url: '/api/templates/tpl_v/yaml', payload: { yaml: bad } });
+    const put = await app.app.inject({ method: 'PUT', url: '/api/templates/tpl_v/yaml', payload: { yaml: bad, expectedUpdatedAt: await tokOf('tpl_v') } });
     expect(put.statusCode).toBe(422);
     const body = put.json() as { errors: Array<{ message: string }> };
     expect(body.errors[0]!.message).toContain('variant "active": unknown scenario "no-such-scenario"');
@@ -79,7 +88,7 @@ describe('variants storage round-trip', () => {
 
   it('variantless save leaves variants_json NULL and GET yaml has no variants block (compat)', async () => {
     const plain = 'name: case v\nsteps:\n  - tap: { point: [1, 2] }\n';
-    const put = await app.app.inject({ method: 'PUT', url: '/api/templates/tpl_v/yaml', payload: { yaml: plain } });
+    const put = await app.app.inject({ method: 'PUT', url: '/api/templates/tpl_v/yaml', payload: { yaml: plain, expectedUpdatedAt: await tokOf('tpl_v') } });
     expect(put.statusCode).toBe(200);
     const get = await app.app.inject({ method: 'GET', url: '/api/templates/tpl_v/yaml' });
     const y = (get.json() as { yaml: string }).yaml;
@@ -89,9 +98,9 @@ describe('variants storage round-trip', () => {
   });
 
   it('removing the variants key clears variants_json (not just left stale)', async () => {
-    await app.app.inject({ method: 'PUT', url: '/api/templates/tpl_v/yaml', payload: { yaml: YAML_3 } });
+    await app.app.inject({ method: 'PUT', url: '/api/templates/tpl_v/yaml', payload: { yaml: YAML_3, expectedUpdatedAt: await tokOf('tpl_v') } });
     const plain = 'name: case v\nsteps:\n  - tap: { point: [1, 2] }\n';
-    await app.app.inject({ method: 'PUT', url: '/api/templates/tpl_v/yaml', payload: { yaml: plain } });
+    await app.app.inject({ method: 'PUT', url: '/api/templates/tpl_v/yaml', payload: { yaml: plain, expectedUpdatedAt: await tokOf('tpl_v') } });
     const row = db.prepare('SELECT variants_json FROM templates WHERE id = ?').get('tpl_v') as { variants_json: string | null };
     expect(row.variants_json).toBeNull();
   });

@@ -49,6 +49,7 @@ beforeEach(async () => {
   __setAlloyForTest(fakeAlloy({})); // placeholder so initAlloyRuntime can resolve createRuntime
   await initAlloyRuntime();         // alloyDispatchDepsSync() needs the singleton
   app = Fastify();
+  app.addHook('onRequest', async (req: import('fastify').FastifyRequest) => { (req as unknown as { user: unknown }).user = { name: 'test-op', role: 'operator', id: 'usr_t' }; });
   registerDeviceRoutes(app, db);
   const devicesMod = await import('../src/routes/devices.ts');
   devicesMod.__setDeviceStateSourceForTest((u, cb) => {

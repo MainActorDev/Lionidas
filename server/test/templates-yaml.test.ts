@@ -4,6 +4,15 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { registerTemplateRoutes } from '../src/routes/templates.ts';
 import { migrateM1 } from '../src/db/schema.ts';
 
+// collision-safety: content PUTs carry the row's CURRENT updated_at token
+async function tokOf(id: string): Promise<number> {
+  const r = (db.prepare('SELECT updated_at FROM templates WHERE id = ?').get(id) as { updated_at: number } | undefined);
+  return r?.updated_at ?? 0;
+}
+
+
+
+
 /** T1: YAML routes — validate (pure), GET :id/yaml (name resolution for
  *  runFlow), PUT :id/yaml (validate → resolve → persist). One validator backs
  *  both preview and save. */
@@ -21,7 +30,8 @@ const mkCase = (id: string, name: string, steps: unknown[], extra = ''): void =>
 beforeEach(async () => {
   db = new Database(':memory:');
   migrateM1(db);
-  app = Fastify();
+  app = Fastify()
+  app.addHook('onRequest', async (req: import('fastify').FastifyRequest) => { (req as unknown as { user: unknown }).user = { name: 'test-op', role: 'operator', id: 'usr_t' }; });;
   registerTemplateRoutes(app, db);
   await app.ready();
 });
@@ -72,7 +82,7 @@ describe('PUT /api/templates/:id/yaml', () => {
       .replace('on: Old', 'on: New')
       .replace('name: edit me', 'name: edited name')
       + '  - expect: Saved\n';
-    const res = await app.inject({ method: 'PUT', url: '/api/templates/tpl_editme1/yaml', payload: { yaml: edited } });
+    const res = await app.inject({ method: 'PUT', url: '/api/templates/tpl_editme1/yaml', payload: { yaml: edited, expectedUpdatedAt: await tokOf('tpl_editme1') } });
     expect(res.statusCode).toBe(200);
     const row = db.prepare('SELECT name, steps_json FROM templates WHERE id = ?').get('tpl_editme1') as { name: string; steps_json: string };
     expect(row.name).toBe('edited name');
@@ -83,7 +93,7 @@ describe('PUT /api/templates/:id/yaml', () => {
 
   it('422 with the validator errors on schema violation', async () => {
     mkCase('tpl_badyaml', 'bad', [{ action: 'scroll', direction: 'down', idx: 0 }]);
-    const res = await app.inject({ method: 'PUT', url: '/api/templates/tpl_badyaml/yaml', payload: { yaml: 'name: x\nsteps:\n  - tap: { point: [1, 2], optinal: true }\n' } });
+    const res = await app.inject({ method: 'PUT', url: '/api/templates/tpl_badyaml/yaml', payload: { yaml: 'name: x\nsteps:\n  - tap: { point: [1, 2], optinal: true }\n', expectedUpdatedAt: await tokOf('tpl_badyaml') } });
     expect(res.statusCode).toBe(422);
     const b = res.json() as { errors: Array<{ message: string }> };
     expect(b.errors[0]!.message).toContain('optinal');
@@ -92,9 +102,9 @@ describe('PUT /api/templates/:id/yaml', () => {
   it('409 on runFlow name that does not exist; resolves valid names to ids', async () => {
     mkCase('tpl_flowa01', 'flow-a', [{ action: 'scroll', direction: 'down', idx: 0 }]);
     mkCase('tpl_flowb02', 'uses-flow', [{ action: 'scroll', direction: 'up', idx: 0 }]);
-    const missing = await app.inject({ method: 'PUT', url: '/api/templates/tpl_flowb02/yaml', payload: { yaml: 'name: x\nsteps:\n  - runFlow: no-such-case\n' } });
+    const missing = await app.inject({ method: 'PUT', url: '/api/templates/tpl_flowb02/yaml', payload: { yaml: 'name: x\nsteps:\n  - runFlow: no-such-case\n', expectedUpdatedAt: await tokOf('tpl_flowb02') } });
     expect(missing.statusCode).toBe(409);
-    const ok = await app.inject({ method: 'PUT', url: '/api/templates/tpl_flowb02/yaml', payload: { yaml: 'name: x\nsteps:\n  - runFlow: flow-a\n' } });
+    const ok = await app.inject({ method: 'PUT', url: '/api/templates/tpl_flowb02/yaml', payload: { yaml: 'name: x\nsteps:\n  - runFlow: flow-a\n', expectedUpdatedAt: await tokOf('tpl_flowb02') } });
     expect(ok.statusCode).toBe(200);
     const steps = JSON.parse((db.prepare('SELECT steps_json FROM templates WHERE id = ?').get('tpl_flowb02') as { steps_json: string }).steps_json) as Array<Record<string, unknown>>;
     expect(steps[0]).toMatchObject({ action: 'runFlow', templateId: 'tpl_flowa01' }); // name resolved to id
@@ -103,13 +113,13 @@ describe('PUT /api/templates/:id/yaml', () => {
   it('rename collision via yaml → 409 (templates.name is UNIQUE — ambiguity impossible)', async () => {
     mkCase('tpl_dup00001', 'taken', []);
     mkCase('tpl_dup00002', 'renamer', []);
-    const res = await app.inject({ method: 'PUT', url: '/api/templates/tpl_dup00002/yaml', payload: { yaml: 'name: taken\nsteps:\n  - scroll: down\n' } });
+    const res = await app.inject({ method: 'PUT', url: '/api/templates/tpl_dup00002/yaml', payload: { yaml: 'name: taken\nsteps:\n  - scroll: down\n', expectedUpdatedAt: await tokOf('tpl_dup00002') } });
     expect(res.statusCode).toBe(409);
     expect(((res.json() as { errors: Array<{ message: string }> }).errors[0]!.message)).toContain('already exists');
   });
 
   it('404 unknown id', async () => {
-    expect((await app.inject({ method: 'PUT', url: '/api/templates/nope/yaml', payload: { yaml: 'name: x\nsteps:\n  - scroll: down\n' } })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'PUT', url: '/api/templates/nope/yaml', payload: { yaml: 'name: x\nsteps:\n  - scroll: down\n', expectedUpdatedAt: await tokOf('nope') } })).statusCode).toBe(404);
   });
 });
 

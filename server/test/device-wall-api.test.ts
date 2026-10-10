@@ -46,6 +46,7 @@ beforeEach(async () => {
   db = new Database(join(tmp, 't.db'));
   migrateM1(db);
   app = Fastify();
+  app.addHook('onRequest', async (req: import('fastify').FastifyRequest) => { if (req.headers['x-test-auth'] !== 'none') (req as unknown as { user: unknown }).user = { name: 'test-op', role: 'operator', id: 'usr_t' }; });
   registerUserResolution(app, db);
   registerDeviceRoutes(app, db);
   // fake power-state source: reads the devices table (the stub flips it on shutdown;
@@ -107,7 +108,7 @@ describeIfAlloy('T2 — pins', () => {
 
   it('anonymous pin toggle is 401', async () => {
     seed(UDID_A, 'Shutdown');
-    const r = await app.inject({ method: 'PUT', url: `/api/devices/${UDID_A}/pin` });
+    const r = await app.inject({ method: 'PUT', url: `/api/devices/${UDID_A}/pin`, headers: { 'x-test-auth': 'none' } });
     expect(r.statusCode).toBe(401);
   });
 });
