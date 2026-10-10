@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>032 A — agent dock</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font-mono); font-size: var(--text-body); color: var(--color-paper); background: var(--color-void); line-height: 1.5; overflow: hidden; height: 100vh; display: flex; }
+
+  /* shell stub: rail + main */
+  .rail { width: 44px; border-right: 1px solid var(--color-iron); display: flex; flex-direction: column; align-items: center; padding-top: 8px; gap: 6px; }
+  .rail .glyph { width: 30px; height: 30px; display: grid; place-items: center; border-radius: var(--r-sm); color: var(--color-pewter); cursor: pointer; font-size: 13px; }
+  .rail .glyph:hover { color: var(--color-paper); background: var(--color-graphite); }
+  .rail .glyph.on { color: var(--color-ember); background: var(--color-graphite); }
+  .main { flex: 1; padding: 20px 24px; overflow-y: auto; }
+  .main h1 { font-size: var(--text-heading); font-weight: var(--weight-bold); margin-bottom: 12px; }
+  .stub-row { border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); padding: 10px 14px; margin-bottom: 8px; color: var(--color-fog); font-size: var(--text-caption); }
+
+  /* the DOCK — right side, collapsible */
+  .dock { width: 420px; border-left: 1px solid var(--color-iron); background: var(--color-carbon); display: flex; flex-direction: column; height: 100vh; }
+  .dock-collapsed { width: 44px; align-items: center; padding-top: 8px; cursor: pointer; }
+  .dock-head { display: flex; align-items: center; gap: var(--s-2); padding: 10px 14px; border-bottom: 1px solid var(--color-iron); }
+  .dock-head .t { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-fog); }
+  .dock-head .badge { margin-left: auto; }
+
+  /* pipeline strip: vertical stage stepper */
+  .stages { display: flex; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--color-iron); }
+  .stage { flex: 1; text-align: center; font-size: 10px; color: var(--color-steel); padding: 5px 0; border: 1px solid var(--color-iron); border-radius: var(--r-sm); }
+  .stage.on { color: var(--color-ember); border-color: var(--color-ember-dim); }
+  .stage.done { color: var(--color-fog); border-color: var(--color-slate); }
+  .stage.done::before { content: '✓ '; color: var(--color-fog); }
+
+  /* messages */
+  .msgs { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .m { max-width: 92%; border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 8px 10px; font-size: var(--text-caption); }
+  .m.user { align-self: flex-end; background: var(--color-graphite); border-color: var(--color-slate); }
+  .m.agent { align-self: flex-start; background: var(--color-void); }
+  .m .who { font-size: 9px; color: var(--color-steel); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 3px; }
+  .m.q { border-color: var(--color-ember-dim); }
+  .m.q .qbox { margin-top: 6px; display: flex; gap: 6px; }
+  .m.q input { flex: 1; background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 5px 8px; }
+  .refs { display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 0; }
+  .ref { font-size: 9px; border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 1px 6px; color: var(--color-fog); }
+  .ref.jira { border-color: var(--color-ember-dim); color: var(--color-ember); }
+
+  /* composer */
+  .composer { border-top: 1px solid var(--color-iron); padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; }
+  .composer textarea { background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 8px; resize: none; min-height: 56px; }
+  .composer .row { display: flex; gap: 6px; align-items: center; }
+  .btn { display: inline-flex; align-items: center; border: 1px solid var(--color-slate); border-radius: var(--r-sm); background: var(--color-carbon); color: var(--color-fog); font-family: var(--font-mono); font-size: var(--text-caption); padding: 4px 10px; cursor: pointer; }
+  .btn:hover { background: var(--color-graphite); color: var(--color-paper); }
+  .btn-primary { background: var(--color-ember); border-color: var(--color-ember); color: var(--color-paper); font-weight: var(--weight-bold); }
+  .badge { display: inline-block; padding: 1px var(--s-2); border: 1px solid var(--color-iron); border-radius: var(--r-sm); font-size: 10px; color: var(--color-fog); }
+</style>
+</head>
+<body>
+  <nav class="rail">
+    <div class="glyph">◇</div><div class="glyph on">⌘</div><div class="glyph">▶</div><div class="glyph">▦</div><div class="glyph">☰</div>
+  </nav>
+  <main class="main">
+    <h1>test cases</h1>
+    <div class="stub-row">… the page you were on stays alive beside the dock …</div>
+    <div class="stub-row">draft cases land in this list as the author stage saves them</div>
+    <div class="stub-row">run rows · suite rows</div>
+  </main>
+
+  <aside class="dock" id="dock">
+    <div class="dock-head">
+      <span class="t">agent</span>
+      <span class="badge" id="mode">idle</span>
+      <button class="btn" style="margin-left:auto;" onclick="toggleDock()" title="collapse">»</button>
+    </div>
+    <div class="stages" id="stages">
+      <div class="stage done">knowledge</div>
+      <div class="stage done">plan</div>
+      <div class="stage on">breakdown</div>
+      <div class="stage">author</div>
+    </div>
+    <div class="msgs" id="msgs">
+      <div class="m user"><div class="who">you</div>draft cases for DEMO-101 <span class="refs"><span class="ref jira">DEMO-101</span><span class="ref">PR #482</span><span class="ref">docs/spec.md</span></span></div>
+      <div class="m agent"><div class="who">agent</div>knowledge v3 compiled — 3 refs integrated, 1 contradiction flagged (checkout identifier). planning…</div>
+      <div class="m agent q" id="qbox"><div class="who">agent · question</div>the ticket mentions biometric login — should the happy path cover Face ID AND passcode, or passcode only?
+        <div class="qbox"><input placeholder="answer… (Enter resumes the pipeline)"><button class="btn btn-primary" onclick="answered()">answer</button></div>
+      </div>
+      <div class="m agent" id="breakmsg" style="display:none;"><div class="who">agent · breakdown</div>5 cases planned across 2 folders (login/, payments/) — 2 duplicates of existing cases skipped.</div>
+    </div>
+    <div class="composer">
+      <div class="refs" id="attached"><span class="ref jira">DEMO-101 ✕</span><span class="ref">PR #482 ✕</span></div>
+      <textarea placeholder="message the agent — @jira DEMO-102, @pr #483, /pipeline to start a run"></textarea>
+      <div class="row"><button class="btn" title="attach references">+ refs</button><button class="btn" title="start the author pipeline with attached refs">/pipeline</button><button class="btn btn-primary" style="margin-left:auto;">send</button></div>
+    </div>
+  </aside>
+
+<script>
+let answered_ = false;
+function answered() {
+  if (answered_) return;
+  answered_ = true;
+  document.getElementById('qbox').style.display = 'none';
+  document.getElementById('breakmsg').style.display = '';
+  const st = document.querySelectorAll('.stage');
+  st[2]!.classList.remove('on'); st[2]!.classList.add('done');
+  st[3]!.classList.add('on');
+  document.getElementById('mode').textContent = 'authoring';
+}
+function toggleDock() {
+  const d = document.getElementById('dock');
+  d.classList.toggle('dock-collapsed');
+}
+</script>
+</body>
+</html>
