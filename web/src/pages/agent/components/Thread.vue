@@ -26,12 +26,10 @@ defineProps<{ messages: Msg[]; title: string; live: boolean }>();
                 <span v-for="r in m.refs" :key="r.name" class="att" :class="{ jira: r.kind === 'jira' }">{{ r.kind === 'jira' ? '◈' : '△' }} {{ r.name }}</span>
               </div>
             </div>
-            <span class="who">you</span>
           </template>
           <template v-else-if="m.role === 'assistant'">
             
             <div class="body">
-              <div class="who">butler</div>
               <div v-if="m.status" class="status">{{ m.status }}</div>
               <div class="txt" v-html="renderMarkdown(m.text)"></div>
               <div v-if="m.toolTrace" class="tool">⌁ {{ m.toolTrace }}</div>
