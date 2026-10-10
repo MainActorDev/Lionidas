@@ -63,7 +63,7 @@ defineProps<{ messages: Msg[]; title: string; live: boolean }>();
 .who { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-steel); margin-bottom: 4px; }
 .body { max-width: 82%; min-width: 0; }
 .msg.user .body { background: var(--ag-surface); border: 1px solid var(--ag-line); border-radius: var(--r-sm); border-bottom-right-radius: 0; padding: var(--s-2) var(--s-3); }
-.msg.assistant .body { max-width: 88%; background: var(--ag-panel); border: 1px solid var(--ag-line); border-radius: var(--r-sm); border-bottom-left-radius: 0; padding: var(--s-2) var(--s-3); }
+.msg.assistant .body { max-width: 88%; background: #222; border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); border-bottom-left-radius: 0; padding: var(--s-2) var(--s-3); }
 .msg.assistant .txt { color: var(--color-fog); }
 .txt { font-size: var(--text-body); color: var(--color-paper); overflow-wrap: break-word; }
 /* markdown inside bubbles (fix #5) */
