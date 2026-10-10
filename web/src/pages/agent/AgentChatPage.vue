@@ -13,7 +13,7 @@ import type { Ref as PipelineRef } from './components/Composer.vue';
 import './agent-theme.css';
 
 interface Me { id: string; name: string; email: string; role: string }
-interface Msg { role: 'user' | 'assistant' | 'system'; text: string; refs?: Array<{ kind: string; name: string }>; toolTrace?: string; status?: string }
+interface Msg { role: 'user' | 'assistant' | 'system'; text: string; refs?: Array<{ kind: string; name: string }>; toolTrace?: string; status?: string; aborted?: boolean }
 
 const route = useRoute();
 const me = ref<Me | null>(null);
@@ -50,13 +50,24 @@ async function loadMe(): Promise<void> {
 
 async function openSession(id: string): Promise<void> {
   sessionId.value = id;
+  localStorage.setItem('agent.lastSession', id); // rev9 E2
   const r = await fetch(`/api/agent/sessions/${id}`);
   if (!r.ok) return;
   const b = (await r.json()) as { session: { title: string | null }; messages: Array<{ role: string; content: string | null }> };
   title.value = b.session.title ?? id;
-  messages.value = b.messages
-    .filter((m) => (m.role === 'user' || m.role === 'assistant') && (m.content ?? '').trim())
-    .map((m) => ({ role: m.role as 'user' | 'assistant', text: m.content ?? '' }));
+  // rev9: a user message followed by NO assistant text = aborted/lost turn → distinct + resend
+  const rows = b.messages.filter((m) => (m.role === 'user' || m.role === 'assistant') && (m.content ?? '').trim());
+  const out: Msg[] = [];
+  for (const m of rows) {
+    if (m.role === 'user') {
+      const next = rows[rows.indexOf(m) + 1];
+      const unanswered = !next || next.role === 'user';
+      out.push({ role: 'user', text: m.content ?? '', aborted: unanswered });
+    } else {
+      out.push({ role: 'assistant', text: m.content ?? '' });
+    }
+  }
+  messages.value = out;
   runId.value = boundRun(id);
   void panel.value?.refresh();
 }
@@ -72,6 +83,7 @@ async function newChat(): Promise<void> {
     runId.value = null;
     void sidebar.value?.load();
   }
+  if (sessionId.value) localStorage.setItem('agent.lastSession', sessionId.value); // rev9 E2
 }
 
 /** fix #8 — once per chat: derive a human title from the first user message. */
@@ -104,7 +116,7 @@ async function onRenamed(id: string, t: string): Promise<void> {
 async function onDeleted(id: string): Promise<void> {
   const r = await fetch(`/api/agent/sessions/${id}`, { method: 'DELETE' });
   if (r.ok) {
-    if (id === sessionId.value) { sessionId.value = null; title.value = 'new chat'; messages.value = []; }
+    if (id === sessionId.value) { sessionId.value = null; title.value = 'new chat'; messages.value = []; localStorage.removeItem('agent.lastSession'); }
     void sidebar.value?.load();
   }
 }
@@ -122,6 +134,7 @@ async function send(text: string, refs: PipelineRef[], appBundle: string): Promi
   sending.value = true;
   const prettyRefs = refs.map((r) => ({ kind: r.kind, name: r.locator }));
   messages.value = [...messages.value, { role: 'user', text, refs: prettyRefs }];
+  const flightIdx = messages.value.length - 1; // the user bubble just appended
   maybeAutoTitle(text);
   try {
     // deterministic rule (plan F4): refs ⇒ pipeline + chat turn; else chat only
@@ -143,10 +156,14 @@ async function send(text: string, refs: PipelineRef[], appBundle: string): Promi
       if (r.ok) {
         // butler contract: { turn: { ok, answer?, error? } } — the request can
         // succeed while the turn failed (outcome carries the verdict)
-        const b = (await r.json()) as { turn?: { ok?: boolean; answer?: string; error?: string } };
+        const b = (await r.json()) as { turn?: { ok?: boolean; answer?: string; error?: string; code?: string } };
         const t = b.turn;
         if (t?.answer) messages.value = [...messages.value, { role: 'assistant', text: t.answer }];
-        else if (t?.error) messages.value = [...messages.value, { role: 'system', text: `turn failed: ${t.error}` }];
+        else if (t?.error) {
+          const aborted = t.code === 'ABORTED' || /abort/i.test(t.error);
+          if (aborted) markAborted(flightIdx);
+          messages.value = [...messages.value, { role: 'system', text: aborted ? 'turn aborted' : `turn failed: ${t.error}` }];
+        }
         else messages.value = [...messages.value, { role: 'system', text: 'turn returned no answer' }];
       } else {
         messages.value = [...messages.value, { role: 'system', text: 'turn failed' }];
@@ -163,6 +180,20 @@ async function send(text: string, refs: PipelineRef[], appBundle: string): Promi
   }
 }
 
+/** rev9: mark the user bubble whose turn was aborted (distinct style + resend). */
+function markAborted(idx: number): void {
+  if (idx < 0 || idx >= messages.value.length) return;
+  const m = messages.value[idx]!;
+  if (m.role !== 'user') return;
+  messages.value = [...messages.value.slice(0, idx), { ...m, aborted: true }, ...messages.value.slice(idx + 1)];
+}
+
+/** rev9: resend an aborted user message as a fresh turn. */
+function resend(msg: Msg): void {
+  messages.value = messages.value.filter((x) => x !== msg);
+  void send(msg.text, (msg.refs ?? []).map((r) => ({ kind: r.kind as PipelineRef['kind'], locator: r.name })), '');
+}
+
 /** rev8 #1: abort the live turn — partial transcript is persisted server-side. */
 async function abortTurn(): Promise<void> {
   if (!sessionId.value) return;
@@ -177,8 +208,15 @@ function connectWs(): void {
   ws = new WebSocket(`${proto}://${location.host}/api/events`);
   ws.onmessage = (ev) => {
     try {
-      const e = JSON.parse(ev.data as string) as { event: string; payload: { runId?: string } };
+      const e = JSON.parse(ev.data as string) as { event: string; payload: { runId?: string; sessionId?: string; type?: string } };
       if (e.event === 'agent.workflow' && e.payload.runId && e.payload.runId === runId.value) void panel.value?.refresh();
+      // rev9 E1: a turn just ENDED on the open chat (any client) → refetch so
+      // the answer/abort state appears without a manual reload
+      if (e.event === 'agent.turn' && e.payload.sessionId === sessionId.value
+          && (e.payload.type === 'turn.end' || e.payload.type === 'turn.error')
+          && sessionId.value) {
+        void openSession(sessionId.value);
+      }
     } catch { /* non-json frame */ }
   };
   ws.onclose = () => { setTimeout(connectWs, 3_000); };
@@ -192,6 +230,9 @@ onMounted(() => {
   void loadMe();
   const qRun = route.query['run'];
   if (typeof qRun === 'string' && qRun) { runId.value = qRun; }
+  // rev9 E2: restore the last-open chat so a mid-flight reload lands back on it
+  const last = localStorage.getItem('agent.lastSession');
+  if (last) void openSession(last);
   connectWs();
   startPolling();
 });
@@ -208,7 +249,7 @@ onBeforeUnmount(() => { ws?.close(); if (pollTimer) clearInterval(pollTimer); })
   <div v-else class="ag-root">
     <ChatSidebar ref="sidebar" :me="me" :active-id="sessionId" @select="openSession" @new-chat="newChat" @renamed="onRenamed" @deleted="onDeleted" />
     <div class="mid">
-      <Thread :messages="messages" :title="title" :live="panel?.live ?? false" :waiting="sending">
+      <Thread :messages="messages" :title="title" :live="panel?.live ?? false" :waiting="sending" @resend="resend">
         <Composer :busy="sending" @send="send" @abort="abortTurn" />
       </Thread>
     </div>

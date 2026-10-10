@@ -2,12 +2,13 @@
 /** P3 agent chat — thread: user bubbles + agent prose, refs rows, tool
  *  traces, status line (sketch b1-warm anatomy). Read-only rendering. */
 interface Ref { kind: string; name: string }
-interface Msg { role: 'user' | 'assistant' | 'system'; text: string; refs?: Ref[]; toolTrace?: string; status?: string }
+interface Msg { role: 'user' | 'assistant' | 'system'; text: string; refs?: Ref[]; toolTrace?: string; status?: string; aborted?: boolean }
 
 import { ref, watch, nextTick } from 'vue';
 import { renderMarkdown } from '../markdown.ts';
 
 const props = defineProps<{ messages: Msg[]; title: string; live: boolean; waiting: boolean }>();
+const emit = defineEmits<{ resend: [msg: { role: 'user' | 'assistant' | 'system'; text: string; refs?: Array<{ kind: string; name: string }>; toolTrace?: string; status?: string; aborted?: boolean }] }>();
 const scrollEl = ref<HTMLElement | null>(null);
 
 /** rev7: keep the newest message in view — on send, while the indicator
@@ -39,10 +40,14 @@ watch(() => props.messages[props.messages.length - 1]?.text, (t, was) => { if (t
       <div class="inner">
         <div v-for="(m, i) in messages.filter((x) => (x.text ?? '').trim())" :key="i" class="msg" :class="m.role">
           <template v-if="m.role === 'user'">
-            <div class="body">
+            <div class="body" :class="{ aborted: m.aborted }">
               <div class="txt" v-html="renderMarkdown(m.text)"></div>
               <div v-if="m.refs?.length" class="atts">
                 <span v-for="r in m.refs" :key="r.name" class="att" :class="{ jira: r.kind === 'jira' }">{{ r.kind === 'jira' ? '◈' : '△' }} {{ r.name }}</span>
+              </div>
+              <div v-if="m.aborted" class="ab-actions" @click.stop>
+                <span class="ab-tag">aborted</span>
+                <button class="ab-btn" @click="emit('resend', m)">resend</button>
               </div>
             </div>
           </template>
@@ -89,6 +94,13 @@ watch(() => props.messages[props.messages.length - 1]?.text, (t, was) => { if (t
 .msg.user .body { background: var(--ag-user-bubble); border: 1px solid transparent; border-radius: 10px; border-bottom-right-radius: 3px; padding: var(--s-2) var(--s-3); }
 .msg.user .txt { color: var(--color-paper); }
 .msg.user .txt :deep(code) { background: rgba(0,0,0,.25); border-color: rgba(0,0,0,.25); }
+/* rev9: aborted user message — dimmed, dashed, with resend */
+.msg.user .body.aborted { background: transparent; border: 1px dashed var(--ag-line-2); }
+.body.aborted .txt { color: var(--color-fog); }
+.ab-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.ab-tag { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-ember); }
+.ab-btn { border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); background: var(--ag-panel); color: var(--color-fog); font-family: var(--font-mono); font-size: var(--text-caption); padding: 2px 10px; cursor: pointer; }
+.ab-btn:hover { color: var(--color-paper); border-color: var(--color-ember-dim); }
 .msg.user .txt :deep(a) { color: var(--color-paper); text-decoration: underline; }
 .msg.assistant .body { max-width: 88%; background: #222; border: 1px solid var(--ag-line-2); border-radius: 10px; border-bottom-left-radius: 3px; padding: var(--s-2) var(--s-3); }
 .msg.assistant .txt { color: var(--color-fog); }
