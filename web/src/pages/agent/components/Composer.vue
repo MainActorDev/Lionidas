@@ -42,10 +42,10 @@ function onKey(e: KeyboardEvent): void {
   <div class="wrap">
     <div class="composer">
       <div v-if="refs.length || pickerOpen" class="chips">
-        <span v-for="(r, i) in refs" :key="r.kind + r.locator" class="chip ag-mono" :class="{ jira: r.kind === 'jira' }" @click="removeRef(i)">
+        <span v-for="(r, i) in refs" :key="r.kind + r.locator" class="chip" :class="{ jira: r.kind === 'jira' }" @click="removeRef(i)">
           {{ r.kind === 'jira' ? '◈' : '△' }} {{ r.locator }} ✕
         </span>
-        <span v-if="pickerOpen" class="picker ag-mono">
+        <span v-if="pickerOpen" class="picker">
           <select v-model="newKind">
             <option value="jira">jira</option><option value="github-pr">github-pr</option>
             <option value="github-commit">commit</option><option value="doc">doc</option><option value="repo">repo</option>
@@ -56,33 +56,35 @@ function onKey(e: KeyboardEvent): void {
       </div>
       <textarea v-model="text" placeholder="message butler…" @keydown="onKey"></textarea>
       <div class="row">
-        <button class="icon" title="attach references (jira / pr / doc / repo)" @click="pickerOpen = !pickerOpen">＋</button>
-        <input v-if="willRun" v-model="appBundle" class="bundle ag-mono" placeholder="app bundle (com.lionparcel.dev)">
+        <button class="icon" title="attach references (jira / pr / doc / repo)" @click="pickerOpen = !pickerOpen">＋ refs</button>
+        <input v-if="willRun" v-model="appBundle" class="bundle" placeholder="app bundle (com.lionparcel.dev)">
         <span class="hint">{{ willRun ? 'refs attached — sending starts the author pipeline' : 'enter to send · shift+enter newline' }}</span>
-        <button class="send" :class="{ ready }" :disabled="!ready" @click="submit">↑</button>
+        <button class="send" :class="{ ready }" :disabled="!ready" @click="submit">send</button>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.wrap { position: absolute; bottom: 0; left: 0; right: 0; pointer-events: none; padding: 0 22px; }
-.composer { pointer-events: auto; max-width: 700px; margin: 0 auto 18px; border-radius: 20px; padding: 12px 14px 9px; background: #26231f; box-shadow: inset 0 0 0 1px var(--ag-line-2), 0 12px 36px rgba(0,0,0,.55); }
-.composer:focus-within { box-shadow: inset 0 0 0 1px rgba(224,106,53,.5), 0 0 22px rgba(224,106,53,.12); }
-.chips { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 9px; align-items: center; }
-.chip { border-radius: 999px; padding: 3px 12px; font-size: 11px; color: var(--ag-ink-2); background: #1d1b18; box-shadow: inset 0 0 0 1px var(--ag-line); cursor: pointer; }
-.chip.jira { color: var(--ag-ember); box-shadow: inset 0 0 0 1px rgba(224,106,53,.45); }
-.chip:hover { background: var(--ag-raise); }
+.wrap { position: absolute; bottom: 0; left: 0; right: 0; pointer-events: none; padding: 0 var(--s-4); }
+.composer { pointer-events: auto; max-width: 720px; margin: 0 auto var(--s-3); border: 1px solid var(--color-slate); border-radius: var(--r-sm); padding: var(--s-2) var(--s-3); background: var(--color-carbon); }
+.composer:focus-within { border-color: var(--color-ember-dim); }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: var(--s-2); align-items: center; }
+.chip { border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 1px var(--s-2); font-size: var(--text-caption); color: var(--color-fog); background: var(--color-void); cursor: pointer; font-family: var(--font-mono); }
+.chip.jira { color: var(--color-ember); border-color: var(--color-ember-dim); }
+.chip:hover { background: var(--color-graphite); }
 .picker { display: inline-flex; gap: 6px; align-items: center; }
-.picker select, .picker input, .bundle { background: #1d1b18; border: none; outline: none; box-shadow: inset 0 0 0 1px var(--ag-line); border-radius: 999px; color: var(--ag-ink); font-family: var(--font-mono); font-size: 11px; padding: 3px 10px; }
+.picker select, .picker input, .bundle { background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); outline: none; color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 3px var(--s-2); }
 .picker input { width: 190px; }
-.mini { border-radius: 999px; border: none; background: var(--ag-raise); color: var(--ag-ink-2); font-family: var(--font-mono); font-size: 11px; padding: 4px 11px; cursor: pointer; }
-textarea { width: 100%; background: none; border: none; outline: none; color: var(--ag-ink); font-family: var(--font-sans); font-size: 15px; resize: none; min-height: 30px; }
-.row { display: flex; align-items: center; gap: 9px; margin-top: 7px; }
-.icon { width: 29px; height: 29px; border-radius: 50%; display: grid; place-items: center; background: none; box-shadow: inset 0 0 0 1px var(--ag-line); color: var(--ag-ink-3); cursor: pointer; font-size: 13px; border: none; }
-.icon:hover { color: var(--ag-ember); box-shadow: inset 0 0 0 1px rgba(224,106,53,.4); }
+.mini { border: 1px solid var(--color-slate); border-radius: var(--r-sm); background: var(--color-carbon); color: var(--color-fog); font-family: var(--font-mono); font-size: var(--text-caption); padding: 2px var(--s-2); cursor: pointer; }
+.mini:hover { color: var(--color-paper); }
+textarea { width: 100%; background: none; border: none; outline: none; color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-body); resize: none; min-height: 30px; }
+.row { display: flex; align-items: center; gap: var(--s-2); margin-top: 6px; }
+.icon { min-height: 24px; padding: 2px var(--s-2); border: 1px solid var(--color-slate); border-radius: var(--r-sm); background: var(--color-carbon); color: var(--color-fog); cursor: pointer; font-size: var(--text-caption); font-family: var(--font-mono); }
+.icon:hover { background: var(--color-graphite); color: var(--color-paper); }
 .bundle { width: 220px; }
-.hint { font-size: 11px; color: var(--ag-ink-3); }
-.send { width: 30px; height: 30px; border-radius: 50%; border: none; background: radial-gradient(circle at 35% 30%, var(--ag-ember), var(--ag-ember-dim) 75%); color: var(--ag-ink); display: grid; place-items: center; cursor: pointer; font-size: 12px; margin-left: auto; opacity: .3; }
+.hint { font-size: var(--text-caption); color: var(--color-steel); }
+.send { min-height: 24px; padding: 2px var(--s-3); margin-left: auto; border: 1px solid var(--color-ember); border-radius: var(--r-sm); background: var(--color-ember); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); font-weight: var(--weight-bold); cursor: pointer; opacity: .35; }
 .send.ready { opacity: 1; }
+.send.ready:hover { background: var(--color-ember-dim); }
 </style>

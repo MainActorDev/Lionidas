@@ -10,7 +10,7 @@ defineProps<{ messages: Msg[]; title: string; live: boolean }>();
 <template>
   <section class="th">
     <div class="head">
-      <span class="t ag-serif">{{ title }}</span>
+      <span class="t">{{ title }}</span>
       <span v-if="live" class="pill live"><span class="dot"></span>authoring</span>
       <span v-else-if="messages.length" class="pill">idle</span>
     </div>
@@ -21,22 +21,22 @@ defineProps<{ messages: Msg[]; title: string; live: boolean }>();
             <div class="body">
               <div class="txt">{{ m.text }}</div>
               <div v-if="m.refs?.length" class="atts">
-                <span v-for="r in m.refs" :key="r.name" class="att ag-mono" :class="{ jira: r.kind === 'jira' }">{{ r.kind === 'jira' ? '◈' : '△' }} {{ r.name }}</span>
+                <span v-for="r in m.refs" :key="r.name" class="att" :class="{ jira: r.kind === 'jira' }">{{ r.kind === 'jira' ? '◈' : '△' }} {{ r.name }}</span>
               </div>
             </div>
-            <span class="avatar you">you</span>
+            <span class="who">you</span>
           </template>
           <template v-else-if="m.role === 'assistant'">
-            <span class="avatar agent">✦</span>
+            
             <div class="body">
               <div class="who">butler</div>
-              <div v-if="m.status" class="status ag-mono">{{ m.status }}</div>
+              <div v-if="m.status" class="status">{{ m.status }}</div>
               <div class="txt">{{ m.text }}</div>
-              <div v-if="m.toolTrace" class="tool ag-mono">⌁ {{ m.toolTrace }}</div>
+              <div v-if="m.toolTrace" class="tool">⌁ {{ m.toolTrace }}</div>
             </div>
           </template>
           <template v-else>
-            <div class="sys ag-mono">{{ m.text }}</div>
+            <div class="sys">{{ m.text }}</div>
           </template>
         </div>
       </div>
@@ -45,30 +45,27 @@ defineProps<{ messages: Msg[]; title: string; live: boolean }>();
 </template>
 
 <style scoped>
-.th { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
-.head { display: flex; align-items: center; gap: 10px; padding: 16px 26px 8px; }
-.head .t { font-size: 20px; }
-.pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 3px 11px; font-size: 11.5px; color: var(--ag-ink-2); background: var(--ag-surface); box-shadow: inset 0 0 0 1px var(--ag-line); }
-.pill.live { color: var(--ag-ember); box-shadow: inset 0 0 0 1px rgba(224,106,53,.4); }
-.dot { width: 5px; height: 5px; border-radius: 50%; background: var(--ag-ember); animation: agpulse 1.3s infinite; }
+.th { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.head { display: flex; align-items: baseline; gap: var(--s-3); padding: var(--s-3) var(--s-4) var(--s-2); border-bottom: 1px solid var(--color-iron); }
+.head .t { font-size: var(--text-heading-sm); color: var(--color-paper); }
+.pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 1px var(--s-2); font-size: var(--text-caption); color: var(--color-fog); }
+.pill.live { color: var(--color-ember); border-color: var(--color-ember-dim); }
+.dot { width: 5px; height: 5px; border-radius: 50%; background: var(--color-ember); animation: agpulse 1.3s infinite; }
 @keyframes agpulse { 50% { opacity: .3; } }
 
 .scroll { flex: 1; overflow-y: auto; }
-.inner { max-width: 700px; margin: 0 auto; padding: 10px 22px 190px; display: flex; flex-direction: column; gap: 20px; }
-.msg { display: flex; gap: 12px; }
+.inner { max-width: 720px; margin: 0 auto; padding: var(--s-4) var(--s-4) 150px; display: flex; flex-direction: column; gap: var(--s-4); }
+.msg { display: flex; gap: var(--s-3); }
 .msg.user { justify-content: flex-end; }
-.avatar { width: 28px; height: 28px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 10.5px; }
-.avatar.you { color: var(--ag-ink-2); background: var(--ag-surface); box-shadow: inset 0 0 0 1px var(--ag-line); }
-.avatar.agent { color: var(--ag-ink); background: radial-gradient(circle at 35% 30%, var(--ag-ember), var(--ag-ember-dim) 75%); box-shadow: 0 0 12px rgba(224,106,53,.4); }
+.who { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-steel); margin-bottom: 4px; }
 .body { max-width: 82%; min-width: 0; }
-.msg.user .body { background: var(--ag-raise); border-radius: 17px 17px 4px 17px; padding: 10px 15px; }
+.msg.user .body { background: var(--color-graphite); border: 1px solid var(--color-iron); border-radius: var(--r-sm); border-bottom-right-radius: 0; padding: var(--s-2) var(--s-3); }
 .msg.assistant .body { max-width: 100%; }
-.who { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--ag-ink-3); margin-bottom: 5px; }
-.txt { white-space: pre-wrap; }
-.status { display: inline-flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--ag-ink-3); border: 1px solid var(--ag-line); border-radius: 999px; padding: 3px 10px; margin-bottom: 6px; }
-.atts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
-.att { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 2px 11px; font-size: 11px; color: var(--ag-ink-2); background: #1d1b18; box-shadow: inset 0 0 0 1px var(--ag-line); }
-.att.jira { color: var(--ag-ember); box-shadow: inset 0 0 0 1px rgba(224,106,53,.45); }
-.tool { font-size: 12.5px; color: var(--ag-ink-3); margin-top: 7px; font-style: italic; }
-.sys { max-width: 700px; margin: 0 auto; align-self: center; font-size: 12px; color: var(--ag-ink-3); border: 1px dashed var(--ag-line); border-radius: 12px; padding: 6px 14px; }
+.txt { white-space: pre-wrap; font-size: var(--text-body); color: var(--color-paper); }
+.status { display: inline-flex; align-items: center; gap: 8px; font-size: var(--text-caption); color: var(--color-steel); border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 1px var(--s-2); margin-bottom: 6px; }
+.atts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: var(--s-2); }
+.att { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 0 var(--s-2); font-size: var(--text-caption); color: var(--color-fog); background: var(--color-carbon); }
+.att.jira { color: var(--color-ember); border-color: var(--color-ember-dim); }
+.tool { font-size: var(--text-caption); color: var(--color-steel); margin-top: 6px; }
+.sys { align-self: center; font-size: var(--text-caption); color: var(--color-steel); border: 1px dashed var(--color-iron); border-radius: var(--r-sm); padding: 4px var(--s-3); }
 </style>

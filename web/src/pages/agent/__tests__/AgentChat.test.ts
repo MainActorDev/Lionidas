@@ -56,7 +56,7 @@ describe('agent chat page', () => {
     // theme vars present on the scoped root (from agent-theme.css)
     expect(root.attributes('class')).toContain('ag-root');
     expect(w.find('.sb').exists()).toBe(true);
-    expect(w.text()).toContain('butler');
+    expect(w.find('.new').text()).toContain('new chat');
   });
 
   it('viewer sees the operator-required state, not the chat', async () => {
@@ -69,7 +69,7 @@ describe('agent chat page', () => {
     const w = await mountPage('operator');
     expect(w.text()).toContain('DEMO-101 cases');
     expect(w.text()).toContain('payments sweep');
-    const input = w.find('.search input');
+    const input = w.find('input.search');
     await input.setValue('payments');
     expect(w.text()).toContain('payments sweep');
     expect(w.text()).not.toContain('DEMO-101 cases');

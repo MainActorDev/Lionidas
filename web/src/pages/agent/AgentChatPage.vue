@@ -152,9 +152,9 @@ onBeforeUnmount(() => { ws?.close(); if (pollTimer) clearInterval(pollTimer); })
 </template>
 
 <style scoped>
-.mid { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+.mid { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; min-height: 0; }
 .denied { height: 100%; display: grid; place-items: center; }
-.d-card { border-radius: 18px; padding: 26px 30px; background: var(--color-carbon); box-shadow: inset 0 0 0 1px var(--color-iron); text-align: center; }
-.d-t { font-size: 16px; margin-bottom: 6px; }
-.d-s { font-size: 12px; color: var(--color-fog); }
+.d-card { border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: var(--s-4) var(--s-5); background: var(--color-carbon); text-align: center; }
+.d-t { font-size: var(--text-heading-sm); margin-bottom: var(--s-2); }
+.d-s { font-size: var(--text-caption); color: var(--color-fog); }
 </style>

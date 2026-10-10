@@ -1,35 +1,24 @@
-/* ═══ Agent chat surface — scoped theme layer (plan W2/W3, sketch b1-warm) ═══
-   A user-authorized departure from the house tokens, applied ONLY on /agent.
-   Warm charcoal (never pure black); value-based layer separation; text tiers
-   measured ≥6:1; sans prose + mono machine text + serif voice. */
+/* ═══ Agent chat surface — scoped theme (rev 3: house Axiom, per operator
+ *   direction 2026-10-10 "refine to match the whole ecosystem").
+ *   The chat stays inside the shell's .main grid area; it fills that pane
+ *   edge-to-edge and speaks the house language: void canvas, carbon
+ *   surfaces, iron hairlines, ember accent used sparingly (live state,
+ *   questions, drafts), mono type, 2px corners, no glows, no serif. */
 
 .ag-root {
-  /* palette */
-  --ag-canvas: #161513;
-  --ag-surface: #211f1c;
-  --ag-raise: #2a2724;
-  --ag-line: #3a3630;
-  --ag-line-2: #4a453e;
-  --ag-ink: #f2efe9;
-  --ag-ink-2: #c9c3b8;
-  --ag-ink-3: #9a948c;
-  --ag-ember: #e06a35;
-  --ag-ember-dim: #b0511f;
-
-  font-family: var(--font-sans);
-  font-size: 15px;
-  line-height: 1.7;
-  color: var(--ag-ink);
-  background:
-    radial-gradient(1000px 520px at 62% -12%, rgba(224, 106, 53, 0.07), transparent 58%),
-    var(--ag-canvas);
-  height: 100%;
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  line-height: 1.6;
+  color: var(--color-paper);
+  background: var(--color-void);
+  height: calc(100vh - var(--topbar-h));
   display: flex;
-  overflow: hidden;
+  flex-direction: row;
+  min-height: 0;
+  /* cancel .main's padding so the chat owns the full pane (three columns
+   * separated by hairlines, like the shell's own surfaces) */
+  margin: calc(-1 * var(--s-6));
+  width: calc(100% + 2 * var(--s-6));
 }
 
 .ag-root * { box-sizing: border-box; }
-
-/* mono where machine text lives */
-.ag-mono { font-family: var(--font-mono); }
-.ag-serif { font-family: Georgia, 'Times New Roman', serif; }

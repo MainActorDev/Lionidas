@@ -38,9 +38,8 @@ onMounted(() => { void load(); });
 
 <template>
   <aside class="sb">
-    <div class="brand"><span class="orb">✦</span><span class="t">butler</span></div>
-    <div class="search ag-mono"><span>⌕</span><input v-model="q" ref="searchEl" placeholder="Search"></div>
-    <button class="new" @click="emit('newChat')">＋ New</button>
+    <button class="new" @click="emit('newChat')">＋ new chat</button>
+    <input v-model="q" class="search" placeholder="search">
     <div class="rlabel">recents</div>
     <div class="convs">
       <div v-for="s in filtered" :key="s.id" class="conv" :class="{ on: s.id === activeId }" @click="emit('select', s.id)">
@@ -50,32 +49,27 @@ onMounted(() => { void load(); });
       <div v-if="!filtered.length" class="empty-hint">no conversations yet</div>
     </div>
     <div class="foot">
-      <span class="av">{{ (me?.name ?? '?').slice(0, 2).toUpperCase() }}</span>
-      <span class="who"><span class="nm">{{ me?.name ?? '…' }}</span><span class="pl">{{ me?.role ?? '' }}</span></span>
+      <span class="nm">{{ me?.name ?? '…' }}</span>
+      <span class="pl">{{ me?.role ?? '' }}</span>
     </div>
   </aside>
 </template>
 
 <style scoped>
-.sb { width: 232px; flex: none; display: flex; flex-direction: column; gap: 10px; padding: 16px 12px; }
-.brand { display: flex; align-items: center; gap: 9px; padding: 0 6px; }
-.orb { width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, var(--ag-ember), var(--ag-ember-dim) 70%); box-shadow: 0 0 14px rgba(224,106,53,.4); display: grid; place-items: center; font-size: 11px; }
-.brand .t { font-family: Georgia, serif; font-size: 17px; }
-.search { display: flex; align-items: center; gap: 8px; border-radius: 999px; padding: 7px 14px; background: var(--ag-surface); box-shadow: inset 0 0 0 1px var(--ag-line); color: var(--ag-ink-3); font-size: 12.5px; }
-.search input { flex: 1; background: none; border: none; outline: none; color: var(--ag-ink); font-family: var(--font-mono); font-size: 12.5px; }
-.new { display: flex; align-items: center; justify-content: center; gap: 8px; border: none; border-radius: 999px; padding: 8px 0; background: rgba(224,106,53,.1); color: var(--ag-ink); box-shadow: inset 0 0 0 1px rgba(224,106,53,.25); font-family: var(--font-sans); font-size: 13px; cursor: pointer; }
-.new:hover { background: rgba(224,106,53,.16); }
-.rlabel { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--ag-ink-3); padding: 4px 12px 0; }
-.convs { flex: 1; overflow-y: auto; }
-.conv { padding: 7px 12px; border-radius: 11px; cursor: pointer; }
-.conv:hover { background: var(--ag-raise); }
-.conv.on { background: rgba(224,106,53,.1); }
-.conv .nm { font-size: 13px; color: var(--ag-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.conv .sub { font-size: 11px; color: var(--ag-ink-3); }
-.empty-hint { font-size: 12px; color: var(--ag-ink-3); padding: 10px 12px; }
-.foot { display: flex; align-items: center; gap: 10px; padding: 10px 10px 2px; border-top: 1px solid var(--ag-line); }
-.foot .av { width: 28px; height: 28px; border-radius: 50%; background: var(--ag-surface); box-shadow: inset 0 0 0 1px var(--ag-line-2); display: grid; place-items: center; font-size: 11px; color: var(--ag-ink-2); }
-.foot .who { display: flex; flex-direction: column; line-height: 1.3; }
-.foot .nm { font-size: 13px; color: var(--ag-ink); }
-.foot .pl { font-size: 11px; color: var(--ag-ink-3); }
+.sb { width: 216px; flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--color-iron); background: var(--color-void); }
+.new { margin: var(--s-3) var(--s-3) var(--s-2); border: 1px solid var(--color-ember-dim); border-radius: var(--r-sm); background: var(--color-ember); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); font-weight: var(--weight-bold); padding: 6px 0; cursor: pointer; }
+.new:hover { background: var(--color-ember-dim); }
+.search { margin: 0 var(--s-3); background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 5px 8px; outline: none; }
+.search:focus { border-color: var(--color-slate); }
+.rlabel { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-steel); padding: var(--s-3) var(--s-3) 4px; }
+.convs { flex: 1; overflow-y: auto; padding: 0 var(--s-2); }
+.conv { padding: 6px 8px; border-radius: var(--r-sm); cursor: pointer; border-left: 2px solid transparent; }
+.conv:hover { background: var(--color-graphite); }
+.conv.on { background: var(--color-carbon); border-left-color: var(--color-ember); }
+.conv .nm { font-size: var(--text-caption); color: var(--color-paper); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv .sub { font-size: 10px; color: var(--color-steel); }
+.empty-hint { font-size: var(--text-caption); color: var(--color-steel); padding: 10px 8px; }
+.foot { display: flex; align-items: baseline; gap: var(--s-2); padding: var(--s-3); border-top: 1px solid var(--color-iron); }
+.foot .nm { font-size: var(--text-caption); color: var(--color-fog); }
+.foot .pl { font-size: 10px; color: var(--color-steel); margin-left: auto; }
 </style>
