@@ -63,7 +63,7 @@
   .a2-group-head .n { margin-left: 0; color: var(--color-pewter); }
   .a2-group-head .n::after { content: ' ·'; color: var(--color-pewter); } /* count then middot */
   .a2-group-head .role-name { color: var(--color-paper); text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px; }
-  .a2-group-head .caps { color: var(--color-steel); font-size: 10px; letter-spacing: 0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .a2-group-head .caps { color: var(--color-steel); font-size: 10px; letter-spacing: 0.02em; white-space: normal; line-height: 1.5; overflow: visible; } /* wraps, never ellipsizes — narrow frames included */
   .a2-group-head .health { display: inline-flex; gap: var(--s-2); font-size: 10px; color: var(--color-steel); }
   .a2-group-head .health .warn { color: var(--color-ember); }
   .a2-group-head .health .dim { color: var(--color-ash); }
@@ -90,6 +90,8 @@
     <h1>users</h1>
     <span class="ph-desc">directory by role · capabilities from the rbac matrix</span>
     <span class="badge" id="me-badge">admin</span>
+    <!-- admin-only: reveal the provision form (hidden until clicked; no button at supervisor stance) -->
+    <button id="ph-create" class="btn btn-primary btn-sm" onclick="toggleProv()">create user</button>
   </div>
 
   <div class="stance" title="what you see depends on your role — supervisor sees the directory without role/approve/delete powers">
@@ -97,7 +99,7 @@
     <button id="st-sup" onclick="setStance('sup')">supervisor view</button>
   </div>
 
-  <div class="prov" id="prov">
+  <div class="prov" id="prov" hidden>
     <input type="email" placeholder="email" style="min-width:200px;">
     <input placeholder="display name" style="min-width:140px;">
     <select id="prov-role">
@@ -216,15 +218,19 @@ function render() {
   }
 }
 
+function toggleProv() {
+  const p = document.getElementById('prov');
+  p.hidden = !p.hidden;
+}
 function setStance(s) {
   stance = s;
   document.getElementById('st-admin').classList.toggle('on', s === 'admin');
   document.getElementById('st-sup').classList.toggle('on', s === 'sup');
   document.getElementById('me-badge').textContent = s;
-  // provision form: admin role option only meaningful in admin stance
-  document.getElementById('prov-note').style.display = s === 'admin' ? 'none' : 'inline-block';
-  document.getElementById('prov').style.opacity = s === 'admin' ? '1' : '0.55';
-  document.getElementById('prov').style.pointerEvents = s === 'admin' ? 'auto' : 'none';
+  // admin-only affordances: the create-user button exists only at admin
+  // stance; the form it reveals closes when leaving the stance
+  document.getElementById('ph-create').style.display = s === 'admin' ? '' : 'none';
+  document.getElementById('prov').hidden = true;
   render();
 }
 render();
