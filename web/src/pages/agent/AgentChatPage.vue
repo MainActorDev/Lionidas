@@ -56,7 +56,7 @@ async function openSession(id: string): Promise<void> {
   const r = await fetch(`/api/agent/sessions/${id}`);
   if (!r.ok) return;
   const b = (await r.json()) as { session: { title: string | null }; messages: Array<{ role: string; content: string | null }> };
-  title.value = b.session.title ?? id;
+  title.value = b.session.title ?? (title.value === 'new chat' ? id : title.value);
   // rev9: a user message followed by NO assistant text = aborted/lost turn → distinct + resend
   const rows = b.messages.filter((m) => (m.role === 'user' || m.role === 'assistant') && (m.content ?? '').trim());
   const out: Msg[] = [];
@@ -101,8 +101,19 @@ function maybeAutoTitle(text: string): void {
     .trim();
   if (!stripped) return;
   const nice = stripped.charAt(0).toUpperCase() + stripped.slice(1);
-  title.value = nice;
-  if (sessionId.value) void fetch(`/api/agent/sessions/${sessionId.value}/ai-title`, { method: 'POST' }).then((r) => (r.ok ? r.json() : null)).then((j: { title?: string } | null) => {
+  title.value = nice; // instant client-side title; the AI name lands after the turn
+  pendingAiTitle = true;
+  // persist the regex title immediately so any refetch (E1) keeps it
+  if (sessionId.value) void fetch(`/api/agent/sessions/${sessionId.value}/title`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: nice }) });
+}
+
+/** fires once the first turn RESOLVES — the server then has the user message
+ *  to name from (calling earlier raced the message POST → 400). */
+let pendingAiTitle = false;
+function settleAiTitle(): void {
+  if (!pendingAiTitle || !sessionId.value) return;
+  pendingAiTitle = false;
+  void fetch(`/api/agent/sessions/${sessionId.value}/ai-title`, { method: 'POST' }).then((r) => (r.ok ? r.json() : null)).then((j: { title?: string } | null) => {
     if (j?.title) { title.value = j.title; void sidebar.value?.load(); }
   }).catch(() => {/* keep regex title */});
 }
@@ -177,6 +188,7 @@ async function send(text: string, refs: PipelineRef[], appBundle: string): Promi
   } finally {
     sending.value = false;
     streaming.value = null; // rev12: never leave a frozen stream bubble
+    settleAiTitle(); // rev14: AI title after the turn — no more 400 race
     void sidebar.value?.load();
     const q = queued.value;
     if (q) {
