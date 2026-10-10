@@ -2,9 +2,9 @@
 /** P3 agent chat — sidebar (rev 4): search / new / recents with owner names.
  *  Chats = butler sessions enriched via GET /api/agent/chats (owner from the
  *  users table — fix #7). Raw butler status words are gone (fix #6). */
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, nextTick } from 'vue';
 
-const emit = defineEmits<{ select: [id: string]; newChat: [] }>();
+const emit = defineEmits<{ select: [id: string]; newChat: []; renamed: [id: string, title: string]; deleted: [id: string] }>();
 const props = defineProps<{ me: { name: string; email: string; role: string } | null; activeId: string | null }>();
 
 interface ChatRow { id: string; title: string | null; status: string; updatedAt: number; owner: string | null; ownerRole: string | null }
@@ -17,6 +17,26 @@ const filtered = computed(() => {
   if (!needle) return list;
   return list.filter((c) => (c.title ?? c.id).toLowerCase().includes(needle));
 });
+
+const renaming = ref<string | null>(null);
+const renameVal = ref('');
+const renInput = ref<HTMLInputElement | null>(null);
+function startRename(c: ChatRow): void {
+  renaming.value = c.id;
+  renameVal.value = c.title ?? c.id;
+  void nextTick(() => renInput.value?.focus());
+}
+function commitRename(): void {
+  const id = renaming.value;
+  const t = renameVal.value.trim().slice(0, 80);
+  renaming.value = null;
+  if (id && t) emit('renamed', id, t);
+}
+function askDelete(c: ChatRow): void {
+  if (confirm(`Delete chat "${c.title ?? c.id}"?\n\nMessages in this chat are deleted. Knowledge notes, artifacts and pipeline runs it produced are kept (they belong to Lionidas, not the chat).`)) {
+    emit('deleted', c.id);
+  }
+}
 
 async function load(): Promise<void> {
   const r = await fetch('/api/agent/chats');
@@ -42,7 +62,17 @@ onMounted(() => { void load(); });
     <div class="rlabel">recents</div>
     <div class="convs">
       <div v-for="c in filtered" :key="c.id" class="conv" :class="{ on: c.id === activeId }" @click="emit('select', c.id)">
-        <div class="nm">{{ c.title ?? c.id }}</div>
+        <div class="row1">
+          <div class="nm">{{ c.title ?? c.id }}</div>
+          <span v-if="c.id === activeId" class="ops" @click.stop>
+            <button class="op" title="rename" @click.stop="startRename(c)">✎</button>
+            <button class="op danger" title="delete" @click.stop="askDelete(c)">✕</button>
+          </span>
+        </div>
+        <div v-if="renaming === c.id" class="ren" @click.stop>
+          <input ref="renInput" v-model="renameVal" class="ren-in" @keydown.enter="commitRename" @keydown.esc="renaming = null" @click.stop>
+          <button class="op" @click.stop="commitRename">save</button>
+        </div>
         <div class="sub"><span v-if="c.owner">{{ c.owner }}</span><span v-if="c.owner"> · </span>{{ when(c.updatedAt) }}</div>
       </div>
       <div v-if="!filtered.length" class="empty-hint">no conversations yet</div>
@@ -64,4 +94,13 @@ onMounted(() => { void load(); });
 .conv .nm { font-size: var(--text-caption); color: var(--color-paper); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conv .sub { font-size: 10px; color: var(--color-steel); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .empty-hint { font-size: var(--text-caption); color: var(--color-steel); padding: 10px 8px; }
+.row1 { display: flex; align-items: center; gap: 4px; }
+.row1 .nm { flex: 1; min-width: 0; }
+.ops { display: inline-flex; gap: 2px; opacity: 0; }
+.conv:hover .ops, .conv.on .ops { opacity: 1; }
+.op { border: none; background: none; color: var(--color-steel); cursor: pointer; font-size: 11px; padding: 2px 4px; border-radius: 4px; }
+.op:hover { color: var(--color-paper); background: var(--ag-surface); }
+.op.danger:hover { color: var(--color-ember); }
+.ren { display: flex; gap: 4px; margin: 4px 0; }
+.ren-in { flex: 1; min-width: 0; background: var(--ag-surface); border: 1px solid var(--ag-line-2); border-radius: 4px; color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 3px 6px; outline: none; }
 </style>

@@ -80,7 +80,7 @@ describe.skipIf(!hasButler)('agent routes (operator gate + transports)', () => {
     expect(sid).toBeTruthy();
 
     // mock provider: single scripted assistant turn → turn.ok with answer
-    const turn = await app.app.inject({ method: 'POST', url: `/api/agent/sessions/${sid}/messages`, headers: { cookie: `crucible_session=${operatorCookie}` }, payload: { content: 'hello' } });
+    const turn = await app.app.inject({ method: 'POST', url: `/api/agent/sessions/${sid}/messages`, headers: { cookie: `crucible_session=${operatorCookie}` }, payload: { content: 'list the login cases' } });
     expect([200, 201]).toContain(turn.statusCode);
     const body = turn.json() as { turn?: { ok?: boolean } };
     expect(body['turn']?.['ok']).toBe(true);
@@ -140,4 +140,16 @@ describe.skipIf(!hasButler)('agent routes (operator gate + transports)', () => {
   });
 
   afterAll(() => { rmSync(dir, { recursive: true, force: true }); });
+
+
+  // ── rev5: deterministic scope guardrail ──
+  it('refuses clearly off-scope asks with 422 before any provider call', async () => {
+    const off = await app.app.inject({ method: 'POST', url: `/api/agent/sessions/${(await app.app.inject({ method: 'POST', url: '/api/agent/sessions', headers: { cookie: `crucible_session=${operatorCookie}` }, payload: {} })).json()['session']['id']}/messages`, headers: { cookie: `crucible_session=${operatorCookie}` }, payload: { content: 'write me a poem about the sea' } });
+    expect(off.statusCode).toBe(422);
+    expect(off.json()['error']).toContain('outside my scope');
+  });
+  it('bare greetings get the scope hint, in-scope asks pass through', async () => {
+    const greet = await app.app.inject({ method: 'POST', url: `/api/agent/sessions/${(await app.app.inject({ method: 'POST', url: '/api/agent/sessions', headers: { cookie: `crucible_session=${operatorCookie}` }, payload: {} })).json()['session']['id']}/messages`, headers: { cookie: `crucible_session=${operatorCookie}` }, payload: { content: 'hi' } });
+    expect(greet.statusCode).toBe(422);
+  });
 });

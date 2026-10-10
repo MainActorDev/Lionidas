@@ -138,7 +138,7 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   });
   registerAgentRoutes(app, agent, bus);
   registerPipelineRoutes(app, agent, buildPipeline(agent, db.raw, env, bus));
-  registerChatMetaRoutes(app, agent, db.raw);
+  registerChatMetaRoutes(app, agent, db.raw, `${cfg.dbPath}.agent.db`);
   registerFolderRoutes(app, db.raw);
   registerScenarioFolderRoutes(app, db.raw);
   registerPresetFolderRoutes(app, db.raw);

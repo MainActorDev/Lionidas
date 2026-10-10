@@ -6,7 +6,7 @@ interface Msg { role: 'user' | 'assistant' | 'system'; text: string; refs?: Ref[
 
 import { renderMarkdown } from '../markdown.ts';
 
-defineProps<{ messages: Msg[]; title: string; live: boolean }>();
+defineProps<{ messages: Msg[]; title: string; live: boolean; waiting: boolean }>();
 </script>
 
 <template>
@@ -18,6 +18,7 @@ defineProps<{ messages: Msg[]; title: string; live: boolean }>();
     </div>
     <div class="scroll">
       <div class="inner">
+        <div v-if="waiting" class="msg assistant waiting"><div class="body"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div>
         <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
           <template v-if="m.role === 'user'">
             <div class="body">
@@ -66,12 +67,18 @@ defineProps<{ messages: Msg[]; title: string; live: boolean }>();
 .msg.user { justify-content: flex-end; }
 .who { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-steel); margin-bottom: 4px; }
 .body { max-width: 82%; min-width: 0; }
-.msg.user .body { background: var(--color-ember); border: 1px solid var(--color-ember); border-radius: var(--r-sm); border-bottom-right-radius: 0; padding: var(--s-2) var(--s-3); }
+.msg.user .body { background: var(--ag-user-bubble); border: 1px solid transparent; border-radius: 10px; border-bottom-right-radius: 3px; padding: var(--s-2) var(--s-3); }
 .msg.user .txt { color: var(--color-paper); }
 .msg.user .txt :deep(code) { background: rgba(0,0,0,.25); border-color: rgba(0,0,0,.25); }
 .msg.user .txt :deep(a) { color: var(--color-paper); text-decoration: underline; }
-.msg.assistant .body { max-width: 88%; background: #222; border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); border-bottom-left-radius: 0; padding: var(--s-2) var(--s-3); }
+.msg.assistant .body { max-width: 88%; background: #222; border: 1px solid var(--ag-line-2); border-radius: 10px; border-bottom-left-radius: 3px; padding: var(--s-2) var(--s-3); }
 .msg.assistant .txt { color: var(--color-fog); }
+/* loading dots (#3) — same bubble anatomy, three pulsing dots */
+.msg.waiting .body { display: inline-flex; gap: 5px; align-items: center; padding: 10px 14px; }
+.msg.waiting .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-steel); animation: agbounce 1.2s infinite; }
+.msg.waiting .dot:nth-child(2) { animation-delay: .15s; }
+.msg.waiting .dot:nth-child(3) { animation-delay: .3s; }
+@keyframes agbounce { 0%, 60%, 100% { opacity: .25; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
 .txt { font-size: var(--text-body); color: var(--color-paper); overflow-wrap: break-word; }
 /* markdown inside bubbles (fix #5) */
 .txt :deep(p) { margin: 0 0 6px; }

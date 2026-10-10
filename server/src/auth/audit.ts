@@ -14,7 +14,9 @@ export type AuditEvent =
   | 'role_changed' | 'active_changed' | 'password_changed' | 'bot_token_rotated'
   // RBAC coverage additions:
   | 'run_play' | 'run_abort' | 'build_trigger' | 'case_edit' | 'case_create' | 'case_delete'
-  | 'manual_take_control' | 'manual_release' | 'device_action' | 'app_installed' | 'app_uninstalled' | 'rbac_denied';
+  | 'manual_take_control' | 'manual_release' | 'device_action' | 'app_installed' | 'app_uninstalled' | 'rbac_denied'
+  // agent chat lifecycle (P3 rev 5):
+  | 'chat_renamed' | 'chat_deleted';
 
 export function auditWrite(db: Database.Database, req: FastifyRequest | null, event: AuditEvent, detail: string, targetUserId?: string): void {
   const actor = req?.user;

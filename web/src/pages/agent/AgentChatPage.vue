@@ -85,7 +85,25 @@ function maybeAutoTitle(text: string): void {
   if (!stripped) return;
   const nice = stripped.charAt(0).toUpperCase() + stripped.slice(1);
   title.value = nice;
-  if (sessionId.value) void fetch(`/api/agent/sessions/${sessionId.value}/title`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: nice }) }).then(() => sidebar.value?.load());
+  if (sessionId.value) void fetch(`/api/agent/sessions/${sessionId.value}/ai-title`, { method: 'POST' }).then((r) => (r.ok ? r.json() : null)).then((j: { title?: string } | null) => {
+    if (j?.title) { title.value = j.title; void sidebar.value?.load(); }
+  }).catch(() => {/* keep regex title */});
+}
+
+/** rev5 #6 — user rename persists to the session row. */
+async function onRenamed(id: string, t: string): Promise<void> {
+  await fetch(`/api/agent/sessions/${id}/title`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: t }) });
+  if (id === sessionId.value) title.value = t;
+  void sidebar.value?.load();
+}
+
+/** rev5 #7 — delete: server cascades messages; notes/artifacts/runs stay. */
+async function onDeleted(id: string): Promise<void> {
+  const r = await fetch(`/api/agent/sessions/${id}`, { method: 'DELETE' });
+  if (r.ok) {
+    if (id === sessionId.value) { sessionId.value = null; title.value = 'new chat'; messages.value = []; }
+    void sidebar.value?.load();
+  }
 }
 
 async function send(text: string, refs: PipelineRef[], appBundle: string): Promise<void> {
@@ -160,9 +178,9 @@ onBeforeUnmount(() => { ws?.close(); if (pollTimer) clearInterval(pollTimer); })
     </div>
   </div>
   <div v-else class="ag-root">
-    <ChatSidebar ref="sidebar" :me="me" :active-id="sessionId" @select="openSession" @new-chat="newChat" />
+    <ChatSidebar ref="sidebar" :me="me" :active-id="sessionId" @select="openSession" @new-chat="newChat" @renamed="onRenamed" @deleted="onDeleted" />
     <div class="mid">
-      <Thread :messages="messages" :title="title" :live="panel?.live ?? false">
+      <Thread :messages="messages" :title="title" :live="panel?.live ?? false" :waiting="sending">
         <Composer :busy="sending" @send="send" />
       </Thread>
     </div>

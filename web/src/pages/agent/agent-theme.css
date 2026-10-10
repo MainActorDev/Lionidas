@@ -10,6 +10,7 @@
   --ag-surface: #1f1f1f;   /* cards, bubbles, composer */
   --ag-line: #2a2a2a;      /* hairlines */
   --ag-line-2: #3a3a3a;    /* control borders */
+  --ag-user-bubble: #b3542c; /* softened ember — 2:1 vs canvas, readable paper text */
   --ag-head-h: 48px;       /* shared header band (fix #4) */
 
   font-family: var(--font-mono);
