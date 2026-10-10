@@ -2,7 +2,7 @@
 
 - Source: sketch round 032, picked **`b1-warm`** (artifacts-split + collapsible dock + corrected warm dark) — operator 2026-10-10 "Okay go with b1 warm"
 - Depends on: P2 shipped (PR #31 — pipeline API, artifacts, events all live)
-- Status: **Ready**
+- Status: **Ready (rev 2 — self-review F1–F5 applied 2026-10-10; see `reviews/20261010T211500Z-agent-chat-p3-plan-review.md`)**
 - Repo: Lionidas · Branch: `feat/agent-chat-p3` (cut)
 - Palette authority: `sketches/032-agentic-chat/b1-warm/index.html` IS the spec; values codified as an **agent-scoped palette layer** (user-authorized departure from house tokens, this feature only)
 
@@ -23,23 +23,23 @@ An operator opens `/agent`: Claude-familiar chat — history sidebar, thread, co
 ## Completion conditions
 
 1. **C1 Route + shell.** `/agent` route, sidebar nav entry `agent` (operator+ gating mirrors server: viewers don't see it), page = 3-column flex (sidebar 232 / thread flex / panel 380). Page replaces nothing; new surface only. App shell test updated (nav count).
-2. **C2 Conversations.** Server: `GET /api/agent/conversations` + `GET /api/agent/conversations/:id/messages` (operator-gated; butler sessions from the agent storage, newest first, title = first user message; **new route file, no server core changes beyond it**). Web: sidebar (search filter, New, recents with `app · state · age` sub-labels, account footer = me). Selecting a conversation loads its thread.
-3. **C3 Thread + composer.** Messages render per b1-warm anatomy (user = right rounded bubble + refs row; agent = orb avatar + prose + tool-trace line + status flow). Composer: textarea (enter sends, shift+enter newline), `＋ refs` opens the ref picker (kind jira/github-pr/github-commit/doc/repo + locator, chips removable), executor pill (from `/api/agent/capabilities`-style env config — falls back to the server default; **display-only in P3**), send = the round ember button, disabled until text.
+2. **C2 Conversations (review F1: zero new server routes).** The existing `GET /api/agent/sessions` (list) + `GET /api/agent/sessions/:id` (session + messages) + `POST /api/agent/sessions` (create) already serve this, operator-gated. Web: sidebar (search filter, New, recents with `app · state · age` sub-labels, account footer = me). Selecting a conversation loads its thread.
+3. **C3 Thread + composer.** Messages render per b1-warm anatomy (user = right rounded bubble + refs row; agent = orb avatar + prose + tool-trace line + status flow). Composer: textarea (enter sends, shift+enter newline), `＋ refs` opens the ref picker (kind jira/github-pr/github-commit/doc/repo + locator, chips removable), send = the round ember button, disabled until text. (Executor pill DEFERRED to P5 — review F3: no endpoint exposes executor config today.)
 4. **C4 The run workspace panel.** Tabs `pipeline` / `artifacts`:
    - pipeline: vertical stage flow (knowledge v + conflicts / plan / breakdown / author) fed by `GET /api/agent/pipeline/:id` polled on `agent.workflow` events (the WS bus event from P2); stage rows show live results as they land
    - the question card when `status=awaiting_answer` (ember wash, serif question, textarea, skip/answer buttons) → `POST :id/answer` then `POST :id/resume`
    - artifacts: knowledge page (latest version body, contradiction lines ember-flagged, version + supersedes), snapshot, drafts list linking to `/templates`
    - collapse `»` → panel width 0; floating ember pill `● run live — open panel` when any watched run is active; pill and panel persist via localStorage
-5. **C5 Send → run wiring.** With refs attached and the message mentioning drafting (or an explicit `/pipeline` prefix), send does BOTH: posts the chat turn (conversation API) AND `POST /api/agent/pipeline {appBundle, refs}`; the new run id binds to the conversation (client-side map in P3: `conversation.pipelineRunId` stored on the conversation's metadata note; server-side binding deferred to P4 backlog). Errors (422 honest messages) render as agent-visible system lines.
+5. **C5 Send → run wiring (review F4: deterministic rule).** **Refs attached ⇒ the send starts a pipeline** (posting the chat turn AND `POST /api/agent/pipeline`); no refs ⇒ chat turn only. No text parsing: posts the chat turn (conversation API) AND `POST /api/agent/pipeline {appBundle, refs}`; the new run id binds to the conversation via **localStorage map `agentRunBySession: { [sessionId]: runId }`** (review F2 — no note writes, no server binding; server-side binding is P4 backlog). The panel also accepts `?run=<id>` deep links. Errors (422 honest messages) render as agent-visible system lines.
 6. **C6 Palette + typography layer.** `agent-theme.css` with the W2/W3 values as CSS vars (`--ag-*`), scoped to the page root; contrast spot-checked in the component test (computed styles assert canvas + ink tiers).
-7. **C7 Tests.** Web: page mounts (mock fetch), conversation list renders + search filters, refs → chips → send calls pipeline POST (fetch spy), question card → answer calls both endpoints, panel collapse/pill toggle, theme vars applied. Server: conversations routes (operator gate, shape). Gates: `vue-tsc` 0, web suite green, server suite green (1409+2).
+7. **C7 Tests.** Web: page mounts (mock fetch), conversation list renders + search filters, refs → chips → send calls pipeline POST (fetch spy), question card → answer calls both endpoints, panel collapse/pill toggle, theme vars applied. Server: conversations routes (operator gate, shape). Gates: `vue-tsc` 0, web suite green, server suite green (1409 — unchanged; no server delta).
 8. **C8 Live drill** on the real server (mock executor): login operator → `/agent` → attach fixture doc ref → send → watch stages advance via events (no reload) → answer question → drafts panel lists the drafts → open one in `/templates`. Screenshots into the PR; logged in `docs/agent-pipeline-drills.md`.
 
 ## Out of scope (P3)
 
 - Streaming token-by-token rendering (turn-level updates only — the bus emits per-hop)
 - Server-side conversation↔run binding (client map now; backlog)
-- Executor picker actually switching executors (display-only; env still decides — P5)
+- Executor picker entirely (no data source today; ships with the P5 claude-cli config surface)
 - a11y inspector (P4), claude-cli live (P5)
 - Mobile/narrow layouts (desktop-first like the rest of the app)
 
@@ -57,8 +57,7 @@ web/src/pages/agent/
     RunPanel.vue           tabs: pipeline flow / artifacts
     QuestionCard.vue       the awaiting_answer card
     StageFlow.vue          vertical node flow w/ live results
-server/src/agent/
-  conversation-routes.ts   GET conversations + messages (operator-gated)
+(no server changes — P3 is web-only; review F1)
 ```
 
 Data: existing endpoints (`/api/agent/*` conversation turns, `/api/agent/pipeline*`, `/api/agent/artifacts*`, `/api/auth/me`) + the 2 new read-only conversation routes. Live updates: `agent.workflow` events over the existing `/api/events` WS (page subscribes on mount).
@@ -66,7 +65,7 @@ Data: existing endpoints (`/api/agent/*` conversation turns, `/api/agent/pipelin
 ## Stage order
 
 1. S1 `agent-theme.css` + route + shell skeleton (C1, C6)
-2. S2 conversation routes (server) + sidebar + thread read (C2, part C3)
+2. S2 sidebar + thread read over the existing sessions endpoints (C2, part C3)
 3. S3 composer + ref picker + send→run wiring (C3, C5)
 4. S4 run panel + question card + events + collapse/pill (C4)
 5. S5 tests + live drill + PR (C7, C8)
@@ -77,4 +76,5 @@ Data: existing endpoints (`/api/agent/*` conversation turns, `/api/agent/pipelin
 - Run completes while panel closed → pill turns to "done — open" state, no auto-open
 - Question answered out-of-band (API) → panel refreshes on next event, no double-answer (409 handled as info line)
 - Conversation with no run → panel shows the empty state ("attach refs and send to start a run")
+- Non-operator hits `/agent` directly (nav hidden ≠ route protected) → "operator role required" state (UsersPage directory pattern), covered by a viewer-mount test (review F5)
 - WS drop → polling fallback every 10s while a run is active
