@@ -5,6 +5,8 @@ import type { TypedEventBus, AppEvents } from '../ws/bus.ts';
 import { createReadStream, statSync, rm, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { requireRole } from '../auth/roles.ts';
+import { requireRoleAtLeast } from '../auth/roles.ts';
+import { auditWrite } from '../auth/audit.ts';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -33,7 +35,7 @@ export function registerManualRoutes(
   // frame serve: only paths under the manual session's snapshot dir (engine temp)
   // — scoped by checking the file was the LAST snapshot emitted for a live session
   app: FastifyInstance, db: Database.Database, deps: ManualRouteDeps): void {
-  app.get('/api/manual-frame', async (req, reply) => {
+  app.get('/api/manual-frame', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
     const q = req.query as { path?: string };
     if (!q.path) return reply.code(400).send({ error: 'path required' });
     // allow only paths recorded by a live session's latest snapshot (no arbitrary file reads)
@@ -63,7 +65,9 @@ export function registerManualRoutes(
     }
   });
 
-  app.post('/api/manual/start', async (req, reply) => {
+  app.post('/api/manual/start', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
+    const startUdid = (req.body as { udid?: string } | null)?.udid ?? '?';
+    auditWrite(db, req, 'manual_take_control', `device ${startUdid}`);
     const b = req.body as { udid?: string; operator?: string; appBundleId?: string };
     const operator = req.user?.name ?? b?.operator; // authenticated identity wins; bots keep their name
     if (!b.udid || !operator) return reply.code(400).send({ error: 'udid required (sign in for operator identity)' });
@@ -456,7 +460,7 @@ export function registerManualRoutes(
     return { sessions: rows.map((r) => ({ id: r.id, udid: r.udid, operator: r.operator, startedAt: r.started_at, lastActivity: r.last_activity })) };
   });
 
-  app.get('/api/manual/:id/record', async (req, reply) => {
+  app.get('/api/manual/:id/record', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
     const { id } = req.params as { id: string };
     try {
       return getRecording({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, id);
@@ -479,7 +483,7 @@ export function registerManualRoutes(
   });
 
   // step thumbnails: same scoping as manual-frame (live session required)
-  app.get('/api/manual-thumb', async (req, reply) => {
+  app.get('/api/manual-thumb', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
     const q = req.query as { path?: string };
     if (!q.path) return reply.code(400).send({ error: 'path required' });
     const ok = db.prepare('SELECT 1 FROM manual_sessions WHERE finished_at IS NULL LIMIT 1').get();
@@ -495,8 +499,9 @@ export function registerManualRoutes(
   });
 
   // ── template playback ──
-  app.post('/api/templates/:id/play', async (req, reply) => {
+  app.post('/api/templates/:id/play', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
     const { id } = req.params as { id: string };
+    auditWrite(db, req, 'run_play', `case ${id}`);
     const b = req.body as { udid?: string; triggeredBy?: string; scenarioId?: string; env?: Record<string, string>; variant?: string; udids?: string[]; allBooted?: boolean } | null;
     try {
       // ── multi-device fan-out (plan R4): loop the base single-play path per
@@ -512,7 +517,7 @@ export function registerManualRoutes(
         const per: Array<{ udid: string; runId?: string; error?: string }> = [];
         for (const u of fanoutTargets) {
           try {
-            const { runId } = await runTemplatePlayback(pbDeps0, id, { udid: u, ...(req.user?.name !== undefined ? { triggeredBy: req.user.name } : (b?.triggeredBy !== undefined ? { triggeredBy: b.triggeredBy } : {})), ...(b?.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}), ...(b?.env !== undefined ? { env: b.env } : {}) });
+            const { runId } = await runTemplatePlayback(pbDeps0, id, { udid: u, triggeredByUser: req.user?.id ?? null, ...(req.user?.name !== undefined ? { triggeredBy: req.user.name } : (b?.triggeredBy !== undefined ? { triggeredBy: b.triggeredBy } : {})), ...(b?.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}), ...(b?.env !== undefined ? { env: b.env } : {}) });
             per.push({ udid: u, runId });
           } catch (err) {
             per.push({ udid: u, error: err instanceof Error ? err.message : String(err) });
@@ -535,7 +540,7 @@ export function registerManualRoutes(
       if (row?.variants_json) {
         try { variants = JSON.parse(row.variants_json) as typeof variants; } catch { variants = []; /* malformed — honest degrade */ }
       }
-      const baseOpts = { ...(b?.udid !== undefined ? { udid: b.udid } : {}), ...(req.user?.name !== undefined ? { triggeredBy: req.user.name } : (b?.triggeredBy !== undefined ? { triggeredBy: b.triggeredBy } : {})), ...(b?.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}), ...(b?.env !== undefined ? { env: b.env } : {}) };
+      const baseOpts = { ...(b?.udid !== undefined ? { udid: b.udid } : {}), triggeredByUser: req.user?.id ?? null, ...(req.user?.name !== undefined ? { triggeredBy: req.user.name } : (b?.triggeredBy !== undefined ? { triggeredBy: b.triggeredBy } : {})), ...(b?.scenarioId !== undefined ? { scenarioId: b.scenarioId } : {}), ...(b?.env !== undefined ? { env: b.env } : {}) };
       // VITEST builds skip the stream gate (no device stream exists in unit
       // tests; the gate would burn its full 30s budget per run). Prod keeps it.
       const pbDeps = { db, bus: deps.bus, dispatchDeps: deps.dispatchDeps, artifactsDir: deps.artifactsDir, forgeState: deps.forgeState, ...(process.env['VITEST'] ? { awaitStreamLive: null } : {}) };
@@ -656,7 +661,7 @@ export function registerManualRoutes(
   //  install/power: uninstalling the app under test poisons settle polls and
   //  watchdogs). Session-only (D5/B: matches the app-ops family). Audit line
   //  records who removed what from which device (review F2). ──
-  app.post('/api/devices/:udid/uninstall', async (req, reply) => {
+  app.post('/api/devices/:udid/uninstall', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
     const { udid } = req.params as { udid: string };
     const b = (req.body ?? {}) as { bundleId?: string };
     if (!b.bundleId || !b.bundleId.trim()) return reply.code(422).send({ error: 'bundleId required', code: 'BUNDLE_ID_REQUIRED' });

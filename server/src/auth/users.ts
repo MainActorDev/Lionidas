@@ -6,7 +6,19 @@
 import type Database from 'better-sqlite3';
 import { randomBytes, scryptSync, timingSafeEqual, randomUUID } from 'node:crypto';
 
-export type Role = 'viewer' | 'operator' | 'admin' | 'bot';
+export type Role = 'viewer' | 'operator' | 'supervisor' | 'admin' | 'bot';
+
+/** Human-role hierarchy (RBAC round, plan 20261009T102032Z): viewer <
+ *  operator < supervisor < admin. Bot is a separate non-human role —
+ *  pipeline-only, never in the hierarchy. `atLeast` treats only human
+ *  roles; callers gate bots explicitly. */
+export const ROLE_HIERARCHY: readonly Role[] = ['viewer', 'operator', 'supervisor', 'admin'];
+export function roleAtLeast(role: Role, min: Role): boolean {
+  const r = ROLE_HIERARCHY.indexOf(role);
+  const m = ROLE_HIERARCHY.indexOf(min);
+  if (r < 0 || m < 0) return false; // bot (or unknown) never passes a hierarchy check
+  return r >= m;
+}
 
 export interface UserRow {
   approved: number;

@@ -11,7 +11,9 @@ import { initAlloyRuntime } from '../alloy/runtime.ts';
 import { parseCaseYaml, caseToYaml } from '@crucible/shared/case-yaml';
 import { VARIANT_ID_RE as VARIANT_ID_RE_LOCAL, variantScenarioNames } from '@crucible/shared/yaml-variants';
 import { zipSync, unzipSync } from 'fflate';
-import { requireRole } from '../auth/roles.ts';
+import { requireRole, requireRoleAtLeast } from '../auth/roles.ts';
+import { capabilitiesFor } from '../auth/capabilities.ts';
+import type { Role } from '../auth/users.ts';
 import { tapsForRun } from '../evidence/taps-store.ts';
 
 interface TemplateRow {
@@ -277,6 +279,23 @@ export function resolveCaseRefs(db: Database.Database, c: { name: string; app?: 
 }
 
 export function registerTemplateRoutes(app: FastifyInstance, db: Database.Database, dispatchDeps?: unknown): void {
+  // RBAC T4 (plan 20261009T102032Z): case assignment — supervisor assigns
+  // anyone; operator self-assigns; viewer cannot (gated). Nullable user FK.
+  app.patch('/api/templates/:id/assign', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = req.body as { userId: string | null } | null;
+    const caps = capabilitiesFor((req.user?.role ?? 'viewer') as Role);
+    if (!caps.authorCases) return reply.code(403).send({ error: 'viewers cannot assign cases' });
+    if (b?.userId !== null && b?.userId !== undefined) {
+      const u = db.prepare('SELECT id, role FROM users WHERE id = ? AND active = 1').get(b.userId) as { id: string; role: string } | undefined;
+      if (!u) return reply.code(404).send({ error: 'user not found' });
+      // operator self-assign only (matrix: assignment of OTHERS is supervisor+)
+      if (b.userId !== req.user?.id && !caps.manageAccounts) return reply.code(403).send({ error: 'assigning others requires supervisor' });
+    }
+    db.prepare('UPDATE templates SET assigned_to = ? WHERE id = ?').run(b?.userId ?? null, id);
+    return { ok: true, assignedTo: b?.userId ?? null };
+  });
+
   app.get('/api/templates', async (req) => {
     const q = req.query as { ticket?: string; tags?: string; app?: string; status?: string };
     let rows: TemplateRow[];
@@ -333,7 +352,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
   });
 
   /** Save current recording as a template (sidebar "save as template"). */
-  app.post('/api/templates/from-session/:sessionId', async (req, reply) => {
+  app.post('/api/templates/from-session/:sessionId', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
     const { sessionId } = req.params as { sessionId: string };
     const b = req.body as { name?: string; description?: string; ticketKey?: string; createdBy?: string; tags?: string[] };
     if (!b.name || !b.name.trim()) return reply.code(400).send({ error: 'name required' });
@@ -379,7 +398,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     return rowToTemplate(db, row);
   });
 
-  app.post('/api/templates', async (req, reply) => {
+  app.post('/api/templates', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
     const b = req.body as Partial<TemplateRow> & { steps?: unknown[]; tags?: string[]; appBundleId?: string; ticketKey?: string | null };
     if (!b.name || !b.name.trim()) return reply.code(400).send({ error: 'name required' });
     const id = `tpl_${randomUUID().slice(0, 8)}`;
@@ -502,7 +521,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     return reply.code(201).send({ imported, renamed });
   });
 
-  app.patch('/api/templates/:id', async (req, reply) => {
+  app.patch('/api/templates/:id', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const b = (req.body ?? {}) as { name?: string; description?: string | null; ticketKey?: string | null; defaultPresetId?: string | null; steps?: unknown[]; setup?: unknown[] | null; alerts?: unknown | null; tags?: string[]; appBundleId?: string | null; status?: string; folderId?: string | null };
     const row = db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow | undefined;
@@ -710,7 +729,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     return { templateId: id, lanes };
   });
 
-  app.delete('/api/templates/:id', async (req, reply) => {
+  app.delete('/api/templates/:id', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const r = db.prepare('DELETE FROM templates WHERE id = ?').run(id);
     if (r.changes === 0) return reply.code(404).send({ error: 'not found' });
@@ -721,7 +740,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
    *  run rows (all finished runs in the lane). Refuses with 409 while any run
    *  in the lane is live (unfinished) — its evidence is being written right
    *  now. Same cleanup recipe as retention's prunePreviousRunArtifacts. */
-  app.delete('/api/templates/:id/runs', async (req, reply) => {
+  app.delete('/api/templates/:id/runs', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const q = req.query as { variant?: string };
     if (q.variant === undefined) return reply.code(400).send({ error: 'variant query param required ("" for the variantless lane)' });
@@ -881,7 +900,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
    *  tags/app. 422 carries line numbers; 409 names unresolved/colliding
    *  subflows. What the panel validated before saving is EXACTLY what this
    *  enforces — one validator, no drift. */
-  app.put('/api/templates/:id/yaml', async (req, reply) => {
+  app.put('/api/templates/:id/yaml', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const row = db.prepare('SELECT * FROM templates WHERE id = ?').get(id) as TemplateRow | undefined;
     if (!row) return reply.code(404).send({ error: 'not found' });

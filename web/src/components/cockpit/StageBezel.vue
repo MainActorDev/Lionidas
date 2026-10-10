@@ -37,6 +37,7 @@ const overlayHC = computed((): number | null => props.overlayH ?? null);
 const overlayVisibleC = computed((): boolean => props.overlayVisible ?? false);
 const selNodeC = computed((): Record<string, unknown> | null => props.selParentNode ?? null);
 const emit = defineEmits<{
+  (e: 'toast', t: { text: string; kind?: 'ok' | 'err' }): void;
   (e: 'session-state', s: { sessionId: string | null; dims?: { w: number | null; h: number | null } }): void;
   (e: 'inspect-click', ev: MouseEvent): void;
   (e: 'session-acquired', s: { sessionId: string; startedAt: number }): void;
@@ -237,7 +238,13 @@ async function takeControl(): Promise<void> {
       // retry the start every 5s: while the run holds the device the 409
       // keeps the lock; the first success clears it and the session lands
       watchRetry = setInterval(() => { void tryStart(); }, 5000);
-    } else error.value = body.error ?? 'failed to start';
+    } else {
+      // RBAC refusals (and any start failure) surface through the cockpit's
+      // reusable toast — the inline error line is too easy to miss next to a
+      // full stage (operator directive: viewer take-control must toast)
+      emit('toast', { text: body.error ?? 'failed to start', kind: 'err' });
+      error.value = body.error ?? 'failed to start';
+    }
   } finally { busy.value = false; }
 }
 let watchRetry: ReturnType<typeof setInterval> | undefined;

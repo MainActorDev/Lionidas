@@ -4,7 +4,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type Database from 'better-sqlite3';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
-import { resolveSession, userForAgentToken, verifyPassword, type Role, type UserRow } from './users.ts';
+import { resolveSession, userForAgentToken, verifyPassword, roleAtLeast, type Role, type UserRow } from './users.ts';
 import { resolvePat } from '../routes/auth-cli.ts';
 
 declare module 'fastify' {
@@ -94,6 +94,27 @@ export function registerUserResolution(app: FastifyInstance, db: Database.Databa
   });
 }
 
+/** Hierarchy gate (RBAC round): the caller's human role must be at least
+ *  `min` in ROLE_HIERARCHY (viewer < operator < supervisor < admin). Bots
+ *  NEVER pass a hierarchy check — the existing requireRole bot rule
+ *  (bot counts as operator) only applies to the explicit-list form.
+ *  Admin passes everything (mirrors requireRole's implicit admin allow). */
+export function requireRoleAtLeast(min: Role): (req: FastifyRequest, reply: FastifyReply) => Promise<void> {
+  return async (req, reply) => {
+    // open-read transition mode (CRUCIBLE_REQUIRE_AUTH=0): no auth context at
+    // all → routes stay open, matching the app's global contract. Prod (auth
+    // on) always resolves req.user; a missing user there still 401s below.
+    // EFFECTIVE env (buildApp param) wins over process.env via the decorator.
+    const effEnv = (req.server as unknown as { crucibleEnv?: Record<string, string | undefined> }).crucibleEnv;
+    const requireAuth = effEnv?.['CRUCIBLE_REQUIRE_AUTH'] ?? process.env['CRUCIBLE_REQUIRE_AUTH'] ?? '1';
+    if (!req.user && requireAuth === '0') return;
+    if (!req.user) { await reply.code(401).send({ error: 'sign in required' }); return; }
+    if (req.user.role === 'admin') return;
+    if (roleAtLeast(req.user.role, min)) return;
+    await reply.code(403).send({ error: `requires role: ${min} or above` });
+  };
+}
+
 /** Any authenticated user (human or bot). */
 export function requireUser(): (req: FastifyRequest, reply: FastifyReply) => Promise<void> {
   return async (req, reply) => {
@@ -106,12 +127,13 @@ export function requireUser(): (req: FastifyRequest, reply: FastifyReply) => Pro
 export function requireRole(...roles: Role[]): (req: FastifyRequest, reply: FastifyReply) => Promise<void> {
   return async (req, reply) => {
     if (!req.user) return void (await reply.code(401).send({ error: 'sign in required' }));
-    if (roles.includes(req.user.role)) return;
-    // admin is the highest authority — it passes EVERY tier (a route that
-    // must exclude admin says so explicitly by NOT listing roles it accepts
-    // and handling auth itself; nothing in this codebase does)
-    if (req.user.role === 'admin') return;
-    // bot sessions pass operator-tier routes (they ARE the pipelines)
+    // RBAC (plan 20261009T102032Z T2): hierarchy semantics — a human role in
+    // the list admits every role at or above it, so requireRole('operator')
+    // now passes supervisor too (the matrix's "QA work or above"). Admin
+    // still passes everything; bots still count as operators (pipelines).
+    for (const listed of roles) {
+      if (roleAtLeast(req.user.role, listed)) return;
+    }
     if (req.user.role === 'bot' && roles.includes('operator')) return;
     await reply.code(403).send({ error: `requires role: ${roles.join(' or ')}` });
   };

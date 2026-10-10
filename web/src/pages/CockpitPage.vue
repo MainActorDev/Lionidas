@@ -676,7 +676,7 @@ onBeforeUnmount(() => live.release());
       <StageBezel v-if="activeUdid" :key="activeUdid" ref="stage" :udid="activeUdid" :restarting="isRestarting(activeUdid)" :case-running="caseRunningOnActive" :session="activeSession"
         :overlay-nodes="overlayData.nodes" :overlay-w="overlayData.w" :overlay-h="overlayData.h" :overlay-visible="overlayData.visible" :sel-parent-node="overlayData.sel" :selected-node="overlayData.sel"
         @session-state="onSessionState" @inspect-click="onInspectClick"
-        @session-acquired="onSessionAcquired" @session-dropped="onSessionDropped"
+        @session-acquired="onSessionAcquired" @session-dropped="onSessionDropped" @toast="(t) => flash(t.text, t.kind ?? 'err')"
         @exit-inspect="overlay = null; toolsOpen = false"
         @abort-running="abortRunning">
         <InteractionOverlay :markers="iaMarkers" />

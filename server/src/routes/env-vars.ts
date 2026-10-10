@@ -9,6 +9,8 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { requireRole } from '../auth/roles.ts';
+import { capabilitiesFor } from '../auth/capabilities.ts';
+import type { Role } from '../auth/users.ts';
 
 interface EnvVarRow {
   id: string;
@@ -46,7 +48,7 @@ function scanEnvUsage(db: Database.Database): Record<string, number> {
 export function registerEnvVarRoutes(app: FastifyInstance, db: Database.Database): void {
   app.get('/api/env-vars/usage', async () => ({ usage: scanEnvUsage(db) }));
 
-  app.get('/api/env-vars', async () => {
+  app.get('/api/env-vars', async (req) => {
     const rows = db.prepare('SELECT * FROM env_vars ORDER BY scope, app_bundle_id, plan_id, key').all() as EnvVarRow[];
     return {
       vars: rows.map((r) => ({
@@ -55,8 +57,11 @@ export function registerEnvVarRoutes(app: FastifyInstance, db: Database.Database
         appBundleId: r.app_bundle_id,
         planId: r.plan_id,
         key: r.key,
-        // secrets NEVER leave the server: masked to null + status badge (D4)
-        value: r.secret ? null : r.value,
+        // secrets NEVER leave the server: masked to null + status badge (D4).
+        // RBAC viewer mask (plan 20261009T102032Z): values are sensitive —
+        // viewers get the key list with masked values; everyone else full.
+        value: r.secret || !capabilitiesFor((req.user?.role ?? 'viewer') as Role).readEnvValues ? null : r.value,
+        masked: !capabilitiesFor((req.user?.role ?? 'viewer') as Role).readEnvValues,
         secret: r.secret === 1,
         status: 'set',
         note: r.note,

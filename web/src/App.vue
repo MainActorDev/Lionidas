@@ -1,16 +1,23 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import CmdPalette from './components/CmdPalette.vue';
-import { ref, onMounted, reactive } from 'vue';
+import { ref, onMounted, reactive, provide } from 'vue';
 
 const me = ref<{ name: string; role: string } | null>(null);
+/** RBAC (plan 20261009T102032Z T5): server-computed capability map — the
+ *  web NEVER re-derives role logic; it renders what the server says. */
+const caps = ref<Record<string, boolean> | null>(null);
 async function loadMe(): Promise<void> {
   try {
     const r = await fetch('/api/auth/me');
     const b = await r.json() as { user: { name: string; role: string } | null };
     me.value = b.user;
-  } catch { me.value = null; }
+    const c = await fetch('/api/me/capabilities');
+    if (c.ok) caps.value = ((await c.json()) as { capabilities: Record<string, boolean> }).capabilities;
+    else caps.value = null;
+  } catch { me.value = null; caps.value = null; }
 }
+provide('caps', caps);
 async function signOut(): Promise<void> {
   await fetch('/api/auth/logout', { method: 'POST' });
   await router.push('/login');
@@ -30,7 +37,7 @@ const isBare = computed(() => isPublic.value || route.meta.fullscreen === true);
 watch(() => route.fullPath, () => void loadMe());
 
 // ── collapsible nav groups (025-A) ──
-interface NavEntry { to: string; label: string; names: string[]; adminOnly?: boolean }
+interface NavEntry { to: string; label: string; names: string[]; adminOnly?: boolean; supervisorOnly?: boolean }
 interface NavGroup { id: string; label: string; items: NavEntry[] }
 const navGroups: NavGroup[] = [
   {
@@ -61,7 +68,8 @@ const navGroups: NavGroup[] = [
   {
     id: 'settings', label: 'settings',
     items: [
-      { to: '/users', label: 'users', names: ['users'], adminOnly: true },
+      { to: '/users', label: 'users', names: ['users'], supervisorOnly: true }, // supervisor+ (directory + account mgmt)
+      { to: '/audit', label: 'audit log', names: ['audit'], supervisorOnly: true },
       { to: '/settings', label: 'configs', names: ['settings'], adminOnly: true },
     ],
   },
@@ -73,9 +81,16 @@ const groupHasActive = (g: NavGroup): boolean =>
 // adminOnly items render for admins only (the route itself stays auth-guarded,
 // the API enforces the role); groups that empty out hide entirely
 const visibleGroups = computed<NavGroup[]>(() => {
-  if (me.value?.role === 'admin') return navGroups;
+  // RBAC (plan 20261009T102032Z T5): admin sees all; supervisor gains
+  // supervisorOnly entries (users, audit); others keep adminOnly hidden.
+  // Capability-driven: readUsers covers users/audit visibility.
+  const isSupervisor = caps.value?.readUsers === true || me.value?.role === 'admin';
   return navGroups
-    .map(g => ({ ...g, items: g.items.filter(it => !it.adminOnly) }))
+    .map(g => ({ ...g, items: g.items.filter(it => {
+      if (it.adminOnly) return me.value?.role === 'admin';
+      if (it.supervisorOnly) return isSupervisor;
+      return true;
+    }) }))
     .filter(g => g.items.length > 0);
 });
 // navigating into a collapsed group expands it (active page must stay visible)

@@ -94,6 +94,9 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   // reachable before any account exists).
   const { needsSetup, setupModeOff } = await import('./auth/setup.ts');
   const setupWindowOpen = !setupModeOff(env) && needsSetup(db.raw);
+  // RBAC gates read the app's EFFECTIVE env (param wins over process.env —
+  // the buildApp contract) via this decorator
+  app.decorate('crucibleEnv', env as Record<string, string | undefined>);
   if ((env['CRUCIBLE_REQUIRE_AUTH'] ?? '1') === '1') { // env param wins (buildApp contract)
     app.addHook('onRequest', async (req, reply) => {
       const open = req.url.startsWith('/api/auth') || req.url.startsWith('/api/health') || req.url === '/'
