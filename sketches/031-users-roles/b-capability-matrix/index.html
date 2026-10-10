@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>031 B — roster × capability matrix</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-mono); font-size: var(--text-body); color: var(--color-paper);
+    background: var(--color-void); line-height: 1.5; padding: 24px; max-width: 1180px; margin: 0 auto;
+  }
+  .ph { display: flex; align-items: baseline; gap: var(--s-3); margin-bottom: var(--s-4); }
+  .ph h1 { font-size: var(--text-heading); font-weight: var(--weight-bold); letter-spacing: 0.02em; }
+  .ph .ph-desc { color: var(--color-steel); font-size: var(--text-caption); }
+  .ph .badge { margin-left: auto; }
+  .badge { display: inline-block; padding: 1px var(--s-2); border: 1px solid var(--color-iron); border-radius: var(--r-sm); font-size: var(--text-caption); color: var(--color-fog); white-space: nowrap; }
+
+  .grid { display: grid; grid-template-columns: 1fr 420px; gap: var(--s-4); align-items: start; }
+  @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+
+  .a2-list { border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); overflow-x: hidden; }
+  table { width: 100%; border-collapse: collapse; font-size: var(--text-body); }
+  th, td { text-align: left; padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--color-iron); }
+  thead th { color: var(--color-steel); font-weight: var(--weight-regular); font-size: var(--text-caption); text-transform: uppercase; letter-spacing: 0.06em; }
+  tbody tr { cursor: pointer; transition: background 90ms ease; }
+  tbody tr:hover { background: var(--color-graphite); }
+  tbody tr.sel { background: var(--color-graphite); }
+  tbody tr.sel .u-name::after { content: ' ◂'; color: var(--color-ember); font-size: 10px; }
+  tr.inactive { opacity: 0.45; }
+
+  .u-name { color: var(--color-paper); }
+  .u-email { font-size: 10px; color: var(--color-steel); }
+  .role-chip { display: inline-block; padding: 1px 8px; border: 1px solid var(--color-iron); border-radius: var(--r-sm); font-size: var(--text-caption); color: var(--color-fog); }
+  .role-chip.r-admin { border-color: var(--color-ember-dim); color: var(--color-ember); }
+  .role-chip.r-supervisor { border-color: var(--color-slate); color: var(--color-paper); }
+  .when { font-size: 10px; color: var(--color-steel); white-space: nowrap; }
+  .status-pending { color: var(--color-ember); font-size: var(--text-caption); }
+  .status-off { color: var(--color-steel); font-size: var(--text-caption); }
+
+  /* matrix panel */
+  .mx { border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); overflow: hidden; }
+  .mx-head { padding: 7px 12px; border-bottom: 1px solid var(--color-iron); background: var(--color-void); font-size: 11px; letter-spacing: 0.04em; color: var(--color-pewter); display: flex; gap: var(--s-2); align-items: baseline; }
+  .mx-head .who { color: var(--color-paper); }
+  .mx-head .n { color: var(--color-steel); margin-left: auto; font-size: 10px; }
+  .mx table { font-size: var(--text-caption); }
+  .mx th, .mx td { padding: 5px 10px; }
+  .mx thead th { font-size: 10px; text-align: center; }
+  .mx thead th:first-child { text-align: left; }
+  .mx td { text-align: center; color: var(--color-steel); }
+  .mx td:first-child { text-align: left; color: var(--color-fog); font-size: 11px; }
+  .mx td.yes::before { content: '●'; color: var(--color-fog); }
+  .mx td.no::before { content: '–'; color: var(--color-pewter); }
+  .mx td.own::before { content: '◆'; color: var(--color-fog); }
+  .mx td.any::before { content: '◆'; color: var(--color-paper); }
+  .mx th.hl, .mx td.hl { background: var(--color-graphite); }
+  .mx th.hl { color: var(--color-ember); }
+  .mx .note { padding: 6px 12px; border-top: 1px solid var(--color-iron); font-size: 10px; color: var(--color-steel); }
+  .stance-note { font-size: 10px; color: var(--color-steel); margin-bottom: var(--s-2); }
+</style>
+</head>
+<body>
+  <div class="ph">
+    <h1>users</h1>
+    <span class="ph-desc">roster + capability matrix · click a person to see their powers</span>
+    <span class="badge">admin</span>
+  </div>
+
+  <div class="stance-note">admin stance — supervisor sees the roster read-only for roles/approve/delete (their own powers: accounts + audit)</div>
+
+  <div class="grid">
+    <div>
+      <div class="a2-list">
+        <table>
+          <thead><tr><th>user</th><th style="width:110px;">role</th><th style="width:80px;">source</th><th style="width:130px;">status</th><th style="width:100px;">last login</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="mx" id="mx">
+      <div class="mx-head"><span>capabilities</span><span class="who" id="mx-who">—</span><span class="n" id="mx-n"></span></div>
+      <table>
+        <thead><tr><th>capability</th><th data-r="viewer">viewer</th><th data-r="operator">operator</th><th data-r="supervisor">supervisor</th><th data-r="admin">admin</th></tr></thead>
+        <tbody id="mx-rows"></tbody>
+      </table>
+      <div class="note">● full · ◆ scoped (own / any) · – none · from server/src/auth/capabilities.ts</div>
+    </div>
+  </div>
+
+<script>
+const USERS = [
+  { name:'admin', email:'admin@lionparcel.com', role:'admin', src:'local', active:true, approved:true, last:1791599504296 },
+  { name:'drill', email:'drill@local', role:'admin', src:'local', active:true, approved:true, last:1791619167930 },
+  { name:'tmpadm', email:'tmpadm@rbac.test', role:'admin', src:'local', active:false, approved:true, last:null },
+  { name:'rbacsup', email:'rbacsup@rbac.test', role:'supervisor', src:'local', active:true, approved:true, last:1791556767537 },
+  { name:'Bayu Kurniawan', email:'kurniawan.bayu@hotmail.com', role:'operator', src:'jira', active:true, approved:true, last:1790072223311 },
+  { name:'uitest', email:'uitest@local', role:'operator', src:'local', active:true, approved:true, last:1789192733193 },
+  { name:'rbacoperator', email:'rbacoperator@rbac.test', role:'operator', src:'local', active:true, approved:true, last:1791621297705 },
+  { name:'supmade', email:'supmade@rbac.test', role:'operator', src:'local', active:false, approved:true, last:null },
+  { name:'op2', email:'rbacop2@rbac.test', role:'operator', src:'local', active:true, approved:true, last:1791619367357 },
+  { name:'viewer one', email:'viewer1@lionparcel.com', role:'viewer', src:'local', active:false, approved:true, last:1788847187200 },
+  { name:'rbacviewer', email:'rbacviewer@rbac.test', role:'viewer', src:'local', active:true, approved:true, last:1791599568108 },
+  { name:'lioclaw', email:'lioclaw@bot.local', role:'bot', src:'bot', active:true, approved:true, last:null },
+  { name:'guvnor', email:'guvnor@bot.local', role:'bot', src:'bot', active:true, approved:true, last:null },
+];
+// straight from capabilitiesFor() — the truth source
+const MATRIX = [
+  { cap:'overview read',    v:{viewer:'yes',operator:'yes',supervisor:'yes',admin:'yes'} },
+  { cap:'env values',       v:{viewer:'no',operator:'yes',supervisor:'yes',admin:'yes'} },
+  { cap:'users directory',  v:{viewer:'no',operator:'no',supervisor:'yes',admin:'yes'} },
+  { cap:'manual sessions',  v:{viewer:'no',operator:'yes',supervisor:'yes',admin:'yes'} },
+  { cap:'drive · take control', v:{viewer:'no',operator:'yes',supervisor:'yes',admin:'yes'} },
+  { cap:'author cases',     v:{viewer:'no',operator:'yes',supervisor:'yes',admin:'yes'} },
+  { cap:'trigger builds',   v:{viewer:'no',operator:'yes',supervisor:'yes',admin:'yes'} },
+  { cap:'abort / delete runs', v:{viewer:'no',operator:'own',supervisor:'any',admin:'any'} },
+  { cap:'manage accounts',  v:{viewer:'no',operator:'no',supervisor:'yes',admin:'yes'} },
+  { cap:'roles · approve · settings', v:{viewer:'no',operator:'no',supervisor:'no',admin:'yes'} },
+  { cap:'audit log',        v:{viewer:'no',operator:'no',supervisor:'yes',admin:'yes'} },
+];
+function when(ts) {
+  if (!ts) return 'never';
+  const s = Math.round((Date.now() - ts) / 1000);
+  if (s < 3600) return `${Math.max(1, Math.round(s/60))}m ago`;
+  if (s < 86400) return `${Math.round(s/3600)}h ago`;
+  return new Date(ts).toISOString().slice(0,10);
+}
+function renderRoster(sel) {
+  const tb = document.getElementById('rows');
+  tb.innerHTML = '';
+  for (const u of USERS) {
+    const tr = document.createElement('tr');
+    tr.className = (u.active ? '' : 'inactive') + (sel && u.email === sel.email ? ' sel' : '');
+    tr.innerHTML = `
+      <td><div class="u-name">${u.name}</div><div class="u-email">${u.email}</div></td>
+      <td><span class="role-chip r-${u.role}">${u.role}</span></td>
+      <td><span class="badge">${u.src}</span></td>
+      <td>${!u.approved ? '<span class="status-pending">pending</span>' : (u.active ? '<span style="font-size:12px;">active</span>' : '<span class="status-off">deactivated</span>')}</td>
+      <td class="when">${when(u.last)}</td>`;
+    tr.onclick = () => { renderRoster(u); renderMatrix(u); };
+    tb.appendChild(tr);
+  }
+}
+function renderMatrix(u) {
+  const role = u && u.role !== 'bot' ? u.role : null;
+  document.getElementById('mx-who').textContent = u ? `${u.name}` : '—';
+  document.getElementById('mx-n').textContent = u ? `${u.role}` : '';
+  document.querySelectorAll('.mx thead th[data-r]').forEach(th => th.classList.toggle('hl', th.dataset.r === role));
+  const tb = document.getElementById('mx-rows');
+  tb.innerHTML = '';
+  for (const row of MATRIX) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${row.cap}</td>` + ['viewer','operator','supervisor','admin'].map(r =>
+      `<td class="${row.v[r]}${r === role ? ' hl' : ''}"></td>`).join('');
+    tb.appendChild(tr);
+  }
+}
+renderRoster(USERS[1]); // drill selected by default
+renderMatrix(USERS[1]);
+</script>
+</body>
+</html>

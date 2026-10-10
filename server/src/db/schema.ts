@@ -603,6 +603,12 @@ export function migrateM1(db: Database.Database): void {
     }
   }
 
+  // collision-safety T2 (plan 20261010T023941Z): who powered this device last.
+  {
+    const devCols = db.prepare("SELECT name FROM pragma_table_info('devices')").all() as Array<{ name: string }>;
+    if (!devCols.some((c) => c.name === 'last_power_by')) db.prepare('ALTER TABLE devices ADD COLUMN last_power_by TEXT').run();
+  }
+
   // RBAC T4 (plan 20261009T102032Z): user-FK attribution + assignment.
   // Nullable by design: legacy rows backfill by unambiguous name match
   // below; ambiguous/unmatched stay NULL (honest — never guess).

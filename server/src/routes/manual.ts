@@ -88,7 +88,7 @@ export function registerManualRoutes(
       const s = await startManualSession({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, b.udid, operator, appBundleId);
       return s;
     } catch (err) {
-      if (err instanceof ManualSessionError) return reply.code(err.code === 'QUEUE_ACTIVE' ? 409 : 410).send({ error: err.message, code: err.code });
+      if (err instanceof ManualSessionError) return reply.code(err.code === 'QUEUE_ACTIVE' || err.code === 'DEVICE_HELD' ? 409 : 410).send({ error: err.message, code: err.code });
       throw err;
     }
   });
@@ -381,8 +381,16 @@ export function registerManualRoutes(
         // probing is registry-scoped: the caller names the app; the session
         // binds to it (no Settings fallback — a Settings tree is useless for
         // defining app screen states). startManualSession foregrounds it.
-        const s = await startManualSession({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, udid, req.user?.name ?? 'probe', b?.bundle ?? 'com.apple.Preferences');
-        sessionId = s.sessionId;
+        // Collision-safety (review F2): if ANOTHER user's session holds the
+        // device, REUSE it — probing is read-only tree capture, and the
+        // exclusivity guard would otherwise 409 the Screens page mid-drive.
+        const held = db.prepare('SELECT id FROM manual_sessions WHERE udid = ? AND finished_at IS NULL LIMIT 1').get(udid) as { id: string } | undefined;
+        if (held) {
+          sessionId = held.id;
+        } else {
+          const s = await startManualSession({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, udid, req.user?.name ?? 'probe', b?.bundle ?? 'com.apple.Preferences');
+          sessionId = s.sessionId;
+        }
       }
       const tree = await manualTree({ db, bus: deps.bus, dispatchDeps: deps.dispatchDeps }, sessionId);
       return { sessionId, nodes: tree.nodes, logicalW: tree.logicalW, logicalH: tree.logicalH, capturedAt: tree.capturedAt };
@@ -622,9 +630,10 @@ export function registerManualRoutes(
   //  Android). The route never installs arbitrary paths — packagePath must
   //  resolve inside packagesDir(). One install per device; never while a run
   //  holds it. ──
-  app.post('/api/devices/:udid/install', async (req, reply) => {
+  app.post('/api/devices/:udid/install', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
     const { udid } = req.params as { udid: string };
     const b = (req.body ?? {}) as { packagePath?: string };
+    auditWrite(db, req, 'app_installed', `installing ${(b.packagePath ?? '?').split('/').pop()} on ${udid.slice(0, 8)}`);
     if (!b.packagePath) return reply.code(422).send({ error: 'packagePath required' });
     const resolved = resolve(b.packagePath);
     const dir = packagesDir();

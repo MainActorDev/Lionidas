@@ -323,17 +323,22 @@ describe('CI builds', () => {
     expect(part.body.length).toBeLessThan(full.body.length);
   });
 
-  it('operator 403 on build routes', async () => {
+  it('operator 403 on build routes (admin-only since RBAC round)', async () => {
     const pid = mkClonedProject('gateapp');
     const opApp = Fastify();
     opApp.addHook('onRequest', async (req: import('fastify').FastifyRequest) => { (req as unknown as { user: unknown }).user = { name: 't', role: 'operator' }; });
     registerProjectRoutes(opApp, db);
     await opApp.ready();
     const start = await opApp.inject({ method: 'POST', url: `/api/projects/${pid}/builds`, payload: {} });
-    const list = await opApp.inject({ method: 'GET', url: '/api/builds' });
     expect(start.statusCode).toBe(403);
-    expect(list.statusCode).toBe(403);
     await opApp.close();
+    const listApp = Fastify();
+    listApp.addHook('onRequest', async (req: import('fastify').FastifyRequest) => { (req as unknown as { user: unknown }).user = { name: 't', role: 'operator' }; });
+    registerProjectRoutes(listApp, db);
+    await listApp.ready();
+    const list = await listApp.inject({ method: 'GET', url: '/api/builds' });
+    expect(list.statusCode).toBe(200); // RBAC matrix: builds READ is overview-class (viewer ok)
+    await listApp.close();
   });
 });
 

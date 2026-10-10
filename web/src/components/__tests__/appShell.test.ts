@@ -20,6 +20,7 @@ const routes = [
   { path: '/env', name: 'env', component: { template: '<div id="stub-page" />' } },
   { path: '/forge', name: 'forge', component: { template: '<div id="stub-page" />' } },
   { path: '/users', name: 'users', component: { template: '<div id="stub-page" />' } },
+  { path: '/audit', name: 'audit', component: { template: '<div id="stub-page" />' } },
   { path: '/projects', name: 'projects', component: { template: '<div id="stub-page" />' } },
   { path: '/builds', name: 'builds', component: { template: '<div id="stub-page" />' } },
   { path: '/settings', name: 'settings', component: { template: '<div id="stub-page" />' } },
@@ -54,12 +55,12 @@ describe('app shell sidebar (025-A collapsible tree)', () => {
     // text() includes the caret glyph — compare normalized labels
     expect(heads.map(h => h.text().replace('▾', '').trim())).toEqual(['testing', 'ci', 'library', 'settings']);
     const items = wrapper.findAll('.nav-item');
-    expect(items).toHaveLength(12);
+    expect(items).toHaveLength(13);
     expect(items.map(i => i.text())).toEqual([
       'overview', 'suites', 'devices', 'runs',
       'projects', 'builds',
       'test cases', 'screens', 'env', 'network',
-      'users', 'configs',
+      'users', 'audit log', 'configs',
       // guide: hidden for now (2026-10-08) — link commented out in App.vue
     ]);
     // all groups expanded by default

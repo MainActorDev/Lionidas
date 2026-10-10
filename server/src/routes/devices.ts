@@ -1,4 +1,6 @@
 import type { FastifyInstance } from 'fastify';
+import { requireRoleAtLeast } from '../auth/roles.ts';
+import { auditWrite } from '../auth/audit.ts';
 import { execFile } from 'node:child_process';
 import { ensureSimdeck } from '../simdeck/supervisor.ts';
 import type Database from 'better-sqlite3';
@@ -81,9 +83,17 @@ function waitForDeviceState(udid: string, want: (s: string | null) => boolean, t
 export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database): void {
   app.get('/api/devices', async (req) => {
     // simulator-only wall: physical devices stay out of the list entirely
+    // collision-safety T2: last_power_by is new — older/test schemas may lack the column,
+    // so select it tolerantly (null when absent) instead of failing the whole wall.
+    const selCols = `d.udid, d.name, d.state, d.platform, d.kind, d.os_version, d.resolution, d.lease_holder, d.lease_engine, d.last_seen`;
+    const hasPowerCol = (db.prepare(`SELECT 1 FROM pragma_table_info('devices') WHERE name = 'last_power_by'`).get() as unknown);
+    const powerCol = hasPowerCol ? ', d.last_power_by' : ", NULL AS last_power_by";
     const rows = db
-      .prepare(`SELECT d.udid, d.name, d.state, d.platform, d.kind, d.os_version, d.resolution, d.lease_holder, d.lease_engine, d.last_seen,
-                       CASE WHEN d.lease_holder LIKE 'manual:%' THEN COALESCE((SELECT ms.operator FROM manual_sessions ms WHERE ms.id = substr(d.lease_holder, 8) AND ms.finished_at IS NULL), 'manual') ELSE d.lease_holder END AS lease_display,
+      .prepare(`SELECT ${selCols}${powerCol},
+                       COALESCE(
+        (SELECT ms.operator FROM manual_sessions ms WHERE ms.udid = d.udid AND ms.finished_at IS NULL ORDER BY ms.started_at DESC LIMIT 1),
+        CASE WHEN d.lease_holder LIKE 'manual:%' THEN COALESCE((SELECT ms.operator FROM manual_sessions ms WHERE ms.id = substr(d.lease_holder, 8) AND ms.finished_at IS NULL), 'manual') ELSE d.lease_holder END
+      ) AS lease_display,
                        (SELECT MAX(t) FROM (
                          SELECT MAX(started_at) t FROM runs WHERE device_udid = d.udid
                          UNION ALL
@@ -125,8 +135,16 @@ export function registerDeviceRoutes(app: FastifyInstance, db: Database.Database
   });
 
   // Boot/shutdown a simulator through the choke point (alloy_devices action passthrough).
-  app.post('/api/devices/:udid/power', async (req, reply) => {
+  // collision-safety T2 (plan 20261010T023941Z): power actions are operator+
+  // (review F4 — NO gate existed: a viewer could boot/shutdown), audited,
+  // and stamp who did it for the presence UI.
+  app.post('/api/devices/:udid/power', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
     const { udid } = req.params as { udid: string };
+    try { // collision-safety T2: audit + who-powered attribution are best-effort —
+      // never fail the power action itself if a table is missing (older schemas)
+      auditWrite(db, req, 'device_action', `${(req.body as { action?: string } | null)?.action} ${udid.slice(0, 8)}`);
+      db.prepare('UPDATE devices SET last_power_by = ? WHERE udid = ?').run(req.user?.name ?? null, udid);
+    } catch { /* attribution skipped */ }
     const b = req.body as { action?: string };
     if (b?.action !== 'boot' && b?.action !== 'shutdown' && b?.action !== 'restart') {
       return reply.code(400).send({ error: 'action (boot|shutdown|restart) required' });

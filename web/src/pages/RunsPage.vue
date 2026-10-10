@@ -254,7 +254,7 @@ onUnmounted(() => { if (poll) clearInterval(poll); unwatch(); live.release(); })
             <span v-if="noteOf(r)" class="note">{{ noteOf(r) }}</span>
           </span>
           <span class="dur" :class="{ 'dur-bad': durOf(r).warn }">{{ durOf(r).text }}{{ durOf(r).warn ? ' ⚠' : '' }}</span>
-          <span class="by">{{ r.triggered_by }}</span>
+          <span class="by op-chip" :title="`run by ${r.triggered_by}`"><i class="ini">{{ (r.triggered_by || "?").slice(0, 2).toUpperCase() }}</i>{{ r.triggered_by }}</span>
           <span class="status" :class="statusCls(r)">{{ statusText(r) }}
             <button
               v-if="r.status === 'running' || r.status === 'queued'"
@@ -316,4 +316,6 @@ onUnmounted(() => { if (poll) clearInterval(poll); unwatch(); live.release(); })
 .loadmore:hover { color:var(--color-paper); border-color:var(--color-chalk); }
 .loadmore:disabled { color:var(--color-steel); cursor:default; }
 .endcap { text-align:center; color:var(--color-steel); font-size:var(--text-caption); margin:24px 0; }
+.op-chip { display: inline-flex; gap: 4px; align-items: center; }
+.op-chip .ini { font-style: normal; font-size: 9px; background: var(--color-iron); color: var(--color-paper); border-radius: 99px; padding: 1px 5px; }
 </style>

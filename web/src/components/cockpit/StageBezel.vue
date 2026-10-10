@@ -69,6 +69,8 @@ const fpsLabel = computed(() => {
   return `live · ${Math.max(...recent.map((s) => s.fps))}fps`;
 });
 onMounted(() => {
+  refreshHeld();
+  heldTimer = setInterval(() => void refreshHeld(), 30_000);
   // tick feeds the window too: an UNCHANGED fps (>0) never fires the watch,
   // so between swipes the window drained and the peak collapsed to the
   // settle rate — the exact flicker this smoothing exists to hide.
@@ -222,6 +224,7 @@ async function takeControl(): Promise<void> {
     const body = await res.json() as { sessionId?: string; logicalW?: number | null; logicalH?: number | null; error?: string };
     if (body.sessionId) {
       sessionId.value = body.sessionId;
+      heldBy.value = null;
       logicalW.value = body.logicalW ?? null;
       logicalH.value = body.logicalH ?? null;
       startedAt.value = Date.now();
@@ -249,6 +252,21 @@ async function takeControl(): Promise<void> {
 }
 let watchRetry: ReturnType<typeof setInterval> | undefined;
 const runLocked = ref(false);
+// collision-safety T4: presence — when ANOTHER user's session holds this
+// device, show who (nobody takes over; the plan's exclusivity makes the
+// take-control click 409 with the same text).
+const heldBy = ref<string | null>(null);
+let heldTimer: ReturnType<typeof setInterval> | undefined;
+async function refreshHeld(): Promise<void> {
+  if (sessionId.value) { heldBy.value = null; return; } // we hold it
+  try {
+    const r = await fetch('/api/devices');
+    if (!r.ok) return;
+    const d = ((await r.json()) as { devices: Array<{ udid: string; lease_holder: string | null; lease_display: string | null }> })
+      .devices.find((x) => x.udid === props.udid);
+    heldBy.value = d?.lease_holder?.startsWith('manual:') ? (d.lease_display ?? 'someone') : null;
+  } catch { /* presence is best-effort */ }
+}
 async function tryStart(): Promise<void> {
   const res = await fetch('/api/manual/start', {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -439,7 +457,8 @@ defineExpose({
 <template>
   <div class="stage">
     <div v-if="lost" class="lost">session lost — take control again</div>
-    <div v-if="runLocked" class="runlock">⏳ a test case is running on this device — take control unlocks automatically when it finishes</div>
+    <div v-if="heldBy && !runLocked" class="runlock held" :title="'nobody takes over — release or wait (auto-releases after 5 min idle)'">● driven by {{ heldBy }} — nobody takes over</div>
+      <div v-if="runLocked" class="runlock">⏳ a test case is running on this device — take control unlocks automatically when it finishes</div>
 
     <!-- control cluster: zoom on top, session button below -->
     <div class="ctrlcol">

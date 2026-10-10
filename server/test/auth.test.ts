@@ -186,6 +186,84 @@ describe('user management (admin)', () => {
   });
 });
 
+describe('users-domain parity with promote-cap (user decision 2026-10-10)', () => {
+  // supervisor = admin on the users domain EXCEPT: cannot assign admin
+  // (highest assignable: supervisor) and cannot re-role/delete admin rows.
+  let supSid: string; let adminSid: string;
+  beforeEach(async () => {
+    // provision a supervisor directly (seedUsers has none)
+    db.prepare(`INSERT INTO users(id, email, name, role, password_hash, auth_source, active, approved, created_at)
+                VALUES ('usr_sup_t', 'sup-t@x.com', 'sup-t', 'supervisor', ?, 'local', 1, 1, ?)`)
+      .run(hashPassword('sup-pass-123'), Date.now());
+    supSid = (await loginAs('sup-t@x.com', 'sup-pass-123'))!;
+    adminSid = (await loginAs('admin@lionparcel.com', ADMIN_PW))!;
+  });
+  const HS = () => ({ cookie: `crucible_session=${supSid}` });
+  const HA = () => ({ cookie: `crucible_session=${adminSid}` });
+
+  it('supervisor creates non-admin accounts', async () => {
+    const r = await app.inject({ method: 'POST', url: '/api/users', headers: HS(), payload: { email: 'par@x.com', name: 'par', role: 'operator', password: 'par-pass-12' } });
+    expect(r.statusCode).toBe(200);
+  });
+
+  it('supervisor CANNOT create an admin', async () => {
+    const r = await app.inject({ method: 'POST', url: '/api/users', headers: HS(), payload: { email: 'adm2@x.com', name: 'adm2', role: 'admin', password: 'adm-pass-123' } });
+    expect(r.statusCode).toBe(403);
+  });
+
+  it('supervisor promotes operator → supervisor (the cap allows it)', async () => {
+    await app.inject({ method: 'POST', url: '/api/users', headers: HS(), payload: { email: 'promo@x.com', name: 'promo', role: 'operator', password: 'promo-pass-1' } });
+    const row = db.prepare("SELECT id FROM users WHERE email = 'promo@x.com'").get() as { id: string };
+    const r = await app.inject({ method: 'PATCH', url: `/api/users/${row.id}`, headers: HS(), payload: { role: 'supervisor' } });
+    expect(r.statusCode).toBe(200);
+    expect((r.json() as { user: { role: string } }).user.role).toBe('supervisor');
+  });
+
+  it('supervisor CANNOT promote anyone to admin', async () => {
+    await app.inject({ method: 'POST', url: '/api/users', headers: HS(), payload: { email: 'noadm@x.com', name: 'noadm', role: 'operator', password: 'noadm-pass-1' } });
+    const row = db.prepare("SELECT id FROM users WHERE email = 'noadm@x.com'").get() as { id: string };
+    const r = await app.inject({ method: 'PATCH', url: `/api/users/${row.id}`, headers: HS(), payload: { role: 'admin' } });
+    expect(r.statusCode).toBe(403);
+  });
+
+  it('supervisor CANNOT re-role an admin account', async () => {
+    const admin = db.prepare("SELECT id FROM users WHERE email = 'admin@lionparcel.com'").get() as { id: string };
+    const r = await app.inject({ method: 'PATCH', url: `/api/users/${admin.id}`, headers: HS(), payload: { role: 'operator' } });
+    expect(r.statusCode).toBe(403);
+  });
+
+  it('supervisor approves pending accounts', async () => {
+    await app.inject({ method: 'POST', url: '/api/users', headers: HS(), payload: { email: 'pend@x.com', name: 'pend', role: 'viewer', password: 'pend-pass-12' } });
+    const row = db.prepare("SELECT id FROM users WHERE email = 'pend@x.com'").get() as { id: string };
+    const r = await app.inject({ method: 'PATCH', url: `/api/users/${row.id}`, headers: HS(), payload: { approved: true } });
+    expect(r.statusCode).toBe(200);
+  });
+
+  it('supervisor deletes a non-admin account; sessions + pins cascade; audit row written', async () => {
+    await app.inject({ method: 'POST', url: '/api/users', headers: HS(), payload: { email: 'gone@x.com', name: 'gone', role: 'viewer', password: 'gone-pass-1' } });
+    const row = db.prepare("SELECT id FROM users WHERE email = 'gone@x.com'").get() as { id: string };
+    await loginAs('gone@x.com', 'gone-pass-1'); // a session exists
+    db.prepare('INSERT INTO device_pins(user_id, udid, pinned_at) VALUES (?, ?, ?)').run(row.id, 'UDID-X', Date.now());
+    const r = await app.inject({ method: 'DELETE', url: `/api/users/${row.id}`, headers: HS() });
+    expect(r.statusCode).toBe(200);
+    expect(db.prepare('SELECT 1 FROM users WHERE id = ?').get(row.id)).toBeUndefined();
+    expect(db.prepare('SELECT 1 FROM sessions WHERE user_id = ?').get(row.id)).toBeUndefined();
+    expect(db.prepare('SELECT 1 FROM device_pins WHERE user_id = ?').get(row.id)).toBeUndefined();
+    const audit = db.prepare("SELECT detail FROM auth_log WHERE event = 'user_deleted' AND user_id = ?").get(row.id) as { detail: string } | undefined;
+    expect(audit?.detail).toContain('gone@x.com');
+  });
+
+  it('supervisor CANNOT delete an admin account; admin can delete; self-delete and bootstrap rejected', async () => {
+    const admin = db.prepare("SELECT id FROM users WHERE email = 'admin@lionparcel.com'").get() as { id: string };
+    const supRow = db.prepare("SELECT id FROM users WHERE email = 'sup-t@x.com'").get() as { id: string };
+    expect((await app.inject({ method: 'DELETE', url: `/api/users/${admin.id}`, headers: HS() })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'DELETE', url: `/api/users/${supRow.id}`, headers: HS() })).statusCode).toBe(400); // self
+    expect((await app.inject({ method: 'DELETE', url: '/api/users/usr_admin01', headers: HA() })).statusCode).toBe(400); // bootstrap
+    // admin deletes the supervisor account (allowed)
+    expect((await app.inject({ method: 'DELETE', url: `/api/users/${supRow.id}`, headers: HA() })).statusCode).toBe(200);
+  });
+});
+
 describe('bot resolution', () => {
   it('agent token resolves to a bot user for audit identity', async () => {
     process.env['CRUCIBLE_AGENT_TOKEN'] = 'lioclaw-secret-1';

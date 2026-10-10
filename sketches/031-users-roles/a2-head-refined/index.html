@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>031 A — role-grouped directory</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-mono); font-size: var(--text-body); color: var(--color-paper);
+    background: var(--color-void); line-height: 1.5; padding: 24px;
+  }
+  /* PageHeader two-row anatomy */
+  .ph { display: flex; align-items: baseline; gap: var(--s-3); margin-bottom: var(--s-4); }
+  .ph h1 { font-size: var(--text-heading); font-weight: var(--weight-bold); letter-spacing: 0.02em; }
+  .ph .ph-desc { color: var(--color-steel); font-size: var(--text-caption); }
+  .ph .badge { margin-left: auto; }
+
+  .badge { display: inline-block; padding: 1px var(--s-2); border: 1px solid var(--color-iron); border-radius: var(--r-sm); font-size: var(--text-caption); color: var(--color-fog); white-space: nowrap; }
+
+  .stance { display: inline-flex; border: 1px solid var(--color-iron); border-radius: var(--r-sm); overflow: hidden; }
+  .stance button { appearance: none; border: none; border-right: 1px solid var(--color-iron); background: transparent; padding: 3px 10px; cursor: pointer; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-pewter); }
+  .stance button:last-child { border-right: none; }
+  .stance button.on { color: var(--color-ember); background: var(--color-graphite); }
+  .stance button:hover { color: var(--color-paper); }
+
+  /* stance switch */
+  /* provision row (admin only) */
+  .prov { display: flex; gap: var(--s-2); flex-wrap: wrap; align-items: center; border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); padding: var(--s-3); margin-bottom: var(--s-3); }
+  .prov input, .prov select {
+    background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm);
+    color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-body); padding: 5px 8px;
+  }
+  .prov input::placeholder { color: var(--color-steel); }
+
+  .btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--color-slate); border-radius: var(--r-sm); background: var(--color-carbon); color: var(--color-fog); font-family: var(--font-mono); font-size: var(--text-body); padding: 5px 12px; min-height: 28px; cursor: pointer; white-space: nowrap; }
+  .btn:hover { background: var(--color-graphite); border-color: var(--color-slate); color: var(--color-paper); }
+  .btn-primary { background: var(--color-ember); border-color: var(--color-ember); color: var(--color-paper); font-weight: var(--weight-bold); }
+  .btn-primary:hover { background: var(--color-ember-dim); border-color: var(--color-ember-dim); }
+  .btn-sm { min-height: 24px; padding: 2px var(--s-2); font-size: var(--text-caption); }
+
+  /* ONE bordered list box, sticky thead */
+  .a2-list { border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); overflow-x: hidden; }
+  table { width: 100%; border-collapse: collapse; font-size: var(--text-body); }
+  th, td { text-align: left; padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--color-iron); }
+  thead th { position: sticky; top: 0; background: var(--color-carbon); color: var(--color-steel); font-weight: var(--weight-regular); font-size: var(--text-caption); text-transform: uppercase; letter-spacing: 0.06em; }
+  tbody tr { transition: background 90ms ease; }
+  tbody tr:hover { background: var(--color-graphite); }
+  tr.inactive { opacity: 0.45; }
+
+  .a2-group-head { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--s-2); padding: 7px 12px; border-top: 1px solid var(--color-iron); background: var(--color-void); cursor: pointer; user-select: none; font-size: 11px; letter-spacing: 0.04em; color: var(--color-pewter); }
+  .a2-group-head:first-of-type { border-top: none; }
+  .a2-group-head:hover { color: var(--color-paper); background: var(--color-graphite); }
+  .a2-group-head .caret { width: 12px; color: var(--color-steel); flex: none; }
+  .a2-group-head .owner { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .a2-group-head .n { color: var(--color-steel); margin-left: auto; }
+  .a2-group-head .caps { color: var(--color-steel); font-size: 10px; letter-spacing: 0.02em; margin-left: var(--s-2); }
+  /* ── a2 refinement: aligned head grid + health marks ──
+     columns: caret | role (fixed 90px = widest role 'supervisor') | digest (1fr)
+     | health (right, fixed) | count — every group's columns line up. */
+  .a2-group-head { display: grid; grid-template-columns: 12px 90px 1fr auto auto; align-items: center; column-gap: var(--s-2); padding: 7px 12px; }
+  .a2-group-head .n { margin-left: 0; color: var(--color-pewter); }
+  .a2-group-head .n::after { content: ' ·'; color: var(--color-pewter); } /* count then middot */
+  .a2-group-head .role-name { color: var(--color-paper); text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px; }
+  .a2-group-head .caps { color: var(--color-steel); font-size: 10px; letter-spacing: 0.02em; white-space: normal; line-height: 1.5; overflow: visible; } /* wraps, never ellipsizes — narrow frames included */
+  .a2-group-head .health { display: inline-flex; gap: var(--s-2); font-size: 10px; color: var(--color-steel); }
+  .a2-group-head .health .warn { color: var(--color-ember); }
+  .a2-group-head .health .dim { color: var(--color-ash); }
+  .grp-collapsed .u-row { display: none; }
+  .caret.closed::before { content: '▸'; }
+  .caret.open::before { content: '▾'; }
+
+  .u-name { color: var(--color-paper); }
+  .u-email { font-size: 10px; color: var(--color-steel); }
+  td.src .badge { font-size: 10px; }
+  .you { color: var(--color-ember); font-size: 10px; margin-left: 6px; }
+  .status-pending { color: var(--color-ember); font-size: var(--text-caption); }
+  .status-off { color: var(--color-steel); font-size: var(--text-caption); }
+  .when { font-size: 10px; color: var(--color-steel); white-space: nowrap; }
+
+  select.role-sel { background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 3px 6px; }
+  select.role-sel:disabled { opacity: 0.5; cursor: not-allowed; }
+  .sup-hidden { display: none; }
+  .admin-locked { color: var(--color-fog); cursor: default; }
+</style>
+</head>
+<body>
+  <div class="ph">
+    <h1>users</h1>
+    <span class="ph-desc">directory by role · capabilities from the rbac matrix</span>
+    <span class="badge" id="me-badge">admin</span>
+    <button id="ph-create" class="btn btn-primary btn-sm" onclick="toggleProv()">create user</button>
+    <!-- persona toggle (demo only): the ONLY per-viewer difference is the admin option —
+         supervisor tops out at supervisor (user decision 2026-10-10) -->
+    <span class="stance" style="margin-left: var(--s-2);">
+      <button id="pe-admin" class="on" onclick="setPersona('admin')">as admin</button>
+      <button id="pe-sup" onclick="setPersona('sup')">as supervisor</button>
+    </span>
+  </div>
+
+  <div class="prov" id="prov" hidden>
+    <input type="email" placeholder="email" style="min-width:200px;">
+    <input placeholder="display name" style="min-width:140px;">
+    <select id="prov-role">
+      <option value="viewer">viewer</option>
+      <option value="operator" selected>operator</option>
+      <option value="supervisor">supervisor</option>
+      <option value="admin">admin</option>
+    </select>
+    <input type="password" placeholder="starting password (min 8)" style="min-width:180px;">
+    <button class="btn btn-primary btn-sm">create</button>
+  </div>
+
+  <div class="a2-list">
+    <table>
+      <thead>
+        <tr><th>user</th><th style="width:120px;">role</th><th style="width:80px;">source</th><th style="width:150px;">status</th><th style="width:110px;">last login</th><th style="width:190px; text-align:right;">actions</th></tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+<script>
+// real census (2026-10-10): 13 accounts — drill/tmpadm admin, rbacsup supervisor,
+// 5 operators, 2 viewers, 2 bots. you = drill@local (admin stance) / rbacsup (sup stance).
+const USERS = [
+  { name:'admin', email:'admin@lionparcel.com', role:'admin', src:'local', active:true, approved:true, last:1791599504296 },
+  { name:'drill', email:'drill@local', role:'admin', src:'local', active:true, approved:true, last:1791619167930 },
+  { name:'tmpadm', email:'tmpadm@rbac.test', role:'admin', src:'local', active:false, approved:true, last:null },
+  { name:'rbacsup', email:'rbacsup@rbac.test', role:'supervisor', src:'local', active:true, approved:true, last:1791556767537 },
+  { name:'Bayu Kurniawan', email:'kurniawan.bayu@hotmail.com', role:'operator', src:'jira', active:true, approved:true, last:1790072223311 },
+  { name:'uitest', email:'uitest@local', role:'operator', src:'local', active:true, approved:true, last:1789192733193 },
+  { name:'rbacoperator', email:'rbacoperator@rbac.test', role:'operator', src:'local', active:true, approved:true, last:1791621297705 },
+  { name:'supmade', email:'supmade@rbac.test', role:'operator', src:'local', active:false, approved:true, last:null },
+  { name:'op2', email:'rbacop2@rbac.test', role:'operator', src:'local', active:true, approved:true, last:1791619367357 },
+  { name:'viewer one', email:'viewer1@lionparcel.com', role:'viewer', src:'local', active:false, approved:true, last:1788847187200 },
+  { name:'rbacviewer', email:'rbacviewer@rbac.test', role:'viewer', src:'local', active:true, approved:true, last:1791599568108 },
+  { name:'lioclaw', email:'lioclaw@bot.local', role:'bot', src:'bot', active:true, approved:true, last:null },
+  { name:'guvnor', email:'guvnor@bot.local', role:'bot', src:'bot', active:true, approved:true, last:null },
+];
+const CAPS = {
+  admin:      'everything · roles · settings · audit',
+  supervisor: 'drive · author · any-abort · accounts · roles · audit',
+  operator:   'drive · author · own-abort',
+  viewer:     'read-only',
+  bot:        'engine identity — tokens',
+};
+const ORDER = ['admin','supervisor','operator','viewer','bot'];
+const COLLAPSED = new Set(['bot']);
+let persona = 'admin'; // demo toggle: admin sees the admin option; supervisor is capped at supervisor
+
+function when(ts) {
+  if (!ts) return 'never';
+  const d = new Date(ts); const s = Math.round((Date.now() - ts) / 1000);
+  if (s < 3600) return `${Math.max(1, Math.round(s/60))}m ago`;
+  if (s < 86400) return `${Math.round(s/3600)}h ago`;
+  return d.toISOString().slice(0,10);
+}
+
+function render() {
+  const tb = document.getElementById('rows');
+  tb.innerHTML = '';
+  const meEmail = persona === 'admin' ? 'drill@local' : 'rbacsup@rbac.test';
+  for (const role of ORDER) {
+    const members = USERS.filter(u => u.role === role);
+    if (!members.length) continue;
+    const collapsed = COLLAPSED.has(role);
+    const head = document.createElement('tr');
+    head.className = 'a2-group-head' + (collapsed ? ' grp-collapsed' : '');
+    // a2: aligned grid head — role | digest | health (deactivated/pending) | count.
+    // Health marks are per-group facts that exist (anti-bloat: only when non-zero).
+    const deact = members.filter(m => !m.active).length;
+    const pend = members.filter(m => !m.approved).length;
+    head.innerHTML = `<span class="caret ${collapsed ? 'closed' : 'open'}"></span>` +
+      `<span class="role-name">${role}</span>` +
+      `<span class="caps" title="${CAPS[role]}">${CAPS[role]}</span>` +
+      `<span class="health">` +
+        (deact ? `<span class="dim" title="${deact} deactivated">${deact} off</span>` : '') +
+        (pend ? `<span class="warn" title="${pend} pending approval">${pend} pending</span>` : '') +
+      `</span>` +
+      `<span class="n">${members.length}</span>`;
+    head.onclick = () => { collapsed ? COLLAPSED.delete(role) : COLLAPSED.add(role); render(); };
+    tb.appendChild(head);
+
+    for (const u of members) {
+      const tr = document.createElement('tr');
+      tr.className = 'u-row' + (u.active ? '' : ' inactive');
+      const isMe = u.email === meEmail;
+      // role cell: full parity EXCEPT the admin option — supervisor tops out at
+      // supervisor (user decision). Admin-role rows at supervisor persona are
+      // plain text: re-roling an admin account is out of supervisor reach.
+      const opts = persona === 'admin' ? ['viewer','operator','supervisor','admin'] : ['viewer','operator','supervisor'];
+      const roleCell = u.role === 'bot'
+        ? `<span style="color: var(--color-fog);">bot</span>`
+        : (persona === 'sup' && u.role === 'admin')
+          ? `<span class="admin-locked" title="admin accounts — role changes are admin-only">admin</span>`
+          : `<select class="role-sel">` + opts.map(r => `<option value="${r}" ${r === u.role ? 'selected' : ''}>${r}</option>`).join('') + `</select>`;
+      const status = !u.approved
+        ? `<span class="status-pending">pending approval</span>`
+        : (u.active ? `<span style="font-size:var(--text-caption);">active</span>` : `<span class="status-off">deactivated</span>`);
+      // actions: identical for admin and supervisor (user decision 2026-10-10 — users-domain parity)
+      const acts = u.role === 'bot'
+        ? `<span style="font-size:10px;color:var(--color-steel);">token only</span>`
+        : `${!u.approved ? '<button class="btn btn-sm btn-primary">approve</button>' : ''}` +
+          `<button class="btn btn-sm">reset pw</button>` +
+          `<button class="btn btn-sm">${u.active ? 'deactivate' : 'reactivate'}</button>` +
+          `<button class="btn btn-sm btn-danger">delete</button>`;
+      tr.innerHTML = `
+        <td><div class="u-name">${u.name}${isMe ? '<span class="you">you</span>' : ''}</div><div class="u-email">${u.email}</div></td>
+        <td>${roleCell}</td>
+        <td class="src"><span class="badge">${u.src}</span></td>
+        <td>${status}</td>
+        <td class="when">${when(u.last)}</td>
+        <td style="text-align:right; white-space:nowrap;">${acts}</td>`;
+      tb.appendChild(tr);
+    }
+  }
+}
+
+function toggleProv() {
+  const p = document.getElementById('prov');
+  p.hidden = !p.hidden;
+}
+function setPersona(pn) {
+  persona = pn;
+  document.getElementById('pe-admin').classList.toggle('on', pn === 'admin');
+  document.getElementById('pe-sup').classList.toggle('on', pn === 'sup');
+  document.getElementById('me-badge').textContent = pn === 'admin' ? 'admin' : 'supervisor';
+  // provision form role options follow the cap
+  const sel = document.getElementById('prov-role');
+  sel.innerHTML = (pn === 'admin' ? ['viewer','operator','supervisor','admin'] : ['viewer','operator','supervisor'])
+    .map(r => `<option value="${r}" ${r === 'operator' ? 'selected' : ''}>${r}</option>`).join('');
+  render();
+}
+render();
+</script>
+</body>
+</html>

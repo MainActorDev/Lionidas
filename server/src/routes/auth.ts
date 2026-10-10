@@ -117,12 +117,12 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
   });
 
   // ── user management (admin) ──
-  app.get('/api/auth/log', { preHandler: requireRole('admin') }, async () => {
+  app.get('/api/auth/log', { preHandler: requireRoleAtLeast('supervisor') }, async () => {
     const rows = db.prepare('SELECT * FROM auth_log ORDER BY at DESC LIMIT 200').all();
     return { log: rows };
   });
 
-  app.get('/api/sessions', { preHandler: requireRole('admin') }, async () => {
+  app.get('/api/sessions', { preHandler: requireRoleAtLeast('supervisor') }, async () => {
     const rows = db.prepare(`SELECT s.id, s.user_id, u.name, u.email, s.created_at, s.expires_at, s.last_seen_at
                              FROM sessions s JOIN users u ON u.id = s.user_id ORDER BY s.last_seen_at DESC LIMIT 100`).all();
     return { sessions: rows.map((r) => ({ ...r as Record<string, unknown>, id: (r as { id: string }).id.slice(0, 8) })) };
@@ -189,11 +189,16 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
     const b = req.body as { role?: Role; active?: boolean; approved?: boolean; password?: string; botToken?: string } | null;
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
     if (!user) return reply.code(404).send({ error: 'not found' });
-    // RBAC split (plan 20261009T102032Z matrix): supervisors manage accounts
-    // (password/active/botToken); role + approved changes are ADMIN-ONLY.
+    // Users-domain parity with one cap (user decision 2026-10-10): supervisors
+    // manage accounts AND roles/approvals — but cannot assign the admin role
+    // (highest assignable is supervisor) and cannot re-role admin accounts.
     const actorCaps = capabilitiesFor((req.user?.role ?? 'viewer') as Role);
-    if (!actorCaps.adminOnly && (b?.role !== undefined || b?.approved !== undefined)) {
-      return reply.code(403).send({ error: 'role and approval changes require admin' });
+    if (!actorCaps.manageAccounts) {
+      return reply.code(403).send({ error: 'account management requires supervisor' });
+    }
+    if (b?.role !== undefined && !actorCaps.adminOnly) {
+      if (b.role === 'admin') return reply.code(403).send({ error: 'assigning the admin role requires admin' });
+      if (user.role === 'admin') return reply.code(403).send({ error: 'admin accounts can only be re-rolled by an admin' });
     }
     // audit trail: admin credential/account mutations leave a named trace.
     // actor = the admin session that did it; target = the user row changed.
@@ -232,6 +237,24 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
       return { user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow), botToken: `${user.name}-${b.botToken}` };
     }
     return { user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow) };
+  });
+
+  app.delete('/api/users/:id', { preHandler: requireRoleAtLeast('supervisor') }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
+    if (!user) return reply.code(404).send({ error: 'not found' });
+    // same users-domain cap: supervisor cannot delete admin accounts
+    const actorCaps = capabilitiesFor((req.user?.role ?? 'viewer') as Role);
+    if (user.role === 'admin' && !actorCaps.adminOnly) return reply.code(403).send({ error: 'deleting admin accounts requires admin' });
+    if (user.id === req.user?.id) return reply.code(400).send({ error: 'cannot delete your own account' });
+    if (user.id === 'usr_admin01') return reply.code(400).send({ error: 'cannot delete the bootstrap admin' });
+    // audit BEFORE removal (the row is about to be gone)
+    db.prepare('INSERT INTO auth_log(at, email, user_id, event, detail) VALUES (?, ?, ?, ?, ?)')
+      .run(Date.now(), user.email, id, 'user_deleted', `deleted ${user.email} (${user.role}) by ${req.user?.name ?? 'unknown'}`);
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id);
+    db.prepare('DELETE FROM device_pins WHERE user_id = ?').run(id);
+    db.prepare('DELETE FROM users WHERE id = ?').run(id);
+    return { ok: true };
   });
 }
 

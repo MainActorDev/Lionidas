@@ -8,6 +8,15 @@ import { migrateM1 } from '../src/db/schema.ts';
 import { parseVariants, variantScenarioNames, type YamlVariant } from '@crucible/shared/yaml-variants';
 import { registerTemplateRoutes } from '../src/routes/templates.ts';
 
+// collision-safety: content PUTs carry the row's CURRENT updated_at token
+async function tokOf(id: string): Promise<number> {
+  const r = (db.prepare('SELECT updated_at FROM templates WHERE id = ?').get(id) as { updated_at: number } | undefined);
+  return r?.updated_at ?? 0;
+}
+
+
+
+
 /** S2 — scenario sets: variants reference multiple scenarios; effective
  *  presets = union (dedup by preset id); duplicate (method, path) across the
  *  union is a save-time 409; singular networkScenario stays as sugar. */
@@ -32,6 +41,7 @@ beforeEach(() => {
   db = new Database(join(tmp, 't.db'));
   migrateM1(db);
   app = Fastify();
+  app.addHook('onRequest', async (req: import('fastify').FastifyRequest) => { (req as unknown as { user: unknown }).user = { name: 'test-op', role: 'operator', id: 'usr_t' }; });
   registerTemplateRoutes(app, db, { emit: () => undefined } as never);
 });
 
@@ -86,7 +96,7 @@ describe('S2 — save validation (PUT yaml)', () => {
   it('unknown scenario in a set → 422 naming it', async () => {
     seedScenario('real-one', [['GET', '/v1/real']]);
     db.prepare(`INSERT INTO templates(id, name, udid, steps_json, tags_json, created_by, created_at, updated_at) VALUES ('tpl_s2a', 'setcase', 'sim', '[]', '[]', 't', 1, 1)`).run();
-    const r = await app.inject({ method: 'PUT', url: '/api/templates/tpl_s2a/yaml', payload: { yaml: CASE('variants:\n  - id: mixed\n    scenarios:\n      - real-one\n      - nope') } });
+    const r = await app.inject({ method: 'PUT', url: '/api/templates/tpl_s2a/yaml', payload: { yaml: CASE('variants:\n  - id: mixed\n    scenarios:\n      - real-one\n      - nope'), expectedUpdatedAt: await tokOf('tpl_s2a') } });
     expect(r.statusCode).toBe(422);
     expect((r.json() as { errors: Array<{ message: string }> }).errors[0]!.message).toContain('unknown scenario "nope"');
   });
@@ -95,7 +105,7 @@ describe('S2 — save validation (PUT yaml)', () => {
     seedScenario('countries-sg', [['GET', '/v1/rates']]);
     seedScenario('rates-degraded', [['GET', '/v1/rates']]);
     db.prepare(`INSERT INTO templates(id, name, udid, steps_json, tags_json, created_by, created_at, updated_at) VALUES ('tpl_s2b', 'setcase', 'sim', '[]', '[]', 't', 1, 1)`).run();
-    const r = await app.inject({ method: 'PUT', url: '/api/templates/tpl_s2b/yaml', payload: { yaml: CASE('variants:\n  - id: mixed\n    scenarios:\n      - countries-sg\n      - rates-degraded') } });
+    const r = await app.inject({ method: 'PUT', url: '/api/templates/tpl_s2b/yaml', payload: { yaml: CASE('variants:\n  - id: mixed\n    scenarios:\n      - countries-sg\n      - rates-degraded'), expectedUpdatedAt: await tokOf('tpl_s2b') } });
     expect(r.statusCode).toBe(409);
     const msg = (r.json() as { errors: Array<{ message: string }> }).errors[0]!.message;
     expect(msg).toContain('countries-sg');
@@ -107,12 +117,12 @@ describe('S2 — save validation (PUT yaml)', () => {
     seedScenario('countries-sg', [['GET', '/v1/rates']]);
     seedScenario('auth-happy', [['POST', '/v1/auth']]);
     db.prepare(`INSERT INTO templates(id, name, udid, steps_json, tags_json, created_by, created_at, updated_at) VALUES ('tpl_s2c', 'setcase', 'sim', '[]', '[]', 't', 1, 1)`).run();
-    const ok = await app.inject({ method: 'PUT', url: '/api/templates/tpl_s2c/yaml', payload: { yaml: CASE('variants:\n  - id: mixed\n    scenarios:\n      - countries-sg\n      - auth-happy') } });
+    const ok = await app.inject({ method: 'PUT', url: '/api/templates/tpl_s2c/yaml', payload: { yaml: CASE('variants:\n  - id: mixed\n    scenarios:\n      - countries-sg\n      - auth-happy'), expectedUpdatedAt: await tokOf('tpl_s2c') } });
     expect(ok.statusCode).toBe(200);
     const stored = db.prepare("SELECT variants_json FROM templates WHERE id='tpl_s2c'").get() as { variants_json: string };
     expect(JSON.parse(stored.variants_json)).toEqual([{ id: 'mixed', scenarios: ['countries-sg', 'auth-happy'] }]);
     // singular sugar on the same case still saves
-    const ok2 = await app.inject({ method: 'PUT', url: '/api/templates/tpl_s2c/yaml', payload: { yaml: CASE('variants:\n  - id: solo\n    networkScenario: countries-sg') } });
+    const ok2 = await app.inject({ method: 'PUT', url: '/api/templates/tpl_s2c/yaml', payload: { yaml: CASE('variants:\n  - id: solo\n    networkScenario: countries-sg'), expectedUpdatedAt: await tokOf('tpl_s2c') } });
     expect(ok2.statusCode).toBe(200);
   });
 });
