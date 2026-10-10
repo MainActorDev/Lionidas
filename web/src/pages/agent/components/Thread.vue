@@ -126,6 +126,9 @@ watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom
 .txt :deep(pre) { background: var(--ag-panel); border: 1px solid var(--ag-line); border-radius: var(--r-sm); padding: var(--s-2); overflow-x: auto; margin: 0 0 6px; }
 .txt :deep(pre code) { background: none; border: none; padding: 0; font-size: var(--text-caption); }
 .txt :deep(a) { color: var(--color-ember); }
+/* evidence embeds: capped, bordered, in-bubble media */
+.txt :deep(.ev-embed) { display: block; max-width: 100%; max-height: 320px; border: 1px solid var(--ag-line); border-radius: var(--r-sm); margin: 6px 0; }
+.txt :deep(video.ev-embed) { width: 100%; }
 .txt :deep(table) { border-collapse: collapse; margin: 0 0 8px; max-width: 100%; display: block; overflow-x: auto; font-size: var(--text-caption); }
 .txt :deep(th), .txt :deep(td) { border: 1px solid var(--ag-line); padding: 4px 10px; text-align: left; }
 .txt :deep(th) { background: var(--ag-panel); color: var(--color-paper); font-weight: var(--weight-bold); white-space: nowrap; }

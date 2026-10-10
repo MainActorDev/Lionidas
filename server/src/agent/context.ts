@@ -6,6 +6,7 @@ import {
   OpenAICompatProvider,
   SqliteStorage,
   StorageRetriever,
+  claudeCliProvider,
   type Provider,
 } from '@mainactordev/butler';
 import type Database from 'better-sqlite3';
@@ -46,9 +47,28 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
   const baseUrl = cfg.env['BUTLER_PROVIDER_BASE_URL'];
   const apiKey = cfg.env['BUTLER_API_KEY'];
   const model = cfg.env['BUTLER_MODEL'];
+  const providerKind = cfg.env['BUTLER_PROVIDER'] ?? 'openai-compat';
   let provider: Provider;
   let providerConfigured = false;
-  if (baseUrl && apiKey && model) {
+  if (providerKind === 'claude-cli') {
+    // claude-cli middleware with a GLM backend: injects the Anthropic-protocol
+    // endpoint vars into the SUBPROCESS only (host claude config untouched).
+    const env: Record<string, string> = {};
+    if (baseUrl && apiKey) {
+      env['ANTHROPIC_BASE_URL'] = baseUrl.includes('/api/anthropic') ? baseUrl : 'https://api.z.ai/api/anthropic';
+      env['ANTHROPIC_AUTH_TOKEN'] = apiKey;
+      env['API_TIMEOUT_MS'] = '3000000';
+    }
+    provider = claudeCliProvider({
+      kind: 'claude-cli',
+      baseUrl: env['ANTHROPIC_BASE_URL'] ?? '',
+      apiKey: env['ANTHROPIC_AUTH_TOKEN'] ?? '',
+      model: model ?? 'glm-5.3-flash',
+      ...(cfg.env['BUTLER_CLAUDE_BIN'] ? { binPath: cfg.env['BUTLER_CLAUDE_BIN'] } : {}),
+      env,
+    });
+    providerConfigured = Boolean(baseUrl && apiKey);
+  } else if (baseUrl && apiKey && model) {
     provider = new OpenAICompatProvider({ baseUrl, apiKey, model });
     providerConfigured = true;
   } else {

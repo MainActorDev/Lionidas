@@ -9,6 +9,12 @@ function escapeHtml(s: string): string {
 
 function inline(md: string): string {
   let out = escapeHtml(md);
+  // evidence embeds BEFORE other rules: ![](evidence://id) → real media tags
+  out = out.replace(/!\[([^\]]*)\]\(evidence:\/\/([a-z0-9_]+)(?:\/(video|screenshot|diff|logs))?\)/g,
+    (_m, alt: string, id: string, kind?: string) =>
+      kind === 'video' || /video/i.test(alt)
+        ? `<video controls preload="metadata" src="/api/evidence/${id}/file" class="ev-embed ev-video"></video>`
+        : `<img alt="${alt}" src="/api/evidence/${id}/file" class="ev-embed" loading="lazy">`);
   out = out.replace(/`([^`]+)`/g, '<code>$1</code>');
   out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   out = out.replace(/\*([^*]+)\*/g, '<em>$1</em>');

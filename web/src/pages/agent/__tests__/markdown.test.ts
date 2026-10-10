@@ -69,3 +69,15 @@ describe('agent chat markdown tables', () => {
     expect(html).toContain('<p>Done.</p>');
   });
 });
+
+describe('evidence embeds', () => {
+  it('renders image evidence inline', () => {
+    const html = renderMarkdown('here: ![shot](evidence://ev_abc123/screenshot)');
+    expect(html).toContain('<img alt="shot" src="/api/evidence/ev_abc123/file"');
+  });
+  it('renders video evidence inline', () => {
+    const html = renderMarkdown('![run video](evidence://ev_v1/video)');
+    expect(html).toContain('<video controls');
+    expect(html).toContain('src="/api/evidence/ev_v1/file"');
+  });
+});
