@@ -64,7 +64,7 @@ const users = ref<U[]>([]);
 const err = ref('');
 const msg = ref('');
 const showForm = ref(false);
-const tab = ref<'directory' | 'sessions' | 'log'>('directory'); // segmented switch between the admin tables
+const tab = ref<'directory' | 'sessions' | 'log' | 'tokens'>('directory'); // segmented switch — one table at a time
 const form = ref({ email: '', name: '', role: 'operator', password: '' });
 const creating = ref(false);
 
@@ -165,7 +165,10 @@ onMounted(() => {
   void loadTokens();
 });
 onMounted(() => {
-  void load().then(() => { if (isDirectory.value) void loadAccess(); });
+  void load().then(() => {
+    if (isDirectory.value) void loadAccess();
+    else tab.value = 'tokens'; // below supervisor: tokens is the only table
+  });
 });
 </script>
 
@@ -190,11 +193,13 @@ onMounted(() => {
       <button class="btn btn-primary btn-sm" :disabled="creating || !form.email || !form.name || form.password.length < 8" @click="creating = true; create().finally(() => { creating = false; })">create</button>
     </div>
 
-    <!-- segmented switch between the directory tables (sketch 031 a2 follow-up) -->
-    <div v-if="isDirectory" class="a2-tabs" style="margin-bottom: var(--s-3);">
-      <button class="a2-tab" :class="{ on: tab === 'directory' }" @click="tab = 'directory'">directory <span class="n">{{ users.length }}</span></button>
-      <button class="a2-tab" :class="{ on: tab === 'sessions' }" @click="tab = 'sessions'">sessions <span class="n">{{ sessions.length }}</span></button>
-      <button class="a2-tab" :class="{ on: tab === 'log' }" @click="tab = 'log'">auth log <span class="n">{{ log.length }}</span></button>
+    <!-- segmented switch between the tables (sketch 031 a2 follow-up).
+         Below supervisor: tokens only — the tab strip still lands them in one place. -->
+    <div class="a2-tabs" style="margin-bottom: var(--s-3);">
+      <button v-if="isDirectory" class="a2-tab" :class="{ on: tab === 'directory' }" @click="tab = 'directory'">directory <span class="n">{{ users.length }}</span></button>
+      <button v-if="isDirectory" class="a2-tab" :class="{ on: tab === 'sessions' }" @click="tab = 'sessions'">sessions <span class="n">{{ sessions.length }}</span></button>
+      <button v-if="isDirectory" class="a2-tab" :class="{ on: tab === 'log' }" @click="tab = 'log'">auth log <span class="n">{{ log.length }}</span></button>
+      <button class="a2-tab" :class="{ on: tab === 'tokens' }" @click="tab = 'tokens'">api tokens <span class="n">{{ tokens.length }}</span></button>
     </div>
 
     <div v-if="err" class="meta-row" style="color: var(--color-ember); margin-bottom: 10px;">{{ err }}</div>
@@ -304,9 +309,8 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- API tokens (all roles — account-level) -->
-    <div class="section-label" style="margin-top: var(--s-4);"><span>api tokens · cli access</span></div>
-    <div class="card" style="padding: var(--s-3); display: flex; flex-direction: column; gap: var(--s-2);">
+    <!-- API tokens (all roles — account-level; cli auth for lionidas) -->
+    <div v-if="tab === 'tokens'" class="card" style="padding: var(--s-3); display: flex; flex-direction: column; gap: var(--s-2);">
       <div style="display: flex; gap: var(--s-2); align-items: center;">
         <input v-model="newTokenName" placeholder="token name (e.g. laptop, ci)" class="tok-name">
         <button class="btn btn-sm" :disabled="creatingToken || !newTokenName.trim()" @click="createToken">{{ creatingToken ? 'creating…' : 'create token' }}</button>
