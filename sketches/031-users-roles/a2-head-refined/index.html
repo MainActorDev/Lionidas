@@ -19,6 +19,12 @@
 
   .badge { display: inline-block; padding: 1px var(--s-2); border: 1px solid var(--color-iron); border-radius: var(--r-sm); font-size: var(--text-caption); color: var(--color-fog); white-space: nowrap; }
 
+  .stance { display: inline-flex; border: 1px solid var(--color-iron); border-radius: var(--r-sm); overflow: hidden; }
+  .stance button { appearance: none; border: none; border-right: 1px solid var(--color-iron); background: transparent; padding: 3px 10px; cursor: pointer; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-pewter); }
+  .stance button:last-child { border-right: none; }
+  .stance button.on { color: var(--color-ember); background: var(--color-graphite); }
+  .stance button:hover { color: var(--color-paper); }
+
   /* stance switch */
   /* provision row (admin only) */
   .prov { display: flex; gap: var(--s-2); flex-wrap: wrap; align-items: center; border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); padding: var(--s-3); margin-bottom: var(--s-3); }
@@ -76,6 +82,7 @@
   select.role-sel { background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 3px 6px; }
   select.role-sel:disabled { opacity: 0.5; cursor: not-allowed; }
   .sup-hidden { display: none; }
+  .admin-locked { color: var(--color-fog); cursor: default; }
 </style>
 </head>
 <body>
@@ -83,8 +90,13 @@
     <h1>users</h1>
     <span class="ph-desc">directory by role · capabilities from the rbac matrix</span>
     <span class="badge" id="me-badge">admin</span>
-    <!-- admin-only: reveal the provision form (hidden until clicked; no button at supervisor stance) -->
     <button id="ph-create" class="btn btn-primary btn-sm" onclick="toggleProv()">create user</button>
+    <!-- persona toggle (demo only): the ONLY per-viewer difference is the admin option —
+         supervisor tops out at supervisor (user decision 2026-10-10) -->
+    <span class="stance" style="margin-left: var(--s-2);">
+      <button id="pe-admin" class="on" onclick="setPersona('admin')">as admin</button>
+      <button id="pe-sup" onclick="setPersona('sup')">as supervisor</button>
+    </span>
   </div>
 
   <div class="prov" id="prov" hidden>
@@ -136,6 +148,7 @@ const CAPS = {
 };
 const ORDER = ['admin','supervisor','operator','viewer','bot'];
 const COLLAPSED = new Set(['bot']);
+let persona = 'admin'; // demo toggle: admin sees the admin option; supervisor is capped at supervisor
 
 function when(ts) {
   if (!ts) return 'never';
@@ -148,7 +161,7 @@ function when(ts) {
 function render() {
   const tb = document.getElementById('rows');
   tb.innerHTML = '';
-  const meEmail = 'drill@local';
+  const meEmail = persona === 'admin' ? 'drill@local' : 'rbacsup@rbac.test';
   for (const role of ORDER) {
     const members = USERS.filter(u => u.role === role);
     if (!members.length) continue;
@@ -174,9 +187,15 @@ function render() {
       const tr = document.createElement('tr');
       tr.className = 'u-row' + (u.active ? '' : ' inactive');
       const isMe = u.email === meEmail;
-      // role cell: full select for both admin and supervisor (users-domain parity)
-      const roleCell = `<select class="role-sel" ${u.role === 'bot' ? 'disabled' : ''}>` +
-        ['viewer','operator','supervisor','admin'].map(r => `<option value="${r}" ${r === u.role ? 'selected' : ''}>${r}</option>`).join('') + `</select>`;
+      // role cell: full parity EXCEPT the admin option — supervisor tops out at
+      // supervisor (user decision). Admin-role rows at supervisor persona are
+      // plain text: re-roling an admin account is out of supervisor reach.
+      const opts = persona === 'admin' ? ['viewer','operator','supervisor','admin'] : ['viewer','operator','supervisor'];
+      const roleCell = u.role === 'bot'
+        ? `<span style="color: var(--color-fog);">bot</span>`
+        : (persona === 'sup' && u.role === 'admin')
+          ? `<span class="admin-locked" title="admin accounts — role changes are admin-only">admin</span>`
+          : `<select class="role-sel">` + opts.map(r => `<option value="${r}" ${r === u.role ? 'selected' : ''}>${r}</option>`).join('') + `</select>`;
       const status = !u.approved
         ? `<span class="status-pending">pending approval</span>`
         : (u.active ? `<span style="font-size:var(--text-caption);">active</span>` : `<span class="status-off">deactivated</span>`);
@@ -202,6 +221,17 @@ function render() {
 function toggleProv() {
   const p = document.getElementById('prov');
   p.hidden = !p.hidden;
+}
+function setPersona(pn) {
+  persona = pn;
+  document.getElementById('pe-admin').classList.toggle('on', pn === 'admin');
+  document.getElementById('pe-sup').classList.toggle('on', pn === 'sup');
+  document.getElementById('me-badge').textContent = pn === 'admin' ? 'admin' : 'supervisor';
+  // provision form role options follow the cap
+  const sel = document.getElementById('prov-role');
+  sel.innerHTML = (pn === 'admin' ? ['viewer','operator','supervisor','admin'] : ['viewer','operator','supervisor'])
+    .map(r => `<option value="${r}" ${r === 'operator' ? 'selected' : ''}>${r}</option>`).join('');
+  render();
 }
 render();
 </script>

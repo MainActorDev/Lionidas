@@ -17,9 +17,9 @@ Interpretation (not user-confirmed): "revamp based on their roles" = role become
 
 ## Confirmed inputs and decisions
 
-- **User decision (2026-10-10, sketch round 031): supervisor has the SAME capability as admin regarding users** — role selects, approve, delete, create (admin role included). The stance switch was removed from the picked design; the users page is one uniform view for admin and supervisor. Flagged consequence (accepted): supervisors can promote accounts to admin.
+- **User decision (2026-10-10, sketch round 031): supervisor has the SAME capability as admin regarding users** — role selects, approve, delete, create. **One exception (user, same day): supervisor cannot promote anyone to admin — the highest role it can assign is supervisor.** The create form and role selects cap at `supervisor` for supervisor viewers; admin-role rows render as locked plain text for them (no re-roling an admin account).
 - RBAC matrix is live (`server/src/auth/capabilities.ts`): viewer / operator / supervisor / admin / bot with capabilities incl. `manageAccounts` (supervisor+) and `adminOnly` (roles, approve, delete, settings).
-  - NOTE for the build round: the current SERVER routes are stricter than this decision (role PATCH + admin-role creation are admin-only per `auth.ts:162-187`) — the server must be widened to match the user decision, not just the UI.
+  - NOTE for the build round: the current SERVER routes already match this decision's shape — supervisor can create accounts but is rejected from creating/assigning the admin role (`auth.ts:162-187`); the UI must render that truth (selects capped at supervisor, admin rows locked). Verify the PATCH role-change rejection for supervisors too.
 - Real DB role census (2026-10-10): admin 3 · bot 2 · operator 5 · supervisor 1 · viewer 2.
 - Design system: Axiom tokens, grouped-list anatomy (one bordered table, one sticky thead, `.a2-group-head` in-flow rows), design previews mandatory (≥3 variants, real tokens, served + verified), sketches committed as the build spec.
 
