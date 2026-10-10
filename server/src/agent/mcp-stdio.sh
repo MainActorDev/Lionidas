@@ -4,6 +4,6 @@
 # Provider env (BUTLER_*) + LIONIDAS_PAT are sourced from server/.env — the
 # same file main.ts loads (loadEnvFile ../.env relative to src/).
 cd /Volumes/berkakyo/Users/berkamain/Developer/w0rk/lionparcel/ai/lionidas/server || exit 1
-export PATH="$HOME/.nvm/versions/node/v24.12.0/bin:$PATH"
+export PATH="$HOME/.nvm/versions/node/v24.20.0/bin:$PATH"
 [ -f .env ] && set -a && source .env && set +a
 exec node --import tsx src/agent/mcp-stdio.ts

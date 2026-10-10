@@ -11,6 +11,7 @@ import {
 } from '@mainactordev/butler';
 import type Database from 'better-sqlite3';
 import { join } from 'node:path';
+import { writeFileSync } from 'node:fs';
 import { buildToolRegistry } from './tools.ts';
 import { registerDraftTools } from './draft-tools.ts';
 import { V1_POLICY } from './policy.ts';
@@ -30,6 +31,18 @@ export interface AgentContext {
   seedPromise: Promise<{ documents: number; skipped: number }>;
   /** how many times preset writes synced the live forge proxy (F2 observability) */
   syncPresetsCalls: number;
+}
+
+/** claude --mcp-config JSON: one stdio server = the Lionidas registry. */
+function writeMcpConfig(env: Record<string, string | undefined>): string {
+  const script = new URL('./mcp-stdio.sh', import.meta.url).pathname;
+  const cfg = { mcpServers: { lionidas: { command: '/bin/bash', args: [script], env: { ...(env['CRUCIBLE_DB_PATH'] ? { CRUCIBLE_DB_PATH: env['CRUCIBLE_DB_PATH'] } : {}) } } } };
+  const path = join(cfg_artifactsDir(env), 'claude-mcp.json');
+  writeFileSync(path, JSON.stringify(cfg, null, 2));
+  return path;
+}
+function cfg_artifactsDir(env: Record<string, string | undefined>): string {
+  return env['CRUCIBLE_ARTIFACTS_DIR'] ?? './artifacts';
 }
 
 export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; artifactsDir: string; env: Record<string, string | undefined>; syncPresets?: () => void }): AgentContext {
@@ -66,6 +79,10 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
       model: model ?? 'glm-5.3-flash',
       ...(cfg.env['BUTLER_CLAUDE_BIN'] ? { binPath: cfg.env['BUTLER_CLAUDE_BIN'] } : {}),
       env,
+      // rev13: mount the Lionidas registry as real MCP tools — the model calls
+      // cases.list / run.triage.get / evidence.get instead of Bash+sqlite3.
+      // mcp-stdio.sh sources .env (incl. LIONIDAS_PAT) itself.
+      mcpConfigPath: writeMcpConfig(cfg.env),
     });
     providerConfigured = Boolean(baseUrl && apiKey);
   } else if (baseUrl && apiKey && model) {
