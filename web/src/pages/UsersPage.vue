@@ -330,7 +330,7 @@ onMounted(() => {
 
     <template v-if="isDirectory">
       <div class="section-label" style="margin-top: var(--s-4);"><span>active sessions</span></div>
-      <div class="card table-wrap" style="padding: 0;" v-if="sessions.length > 0">
+      <div class="a2-list" v-if="sessions.length > 0">
         <table>
           <thead><tr><th>user</th><th>last seen</th><th>expires</th><th style="text-align: right;"></th></tr></thead>
           <tbody>
@@ -345,7 +345,7 @@ onMounted(() => {
       </div>
 
       <div class="section-label" style="margin-top: var(--s-4);"><span>auth log</span></div>
-      <div class="card table-wrap" style="padding: 0;" v-if="log.length > 0">
+      <div class="a2-list" v-if="log.length > 0">
         <table>
           <thead><tr><th>when</th><th>who</th><th>event</th><th>detail</th></tr></thead>
           <tbody>
@@ -371,6 +371,7 @@ onMounted(() => {
 .status-pending { color: var(--color-ember); font-size: var(--text-caption); }
 .admin-locked { color: var(--color-fog); cursor: default; }
 .u-row.inactive { opacity: 0.45; }
+thead th { position: sticky; top: 0; background: var(--color-carbon); z-index: 1; }
 /* group head (sketch 031 a2): aligned grid — caret | role | digest | health | count */
 .a2-group-head { grid-column: 1 / -1; display: grid; grid-template-columns: 12px 90px 1fr auto auto; align-items: center; column-gap: var(--s-2); padding: 7px 12px; border-top: 1px solid var(--color-iron); background: var(--color-void); cursor: pointer; user-select: none; font-size: 11px; letter-spacing: 0.04em; color: var(--color-pewter); }
 .a2-group-head:first-of-type { border-top: none; }
