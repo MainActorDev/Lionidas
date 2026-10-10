@@ -155,13 +155,19 @@ describe('abort ownership (the previously-ungated route)', () => {
 });
 
 describe('user management tiers', () => {
-  it('supervisor creates accounts but not admins; admin-only fields refused', async () => {
+  it('supervisor creates accounts but not admins; role changes allowed up to supervisor (user decision 2026-10-10)', async () => {
     const mk = await app.inject({ method: 'POST', url: '/api/users', ...as('u_supervisor'), payload: { email: 'n@t.local', name: 'n', role: 'operator', password: 'longenough1' } });
     expect(mk.statusCode).toBe(200);
     const mkAdm = await app.inject({ method: 'POST', url: '/api/users', ...as('u_supervisor'), payload: { email: 'a@t.local', name: 'a', role: 'admin', password: 'longenough1' } });
     expect(mkAdm.statusCode).toBe(403);
+    // users-domain parity with the cap: supervisor promotes viewer→operator
+    // (highest assignable stays supervisor; admin rows locked — see auth.test.ts)
     const roleChange = await app.inject({ method: 'PATCH', url: '/api/users/u_viewer', ...as('u_supervisor'), payload: { role: 'operator' } });
-    expect(roleChange.statusCode).toBe(403);
+    expect(roleChange.statusCode).toBe(200);
+    const promoCap = await app.inject({ method: 'PATCH', url: '/api/users/u_viewer', ...as('u_supervisor'), payload: { role: 'admin' } });
+    expect(promoCap.statusCode).toBe(403);
+    const adminLocked = await app.inject({ method: 'PATCH', url: '/api/users/u_admin', ...as('u_supervisor'), payload: { role: 'operator' } });
+    expect(adminLocked.statusCode).toBe(403);
   });
   it('admin changes roles; supervisor resets passwords + deactivates', async () => {
     expect((await app.inject({ method: 'PATCH', url: '/api/users/u_viewer', ...as('u_admin'), payload: { role: 'operator' } })).statusCode).toBe(200);
