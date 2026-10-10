@@ -21,6 +21,9 @@ const sessionId = ref<string | null>(null);
 const title = ref('new chat');
 const messages = ref<Msg[]>([]);
 const sending = ref(false);
+// rev8 #2: single-slot queue — one pending send waits for the live turn
+// (the server 409s concurrent turns anyway; this makes the wait invisible)
+const queued = ref<{ text: string; refs: PipelineRef[]; appBundle: string } | null>(null);
 const sidebar = ref<InstanceType<typeof ChatSidebar> | null>(null);
 const panel = ref<InstanceType<typeof RunPanel> | null>(null);
 const runId = ref<string | null>(null);
@@ -107,6 +110,13 @@ async function onDeleted(id: string): Promise<void> {
 }
 
 async function send(text: string, refs: PipelineRef[], appBundle: string): Promise<void> {
+  if (sending.value) {
+    // #2: max one queued — a newer send replaces the older queued one
+    if (queued.value) messages.value = messages.value.filter((m) => m.text !== queued.value?.text || m.role !== 'user');
+    queued.value = { text, refs, appBundle };
+    messages.value = [...messages.value, { role: 'user', text, refs: refs.map((r) => ({ kind: r.kind, name: r.locator })) }];
+    return;
+  }
   if (!sessionId.value) await newChat();
   const sid = sessionId.value!;
   sending.value = true;
@@ -145,7 +155,20 @@ async function send(text: string, refs: PipelineRef[], appBundle: string): Promi
   } finally {
     sending.value = false;
     void sidebar.value?.load();
+    const q = queued.value;
+    if (q) {
+      queued.value = null;
+      void send(q.text, q.refs, q.appBundle); // single-slot: fire the waiting message
+    }
   }
+}
+
+/** rev8 #1: abort the live turn — partial transcript is persisted server-side. */
+async function abortTurn(): Promise<void> {
+  if (!sessionId.value) return;
+  const r = await fetch(`/api/agent/sessions/${sessionId.value}/abort`, { method: 'POST' });
+  if (!r.ok) messages.value = [...messages.value, { role: 'system', text: 'abort failed — turn may have finished' }];
+  // the in-flight send() still resolves (aborted outcome) and flushes any queue
 }
 
 // ── live updates: agent.workflow events; 10s poll fallback while a run is active ──
@@ -186,7 +209,7 @@ onBeforeUnmount(() => { ws?.close(); if (pollTimer) clearInterval(pollTimer); })
     <ChatSidebar ref="sidebar" :me="me" :active-id="sessionId" @select="openSession" @new-chat="newChat" @renamed="onRenamed" @deleted="onDeleted" />
     <div class="mid">
       <Thread :messages="messages" :title="title" :live="panel?.live ?? false" :waiting="sending">
-        <Composer :busy="sending" @send="send" />
+        <Composer :busy="sending" @send="send" @abort="abortTurn" />
       </Thread>
     </div>
     <RunPanel ref="panel" :run-id="runId" />

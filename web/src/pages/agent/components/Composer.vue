@@ -7,7 +7,7 @@ import { ref, computed } from 'vue';
 export interface Ref { kind: 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo'; locator: string }
 
 const props = defineProps<{ busy?: boolean }>();
-const emit = defineEmits<{ send: [text: string, refs: Ref[], appBundle: string] }>();
+const emit = defineEmits<{ send: [text: string, refs: Ref[], appBundle: string]; abort: [] }>();
 
 const text = ref('');
 const refs = ref<Ref[]>([]);
@@ -59,7 +59,8 @@ function onKey(e: KeyboardEvent): void {
         <button class="icon" title="attach references (jira / pr / doc / repo)" @click="pickerOpen = !pickerOpen">＋ refs</button>
         <input v-if="willRun" v-model="appBundle" class="bundle" placeholder="app bundle (com.lionparcel.dev)">
         <span class="hint">{{ willRun ? 'refs attached — sending starts the author pipeline' : 'enter to send · shift+enter newline' }}</span>
-        <button class="send" :class="{ ready }" :disabled="!ready" @click="submit">send</button>
+        <button v-if="!busy" class="send" :class="{ ready }" :disabled="!ready" @click="submit">send</button>
+        <button v-else class="send stop" @click="emit('abort')">stop</button>
       </div>
     </div>
   </div>
@@ -87,4 +88,6 @@ textarea { width: 100%; background: none; border: none; outline: none; color: va
 .send { min-height: 24px; padding: 2px var(--s-3); margin-left: auto; border: 1px solid var(--color-ember); border-radius: var(--r-sm); background: var(--color-ember); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); font-weight: var(--weight-bold); cursor: pointer; opacity: .35; }
 .send.ready { opacity: 1; }
 .send.ready:hover { background: var(--color-ember-dim); }
+.send.stop { opacity: 1; background: none; border-color: var(--ag-line-2); color: var(--color-fog); }
+.send.stop:hover { color: var(--color-ember); border-color: var(--color-ember-dim); }
 </style>
