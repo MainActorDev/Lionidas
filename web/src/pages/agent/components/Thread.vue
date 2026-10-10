@@ -4,9 +4,28 @@
 interface Ref { kind: string; name: string }
 interface Msg { role: 'user' | 'assistant' | 'system'; text: string; refs?: Ref[]; toolTrace?: string; status?: string }
 
+import { ref, watch, nextTick } from 'vue';
 import { renderMarkdown } from '../markdown.ts';
 
-defineProps<{ messages: Msg[]; title: string; live: boolean; waiting: boolean }>();
+const props = defineProps<{ messages: Msg[]; title: string; live: boolean; waiting: boolean }>();
+const scrollEl = ref<HTMLElement | null>(null);
+
+/** rev7: keep the newest message in view — on send, while the indicator
+ *  shows, and when the response lands. Sticks to bottom unless the user
+ *  scrolled up to read (then never yanks them down). */
+function stickToBottom(force = false): void {
+  const el = scrollEl.value;
+  if (!el) return;
+  const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+  if (!force && distance > 240) return; // user scrolled away — respect it
+  void nextTick(() => { el.scrollTop = el.scrollHeight; });
+}
+
+// 1. new user message → jump immediately
+watch(() => props.messages.length, () => { stickToBottom(true); });
+// 2. loading indicator appears / 3. response replaces it
+watch(() => props.waiting, (now) => { if (now) stickToBottom(true); });
+watch(() => props.messages[props.messages.length - 1]?.text, (t, was) => { if (t && t !== was) stickToBottom(); });
 </script>
 
 <template>
@@ -16,7 +35,7 @@ defineProps<{ messages: Msg[]; title: string; live: boolean; waiting: boolean }>
       <span v-if="live" class="pill live"><span class="dot"></span>authoring</span>
       <span v-else-if="messages.length" class="pill">idle</span>
     </div>
-    <div class="scroll">
+    <div ref="scrollEl" class="scroll">
       <div class="inner">
         <div v-for="(m, i) in messages.filter((x) => (x.text ?? '').trim())" :key="i" class="msg" :class="m.role">
           <template v-if="m.role === 'user'">
