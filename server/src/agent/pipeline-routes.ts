@@ -83,8 +83,17 @@ export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, 
     if (!b?.command || !KNOWN.has(b.command)) return reply.code(400).send({ error: `unknown skill — use one of ${[...KNOWN.keys()].join(' ')}` });
     if (!b.ask?.trim()) return reply.code(400).send({ error: 'ask required' });
     try {
-      const out = await pipeline.skill(b.command, b.ask.trim(), b.appBundle ?? '', process.env);
-      return { ok: true, run: out };
+      const out = await pipeline.skill(b.command, b.ask.trim(), b.appBundle ?? '', process.env) as { runId?: string; status?: string; finalOutput?: string | null };
+      // surface the stage answer for the chat (regular response, not a bare run note)
+      let answer: string | null = out.finalOutput ?? null;
+      if (!answer && out.runId) {
+        const stages = await pipeline.workflow.workflowStages(out.runId);
+        const last = stages.at(-1);
+        if (last?.output_json) {
+          try { answer = JSON.parse(last.output_json) as string; } catch { answer = last.output_json; }
+        }
+      }
+      return { ok: true, run: { runId: out.runId, status: out.status }, ...(answer ? { answer } : {}) };
     } catch (err) {
       return reply.code(409).send({ error: err instanceof Error ? err.message : 'skill failed' });
     }

@@ -233,7 +233,7 @@ async function runSkill(command: string, ask: string): Promise<void> {
   sending.value = true;
   try {
     const r = await fetch('/api/agent/skill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ command, ask, appBundle: appBundleHint() }) });
-    const b = (await r.json()) as { run?: { runId?: string; status?: string }; error?: string };
+    const b = (await r.json()) as { run?: { runId?: string; status?: string }; answer?: string; error?: string };
     if (!r.ok || !b.run?.runId) {
       messages.value = [...messages.value, { role: 'system', text: `skill failed: ${b.error ?? r.status}` }];
       return;
@@ -242,7 +242,9 @@ async function runSkill(command: string, ask: string): Promise<void> {
     bindRun(sid, b.run.runId);
     panel.value?.open(); // workflow started — surface the panel even if it was collapsed
     void panel.value?.refresh();
-    messages.value = [...messages.value, { role: 'system', text: `${command} run started — ${b.run.runId}${b.run.status ? ` (${b.run.status})` : ''}` }];
+    // the ANSWER is the response — a regular assistant bubble, not a bare run note
+    if (b.answer) messages.value = [...messages.value, { role: 'assistant', text: b.answer }];
+    messages.value = [...messages.value, { role: 'system', text: `${command} run ${b.run.status ?? 'started'} — ${b.run.runId}` }];
   } finally {
     sending.value = false;
   }

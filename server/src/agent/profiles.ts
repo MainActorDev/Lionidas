@@ -37,7 +37,12 @@ You are the AUTHOR stage. You receive the breakdown table and write the cases.
 - After saving, list the case ids you created.`;
 
 function executor(env: Record<string, string | undefined>, prefix: 'AGENT_PLANNER' | 'AGENT_BREAKER' | 'AGENT_AUTHOR', fallback: ExecutorConfig): ExecutorConfig {
-  const kind = env[`${prefix}_PROVIDER`] as ExecutorConfig['kind'] | undefined;
+  // rev23: BUTLER_PROVIDER=default only for openai-compat — the chat provider wraps
+  // claude-cli in middleware (GLM translation) that the pipeline executor cannot reuse,
+  // so claude-cli stays opt-in per stage via AGENT_*_PROVIDER. A missing AGENT_*_PROVIDER
+  // must not silently drop the pipeline onto the mock executor.
+  const globalKind = env['BUTLER_PROVIDER'] === 'claude-cli' ? 'openai-compat' : (env['BUTLER_PROVIDER'] ?? '');
+  const kind = (env[`${prefix}_PROVIDER`] ?? globalKind) as ExecutorConfig['kind'] | '';
   if (!kind || kind === 'mock') return fallback; // mock/hermetic: same scripted fallback
   if (kind === 'claude-cli') {
     return { kind, baseUrl: '', apiKey: '', model: env[`${prefix}_MODEL`] ?? 'claude-sonnet-4-5', policyClass: 'draft', ...(env['AGENT_CLAUDE_BIN'] ? { binPath: env['AGENT_CLAUDE_BIN'] } : {}) };
