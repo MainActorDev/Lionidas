@@ -232,7 +232,7 @@ async function runSkill(command: string, ask: string): Promise<void> {
   messages.value = [...messages.value, { role: 'user', text: `${command} ${ask}` }];
   sending.value = true;
   try {
-    const r = await fetch('/api/agent/skill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ command, ask, appBundle: appBundleHint() }) });
+    const r = await fetch('/api/agent/skill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ command, ask, appBundle: appBundleHint(), sessionId: sid }) });
     const b = (await r.json()) as { run?: { runId?: string; status?: string }; answer?: string; error?: string };
     if (!r.ok || !b.run?.runId) {
       messages.value = [...messages.value, { role: 'system', text: `skill failed: ${b.error ?? r.status}` }];

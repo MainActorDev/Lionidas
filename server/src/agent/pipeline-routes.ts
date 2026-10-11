@@ -77,8 +77,9 @@ export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, 
 
   // rev20b: slash skills — /planning /breakdown /author run ONE profile as a
   // single-stage workflow (bare input: knowledge page + profile prompt).
+  // rev23: the command AND the answer persist to the session — a reload restores them.
   app.post('/api/agent/skill', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
-    const b = req.body as { command?: string; ask?: string; appBundle?: string } | null;
+    const b = req.body as { command?: string; ask?: string; appBundle?: string; sessionId?: string } | null;
     const KNOWN: ReadonlyMap<string, string> = new Map([['/planning', 'lionidas.planner'], ['/breakdown', 'lionidas.breaker'], ['/author', 'lionidas.author']]);
     if (!b?.command || !KNOWN.has(b.command)) return reply.code(400).send({ error: `unknown skill — use one of ${[...KNOWN.keys()].join(' ')}` });
     if (!b.ask?.trim()) return reply.code(400).send({ error: 'ask required' });
@@ -92,6 +93,10 @@ export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, 
         if (last?.output_json) {
           try { answer = JSON.parse(last.output_json) as string; } catch { answer = last.output_json; }
         }
+      }
+      if (b.sessionId) {
+        await ctx.storage.appendMessage({ session_id: b.sessionId, role: 'user', content: `${b.command} ${b.ask.trim()}`, tokens_in: 0, tokens_out: 0, tool_calls_json: null, tool_results_json: null });
+        if (answer) await ctx.storage.appendMessage({ session_id: b.sessionId, role: 'assistant', content: answer, tokens_in: 0, tokens_out: 0, tool_calls_json: null, tool_results_json: null });
       }
       return { ok: true, run: { runId: out.runId, status: out.status }, ...(answer ? { answer } : {}) };
     } catch (err) {
