@@ -160,8 +160,7 @@ async function send(text: string, refs: PipelineRef[], appBundle: string): Promi
   try {
     // deterministic rule (plan F4): refs ⇒ pipeline + chat turn; else chat only
     if (refs.length) {
-      if (!appBundle) { messages.value = [...messages.value, { role: 'system', text: 'app bundle required to start a run — attach it in the composer' }]; return; }
-      const pr = await fetch('/api/agent/pipeline', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ appBundle, refs }) });
+      const pr = await fetch('/api/agent/pipeline', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ refs }) });
       const pb = (await pr.json()) as { runId?: string; error?: string };
       if (!pr.ok || !pb.runId) {
         messages.value = [...messages.value, { role: 'system', text: `pipeline refused: ${pb.error ?? pr.status}` }];

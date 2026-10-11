@@ -9,12 +9,39 @@ import type { FastifyInstance } from 'fastify';
 import type { PipelineHandle } from './pipeline.ts';
 import type { AgentContext } from './context.ts';
 import { requireRoleAtLeast } from '../auth/roles.ts';
+import { detectBundles } from './repo-refs.ts';
+import path from 'node:path';
+
+/** rev23: derive the app server-side — the user never picks one.
+ *  1. an @repo ref's project → its main bundle id
+ *  2. exactly one registered app (app_screens ∪ templates)
+ *  3. give up honestly */
+async function resolveAppBundle(ctx: AgentContext, refs: Array<{ kind: string; locator: string }>, env: Record<string, string | undefined>): Promise<string | null> {
+  const reposRoot = env['CRUCIBLE_REPOS_ROOT'] ?? './repos';
+  for (const r of refs) {
+    if (r.kind !== 'github-pr' && r.kind !== 'github-commit') continue;
+    const project = r.locator.split('/')[0] ?? '';
+    if (!/^[A-Za-z0-9._-]+$/.test(project)) continue;
+    const bundles = await detectBundles(path.join(reposRoot, project)).catch(() => [] as string[]);
+    if (bundles.length) return bundles[0]!;
+  }
+  // 2. most recent knowledge page app (chat continuity) — storage owns the agent db
+  try {
+    const arts = await ctx.storage.listArtifacts({ kind: 'knowledge' });
+    const recentName = arts.at(-1)?.name;
+    if (recentName?.startsWith('app:')) return recentName.replace(/^app:/, '');
+  } catch { /* fall through */ }
+  // 3. exactly one registered app
+  const registered = ctx.db.prepare("SELECT app_bundle_id AS b FROM app_screens WHERE app_bundle_id IS NOT NULL UNION SELECT app_bundle_id FROM templates WHERE app_bundle_id IS NOT NULL").all() as Array<{ b: string }>;
+  if (registered.length === 1) return registered[0]!.b;
+  return null;
+}
 
 export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, pipeline: PipelineHandle): void {
   app.post('/api/agent/pipeline', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
     const b = req.body as { appBundle?: string; refs?: Array<{ kind?: string; locator?: string; note?: string }> } | null;
-    if (!b?.appBundle || !Array.isArray(b.refs) || b.refs.length === 0) {
-      return reply.code(400).send({ error: 'appBundle and non-empty refs required' });
+    if (!Array.isArray(b?.refs) || b.refs.length === 0) {
+      return reply.code(400).send({ error: 'refs required' });
     }
     const KNOWN: ReadonlySet<string> = new Set(['jira', 'github-pr', 'github-commit', 'doc', 'repo', 'attachment']);
     const refs = b.refs
@@ -22,7 +49,12 @@ export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, 
       .map((r) => ({ kind: r.kind as 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo' | 'attachment', locator: r.locator!, ...(r.note ? { note: r.note } : {}) }));
     if (!refs.length) return reply.code(400).send({ error: 'refs entries need kind + locator' });
     try {
-      const out = await pipeline.run({ appBundle: b.appBundle, refs }, process.env);
+      // rev23: app resolved server-side (explicit override still honored if sent)
+      const appBundle = (b.appBundle ?? '').trim() || await resolveAppBundle(ctx, refs, process.env);
+      if (!appBundle) {
+        return reply.code(400).send({ error: 'could not determine the target app — reference an @repo (its bundle id is detected automatically) or register the app' });
+      }
+      const out = await pipeline.run({ appBundle, refs }, process.env);
       return reply.code(201).send(out);
     } catch (err) {
       return reply.code(422).send({ error: err instanceof Error ? err.message : 'pipeline failed' });

@@ -111,15 +111,12 @@ describe('agent chat page', () => {
     await w.findAll('.slash-row')[0]!.trigger('mousedown'); // LP-1042 fixture row
     await flushPromises();
     await w.find('textarea').setValue('');
-    const sel = w.find('.bundle');
-    await sel.setValue('com.lionparcel.dev');
     await w.find('textarea').setValue('draft cases');
     await w.find('.send').trigger('click');
     await flushPromises();
     const pipe = fetchMock.mock.calls.find((c) => String(c[0]).includes('/api/agent/pipeline'));
     expect(pipe).toBeTruthy();
-    const body = JSON.parse(String(pipe![1]!.body)) as { appBundle: string; refs: Array<{ kind: string; locator: string }> };
-    expect(body.appBundle).toBe('com.lionparcel.dev');
+    const body = JSON.parse(String(pipe![1]!.body)) as { refs: Array<{ kind: string; locator: string }> };
     expect(body.refs[0]).toMatchObject({ kind: 'jira', locator: 'LP-1042' });
   });
 

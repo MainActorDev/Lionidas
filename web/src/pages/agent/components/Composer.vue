@@ -54,52 +54,12 @@ const REF_CAP = 8;
 const ready = computed(() => text.value.trim().length > 0 && !props.busy);
 const willRun = computed(() => refs.value.length > 0);
 
-/** repo-derived bundle candidates — chipping an @repo ref narrows the app */
-async function repoAppsChipped(project: string): Promise<void> {
-  try {
-    const r = await fetch(`/api/agent/refs/repos/${encodeURIComponent(project)}/apps`);
-    const b = (await r.json()) as { bundles?: string[] };
-    repoBundles.value = b.bundles ?? [];
-    autoSelectBundle();
-  } catch { repoBundles.value = []; }
-}
-
-/** auto-select: user choice wins; else repo top pick; else single registered app */
-function autoSelectBundle(): void {
-  if (userPickedBundle.value) return; // explicit override sticks
-  const candidates = [...new Set([...repoBundles.value, ...bundles.value])];
-  if (candidates.length === 1) { appBundle.value = candidates[0]!; return; }
-  if (repoBundles.value.length) appBundle.value = repoBundles.value[0]!; // repo's main app
-  else if (bundles.value.length === 1) appBundle.value = bundles.value[0]!;
-}
-
-/** dropdown options: registry apps + repo-detected ids (repo's first when narrowed) */
-const bundleOptions = computed(() => [...new Set([...repoBundles.value, ...bundles.value])]);
-
 /** known app bundles — fetched lazily the first time refs attach */
-const bundles = ref<string[]>([]);
-const repoBundles = ref<string[]>([]);
-const userPickedBundle = ref(false);
-let bundlesFetched = false;
-async function fetchBundles(): Promise<void> {
-  if (bundlesFetched) return;
-  bundlesFetched = true;
-  try {
-    const r = await fetch('/api/apps/bundles');
-    const b = (await r.json()) as { bundles?: string[] };
-    bundles.value = b.bundles ?? [];
-  } catch { bundles.value = []; }
-}
-watch(willRun, (on) => { if (on) { void fetchBundles().then(() => autoSelectBundle()); } });
-
 /** session switch: the composer is per-conversation — chips/bundle never leak across chats */
 function resetDraft(): void {
   refs.value = [];
   activeCmd.value = null;
   text.value = '';
-  appBundle.value = '';
-  repoBundles.value = [];
-  userPickedBundle.value = false;
   closeAt();
 }
 defineExpose({ addAttachmentChip, resetDraft });
@@ -315,9 +275,7 @@ function acceptAt(idx?: number): void {
     const locator = at.value === 'jira' ? row.id : `${repoPick.value?.project ?? ''}/${row.id}`;
     const key = `${kind}:${locator}`;
     if (pickedKeys.value.has(key)) { toggleRefOff(key); return; } // unselect: chip + state go together
-    const wasRepo = kind !== 'jira';
     addRefChip(kind, locator, row.title);
-    if (wasRepo && repoPick.value) void repoAppsChipped(repoPick.value.project);
     return; // multi-select: menu STAYS open
   }
 }
@@ -484,10 +442,6 @@ function submit(): void {
       </div>
       <div class="row">
         <button class="icon" title="mention a reference (@jira / @repo / @attachment)" @click="at = 'family'; atQuery = '@'; text = '@'">＋ @</button>
-        <select v-if="willRun" v-model="appBundle" class="bundle" title="target app for the run — auto-selected from your @repo ref; change it here" @change="userPickedBundle = true">
-          <option value="" disabled>select app…</option>
-          <option v-for="b in bundleOptions" :key="b" :value="b">{{ b }}</option>
-        </select>
         <span class="hint">{{ willRun ? 'refs attached — sending starts the author pipeline' : '@ for refs · / for commands · enter to send' }}</span>
         <button v-if="!busy" class="send" :class="{ ready }" :disabled="!ready" @click="submit">send</button>
         <button v-else class="send stop" @click="emit('abort')">stop</button>

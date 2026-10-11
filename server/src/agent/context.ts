@@ -21,6 +21,7 @@ import { V1_POLICY } from './policy.ts';
 import { LIONIDAS_SYSTEM_PROMPT } from './system-prompt.ts';
 
 export interface AgentContext {
+  db: import('better-sqlite3').Database;
   storage: SqliteStorage;
   retriever: StorageRetriever;
   registry: ReturnType<typeof buildToolRegistry>;
@@ -100,7 +101,7 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
     provider = new MockProvider([{ kind: 'assistant', content: 'agent provider not configured (set BUTLER_PROVIDER_BASE_URL / BUTLER_API_KEY / BUTLER_MODEL) — mock response' }]);
   }
 
-  const ctx: AgentContext = { storage, retriever, registry, provider, policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }), syncPresetsCalls: 0, attachments };
+  const ctx: AgentContext = { db, storage, retriever, registry, provider, policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }), syncPresetsCalls: 0, attachments };
 
   Object.defineProperty(ctx, 'syncPresetsCalls', { get: () => syncState.calls });
 
