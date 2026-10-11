@@ -2,13 +2,19 @@
  *  resolve to text at compile time. Jira: env token (JIRA_TOKEN/JIRA_BASE_URL). GitHub: gh CLI
  *  (same auth precedence as repo-refs). Honest error strings, never silent empties. */
 import type { PipelineRef } from './knowledge.ts';
-import { jiraSearch } from './jira-refs.ts';
+import { jiraSearch, jiraGet } from './jira-refs.ts';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
 
 async function jiraText(locator: string, env: Record<string, string | undefined>): Promise<string> {
+  const key = /^[A-Za-z][A-Za-z0-9]*-\d+$/.test(locator) ? locator : '';
+  if (key) {
+    const full = await jiraGet(key, env);
+    if (!full.startsWith('[jira')) return full; // rich fetch won
+    // fall through to search (get's honest error tells us why)
+  }
   const res = await jiraSearch(locator, env);
   if (!res.configured) return `[jira ${locator}] not fetched — ${res.reason}`;
   if ('error' in res && res.error) return `[jira ${locator}] fetch failed — ${res.error}`;
