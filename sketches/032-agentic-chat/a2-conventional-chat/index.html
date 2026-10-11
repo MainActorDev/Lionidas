@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>032 A2 — conventional chat (ChatGPT/Claude layout)</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { font-family: var(--font-mono); font-size: var(--text-body); color: var(--color-paper); background: var(--color-void); line-height: 1.6; overflow: hidden; }
+
+  .app { display: flex; height: 100vh; }
+
+  /* ── left sidebar: conversations (ChatGPT pattern) ── */
+  .side { width: 260px; border-right: 1px solid var(--color-iron); background: var(--color-carbon); display: flex; flex-direction: column; }
+  .side-head { padding: 12px 14px; border-bottom: 1px solid var(--color-iron); display: flex; align-items: center; gap: 8px; }
+  .side-head .t { font-size: 13px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--color-fog); }
+  .new-btn { width: 100%; margin: 10px 14px 4px; width: calc(100% - 28px); display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--color-slate); border-radius: var(--r-sm); background: var(--color-void); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 7px 0; cursor: pointer; }
+  .new-btn:hover { background: var(--color-graphite); }
+  .convs { flex: 1; overflow-y: auto; padding: 8px; }
+  .conv { padding: 8px 10px; border-radius: var(--r-sm); font-size: var(--text-caption); color: var(--color-fog); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .conv:hover { background: var(--color-graphite); color: var(--color-paper); }
+  .conv.on { background: var(--color-graphite); color: var(--color-paper); }
+  .conv .sub { font-size: 9px; color: var(--color-steel); margin-top: 2px; }
+  .side-foot { border-top: 1px solid var(--color-iron); padding: 10px 14px; font-size: 10px; color: var(--color-steel); }
+
+  /* ── main: the chat column (Claude/ChatGPT anatomy) ── */
+  .chat { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .chat-head { display: flex; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--color-iron); }
+  .chat-head .t { font-size: 13px; color: var(--color-paper); }
+  .badge { display: inline-block; padding: 1px 8px; border: 1px solid var(--color-iron); border-radius: var(--r-sm); font-size: 10px; color: var(--color-fog); }
+  .badge.run { border-color: var(--color-ember-dim); color: var(--color-ember); }
+
+  .thread { flex: 1; overflow-y: auto; }
+  .thread-inner { max-width: 740px; margin: 0 auto; padding: 24px 20px 140px; display: flex; flex-direction: column; gap: 20px; }
+
+  /* messages: ChatGPT/Claude style — full-width blocks, avatar+name header, no bubbles for the assistant */
+  .msg { display: flex; gap: 12px; }
+  .avatar { width: 26px; height: 26px; border-radius: var(--r-sm); flex: none; display: grid; place-items: center; font-size: 11px; border: 1px solid var(--color-iron); color: var(--color-fog); background: var(--color-carbon); }
+  .avatar.you { color: var(--color-paper); border-color: var(--color-slate); }
+  .avatar.agent { color: var(--color-ember); border-color: var(--color-ember-dim); }
+  .body { flex: 1; min-width: 0; }
+  .who { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-steel); margin-bottom: 4px; }
+  .txt { font-size: var(--text-body); color: var(--color-paper); white-space: pre-wrap; }
+  .msg.user .txt { color: var(--color-paper); }
+
+  /* attachments row under a user message (ChatGPT "attached files" pattern) */
+  .atts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .att { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 2px 8px; color: var(--color-fog); }
+  .att.jira { border-color: var(--color-ember-dim); color: var(--color-ember); }
+
+  /* agent status line: which stage is running (thin, not a big stepper) */
+  .status { display: inline-flex; align-items: center; gap: 8px; font-size: 10px; color: var(--color-steel); border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 3px 10px; }
+  .status .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-ember); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: 0.3; } }
+  .status .done { color: var(--color-fog); }
+
+  /* tool-call trace: collapsed rows like Claude's "thought for 3s / used tool" */
+  .tool { font-size: var(--text-caption); color: var(--color-ash); border-left: 2px solid var(--color-iron); padding: 2px 0 2px 10px; margin-top: 6px; cursor: pointer; }
+  .tool:hover { color: var(--color-fog); }
+  .tool .arr::after { content: ' ▸'; }
+
+  /* question block: agent's question with an answer box — like Claude's artifacts/forms inline */
+  .qblock { border: 1px solid var(--color-ember-dim); border-radius: var(--r-sm); background: var(--color-carbon); padding: 12px 14px; margin-top: 8px; }
+  .qblock .qt { font-size: var(--text-body); color: var(--color-paper); margin-bottom: 8px; }
+  .qblock textarea { width: 100%; background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 8px; resize: vertical; min-height: 44px; }
+  .qblock .row { display: flex; gap: 8px; margin-top: 8px; justify-content: flex-end; }
+  .btn { display: inline-flex; align-items: center; border: 1px solid var(--color-slate); border-radius: var(--r-sm); background: var(--color-carbon); color: var(--color-fog); font-family: var(--font-mono); font-size: var(--text-caption); padding: 5px 12px; cursor: pointer; }
+  .btn:hover { background: var(--color-graphite); color: var(--color-paper); }
+  .btn-primary { background: var(--color-ember); border-color: var(--color-ember); color: var(--color-paper); font-weight: var(--weight-bold); }
+
+  /* created-cases inline card (like ChatGPT's file cards) */
+  .cases-card { border: 1px solid var(--color-iron); border-radius: var(--r-sm); margin-top: 8px; overflow: hidden; }
+  .cases-card .h { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--color-iron); font-size: 10px; color: var(--color-steel); text-transform: uppercase; letter-spacing: 0.06em; }
+  .case-row { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--color-iron); font-size: var(--text-caption); }
+  .case-row:last-child { border-bottom: none; }
+  .case-row .st { margin-left: auto; font-size: 9px; color: var(--color-ember); border: 1px solid var(--color-ember-dim); border-radius: var(--r-sm); padding: 0 6px; }
+  .case-row .fld { color: var(--color-steel); font-size: 10px; }
+
+  /* ── composer: the ChatGPT box — rounded, attachments above, send right ── */
+  .composer-wrap { position: absolute; bottom: 0; left: 260px; right: 0; background: linear-gradient(transparent, var(--color-void) 30%); }
+  .composer { max-width: 740px; margin: 0 auto 20px; background: var(--color-carbon); border: 1px solid var(--color-slate); border-radius: 12px; padding: 10px 12px; }
+  .composer .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .composer textarea { width: 100%; background: transparent; border: none; outline: none; color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-body); resize: none; min-height: 28px; max-height: 160px; }
+  .composer .row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .icon-btn { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: transparent; color: var(--color-ash); cursor: pointer; font-size: 12px; }
+  .icon-btn:hover { color: var(--color-paper); background: var(--color-graphite); }
+  .hint { font-size: 9px; color: var(--color-steel); margin-left: auto; }
+  .send { width: 30px; height: 30px; border-radius: var(--r-sm); background: var(--color-ember); border: none; color: var(--color-paper); display: grid; place-items: center; cursor: pointer; font-size: 13px; }
+</style>
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="side-head"><span class="t">agent</span><span class="badge" style="margin-left:auto;">operator</span></div>
+      <button class="new-btn">+ new chat</button>
+      <div class="convs">
+        <div class="conv on">DEMO-101 test cases <div class="sub">com.lionparcel · running · 2m</div></div>
+        <div class="conv">payments regression sweep <div class="sub">com.lionparcel · 18 drafts · 1h</div></div>
+        <div class="conv">onboarding flows <div class="sub">com.foo · done · 3d</div></div>
+        <div class="conv">QR checkout spec <div class="sub">com.lionparcel · 5 drafts · 4d</div></div>
+      </div>
+      <div class="side-foot">runs, drafts and knowledge persist per app</div>
+    </aside>
+
+    <main class="chat" style="position: relative;">
+      <div class="chat-head">
+        <span class="t">DEMO-101 test cases</span>
+        <span class="badge run">● authoring</span>
+        <span class="badge">com.lionparcel.dev</span>
+        <button class="btn" style="margin-left:auto;" title="view artifacts + drafts">artifacts</button>
+      </div>
+
+      <div class="thread">
+        <div class="thread-inner">
+
+          <div class="msg user">
+            <div class="avatar you">you</div>
+            <div class="body">
+              <div class="who">you</div>
+              <div class="txt">draft test cases for this ticket — cover the biometric entry and the expired-PIN path</div>
+              <div class="atts">
+                <span class="att jira">◈ DEMO-101</span>
+                <span class="att">△ PR #482</span>
+                <span class="att">▤ spec-login-v2.md</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="msg agent">
+            <div class="avatar agent">◈</div>
+            <div class="body">
+              <div class="who">agent</div>
+              <div class="status"><span class="dot"></span> knowledge v3 <span class="done">✓</span> · plan <span class="done">✓</span> · breakdown <span class="done">✓</span> · author…</div>
+              <div class="txt" style="margin-top: 8px;">Integrated 3 references into the app's knowledge page (v3). One contradiction flagged: the spec says the checkout button has an identifier now — earlier notes said it didn't.</div>
+              <div class="tool"><span class="arr"></span>read screens registry · searched notes app:com.lionparcel/*</div>
+              <div class="qblock" id="q">
+                <div class="qt">Before I finalize the breakdown — biometric login: should the happy path cover Face ID <b>and</b> passcode fallback, or passcode only for v1?</div>
+                <textarea placeholder="type your answer…"></textarea>
+                <div class="row"><button class="btn">skip</button><button class="btn btn-primary" onclick="answered()">answer &amp; continue</button></div>
+              </div>
+              <div class="cases-card" id="cases" style="display:none;">
+                <div class="h">◈ drafts created · 5 <span style="margin-left:auto;color:var(--color-steel);">login/ · payments/</span></div>
+                <div class="case-row">login/ biometric-entry <span class="fld">· draft</span><span class="st">draft</span></div>
+                <div class="case-row">login/ pin-expiry-recovery <span class="fld">· draft</span><span class="st">draft</span></div>
+                <div class="case-row">payments/ qr-checkout <span class="fld">· draft</span><span class="st">draft</span></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="composer-wrap">
+        <div class="composer">
+          <div class="chips"><span class="att jira">◈ DEMO-101 ✕</span></div>
+          <textarea placeholder="message the agent — attach Jira tickets, PRs, docs with the ◈ button"></textarea>
+          <div class="row">
+            <button class="icon-btn" title="attach references (jira / pr / doc / repo)">◈</button>
+            <span class="hint">enter to send · shift+enter for newline</span>
+            <button class="send" style="margin-left:auto;">↑</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+<script>
+function answered() {
+  document.getElementById('q').style.display = 'none';
+  const c = document.getElementById('cases');
+  c.style.display = '';
+  document.querySelector('.chat-head .badge.run').textContent = '● done';
+}
+</script>
+</body>
+</html>

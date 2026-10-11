@@ -124,6 +124,25 @@ export function buildToolRegistry(deps: ToolDeps): ToolRegistry {
   });
 
   registry.register({
+    name: 'envs.list',
+    description: 'managed env vars (scoped global/app/plan): key, scope, masked value, secret flag. Use THIS for env questions — never query the database directly.',
+    permission: 'read',
+    parameters: { type: 'object', properties: { appBundle: { type: 'string' } } },
+    async execute(args) {
+      const app = typeof args['appBundle'] === 'string' ? args['appBundle'] : null;
+      const rows = db.prepare(
+        `SELECT v.id, v.scope, v.app_bundle_id, v.key, v.secret, v.value, v.note FROM env_vars v
+         WHERE v.scope = 'global' OR (v.scope = 'app' AND (? IS NULL OR v.app_bundle_id = ?)) ORDER BY v.scope, v.key`,
+      ).all(app, app) as Array<{ id: string; scope: string; app_bundle_id: string | null; key: string; secret: number; value: string; note: string | null }>;
+      return JSON.stringify(rows.map((r) => ({
+        id: r.id, scope: r.scope, app: r.app_bundle_id, key: r.key,
+        value: r.secret ? '██████ (secret — masked)' : r.value,
+        secret: Boolean(r.secret), note: r.note,
+      })));
+    },
+  });
+
+  registry.register({
     name: 'sources.search',
     description: 'BM25 search over ingested source documents (tickets, repos)',
     permission: 'read',

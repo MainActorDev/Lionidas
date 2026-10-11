@@ -18,6 +18,7 @@ import UsersPage from './pages/UsersPage.vue';
 import AuditPage from './pages/AuditPage.vue';
 import GuidePage from './pages/GuidePage.vue';
 import SuitesPage from './pages/SuitesPage.vue';
+import AgentChatPage from './pages/agent/AgentChatPage.vue';
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -41,6 +42,7 @@ export const router = createRouter({
     { path: '/login', name: 'login', component: LoginPage, meta: { title: 'sign in', public: true } },
     { path: '/setup', name: 'setup', component: SetupPage, meta: { title: 'first-run setup', public: true } },
     { path: '/guide', name: 'guide', component: GuidePage, meta: { title: 'guide' } },
+    { path: '/agent', name: 'agentChat', component: AgentChatPage, meta: { title: 'agent' } },
   ] satisfies RouteRecordRaw[],
 });
 

@@ -1,0 +1,29 @@
+/* ═══ Agent chat surface — scoped theme (rev 4, operator direction 2026-10-10):
+ *   keep the house STRUCTURE (mono type, 2px corners, flat borders, ember
+ *   accent, hairline column separation) but soften the canvas — dark gray,
+ *   not full black (#9). Scoped to /agent only. */
+
+.ag-root {
+  /* soft-dark neutrals (page-scoped) */
+  --ag-bg: #141414;        /* chat canvas — dark gray, not #000 */
+  --ag-panel: #181818;     /* sidebar + run panel */
+  --ag-surface: #1f1f1f;   /* cards, bubbles, composer */
+  --ag-line: #2a2a2a;      /* hairlines */
+  --ag-line-2: #3a3a3a;    /* control borders */
+  --ag-user-bubble: #b3542c; /* softened ember — 2:1 vs canvas, readable paper text */
+  --ag-head-h: 48px;       /* shared header band (fix #4) */
+
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  line-height: 1.6;
+  color: var(--color-paper);
+  background: var(--ag-bg);
+  height: calc(100vh - var(--topbar-h));
+  display: flex;
+  flex-direction: row;
+  min-height: 0;
+  margin: calc(-1 * var(--s-6));
+  width: calc(100% + 2 * var(--s-6));
+}
+
+.ag-root * { box-sizing: border-box; }

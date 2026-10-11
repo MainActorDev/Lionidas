@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>032 B — agent page</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font-mono); font-size: var(--text-body); color: var(--color-paper); background: var(--color-void); line-height: 1.5; }
+
+  .ph { display: flex; align-items: baseline; gap: var(--s-3); margin: 24px 24px 16px; }
+  .ph h1 { font-size: var(--text-heading); font-weight: var(--weight-bold); }
+  .ph .d { color: var(--color-steel); font-size: var(--text-caption); }
+  .badge { display: inline-block; padding: 1px var(--s-2); border: 1px solid var(--color-iron); border-radius: var(--r-sm); font-size: 10px; color: var(--color-fog); }
+
+  .tabs { margin: 0 24px 14px; }
+  .a2-tabs { display: inline-flex; border: 1px solid var(--color-iron); border-radius: var(--r-sm); overflow: hidden; }
+  .a2-tab { appearance: none; border: none; border-right: 1px solid var(--color-iron); background: transparent; padding: 6px 14px; cursor: pointer; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-pewter); }
+  .a2-tab:last-child { border-right: none; }
+  .a2-tab.on { color: var(--color-ember); background: var(--color-graphite); }
+
+  .grid { display: grid; grid-template-columns: 300px 1fr; gap: var(--s-3); padding: 0 24px 24px; align-items: start; }
+
+  /* left: runs */
+  .a2-list { border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); overflow: hidden; }
+  .run { padding: 9px 12px; border-bottom: 1px solid var(--color-iron); cursor: pointer; font-size: var(--text-caption); }
+  .run:last-child { border-bottom: none; }
+  .run:hover { background: var(--color-graphite); }
+  .run.sel { background: var(--color-graphite); border-left: 2px solid var(--color-ember); }
+  .run .id { color: var(--color-paper); }
+  .run .meta { color: var(--color-steel); font-size: 10px; }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--color-slate); margin-right: 5px; }
+  .dot.done { background: var(--color-paper); }
+  .dot.wait { border-color: var(--color-ember); background: var(--color-ember); }
+  .dot.run { border-color: var(--color-fog); }
+
+  /* right: the selected run */
+  .detail { display: flex; flex-direction: column; gap: var(--s-3); }
+  .card { border: 1px solid var(--color-iron); border-radius: var(--r-sm); background: var(--color-carbon); padding: var(--s-3); }
+
+  /* horizontal stage rail */
+  .rail { display: flex; gap: 0; border: 1px solid var(--color-iron); border-radius: var(--r-sm); overflow: hidden; }
+  .stg { flex: 1; padding: 10px 12px; border-right: 1px solid var(--color-iron); font-size: var(--text-caption); }
+  .stg:last-child { border-right: none; }
+  .stg .nm { color: var(--color-paper); }
+  .stg .st { font-size: 9px; color: var(--color-steel); text-transform: uppercase; letter-spacing: 0.06em; }
+  .stg.done .st { color: var(--color-fog); }
+  .stg.on { background: var(--color-graphite); }
+  .stg.on .st { color: var(--color-ember); }
+
+  /* artifacts */
+  .art-row { display: flex; align-items: center; gap: var(--s-2); padding: 6px 0; border-bottom: 1px solid var(--color-iron); font-size: var(--text-caption); }
+  .art-row:last-child { border-bottom: none; }
+  .art-row .k { color: var(--color-fog); width: 130px; }
+  .art-row .v { color: var(--color-paper); }
+  .art-row .ver { margin-left: auto; color: var(--color-steel); font-size: 10px; }
+
+  /* question banner */
+  .q { border-color: var(--color-ember-dim); display: flex; gap: 10px; align-items: center; }
+  .q .txt { flex: 1; font-size: var(--text-caption); color: var(--color-paper); }
+  .q input { background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 5px 8px; width: 200px; }
+  .btn { display: inline-flex; align-items: center; border: 1px solid var(--color-slate); border-radius: var(--r-sm); background: var(--color-carbon); color: var(--color-fog); font-family: var(--font-mono); font-size: var(--text-caption); padding: 4px 10px; cursor: pointer; }
+  .btn-primary { background: var(--color-ember); border-color: var(--color-ember); color: var(--color-paper); font-weight: var(--weight-bold); }
+
+  /* new-run form */
+  .newrun input { background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 6px 8px; }
+  .ref { font-size: 9px; border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: 1px 6px; color: var(--color-fog); }
+  .ref.jira { border-color: var(--color-ember-dim); color: var(--color-ember); }
+</style>
+</head>
+<body>
+  <div class="ph">
+    <h1>agent</h1>
+    <span class="d">author pipeline runs · knowledge · artifacts</span>
+    <span class="badge" style="margin-left:auto;">operator</span>
+    <button class="btn btn-primary" onclick="toggleNew()" id="newbtn">new run</button>
+  </div>
+
+  <div class="tabs a2-tabs">
+    <button class="a2-tab on">runs</button>
+    <button class="a2-tab" onclick="alert('P3 scope: knowledge pages per app (versioned) + artifacts browser')">knowledge</button>
+  </div>
+
+  <div class="grid">
+    <div class="a2-list">
+      <div class="run sel">
+        <span class="dot wait"></span><span class="id">wfr_9fk2la</span>
+        <div class="meta">com.lionparcel · awaiting answer · 2m</div>
+      </div>
+      <div class="run"><span class="dot done"></span><span class="id">wfr_7bx01c</span><div class="meta">com.lionparcel · done · 18 cases · 1h</div></div>
+      <div class="run"><span class="dot run"></span><span class="id">wfr_5tt88e</span><div class="meta">com.foo · authoring · just now</div></div>
+      <div class="run"><span class="dot" style="border-color: var(--color-pewter);"></span><span class="id">wfr_3qa77b</span><div class="meta">com.foo · failed · replan limit · 3h</div></div>
+    </div>
+
+    <div class="detail">
+      <!-- new run form (revealed) -->
+      <div class="card newrun" id="newrun" style="display:none;">
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <input placeholder="app bundle (com.lionparcel.dev)" style="min-width:220px;">
+          <span class="ref jira">DEMO-101 ✕</span><span class="ref">PR #482 ✕</span><span class="ref">docs/spec.md ✕</span>
+          <button class="btn">+ ref</button>
+          <button class="btn btn-primary" style="margin-left:auto;">start</button>
+        </div>
+      </div>
+
+      <div class="rail">
+        <div class="stg done"><div class="nm">knowledge</div><div class="st">v3 · 1 conflict</div></div>
+        <div class="stg done"><div class="nm">plan</div><div class="st">✓ 1 answer</div></div>
+        <div class="stg on"><div class="nm">breakdown</div><div class="st">running</div></div>
+        <div class="stg"><div class="nm">author</div><div class="st">pending</div></div>
+      </div>
+
+      <div class="card q">
+        <span style="color: var(--color-ember);">◆</span>
+        <span class="txt">biometric login — cover Face ID AND passcode, or passcode only?</span>
+        <input placeholder="answer…">
+        <button class="btn btn-primary" onclick="answered()">resume</button>
+      </div>
+
+      <div class="card">
+        <div style="font-size:10px;color:var(--color-steel);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">artifacts</div>
+        <div class="art-row"><span class="k">knowledge page</span><span class="v">app:com.lionparcel</span><span class="ver">v3 · supersedes v2</span></div>
+        <div class="art-row"><span class="k">scope</span><span class="v">run wfr_9fk2la — scope.md</span><span class="ver">v1</span></div>
+        <div class="art-row"><span class="k">draft cases</span><span class="v">login/ pin-expiry · biometric-entry · payments/ qr-checkout …</span><span class="ver">5 drafts</span></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+function toggleNew() { const n = document.getElementById('newrun'); n.style.display = n.style.display === 'none' ? '' : 'none'; }
+function answered() { alert('resume → POST /api/agent/pipeline/:id/resume (mocked in sketch)'); }
+</script>
+</body>
+</html>

@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>032 A3-2 — artifacts split (thread + right panel)</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { font-family: var(--font-mono); font-size: var(--text-body); color: var(--color-paper); line-height: 1.65; overflow: hidden;
+    background: radial-gradient(1000px 500px at 60% -10%, rgba(218,92,44,0.06), transparent 60%), var(--color-void); }
+  .app { display: flex; height: 100vh; }
+
+  /* slim sidebar — Claude-like but condensed */
+  .side { width: 232px; padding: 16px 12px; display: flex; flex-direction: column; gap: 10px; }
+  .brand { display: flex; align-items: center; gap: 9px; padding: 0 6px; }
+  .orb { width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, var(--color-ember), var(--color-ember-dim) 70%); box-shadow: 0 0 14px rgba(218,92,44,0.4); }
+  .brand .t { font-family: Georgia, serif; font-size: 17px; }
+  .nav-row { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 11px; font-size: var(--text-caption); color: var(--color-fog); cursor: pointer; }
+  .nav-row:hover { background: rgba(25,25,25,0.8); color: var(--color-paper); }
+  .nav-row.new { background: rgba(218,92,44,0.10); color: var(--color-paper); box-shadow: inset 0 0 0 1px rgba(218,92,44,0.25); }
+  .nav-row .ic { width: 15px; text-align: center; }
+  .recents-label { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-steel); padding: 6px 12px 0; }
+  .convs { flex: 1; overflow-y: auto; }
+  .conv { padding: 7px 12px; border-radius: 11px; font-size: var(--text-caption); color: var(--color-fog); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .conv:hover { background: rgba(25,25,25,0.8); }
+  .conv.on { background: rgba(218,92,44,0.10); color: var(--color-paper); }
+  .conv .sub { font-size: 9px; color: var(--color-steel); }
+
+  /* ── chat column (left of the artifact panel) ── */
+  .chat { flex: 1.15; display: flex; flex-direction: column; min-width: 0; position: relative; border-right: 1px solid var(--color-iron); }
+  .chat-head { display: flex; align-items: center; gap: 10px; padding: 16px 22px 10px; }
+  .chat-head .t { font-family: Georgia, serif; font-size: 19px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 3px 11px; font-size: 10px; color: var(--color-fog); background: rgba(25,25,25,0.85); box-shadow: inset 0 0 0 1px var(--color-iron); }
+  .pill.live { color: var(--color-ember); box-shadow: inset 0 0 0 1px rgba(218,92,44,0.4); }
+  .pill.live .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--color-ember); animation: pulse 1.3s infinite; }
+  @keyframes pulse { 50% { opacity: 0.3; } }
+
+  .thread { flex: 1; overflow-y: auto; }
+  .thread-inner { max-width: 700px; margin: 0 auto; padding: 12px 20px 170px; display: flex; flex-direction: column; gap: 20px; }
+  .msg { display: flex; gap: 12px; }
+  .msg.user { justify-content: flex-end; }
+  .avatar { width: 28px; height: 28px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 10px; }
+  .avatar.you { color: var(--color-fog); background: var(--color-carbon); box-shadow: inset 0 0 0 1px var(--color-iron); }
+  .avatar.agent { color: var(--color-paper); background: radial-gradient(circle at 35% 30%, var(--color-ember), var(--color-ember-dim) 75%); box-shadow: 0 0 12px rgba(218,92,44,0.4); }
+  .body { max-width: 80%; min-width: 0; }
+  .msg.user .body { background: var(--color-graphite); border-radius: 17px 17px 4px 17px; padding: 10px 15px; }
+  .msg.agent .body { max-width: 100%; }
+  .who { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-steel); margin-bottom: 4px; }
+  .txt { white-space: pre-wrap; }
+  .atts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .att { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 2px 11px; font-size: 10px; color: var(--color-fog); background: rgba(0,0,0,0.5); box-shadow: inset 0 0 0 1px var(--color-iron); }
+  .att.jira { color: var(--color-ember); box-shadow: inset 0 0 0 1px rgba(218,92,44,0.45); }
+  .tool { font-size: var(--text-caption); color: var(--color-steel); margin-top: 7px; font-style: italic; }
+  .tool::before { content: '⌁ '; color: var(--color-ember-dim); }
+
+  /* compact status (the flow lives in the artifact panel here) */
+  .miniflow { display: inline-flex; align-items: center; gap: 8px; font-size: 10px; color: var(--color-steel); margin: 6px 0 2px; }
+  .miniflow .seg.done { color: var(--color-fog); }
+  .miniflow .seg.now { color: var(--color-ember); }
+
+  .composer-wrap { position: absolute; bottom: 0; left: 0; right: 0; pointer-events: none; }
+  .composer { pointer-events: auto; max-width: 700px; margin: 0 auto 18px; border-radius: 20px; padding: 12px 14px 9px; background: rgba(17,17,17,0.94); box-shadow: inset 0 0 0 1px var(--color-slate), 0 12px 36px rgba(0,0,0,0.55); }
+  .composer:focus-within { box-shadow: inset 0 0 0 1px rgba(218,92,44,0.5), 0 0 22px rgba(218,92,44,0.12); }
+  .composer textarea { width: 100%; background: none; border: none; outline: none; color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-body); resize: none; min-height: 30px; }
+  .composer .row { display: flex; align-items: center; gap: 9px; margin-top: 7px; }
+  .icon-btn { width: 29px; height: 29px; border-radius: 50%; display: grid; place-items: center; background: none; box-shadow: inset 0 0 0 1px var(--color-iron); color: var(--color-ash); cursor: pointer; }
+  .icon-btn:hover { color: var(--color-ember); }
+  .exec-pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 4px 11px; font-size: 10px; color: var(--color-fog); background: rgba(25,25,25,0.9); box-shadow: inset 0 0 0 1px var(--color-iron); cursor: pointer; }
+  .send { width: 30px; height: 30px; border-radius: 50%; border: none; background: radial-gradient(circle at 35% 30%, var(--color-ember), var(--color-ember-dim) 75%); color: var(--color-paper); display: grid; place-items: center; cursor: pointer; font-size: 12px; margin-left: auto; }
+
+  /* ── artifact panel (right) — the pipeline WORKSPACE ── */
+  .panel { width: 400px; background: rgba(17,17,17,0.6); display: flex; flex-direction: column; min-height: 0; }
+  .panel-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--color-iron); }
+  .panel-head .t { font-family: Georgia, serif; font-size: 16px; }
+  .panel-tabs { display: flex; gap: 4px; margin-left: auto; }
+  .ptab { border-radius: 999px; padding: 4px 12px; font-size: 10px; color: var(--color-steel); cursor: pointer; background: none; }
+  .ptab.on { color: var(--color-ember); background: rgba(218,92,44,0.10); box-shadow: inset 0 0 0 1px rgba(218,92,44,0.3); }
+  .panel-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+
+  /* the flow, BIG, in the panel */
+  .flowcol { display: flex; flex-direction: column; gap: 0; }
+  .fnode { display: flex; align-items: center; gap: 12px; padding: 8px 4px; }
+  .fnode .b { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; background: var(--color-carbon); box-shadow: inset 0 0 0 1px var(--color-slate); flex: none; }
+  .fnode.done .b { color: var(--color-paper); background: var(--color-graphite); } .fnode.done .b::before { content: '✓'; }
+  .fnode.now .b { color: var(--color-paper); background: radial-gradient(circle at 35% 30%, var(--color-ember), var(--color-ember-dim) 75%); box-shadow: 0 0 16px rgba(218,92,44,0.55); animation: pulse 1.3s infinite; }
+  .fnode .nm { font-size: var(--text-caption); color: var(--color-paper); }
+  .fnode .st { font-size: 9px; color: var(--color-steel); }
+  .fnode.done .st { color: var(--color-fog); }
+  .flink { width: 1px; height: 16px; background: var(--color-iron); margin-left: 19px; }
+  .flink.done { background: var(--color-slate); }
+
+  /* knowledge page preview */
+  .kdoc { border-radius: 16px; padding: 14px 16px; background: var(--color-carbon); box-shadow: inset 0 0 0 1px var(--color-iron); }
+  .kdoc .h { font-family: Georgia, serif; font-size: 15px; margin-bottom: 6px; }
+  .kdoc .v { font-size: 9px; color: var(--color-steel); margin-bottom: 8px; }
+  .kdoc .ln { font-size: 11px; color: var(--color-fog); padding: 3px 0; }
+  .kdoc .flag { color: var(--color-ember); }
+
+  /* drafts stack */
+  .dlabel { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-steel); }
+  .draft { position: relative; overflow: hidden; display: flex; align-items: center; gap: 10px; border-radius: 13px; padding: 9px 14px; background: var(--color-carbon); box-shadow: inset 0 0 0 1px var(--color-iron); font-size: var(--text-caption); cursor: pointer; }
+  .draft:hover { background: var(--color-graphite); }
+  .draft::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: linear-gradient(180deg, var(--color-ember), transparent); }
+  .draft .fl { color: var(--color-steel); font-size: 10px; } .draft .st { margin-left: auto; font-size: 9px; color: var(--color-ember); }
+
+  /* question — lives in the PANEL here (the workspace asks, the chat records) */
+  .pq { border-radius: 16px; padding: 14px 16px; background: linear-gradient(160deg, rgba(218,92,44,0.12), rgba(218,92,44,0.05)); box-shadow: inset 0 0 0 1px rgba(218,92,44,0.35); }
+  .pq .qt { font-family: Georgia, serif; font-size: 15px; line-height: 1.5; margin-bottom: 9px; }
+  .pq textarea { width: 100%; border-radius: 12px; padding: 9px 13px; background: rgba(0,0,0,0.55); border: none; outline: none; box-shadow: inset 0 0 0 1px var(--color-iron); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); resize: vertical; min-height: 42px; }
+  .pq .row { display: flex; gap: 9px; margin-top: 9px; justify-content: flex-end; }
+  .btn { display: inline-flex; border-radius: 999px; background: none; box-shadow: inset 0 0 0 1px var(--color-slate); color: var(--color-fog); font-family: var(--font-mono); font-size: var(--text-caption); padding: 5px 15px; cursor: pointer; }
+  .btn-primary { background: var(--color-ember); box-shadow: 0 4px 16px rgba(218,92,44,0.35); color: var(--color-paper); font-weight: 600; border: none; }
+</style>
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="brand"><div class="orb"></div><span class="t">butler</span></div>
+      <div class="nav-row new"><span class="ic">＋</span>New</div>
+      <div class="nav-row"><span class="ic">◧</span>artifacts</div>
+      <div class="nav-row"><span class="ic">✦</span>knowledge</div>
+      <div class="recents-label">recents</div>
+      <div class="convs">
+        <div class="conv on">DEMO-101 test cases<div class="sub">running · 2m</div></div>
+        <div class="conv">payments sweep<div class="sub">18 drafts · 1h</div></div>
+        <div class="conv">onboarding flows<div class="sub">done · 3d</div></div>
+      </div>
+    </aside>
+
+    <main class="chat">
+      <div class="chat-head">
+        <span class="t">DEMO-101 test cases</span>
+        <span class="pill live" id="livepill"><span class="dot"></span>authoring</span>
+      </div>
+      <div class="thread"><div class="thread-inner">
+        <div class="msg user">
+          <div class="body">
+            <div class="txt">draft test cases for this ticket — biometric entry + expired-PIN path</div>
+            <div class="atts"><span class="att jira">◈ DEMO-101</span><span class="att">△ PR #482</span><span class="att">▤ spec-login-v2.md</span></div>
+          </div>
+          <div class="avatar you">you</div>
+        </div>
+        <div class="msg agent">
+          <div class="avatar agent">✦</div>
+          <div class="body">
+            <div class="who">butler</div>
+            <div class="miniflow">knowledge <span class="seg done">✓</span> → plan <span class="seg done">✓</span> → breakdown <span class="seg done">✓</span> → <span class="seg now" id="mininame">author…</span> <span style="color:var(--color-steel)">— full detail on the right</span></div>
+            <div class="txt" style="margin-top:8px;">Knowledge v3 compiled — one contradiction flagged. The breakdown planned 5 cases across login/ and payments/; the author is writing them now. <b>One question is waiting in the panel →</b></div>
+            <div class="tool">read screens registry · searched notes app:com.lionparcel/*</div>
+          </div>
+        </div>
+      </div></div>
+      <div class="composer-wrap"><div class="composer">
+        <textarea placeholder="reply to butler…"></textarea>
+        <div class="row"><button class="icon-btn">＋</button><span style="font-size:9px;color:var(--color-steel);">enter to send</span><div class="exec-pill">glm-4.7 <span style="font-size:8px;">⌄</span></div><button class="send">↑</button></div>
+      </div></div>
+    </main>
+
+    <!-- the workspace panel -->
+    <aside class="panel">
+      <div class="panel-head"><span class="t">run wfr_9fk2la</span>
+        <div class="panel-tabs">
+          <div class="ptab on" onclick="tab(this,'pipeline')">pipeline</div>
+          <div class="ptab" onclick="tab(this,'arts')">artifacts</div>
+        </div>
+      </div>
+      <div class="panel-body" id="pipeline">
+        <div class="flowcol">
+          <div class="fnode done"><span class="b"></span><div><div class="nm">knowledge</div><div class="st">v3 · 3 refs · 1 conflict</div></div></div>
+          <div class="flink done"></div>
+          <div class="fnode done"><span class="b"></span><div><div class="nm">plan</div><div class="st">✓ scope + ACs</div></div></div>
+          <div class="flink done"></div>
+          <div class="fnode done"><span class="b"></span><div><div class="nm">breakdown</div><div class="st">5 cases · 2 folders</div></div></div>
+          <div class="flink done"></div>
+          <div class="fnode now" id="fauthor"><span class="b">✦</span><div><div class="nm">author</div><div class="st" id="fst">writing 3 of 5…</div></div></div>
+        </div>
+
+        <div class="pq" id="pq">
+          <div class="qt">Biometric login — Face ID <em>and</em> passcode fallback, or passcode only for v1?</div>
+          <textarea placeholder="type your answer…"></textarea>
+          <div class="row"><button class="btn">skip</button><button class="btn btn-primary" onclick="answer()">answer &amp; continue</button></div>
+        </div>
+
+        <div class="dlabel">drafts · validator ✓</div>
+        <div class="draft">login/ biometric-entry<span class="fl">· draft</span><span class="st">draft</span></div>
+        <div class="draft">login/ pin-expiry-recovery<span class="fl">· draft</span><span class="st">draft</span></div>
+        <div class="draft">payments/ qr-checkout<span class="fl">· draft</span><span class="st">draft</span></div>
+      </div>
+      <div class="panel-body" id="arts" style="display:none;">
+        <div class="kdoc">
+          <div class="h">Knowledge — com.lionparcel</div>
+          <div class="v">v3 · supersedes v2 · compounding</div>
+          <div class="ln">▪ [jira DEMO-101] biometric entry + expired-PIN recovery</div>
+          <div class="ln">▪ [pr #482] checkout button gains btn_checkout</div>
+          <div class="ln flag">▪ ⚠ contradiction: prior notes said no identifier</div>
+          <div class="ln">▪ [doc spec-login-v2] Face ID optional in v1</div>
+        </div>
+        <div class="dlabel">all artifacts</div>
+        <div class="draft">knowledge page · v3<span class="st">page</span></div>
+        <div class="draft">run snapshot<span class="st">immutable</span></div>
+        <div class="draft">scope.md<span class="st">v1</span></div>
+      </div>
+    </aside>
+  </div>
+
+<script>
+function answer() {
+  document.getElementById('pq').style.display = 'none';
+  document.getElementById('fst').textContent = 'all 5 drafts saved ✓';
+  const fa = document.getElementById('fauthor');
+  fa.classList.remove('now'); fa.classList.add('done'); fa.querySelector('.b').textContent = '';
+  const lp = document.getElementById('livepill'); lp.innerHTML = 'done'; lp.classList.remove('live');
+  document.getElementById('mininame').textContent = 'author ✓'; document.getElementById('mininame').classList.remove('now'); document.getElementById('mininame').classList.add('done');
+}
+function tab(el, which) {
+  document.querySelectorAll('.ptab').forEach((t) => t.classList.remove('on')); el.classList.add('on');
+  document.getElementById('pipeline').style.display = which === 'pipeline' ? '' : 'none';
+  document.getElementById('arts').style.display = which === 'arts' ? '' : 'none';
+}
+</script>
+</body>
+</html>

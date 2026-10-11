@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tool-call designs — A indent-flow</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  body { font-family: var(--font-mono); background: #141414; color: var(--color-paper); padding: 24px; margin: 0; }
+  .pagehead { font-size: 18px; margin-bottom: 4px; }
+  .pagesub { font-size: 12px; color: var(--color-steel); margin-bottom: 28px; }
+  .bubble { max-width: 640px; background: #222; border: 1px solid #3a3a3a; border-radius: 10px; border-bottom-left-radius: 3px; padding: 14px 16px; font-size: 13px; line-height: 1.7; }
+  .prose { color: var(--color-fog); margin: 0 0 10px; }
+  /* ── Option A: indented flow rows (current anatomy, tidied) ── */
+  .tool { display: flex; gap: 8px; padding: 3px 0 3px 12px; border-left: 2px solid var(--ag-line-2, #3a3a3a); margin: 2px 0; font-size: 12px; align-items: baseline; }
+  .tool .glyph { color: var(--color-ember); flex: none; }
+  .tool .name { color: var(--color-paper); font-weight: 600; flex: none; }
+  .tool .arg { color: var(--color-steel); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .res { display: flex; gap: 8px; padding: 2px 0 2px 12px; margin-left: 14px; font-size: 12px; }
+  .res .glyph { color: var(--color-steel); flex: none; }
+  .res .out { color: var(--color-steel); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .res.err .out { color: var(--color-ember); }
+</style>
+</head>
+<body>
+<div class="pagehead">A — indent-flow</div>
+<div class="pagesub">tool rows nest inside the reply's left rail; result one line under each; quiet, dense, reads like a transcript</div>
+
+<div class="bubble">
+  <p class="prose">Triaging that failed run now.</p>
+
+  <div class="tool"><span class="glyph">⏵</span><span class="name">run.triage.get</span><span class="arg">run_fe7cf72a · step 0</span></div>
+  <div class="res"><span class="glyph">⎿</span><span class="out">{"idx":0,"status":"fail","reason":"ensure login timed out"}</span></div>
+
+  <div class="tool"><span class="glyph">⏵</span><span class="name">evidence.get</span><span class="arg">ev_e168942471ff</span></div>
+  <div class="res"><span class="glyph">⎿</span><span class="out">screenshot · 248 KB · inline</span></div>
+
+  <div class="tool"><span class="glyph">⏵</span><span class="name">cases.list</span><span class="arg">com.lioparcel…int-dev</span></div>
+  <div class="res err"><span class="glyph">⎿</span><span class="out">Exit code 1 — no cases matched</span></div>
+
+  <p class="prose" style="margin-top:10px">Found it — here's the failure with evidence:</p>
+</div>
+</body>
+</html>

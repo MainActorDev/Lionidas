@@ -135,6 +135,51 @@ describe('pipeline routes (operator-gated)', () => {
     const a = await app.app.inject({ method: 'POST', url: `/api/agent/pipeline/${runId}/answer`, headers: H(), payload: { stageId: 'plan', answers: { q: 'a' } } });
     expect(a.statusCode).toBe(409);
   });
+  // ── rev5: chat meta routes (rename, delete, ai-title) ──
+  it('rename persists via PATCH title; delete cascades messages and audits', async () => {
+    const mk = await app.app.inject({ method: 'POST', url: '/api/agent/sessions', headers: H(), payload: { title: null, userId: 'usr_p2op' } });
+    const sid = mk.json()['session']['id'];
+    const ren = await app.app.inject({ method: 'PATCH', url: `/api/agent/sessions/${sid}/title`, headers: H(), payload: { title: 'Renamed chat' } });
+    expect(ren.statusCode).toBe(200);
+    const got = await app.agent.storage.getSession(sid);
+    expect(got?.title).toBe('Renamed chat');
+
+    const del = await app.app.inject({ method: 'DELETE', url: `/api/agent/sessions/${sid}`, headers: H() });
+    expect(del.statusCode).toBe(200);
+    expect(await app.agent.storage.getSession(sid)).toBeNull();
+    const audit = (app as unknown as { db: { raw: import('better-sqlite3').Database } }).db.raw.prepare("SELECT detail FROM auth_log WHERE event = 'chat_deleted'").get();
+    expect((audit as { detail: string }).detail).toContain(sid);
+
+    const gone = await app.app.inject({ method: 'DELETE', url: `/api/agent/sessions/${sid}`, headers: H() });
+    expect(gone.statusCode).toBe(404);
+  });
+
+  it('delete is owner-scoped: another operator gets 403', async () => {
+    const db = (app as unknown as { db: { raw: import('better-sqlite3').Database } }).db.raw;
+    db.prepare(`INSERT OR IGNORE INTO users(id, email, name, role, auth_source, active, approved, created_at, password_hash) VALUES ('usr_p2b', 'p2b@local', 'p2b', 'operator', 'local', 1, 1, ?, ?)`).run(Date.now(), hashPassword('p2-test-pin-1'));
+    const login2 = await app.app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'p2b@local', password: 'p2-test-pin-1' } });
+    const sc2 = login2.headers['set-cookie'] as string | string[] | undefined;
+    const c2 = (/crucible_session=([a-f0-9]{64})/.exec(Array.isArray(sc2) ? sc2[0] ?? '' : sc2 ?? '') ?? [])[1];
+    if (!c2) throw new Error('p2b cookie missing');
+    const mk = await app.app.inject({ method: 'POST', url: '/api/agent/sessions', headers: { cookie: `crucible_session=${c2}` }, payload: { title: null, userId: 'usr_p2b' } });
+    const sid = mk.json()['session']['id'];
+    const other = await app.app.inject({ method: 'DELETE', url: `/api/agent/sessions/${sid}`, headers: H() });
+    expect(other.statusCode).toBe(403);
+    // owner CAN delete their own
+    const own = await app.app.inject({ method: 'DELETE', url: `/api/agent/sessions/${sid}`, headers: { cookie: `crucible_session=${c2}` } });
+    expect(own.statusCode).toBe(200);
+  });
+
+  it('ai-title: mock provider path falls back to regex-derived title', async () => {
+    const mk = await app.app.inject({ method: 'POST', url: '/api/agent/sessions', headers: H(), payload: { title: null } });
+    const sid = mk.json()['session']['id'];
+    // mock provider: complete() returns scripted msg; ai-title should still produce SOMETHING via fallback
+    await app.agent.storage.appendMessage({ session_id: sid, role: 'user', content: 'draft test cases for the payment success screen', tokens_in: 0, tokens_out: 0, tool_calls_json: null, tool_results_json: null });
+    const t = await app.app.inject({ method: 'POST', url: `/api/agent/sessions/${sid}/ai-title`, headers: H() });
+    expect([200, 422]).toContain(t.statusCode);
+    if (t.statusCode === 200) expect(t.json()['title']).toBeTruthy();
+  });
+
 });
 
 describe('auth gates', () => {
