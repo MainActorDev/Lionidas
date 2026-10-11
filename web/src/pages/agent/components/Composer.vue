@@ -129,7 +129,7 @@ function submit(): void {
 
 <style scoped>
 .wrap { position: sticky; bottom: 0; margin: 0 0 var(--s-3); background: var(--ag-bg); }
-.slash-menu { position: absolute; bottom: calc(100% + 8px); left: 0; width: 340px; background: var(--ag-surface); border: 1px solid var(--ag-line-2); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.5); padding: 4px; z-index: 30; }
+.slash-menu { position: absolute; bottom: calc(100% + 8px); left: 0; right: 0; background: var(--ag-surface); border: 1px solid var(--ag-line-2); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.5); padding: 4px; z-index: 30; }
 .slash-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; cursor: pointer; }
 .slash-row.active { background: var(--ag-panel); }
 .slash-ico { color: var(--color-ember); flex: none; font-size: 12px; }
