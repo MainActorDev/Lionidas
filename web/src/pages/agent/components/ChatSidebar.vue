@@ -19,6 +19,7 @@ const filtered = computed(() => {
 });
 
 const renaming = ref<string | null>(null);
+const menuFor = ref<string | null>(null);
 const renameVal = ref('');
 const renInput = ref<HTMLInputElement | null>(null);
 function startRename(c: ChatRow): void {
@@ -64,10 +65,13 @@ onMounted(() => { void load(); });
       <div v-for="c in filtered" :key="c.id" class="conv" :class="{ on: c.id === activeId }" @click="emit('select', c.id)">
         <div class="row1">
           <div class="nm">{{ c.title ?? c.id }}</div>
-          <span v-if="c.id === activeId" class="ops" @click.stop>
-            <button class="op" title="rename" @click.stop="startRename(c)">✎</button>
-            <button class="op danger" title="delete" @click.stop="askDelete(c)">✕</button>
+          <span class="ops" @click.stop>
+            <button class="op dots" title="chat actions" @click.stop="menuFor = menuFor === c.id ? null : c.id">⋮</button>
           </span>
+        </div>
+        <div v-if="menuFor === c.id" class="menu" @click.stop>
+          <button class="mi" @click.stop="menuFor = null; startRename(c);">Rename</button>
+          <button class="mi danger" @click.stop="menuFor = null; askDelete(c);">Delete…</button>
         </div>
         <div v-if="renaming === c.id" class="ren" @click.stop>
           <input ref="renInput" v-model="renameVal" class="ren-in" @keydown.enter="commitRename" @keydown.esc="renaming = null" @click.stop>
@@ -81,14 +85,14 @@ onMounted(() => { void load(); });
 </template>
 
 <style scoped>
-.sb { width: 216px; flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--ag-line); background: var(--ag-panel); padding-top: var(--s-3); }
+.sb { width: 280px; flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--ag-line); background: var(--ag-panel); padding-top: var(--s-3); }
 .new { margin: 0 var(--s-3) var(--s-2); border: 1px solid var(--color-ember-dim); border-radius: var(--r-sm); background: var(--color-ember); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); font-weight: var(--weight-bold); padding: 6px 0; cursor: pointer; }
 .new:hover { background: var(--color-ember-dim); }
 .search { width: calc(100% - 2 * var(--s-3)); margin: 0 var(--s-3); background: var(--ag-surface); border: 1px solid var(--ag-line); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 5px 8px; outline: none; }
 .search:focus { border-color: var(--ag-line-2); }
 .rlabel { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-steel); padding: var(--s-3) var(--s-3) 4px; }
 .convs { flex: 1; overflow-y: auto; padding: 0 var(--s-2); }
-.conv { padding: 6px 8px; border-radius: var(--r-sm); cursor: pointer; border-left: 2px solid transparent; }
+.conv { position: relative; padding: 6px 8px; border-radius: var(--r-sm); cursor: pointer; border-left: 2px solid transparent; }
 .conv:hover { background: var(--ag-surface); }
 .conv.on { background: var(--ag-surface); border-left-color: var(--color-ember); }
 .conv .nm { font-size: var(--text-caption); color: var(--color-paper); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -97,7 +101,12 @@ onMounted(() => { void load(); });
 .row1 { display: flex; align-items: center; gap: 4px; }
 .row1 .nm { flex: 1; min-width: 0; }
 .ops { display: inline-flex; gap: 2px; opacity: 0; }
-.conv:hover .ops, .conv.on .ops { opacity: 1; }
+.conv:hover .ops { opacity: 1; }
+.op.dots { font-size: 14px; font-weight: 700; padding: 0 6px; }
+.menu { position: absolute; right: 12px; z-index: 10; background: var(--ag-surface); border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); box-shadow: 0 4px 14px rgba(0,0,0,.45); min-width: 120px; margin-top: 2px; }
+.mi { display: block; width: 100%; text-align: left; background: none; border: none; color: var(--color-fog); font-family: var(--font-mono); font-size: var(--text-caption); padding: 7px 12px; cursor: pointer; }
+.mi:hover { background: var(--ag-panel); color: var(--color-paper); }
+.mi.danger:hover { color: var(--color-ember); }
 .op { border: none; background: none; color: var(--color-steel); cursor: pointer; font-size: 11px; padding: 2px 4px; border-radius: 4px; }
 .op:hover { color: var(--color-paper); background: var(--ag-surface); }
 .op.danger:hover { color: var(--color-ember); }

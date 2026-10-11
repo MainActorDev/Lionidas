@@ -7,7 +7,15 @@ interface Msg { role: 'user' | 'assistant' | 'system'; text: string; refs?: Ref[
 import { ref, watch, nextTick } from 'vue';
 import { renderMarkdown } from '../markdown.ts';
 
-const props = defineProps<{ messages: Msg[]; title: string; live: boolean; waiting: boolean; streaming: string | null; toolStops?: Array<{ name: string; arg?: string; result?: string; isError?: boolean; live: boolean }> }>();
+const props = defineProps<{ messages: Msg[]; title: string; live: boolean; waiting: boolean; streaming: string | null; sessionId?: string | null; toolStops?: Array<{ name: string; arg?: string; result?: string; isError?: boolean; live: boolean }> }>();
+const copied = ref(false);
+function copySessionId(): void {
+  const id = props.sessionId ?? '';
+  void navigator.clipboard.writeText(id).then(() => {
+    copied.value = true;
+    setTimeout(() => { copied.value = false; }, 1200);
+  });
+}
 const emit = defineEmits<{ resend: [msg: Msg] }>();
 const scrollEl = ref<HTMLElement | null>(null);
 
@@ -34,6 +42,7 @@ watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom
   <section class="th">
     <div class="head">
       <span class="t">{{ title }}</span>
+      <button v-if="sessionId" class="sid" :title="`copy ${sessionId}`" @click="copySessionId">{{ sessionId }}<span v-if="copied" class="cok">✓ copied</span></button>
       <span v-if="live" class="pill live"><span class="dot"></span>authoring</span>
       <span v-else-if="messages.length" class="pill">idle</span>
     </div>
@@ -88,6 +97,9 @@ watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom
 /* fix #4: chat header = the shared 48px band */
 .head { display: flex; align-items: center; gap: var(--s-3); height: var(--ag-head-h); flex: none; padding: 0 var(--s-4); border-bottom: 1px solid var(--ag-line); background: var(--ag-panel); }
 .head .t { font-size: var(--text-body); color: var(--color-paper); }
+.sid { font-size: 11px; color: var(--color-steel); background: none; border: 1px solid var(--ag-line); border-radius: var(--r-sm); padding: 1px 8px; cursor: pointer; font-family: var(--font-mono); position: relative; }
+.sid:hover { color: var(--color-paper); border-color: var(--ag-line-2); }
+.sid .cok { color: var(--color-ember); margin-left: 6px; }
 .pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--ag-line); border-radius: var(--r-sm); padding: 1px var(--s-2); font-size: var(--text-caption); color: var(--color-fog); }
 .pill.live { color: var(--color-ember); border-color: var(--color-ember-dim); }
 .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--color-ember); animation: agpulse 1.3s infinite; }
