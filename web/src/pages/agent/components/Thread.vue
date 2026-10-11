@@ -7,7 +7,7 @@ interface Msg { role: 'user' | 'assistant' | 'system'; text: string; refs?: Ref[
 import { ref, watch, nextTick } from 'vue';
 import { renderMarkdown } from '../markdown.ts';
 
-const props = defineProps<{ messages: Msg[]; title: string; live: boolean; waiting: boolean; streaming: string | null }>();
+const props = defineProps<{ messages: Msg[]; title: string; live: boolean; waiting: boolean; streaming: string | null; toolStops?: Array<{ name: string; arg?: string; result?: string; isError?: boolean; live: boolean }> }>();
 const emit = defineEmits<{ resend: [msg: Msg] }>();
 const scrollEl = ref<HTMLElement | null>(null);
 
@@ -64,7 +64,18 @@ watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom
             <div class="sys">{{ m.text }}</div>
           </template>
         </div>
-        <div v-if="streaming !== null" class="msg assistant streaming"><div class="body"><div class="txt" v-html="renderMarkdown(streaming)"></div><span class="cursor"></span></div></div>
+        <div v-if="toolStops && toolStops.length" class="msg assistant toolrail-msg">
+          <div class="body">
+            <div class="rail">
+              <div v-for="(t, i) in toolStops" :key="i" class="stop" :class="{ live: t.live, err: t.isError }">
+                <span class="name">{{ t.name.replace(/^mcp__lionidas__/, '') }}</span> <span v-if="t.arg" class="arg">{{ t.arg }}</span><span class="dur">{{ t.live ? 'running…' : '' }}</span>
+                <span v-if="t.result" class="out">⎿ {{ t.result }}</span>
+              </div>
+            </div>
+            <div v-if="streaming" class="txt" v-html="renderMarkdown(streaming)"></div>
+          </div>
+        </div>
+        <div v-else-if="streaming !== null" class="msg assistant streaming"><div class="body"><div class="txt" v-html="renderMarkdown(streaming)"></div><span class="cursor"></span></div></div>
         <div v-if="waiting" class="msg assistant waiting"><div class="body"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div>
       </div>
       <slot></slot>
@@ -109,6 +120,17 @@ watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom
 /* loading dots (#3) — same bubble anatomy, three pulsing dots */
 .msg.waiting .body { display: inline-flex; gap: 5px; align-items: center; padding: 10px 14px; }
 .msg.streaming .body { display: flex; align-items: flex-end; }
+/* rev15 design C: timeline rail — mirrors the run-panel stage flow */
+.rail { position: relative; margin: 6px 0 10px; padding-left: 22px; }
+.rail::before { content: ''; position: absolute; left: 7px; top: 6px; bottom: 6px; width: 1px; background: var(--ag-line-2); }
+.stop { position: relative; padding: 4px 0; font-size: var(--text-caption); }
+.stop::before { content: ''; position: absolute; left: -19px; top: 11px; width: 7px; height: 7px; border-radius: 2px; background: var(--color-fog); }
+.stop.live::before { background: var(--color-ember); animation: agpulse 1.3s infinite; }
+.stop .name { color: var(--color-paper); font-weight: var(--weight-bold); }
+.stop .arg { color: var(--color-steel); }
+.stop .dur { float: right; color: var(--color-steel); font-size: 11px; }
+.stop .out { display: block; color: var(--color-steel); font-size: 11px; padding-left: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stop.err .out { color: var(--color-ember); }
 .msg.streaming .cursor { display: inline-block; width: 7px; height: 14px; margin-left: 4px; background: var(--color-ember); animation: agblink 0.9s infinite; }
 @keyframes agblink { 50% { opacity: 0; } }
 .msg.waiting .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-steel); animation: agbounce 1.2s infinite; }

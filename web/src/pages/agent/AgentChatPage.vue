@@ -26,6 +26,9 @@ const sending = ref(false);
 const queued = ref<{ text: string; refs: PipelineRef[]; appBundle: string } | null>(null);
 // rev10: live streaming — deltas accumulate into a growing assistant bubble
 const streaming = ref<string | null>(null);
+// rev15 (design C): structured tool stops for the timeline rail
+interface ToolStop { name: string; arg?: string; result?: string; isError?: boolean; live: boolean }
+const toolStops = ref<ToolStop[]>([]);
 const sidebar = ref<InstanceType<typeof ChatSidebar> | null>(null);
 const panel = ref<InstanceType<typeof RunPanel> | null>(null);
 const runId = ref<string | null>(null);
@@ -146,6 +149,7 @@ async function send(text: string, refs: PipelineRef[], appBundle: string): Promi
   const sid = sessionId.value!;
   sending.value = true;
   streaming.value = null;
+  toolStops.value = []; // rev15
   const prettyRefs = refs.map((r) => ({ kind: r.kind, name: r.locator }));
   messages.value = [...messages.value, { role: 'user', text, refs: prettyRefs }];
   const flightIdx = messages.value.length - 1; // the user bubble just appended
@@ -234,12 +238,39 @@ function connectWs(): void {
           && (e.payload.type === 'turn.end' || e.payload.type === 'turn.error')
           && sessionId.value) {
         streaming.value = null; // rev10: bubble completes via refetch
+        toolStops.value = []; // rev15: rail retires with the turn
         void openSession(sessionId.value);
       }
       // rev10: live delta → grow the streaming bubble
       if (e.type === 'agent.turn' && e.payload.sessionId === sessionId.value && e.payload.type === 'turn.delta') {
         const d = (e.payload as { detail?: { delta?: string } }).detail?.delta ?? '';
         streaming.value = (streaming.value ?? '') + d;
+      }
+      // rev15: structured tool events → timeline stops
+      if (e.type === 'agent.turn' && e.payload.sessionId === sessionId.value && e.payload.type === 'turn.tool') {
+        const t = (e.payload as { detail?: { phase?: string; name?: string; arg?: string; result?: string; isError?: boolean } }).detail ?? {};
+        if (t.phase === 'call') {
+          const stop: ToolStop = { name: t.name ?? 'tool', live: true };
+          if (t.arg !== undefined) stop.arg = t.arg;
+          toolStops.value = [...toolStops.value.filter((x) => !(x.live && x.name === t.name)), stop];
+        } else if (t.phase === 'result') {
+          const i = toolStops.value.findIndex((x) => x.live && x.name === t.name);
+          const patch: ToolStop = { name: t.name ?? 'tool', live: false };
+          if (t.result !== undefined) patch.result = t.result;
+          if (t.isError !== undefined) patch.isError = t.isError;
+          if (i >= 0) {
+            const arr = [...toolStops.value];
+            const cur = arr[i]!;
+            const merged: ToolStop = { name: cur.name, live: false };
+            if (cur.arg !== undefined) merged.arg = cur.arg;
+            if (patch.result !== undefined) merged.result = patch.result;
+            if (patch.isError !== undefined) merged.isError = patch.isError;
+            arr[i] = merged;
+            toolStops.value = arr;
+          } else {
+            toolStops.value = [...toolStops.value, patch];
+          }
+        }
       }
     } catch { /* non-json frame */ }
   };
@@ -273,7 +304,7 @@ onBeforeUnmount(() => { ws?.close(); if (pollTimer) clearInterval(pollTimer); })
   <div v-else class="ag-root">
     <ChatSidebar ref="sidebar" :me="me" :active-id="sessionId" @select="openSession" @new-chat="newChat" @renamed="onRenamed" @deleted="onDeleted" />
     <div class="mid">
-      <Thread :messages="messages" :title="title" :live="panel?.live ?? false" :waiting="sending && !streaming" :streaming="streaming" @resend="resend">
+      <Thread :messages="messages" :title="title" :live="panel?.live ?? false" :waiting="sending && !streaming" :streaming="streaming" :tool-stops="toolStops" @resend="resend">
         <Composer :busy="sending" @send="send" @abort="abortTurn" />
       </Thread>
     </div>
