@@ -2,7 +2,7 @@
 /** P3 agent chat — composer: textarea, ＋ refs picker, chips, round send.
  *  Deterministic rule (plan F4): refs attached ⇒ send starts a pipeline;
  *  no refs ⇒ chat turn only. No executor pill (F3 — deferred to P5). */
-import { ref, computed } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 
 export interface Ref { kind: 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo'; locator: string }
 
@@ -10,6 +10,7 @@ const props = defineProps<{ busy?: boolean }>();
 const emit = defineEmits<{ send: [text: string, refs: Ref[], appBundle: string]; abort: []; skill: [command: string, ask: string] }>();
 
 const text = ref('');
+watch(text, () => { menuDismissed.value = false; if (!text.value.startsWith('/')) activeIdx.value = 0; });
 const refs = ref<Ref[]>([]);
 const appBundle = ref('');
 const pickerOpen = ref(false);
@@ -17,12 +18,6 @@ const newKind = ref<Ref['kind']>('jira');
 const newLocator = ref('');
 
 const ready = computed(() => text.value.trim().length > 0 && !props.busy);
-const slashHint = computed(() => {
-  const t = text.value.trim();
-  if (!t.startsWith('/') || t.includes(' ')) return [];
-  return SKILLS.filter((s) => s.startsWith(t));
-});
-function applySkill(h: string): void { text.value = `${h} `; }
 const willRun = computed(() => refs.value.length > 0);
 
 function addRef(): void {
@@ -34,7 +29,51 @@ function addRef(): void {
 }
 function removeRef(i: number): void { refs.value = refs.value.filter((_, idx) => idx !== i); }
 
-const SKILLS = ['/planning', '/breakdown', '/author'] as const;
+/** rev21: ChatGPT-style slash menu. SKILLS carries name + description. */
+const SKILLS: Array<{ cmd: string; desc: string }> = [
+  { cmd: '/planning', desc: 'Plan test cases from a request' },
+  { cmd: '/breakdown', desc: 'Break a plan into concrete steps' },
+  { cmd: '/author', desc: 'Author case YAML drafts' },
+];
+
+const menuDismissed = ref(false);
+const activeIdx = ref(0);
+
+const skillMatches = computed(() => {
+  const t = text.value.trim();
+  if (!t.startsWith('/')) return SKILLS;
+  return SKILLS.filter((s) => s.cmd.startsWith(t));
+});
+
+/** open while typing a command token: starts with '/', no space yet, not dismissed */
+const menuOpen = computed(() => {
+  const t = text.value;
+  return t.startsWith('/') && !t.includes(' ') && !menuDismissed.value && skillMatches.value.length > 0;
+});
+
+/** accept the selected command: insert it + trailing space, close the menu */
+function acceptSkill(idx?: number): void {
+  const pick = skillMatches.value[idx ?? activeIdx.value];
+  if (!pick) return;
+  text.value = `${pick.cmd} `;
+  activeIdx.value = 0;
+  menuDismissed.value = false;
+  void nextTick(() => {
+    const el = document.querySelector('.composer textarea') as HTMLTextAreaElement | null;
+    el?.focus();
+    el?.setSelectionRange(el.value.length, el.value.length);
+  });
+}
+
+function onKey(e: KeyboardEvent): void {
+  if (menuOpen.value) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx.value = (activeIdx.value + 1) % skillMatches.value.length; return; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx.value = (activeIdx.value - 1 + skillMatches.value.length) % skillMatches.value.length; return; }
+    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); acceptSkill(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); menuDismissed.value = true; return; }
+  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+}
 
 function submit(): void {
   if (!ready.value) return;
@@ -42,7 +81,7 @@ function submit(): void {
   // rev20b: slash skills route to their own workflow (no refs needed)
   if (t.startsWith('/')) {
     const [cmd, ...rest] = t.split(/\s+/);
-    if ((SKILLS as readonly string[]).includes(cmd ?? '')) {
+    if (SKILLS.some((s) => s.cmd === cmd)) {
       emit('skill', cmd ?? '', rest.join(' '));
       text.value = ''; refs.value = [];
       return;
@@ -51,16 +90,17 @@ function submit(): void {
   emit('send', t, refs.value.map((r) => ({ ...r })), appBundle.value.trim());
   text.value = ''; refs.value = [];
 }
-function onKey(e: KeyboardEvent): void {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
-}
 </script>
 
 <template>
   <div class="wrap">
     <div class="composer">
-      <div v-if="slashHint.length" class="slash-hints">
-        <button v-for="h in slashHint" :key="h" class="slash-hint" @click="applySkill(h)">{{ h }}</button>
+      <div v-if="menuOpen" class="slash-menu">
+        <div v-for="(s, i) in skillMatches" :key="s.cmd" class="slash-row" :class="{ active: i === activeIdx }" @mousedown.prevent="acceptSkill(i)" @mousemove="activeIdx = i">
+          <span class="slash-ico">◈</span>
+          <span class="slash-name">{{ s.cmd }}</span>
+          <span class="slash-desc">{{ s.desc }}</span>
+        </div>
       </div>
       <div v-if="refs.length || pickerOpen" class="chips">
         <span v-for="(r, i) in refs" :key="r.kind + r.locator" class="chip" :class="{ jira: r.kind === 'jira' }" @click="removeRef(i)">
@@ -89,10 +129,13 @@ function onKey(e: KeyboardEvent): void {
 
 <style scoped>
 .wrap { position: sticky; bottom: 0; margin: 0 0 var(--s-3); background: var(--ag-bg); }
-.slash-hints { display: flex; gap: 6px; margin-bottom: 6px; }
-.slash-hint { border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); background: var(--ag-panel); color: var(--color-ember); font-family: var(--font-mono); font-size: var(--text-caption); padding: 2px 10px; cursor: pointer; }
-.slash-hint:hover { border-color: var(--color-ember-dim); color: var(--color-paper); }
-.composer { pointer-events: auto; width: calc(100% - 2 * var(--s-4)); max-width: 720px; margin: 0 auto; border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); padding: var(--s-2) var(--s-3); background: var(--ag-surface); }
+.slash-menu { position: absolute; bottom: calc(100% + 8px); left: 0; width: 340px; background: var(--ag-surface); border: 1px solid var(--ag-line-2); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.5); padding: 4px; z-index: 30; }
+.slash-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; cursor: pointer; }
+.slash-row.active { background: var(--ag-panel); }
+.slash-ico { color: var(--color-ember); flex: none; font-size: 12px; }
+.slash-name { color: var(--color-paper); font-weight: var(--weight-bold); flex: none; }
+.slash-desc { color: var(--color-steel); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer { position: relative; pointer-events: auto; width: calc(100% - 2 * var(--s-4)); max-width: 720px; margin: 0 auto; border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); padding: var(--s-2) var(--s-3); background: var(--ag-surface); }
 .composer:focus-within { border-color: var(--color-ember-dim); }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: var(--s-2); align-items: center; }
 .chip { border: 1px solid var(--ag-line); border-radius: var(--r-sm); padding: 1px var(--s-2); font-size: var(--text-caption); color: var(--color-fog); background: var(--ag-panel); cursor: pointer; font-family: var(--font-mono); }
