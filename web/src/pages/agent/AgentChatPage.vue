@@ -32,6 +32,7 @@ const toolStops = ref<ToolStop[]>([]);
 const sidebar = ref<InstanceType<typeof ChatSidebar> | null>(null);
 const panel = ref<InstanceType<typeof RunPanel> | null>(null);
 const runId = ref<string | null>(null);
+const composer = ref<InstanceType<typeof Composer> | null>(null);
 let ws: WebSocket | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -243,9 +244,43 @@ async function runSkill(command: string, ask: string): Promise<void> {
 }
 function appBundleHint(): string { return ''; }
 
-/** rev23 F1: @attachment → F2 wires a real picker; F1 stub keeps the event honest */
+/** rev23 F2: @attachment → hidden file input; upload on SELECT, chip via composer addRef */
+let attachInput: HTMLInputElement | null = null;
 function openAttachmentPicker(): void {
-  messages.value = [...messages.value, { role: 'system', text: 'attachments arrive in F2 — @jira and @repo pickers are live stubs' }];
+  attachInput?.remove();
+  attachInput = document.createElement('input');
+  attachInput.type = 'file';
+  attachInput.style.display = 'none';
+  attachInput.addEventListener('change', () => { const f = attachInput?.files?.[0]; if (f) void uploadAttachment(f); });
+  document.body.appendChild(attachInput);
+  attachInput.click();
+}
+
+/** upload on select; on success the page asks the composer to chip it (single-select per plan) */
+async function uploadAttachment(file: File): Promise<void> {
+  const fd = new FormData();
+  fd.append('file', file, file.name);
+  try {
+    const r = await fetch('/api/agent/attachments', { method: 'POST', body: fd });
+    const b = (await r.json()) as { id?: string; fileName?: string; error?: string };
+    if (!r.ok || !b.id) {
+      messages.value = [...messages.value, { role: 'system', text: `attachment failed: ${b.error ?? r.status}` }];
+      return;
+    }
+    composer.value?.addAttachmentChip(b.id, b.fileName ?? file.name);
+  } catch (e) {
+    messages.value = [...messages.value, { role: 'system', text: `attachment failed: ${(e as Error).message}` }];
+  }
+}
+
+/** rev23 F2: paste/drop on the page → straight to an attachment chip */
+function onPaste(e: ClipboardEvent): void {
+  const f = e.clipboardData?.files?.[0];
+  if (f) { e.preventDefault(); void uploadAttachment(f); }
+}
+function onDrop(e: DragEvent): void {
+  const f = e.dataTransfer?.files?.[0];
+  if (f) { e.preventDefault(); void uploadAttachment(f); }
 }
 
 /** rev8 #1: abort the live turn — partial transcript is persisted server-side. */
@@ -340,7 +375,9 @@ onBeforeUnmount(() => { ws?.close(); if (pollTimer) clearInterval(pollTimer); })
     <ChatSidebar ref="sidebar" :me="me" :active-id="sessionId" @select="openSession" @new-chat="newChat" @renamed="onRenamed" @deleted="onDeleted" />
     <div class="mid">
       <Thread :messages="messages" :title="title" :live="panel?.live ?? false" :waiting="sending && !streaming" :streaming="streaming" :tool-stops="toolStops" :session-id="sessionId" @resend="resend">
-        <Composer :busy="sending" @send="send" @abort="abortTurn" @skill="runSkill" @open-attachment="openAttachmentPicker" />
+        <div class="mid-inner" @paste="onPaste" @drop="onDrop" @dragover.prevent>
+          <Composer ref="composer" :busy="sending" @send="send" @abort="abortTurn" @skill="runSkill" @open-attachment="openAttachmentPicker" />
+        </div>
       </Thread>
     </div>
     <RunPanel ref="panel" @error="onPanelError" :run-id="runId" />

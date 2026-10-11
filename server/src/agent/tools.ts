@@ -5,6 +5,7 @@ import { ToolRegistry, type SqliteStorage, type StorageRetriever } from '@mainac
 import type Database from 'better-sqlite3';
 import { renderTemplateYaml } from '../routes/templates.ts';
 import { registerConfigTools } from './config-tools.ts';
+import type { AttachmentStore } from './attachments.ts';
 
 export interface ToolDeps {
   db: Database.Database;
@@ -13,13 +14,31 @@ export interface ToolDeps {
   artifactsDir: string;
   /** F2 (config plan review): preset writes push to the live forge proxy */
   syncPresets?: () => void;
+  /** rev23 F2: attachment.get tool backing */
+  attachments?: AttachmentStore;
 }
 
 interface TemplateLite { id: string; name: string; status: string | null; folder_id: string | null; app_bundle_id: string | null }
 
 export function buildToolRegistry(deps: ToolDeps): ToolRegistry {
-  const { db, storage, retriever, syncPresets } = deps;
+  const { db, storage, retriever, syncPresets, attachments } = deps;
   const registry = new ToolRegistry();
+
+  registry.register({
+    name: 'attachment.get',
+    description: 'read an attachment by id — text files return their content; binaries return an honest manifest line (name, size, sha)',
+    permission: 'read',
+    parameters: { type: 'object', properties: { id: { type: 'string', description: 'attachment id (att_…)' } }, required: ['id'] },
+    async execute(args) {
+      if (!attachments) return 'error: attachment store not configured on this server';
+      const id = String(args['id'] ?? '');
+      const row = attachments.get(id);
+      if (!row) return `error: no attachment "${id}"`;
+      const text = await attachments.readText(id);
+      if (text === null) return `error: attachment "${id}" file missing from store`;
+      return text;
+    },
+  });
 
   registry.register({
     name: 'cases.list',

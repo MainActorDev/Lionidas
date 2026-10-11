@@ -186,12 +186,19 @@ function acceptAt(idx?: number): void {
   }
 }
 
+/** rev23 F2: parent (page) chips a just-uploaded attachment — single-select by design */
+function addAttachmentChip(id: string, fileName: string): void {
+  addRefChip('attachment', id, fileName);
+  closeAt();
+}
+/** commit a ref chip (dedup + cap) */
 function addRefChip(kind: Ref['kind'], locator: string, label?: string): void {
   if (refs.value.length >= REF_CAP) return; // cap blocks gracefully (footer shows n/8)
   if (refs.value.some((r) => r.kind === kind && r.locator === locator)) return; // dedup
   refs.value = [...refs.value, { kind, locator, ...(label ? { label } : {}) }];
   pickedKeys.value.add(`${kind}:${locator}`);
 }
+defineExpose({ addAttachmentChip });
 
 function closeAt(): void { at.value = 'closed'; atQuery.value = ''; }
 
@@ -287,7 +294,7 @@ function submit(): void {
       <!-- ref capsule chips -->
       <div v-if="refs.length" class="chips">
         <span v-for="(r, i) in refs" :key="r.kind + r.locator" class="chip ref-chip" :class="{ jira: r.kind === 'jira' }" @click="removeRef(i)">
-          @{{ r.kind === 'github-pr' ? `repo:${r.locator}` : r.kind === 'github-commit' ? `repo:${r.locator}` : `${r.kind}:${r.locator}` }} ✕
+          @{{ r.kind === 'github-pr' || r.kind === 'github-commit' ? `repo:${r.locator}` : r.kind === 'attachment' ? `attachment:${r.label ?? r.locator}` : `${r.kind}:${r.locator}` }} ✕
         </span>
       </div>
 

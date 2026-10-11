@@ -13,6 +13,7 @@ import type Database from 'better-sqlite3';
 import { join } from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { buildToolRegistry } from './tools.ts';
+import { AttachmentStore } from './attachments.ts';
 import { registerDraftTools } from './draft-tools.ts';
 import { V1_POLICY } from './policy.ts';
 import { LIONIDAS_SYSTEM_PROMPT } from './system-prompt.ts';
@@ -31,6 +32,8 @@ export interface AgentContext {
   seedPromise: Promise<{ documents: number; skipped: number }>;
   /** how many times preset writes synced the live forge proxy (F2 observability) */
   syncPresetsCalls: number;
+  /** rev23 F2: attachment store (sha-deduped files + manifest) */
+  attachments: AttachmentStore;
 }
 
 /** claude --mcp-config JSON: one stdio server = the Lionidas registry. */
@@ -54,7 +57,8 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
   const syncPresets = cfg.syncPresets
     ? (): void => { syncState.calls += 1; cfg.syncPresets!(); }
     : undefined;
-  const registry = buildToolRegistry({ db, storage, retriever, artifactsDir: cfg.artifactsDir, ...(syncPresets ? { syncPresets } : {}) });
+  const attachments = new AttachmentStore(db, cfg.artifactsDir);
+  const registry = buildToolRegistry({ db, storage, retriever, artifactsDir: cfg.artifactsDir, attachments, ...(syncPresets ? { syncPresets } : {}) });
   registerDraftTools({ db, storage, retriever, registry, artifactsDir: cfg.artifactsDir });
 
   const baseUrl = cfg.env['BUTLER_PROVIDER_BASE_URL'];
@@ -92,7 +96,7 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
     provider = new MockProvider([{ kind: 'assistant', content: 'agent provider not configured (set BUTLER_PROVIDER_BASE_URL / BUTLER_API_KEY / BUTLER_MODEL) — mock response' }]);
   }
 
-  const ctx: AgentContext = { storage, retriever, registry, provider, policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }), syncPresetsCalls: 0 };
+  const ctx: AgentContext = { storage, retriever, registry, provider, policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }), syncPresetsCalls: 0, attachments };
 
   Object.defineProperty(ctx, 'syncPresetsCalls', { get: () => syncState.calls });
 
