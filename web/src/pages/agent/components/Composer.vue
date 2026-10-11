@@ -54,6 +54,30 @@ const REF_CAP = 8;
 const ready = computed(() => text.value.trim().length > 0 && !props.busy);
 const willRun = computed(() => refs.value.length > 0);
 
+/** known app bundles — fetched lazily the first time refs attach */
+const bundles = ref<string[]>([]);
+let bundlesFetched = false;
+async function fetchBundles(): Promise<void> {
+  if (bundlesFetched) return;
+  bundlesFetched = true;
+  try {
+    const r = await fetch('/api/apps/bundles');
+    const b = (await r.json()) as { bundles?: string[] };
+    bundles.value = b.bundles ?? [];
+  } catch { bundles.value = []; }
+}
+watch(willRun, (on) => { if (on) void fetchBundles(); });
+
+/** session switch: the composer is per-conversation — chips/bundle never leak across chats */
+function resetDraft(): void {
+  refs.value = [];
+  activeCmd.value = null;
+  text.value = '';
+  appBundle.value = '';
+  closeAt();
+}
+defineExpose({ addAttachmentChip, resetDraft });
+
 function removeRef(i: number): void { refs.value = refs.value.filter((_, idx) => idx !== i); }
 
 /** ── rev21: slash command menu ─────────────────────────────────────────── */
@@ -272,7 +296,6 @@ function addRefChip(kind: Ref['kind'], locator: string, label?: string): void {
   refs.value = [...refs.value, { kind, locator, ...(label ? { label } : {}) }];
   pickedKeys.value.add(`${kind}:${locator}`);
 }
-defineExpose({ addAttachmentChip });
 
 function setBranch(name: string): void {
   if (!repoPick.value) return;
@@ -343,7 +366,7 @@ function submit(): void {
     text.value = ''; refs.value = [];
     return;
   }
-  emit('send', t, refs.value.map((r) => ({ ...r })), appBundle.value.trim());
+  emit('send', t, refs.value.map((r) => ({ ...r })), (appBundle.value ?? '').trim());
   text.value = ''; refs.value = [];
   closeAt();
 }
@@ -388,7 +411,7 @@ function submit(): void {
       <!-- ref capsule chips -->
       <div v-if="refs.length" class="chips">
         <span v-for="(r, i) in refs" :key="r.kind + r.locator" class="chip ref-chip" :class="{ jira: r.kind === 'jira' }" @click="removeRef(i)">
-          @{{ r.kind === 'github-pr' || r.kind === 'github-commit' ? `repo:${r.locator}` : r.kind === 'attachment' ? `attachment:${r.label ?? r.locator}` : `${r.kind}:${r.locator}` }} ✕
+          <span class="ref-kind">@{{ r.kind === 'github-pr' || r.kind === 'github-commit' ? 'repo' : r.kind }}</span><span class="ref-name">{{ r.kind === 'attachment' ? (r.label ?? r.locator) : r.locator }}</span> ✕
         </span>
       </div>
 
@@ -398,7 +421,10 @@ function submit(): void {
       </div>
       <div class="row">
         <button class="icon" title="mention a reference (@jira / @repo / @attachment)" @click="at = 'family'; atQuery = '@'; text = '@'">＋ @</button>
-        <input v-if="willRun" v-model="appBundle" class="bundle" placeholder="app bundle (com.lionparcel.dev)">
+        <select v-if="willRun" v-model="appBundle" class="bundle" title="target app for the run">
+          <option value="" disabled>select app…</option>
+          <option v-for="b in bundles" :key="b" :value="b">{{ b }}</option>
+        </select>
         <span class="hint">{{ willRun ? 'refs attached — sending starts the author pipeline' : '@ for refs · / for commands · enter to send' }}</span>
         <button v-if="!busy" class="send" :class="{ ready }" :disabled="!ready" @click="submit">send</button>
         <button v-else class="send stop" @click="emit('abort')">stop</button>
@@ -438,14 +464,16 @@ function submit(): void {
 .composer { position: relative; pointer-events: auto; width: calc(100% - 2 * var(--s-4)); max-width: 720px; margin: 0 auto; border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); padding: var(--s-2) var(--s-3); background: var(--ag-surface); }
 .composer:focus-within { border-color: var(--color-ember-dim); }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: var(--s-2); align-items: center; }
-.chip { border: 1px solid var(--ag-line); border-radius: 999px; padding: 1px var(--s-2); font-size: var(--text-caption); color: var(--color-fog); background: var(--ag-panel); cursor: pointer; font-family: var(--font-mono); }
+.chip { border: 1px solid var(--ag-line); border-radius: 999px; padding: 1px var(--s-2); font-size: var(--text-caption); color: var(--color-fog); background: var(--ag-panel); cursor: pointer; font-family: var(--font-mono); max-width: 280px; display: inline-flex; align-items: center; gap: 4px; }
+.ref-kind { color: var(--color-ember); flex: none; }
+.ref-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chip.jira { color: var(--color-ember); border-color: var(--color-ember-dim); }
 .chip:hover { background: var(--color-graphite); }
 textarea { width: 100%; background: none; border: none; outline: none; color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-body); resize: none; min-height: 30px; }
 .row { display: flex; align-items: center; gap: var(--s-2); margin-top: 6px; }
 .icon { min-height: 24px; padding: 2px var(--s-2); border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); background: var(--ag-surface); color: var(--color-fog); cursor: pointer; font-size: var(--text-caption); font-family: var(--font-mono); }
 .icon:hover { background: var(--color-graphite); color: var(--color-paper); }
-.bundle { width: 220px; background: var(--ag-panel); border: 1px solid var(--ag-line); border-radius: var(--r-sm); outline: none; color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 3px var(--s-2); }
+.bundle { max-width: 260px; min-width: 120px; background: var(--ag-panel); border: 1px solid var(--ag-line); border-radius: var(--r-sm); outline: none; color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 3px var(--s-2); }
 .hint { font-size: var(--text-caption); color: var(--color-steel); }
 .send { min-height: 24px; padding: 2px var(--s-3); margin-left: auto; border: 1px solid var(--color-ember); border-radius: var(--r-sm); background: var(--color-ember); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); font-weight: var(--weight-bold); cursor: pointer; opacity: .35; }
 .send.ready { opacity: 1; }

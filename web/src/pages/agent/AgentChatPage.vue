@@ -55,6 +55,7 @@ async function loadMe(): Promise<void> {
 }
 
 async function openSession(id: string): Promise<void> {
+  composer.value?.resetDraft();
   sessionId.value = id;
   localStorage.setItem('agent.lastSession', id); // rev9 E2
   const r = await fetch(`/api/agent/sessions/${id}`);
@@ -79,6 +80,7 @@ async function openSession(id: string): Promise<void> {
 }
 
 async function newChat(): Promise<void> {
+  composer.value?.resetDraft();
   // create the butler session up-front so the run binds immediately
   const r = await fetch('/api/agent/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: null, userId: me.value?.id ?? null }) });
   if (r.ok) {

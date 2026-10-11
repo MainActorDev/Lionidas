@@ -43,6 +43,7 @@ async function mountPage(role = 'operator'): Promise<ReturnType<typeof mount>> {
     ] }));
     if (url.includes('/messages')) return Promise.resolve(jsonOk({ turn: { ok: true, answer: 'mock reply' } }));
     if (url.includes('/api/agent/refs/jira')) return Promise.resolve(jsonOk({ configured: true, issues: [{ key: 'LP-1042', title: 'Add QR login', type: 'Story' }] }));
+    if (url.includes('/api/apps/bundles')) return Promise.resolve(jsonOk({ bundles: ['com.lionparcel.dev'] }));
     if (url === '/api/agent/pipeline') return Promise.resolve(jsonOk({ runId: 'wfr_new', status: 'done', stages: [] }));
     return Promise.resolve(jsonOk({}));
   });
@@ -110,7 +111,8 @@ describe('agent chat page', () => {
     await w.findAll('.slash-row')[0]!.trigger('mousedown'); // LP-1042 fixture row
     await flushPromises();
     await w.find('textarea').setValue('');
-    await w.find('.bundle').setValue('com.lionparcel.dev');
+    const sel = w.find('.bundle');
+    await sel.setValue('com.lionparcel.dev');
     await w.find('textarea').setValue('draft cases');
     await w.find('.send').trigger('click');
     await flushPromises();
