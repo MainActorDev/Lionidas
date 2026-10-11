@@ -4,7 +4,7 @@
  *  users table — fix #7). Raw butler status words are gone (fix #6). */
 import { ref, computed, onMounted, nextTick } from 'vue';
 
-const emit = defineEmits<{ select: [id: string]; newChat: []; renamed: [id: string, title: string]; deleted: [id: string] }>();
+const emit = defineEmits<{ select: [id: string]; newChat: []; renamed: [id: string, title: string]; deleted: [id: string]; cleared: [] }>();
 const props = defineProps<{ me: { name: string; email: string; role: string } | null; activeId: string | null }>();
 
 interface ChatRow { id: string; title: string | null; status: string; updatedAt: number; owner: string | null; ownerRole: string | null }
@@ -33,6 +33,13 @@ function commitRename(): void {
   renaming.value = null;
   if (id && t) emit('renamed', id, t);
 }
+function askClearAll(): void {
+  const n = chats.value.length;
+  if (!n) return;
+  if (confirm(`Delete ALL ${n} chat${n === 1 ? '' : 's'}?\n\nMessages are deleted. Knowledge notes, artifacts and pipeline runs are kept (they belong to Lionidas, not the chats). This cannot be undone.`)) {
+    emit('cleared');
+  }
+}
 function askDelete(c: ChatRow): void {
   if (confirm(`Delete chat "${c.title ?? c.id}"?\n\nMessages in this chat are deleted. Knowledge notes, artifacts and pipeline runs it produced are kept (they belong to Lionidas, not the chat).`)) {
     emit('deleted', c.id);
@@ -60,7 +67,7 @@ onMounted(() => { void load(); });
   <aside class="sb">
     <button class="new" @click="emit('newChat')">＋ new chat</button>
     <input v-model="q" class="search" placeholder="search">
-    <div class="rlabel">recents</div>
+    <div class="rhead"><span class="rlabel">recents</span><button v-if="chats.length" class="clear" title="delete all chats" @click="askClearAll">clear all</button></div>
     <div class="convs">
       <div v-for="c in filtered" :key="c.id" class="conv" :class="{ on: c.id === activeId }" @click="emit('select', c.id)">
         <div class="row1">
@@ -90,7 +97,10 @@ onMounted(() => { void load(); });
 .new:hover { background: var(--color-ember-dim); }
 .search { width: calc(100% - 2 * var(--s-3)); margin: 0 var(--s-3); background: var(--ag-surface); border: 1px solid var(--ag-line); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 5px 8px; outline: none; }
 .search:focus { border-color: var(--ag-line-2); }
-.rlabel { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-steel); padding: var(--s-3) var(--s-3) 4px; }
+.rhead { display: flex; align-items: center; justify-content: space-between; padding: var(--s-3) var(--s-3) 4px; }
+.rlabel { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-steel); }
+.clear { border: none; background: none; color: var(--color-steel); font-family: var(--font-mono); font-size: 10px; cursor: pointer; padding: 0; }
+.clear:hover { color: var(--color-ember); }
 .convs { flex: 1; overflow-y: auto; padding: 0 var(--s-2); }
 .conv { position: relative; padding: 6px 8px; border-radius: var(--r-sm); cursor: pointer; border-left: 2px solid transparent; }
 .conv:hover { background: var(--ag-surface); }

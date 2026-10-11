@@ -88,6 +88,19 @@ export function registerChatMetaRoutes(app: FastifyInstance, ctx: AgentContext, 
     return { ok: true, deleted: id };
   });
 
+  // rev23: bulk delete — every chat session owned by the caller (admins: all).
+  // Same impact contract as the single delete: messages+session rows go;
+  // notes/artifacts/runs are retained (knowledge and pipeline state).
+  app.delete('/api/agent/sessions', { preHandler: requireRoleAtLeast('operator') }, async (req) => {
+    const sessions = await ctx.storage.listSessions(1000);
+    const mine = req.user?.role === 'admin'
+      ? sessions
+      : sessions.filter((s) => !s.user_id || s.user_id === req.user?.id);
+    for (const s of mine) await agentDbDeleteSession(agentDbPath, s.id);
+    auditWrite(db, req, 'chat_deleted', `bulk: ${mine.length} chat(s) deleted by ${req.user?.role === 'admin' ? 'admin (all owners)' : 'owner'} — messages cascade-deleted; notes/artifacts/runs retained`);
+    return { ok: true, deleted: mine.length };
+  });
+
   // sessions enriched with owner display names (fix #7: who started it)
   app.get('/api/agent/chats', { preHandler: requireRoleAtLeast('operator') }, async () => {
     const sessions = await ctx.storage.listSessions(200);
