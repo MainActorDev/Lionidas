@@ -19,6 +19,12 @@ export async function jiraSearch(query: string, env: Record<string, string | und
   if (!token || !baseUrl) {
     return { configured: false, issues: [], reason: 'Jira not configured — set JIRA_TOKEN and JIRA_BASE_URL on the server' };
   }
+  // Jira Cloud API tokens authenticate with Basic (email:token); Bearer only
+  // suits server-side PATs. Honor whichever pairing is configured.
+  const email = env['JIRA_EMAIL'];
+  const auth = email
+    ? `Basic ${Buffer.from(`${email}:${token}`).toString('base64')}`
+    : `Bearer ${token}`;
   const q = query.trim();
   if (!q) return { configured: true, issues: [] };
   const jql = /^[A-Za-z][A-Za-z0-9]*-\d+$/.test(q)
@@ -26,7 +32,7 @@ export async function jiraSearch(query: string, env: Record<string, string | und
     : `text ~ "${q.replace(/"/g, '\\"')}" ORDER BY updated DESC`;
   const res = await fetchImpl(
     `${baseUrl.replace(/\/+$/, '')}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&maxResults=${MAX_ROWS}&fields=summary,issuetype`,
-    { headers: { authorization: `Bearer ${token}`, accept: 'application/json' } },
+    { headers: { authorization: auth, accept: 'application/json' } },
   ).catch(() => null);
   if (!res) return { configured: true, issues: [], error: 'Jira unreachable — network error' };
   if (res.status === 401 || res.status === 403) return { configured: true, issues: [], error: 'Jira rejected the token (401/403) — check JIRA_TOKEN' };
