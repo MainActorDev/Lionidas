@@ -141,6 +141,38 @@ export async function listPulls(ownerName: string): Promise<{ rows: RepoRefRow[]
   }
 }
 
+/** detect the app bundle ids a repo builds — project.yml bundleIdPrefix +
+ *  pbxproj PRODUCT_BUNDLE_IDENTIFIER lines, deduped, sorted by frequency. */
+export async function detectBundles(repoDir: string): Promise<string[]> {
+  const found = new Map<string, number>();
+  const bump = (b: string) => { if (b && /^[a-z][a-z0-9.]*$/i.test(b)) found.set(b, (found.get(b) ?? 0) + 1); };
+  const readFileSafe = async (f: string): Promise<string | null> => {
+    try { return await (await import('node:fs/promises')).readFile(f, 'utf8'); } catch { return null; }
+  };
+  // xcodegen: bundleIdPrefix + target name is the convention, plus explicit settings
+  const yml = await readFileSafe(path.join(repoDir, 'project.yml'));
+  if (yml) {
+    const prefix = /^\s*bundleIdPrefix:\s*['"]?([\w.]+)['"]?/m.exec(yml)?.[1];
+    if (prefix) {
+      for (const m of yml.matchAll(/^\s{2}(\w[\w-]*):\s*$/gm)) bump(`${prefix}.${m[1]}`);
+    }
+    for (const m of yml.matchAll(/PRODUCT_BUNDLE_IDENTIFIER:\s*([\w.]+)/g)) bump(m[1] ?? '');
+  }
+  // pbxproj fallback (pinned ids win — they are what actually ships)
+  const pbx = await readFileSafe(path.join(repoDir, 'LionParcelLogistics.xcodeproj', 'project.pbxproj'))
+    ?? await readFileSafe(path.join(repoDir, 'App.xcodeproj', 'project.pbxproj'))
+    ?? null;
+  if (pbx) for (const m of pbx.matchAll(/PRODUCT_BUNDLE_IDENTIFIER = ([\w.]+);/g)) bump(m[1] ?? '');
+  // main app first: prefer ids WITHOUT main-target/test/extension suffixes; tests+extensions demoted
+  const order = (b: string): number =>
+    /(Tests?|LogicTests|UITests)$/i.test(b.split('.').pop() ?? '') ? 2 :
+    /(NotificationService|NotificationContent|Firebase|GoogleSignIn|RecaptchaEnterprise|Widget|Share)$/i.test(b) ? 1 : 0;
+  return [...found.entries()]
+    .sort((a, b) => order(a[0]) - order(b[0]) || b[1] - a[1])
+    .map(([b]) => b)
+    .slice(0, 8);
+}
+
 /** map a registered repo dir name to its GitHub owner/name via the local remote */
 export async function remoteOwnerName(repoDir: string): Promise<string | null> {
   try {
@@ -162,6 +194,18 @@ export function registerRepoTools(registry: ToolRegistry, deps: RepoToolsDeps, e
   const safeDir = (project: string): string | null => {
     try { return repoDir(project); } catch { return null; }
   };
+
+  registry.register({
+    name: 'repo.apps',
+    description: 'app bundle ids a registered repo builds (project.yml + pbxproj)',
+    permission: 'read',
+    parameters: { type: 'object', properties: { project: { type: 'string' } }, required: ['project'] },
+    async execute(args) {
+      const dir = safeDir(String(args['project'] ?? ''));
+      if (!dir) return JSON.stringify({ bundles: [], error: 'invalid project name' });
+      return JSON.stringify({ bundles: await detectBundles(dir) });
+    },
+  });
 
   registry.register({
     name: 'repo.list',

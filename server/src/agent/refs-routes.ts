@@ -53,6 +53,14 @@ export async function registerRefRoutes(app: FastifyInstance, ctx: AgentContext)
     return JSON.parse(await tool.execute({}, { signal: undefined, sessionId: 'refs-route' })) as object;
   });
 
+  // rev23: bundle ids a repo builds — drives composer auto-selection
+  app.get('/api/agent/refs/repos/:project/apps', { preHandler: requireRoleAtLeast('operator') }, async (req) => {
+    const { project } = req.params as { project: string };
+    const tool = ctx.registry.get('repo.apps');
+    if (!tool) return { bundles: [] };
+    return JSON.parse(await tool.execute({ project }, { signal: undefined, sessionId: 'refs-route' })) as object;
+  });
+
   app.get('/api/agent/refs/repos/:project/branches', { preHandler: requireRoleAtLeast('operator') }, async (req) => {
     const { project } = req.params as { project: string };
     const tool = ctx.registry.get('repo.branches');
