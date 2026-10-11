@@ -13,22 +13,10 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AgentContext, bus
     // (butler's conversation routes + the MCP mount), cookies and PATs alike.
     scope.addHook('preHandler', requireRole('operator'));
 
-    // Guardrail layer 2 (rev5 #4): deterministic off-scope tripwire. The system
-    // prompt is the soft wall and the DRAFT tool policy is the hard wall; this
-    // cheap filter refuses clearly non-Lionidas asks before any provider call.
-    scope.addHook('preHandler', async (req, reply) => {
-      if (req.method !== 'POST' || !req.url.includes('/messages')) return;
-      const b = (req.body ?? {}) as { content?: string };
-      const c = (b.content ?? '').toLowerCase();
-      if (!c.trim()) return;
-      const offScope = (/\b(write|make|give)\b[^.?!]{0,24}\b(poem|story|song|essay|joke|recipe)\b/.test(c)
-        || /\b(weather|stock price|bitcoin|crypto price)\b/.test(c)
-        || /\btranslate\b/.test(c)
-        || /^\s*(hi|hello|hey|yo)\s*[!.]?\s*$/.test(c));
-      if (offScope) {
-        return reply.code(422).send({ error: 'That looks outside my scope — I do Lionidas test automation (cases, suites, scenarios, runs, triage, and the repo). Ask me about those.' });
-      }
-    });
+    // Guardrail layer 2 (rev23): NO deterministic keyword wall — every turn goes
+    // to the model and the SYSTEM-PROMPT scope guardrails decide (the LLM refuses
+    // off-scope asks in one line). Keyword filters misfire on greetings and
+    // legitimate phrasing; judgment beats pattern-matching here.
 
     await registerConversationApi(scope, {
       storage: ctx.storage,
