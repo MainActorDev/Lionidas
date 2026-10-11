@@ -108,12 +108,12 @@ export async function listCommits(repoDir: string, ownerName: string, branch: st
   const r = await gh(args, process.env as Record<string, string | undefined>);
   if (!r.ok) return { rows: [], error: r.error };
   try {
-    const data = JSON.parse(r.out) as Array<{ sha: string; commit?: { message?: string; author?: { date?: string } }; author?: { login?: string } }>;
+    const data = JSON.parse(r.out) as Array<{ sha: string; commit?: { message?: string; author?: { name?: string; date?: string } }; author?: { login?: string } }>;
     return {
       rows: data.map((c) => ({
         id: c.sha.slice(0, 7),
         title: c.sha.slice(0, 7),
-        meta: `${c.author?.login ?? c.commit?.author?.date?.slice(0, 10) ?? ''}`,
+        meta: `${c.author?.login ?? (c.commit?.author?.name ?? '')} · ${c.commit?.author?.date?.slice(0, 10) ?? ''}`,
         sub: (c.commit?.message ?? '').split('\n')[0]?.slice(0, 72) ?? '',
       })),
     };

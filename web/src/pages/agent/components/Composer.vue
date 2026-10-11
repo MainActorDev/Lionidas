@@ -367,8 +367,14 @@ function onKey(e: KeyboardEvent): void {
   if (e.key === 'Backspace' && activeCmd.value && text.value === '') { e.preventDefault(); revertChip(); return; }
   if (e.key === 'Backspace' && !activeCmd.value && text.value === '' && refs.value.length) { e.preventDefault(); refs.value = refs.value.slice(0, -1); return; }
   if (atMenuOpen.value) {
-    if (e.key === 'ArrowDown') { e.preventDefault(); atIdx.value = (atIdx.value + 1) % atRows.value.length; return; }
-    if (e.key === 'ArrowUp') { e.preventDefault(); atIdx.value = (atIdx.value - 1 + atRows.value.length) % atRows.value.length; return; }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      atIdx.value = e.key === 'ArrowDown'
+        ? (atIdx.value + 1) % atRows.value.length
+        : (atIdx.value - 1 + atRows.value.length) % atRows.value.length;
+      void nextTick(() => document.querySelector('.slash-row.active')?.scrollIntoView({ block: 'nearest' }));
+      return;
+    }
     if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); acceptAt(); return; }
     if (e.key === 'Escape') { e.preventDefault(); closeAt(); text.value = ''; return; }
   } else if (menuOpen.value) {
@@ -404,7 +410,7 @@ function submit(): void {
   <div class="wrap">
     <div class="composer">
       <!-- @-mention menu (rev23 F1): family → picker; multi-select for jira/repo-pick -->
-      <div v-if="atMenuOpen" class="slash-menu">
+      <div v-if="atMenuOpen" class="slash-menu has-rows">
         <div class="at-head">
           <span v-if="at === 'jira'" class="at-title">@jira — search tickets <span class="at-count">{{ pickedKeys.size }} selected</span></span>
           <span v-else-if="at === 'repo'" class="at-title">@repo — pick a repository</span>
@@ -412,11 +418,13 @@ function submit(): void {
           <span v-else class="at-title">mention a reference</span>
           <button class="at-done" title="done selecting (Esc)">done ✕</button>
         </div>
-        <div v-for="(row, i) in atRows" :key="row.id" class="slash-row" :class="{ active: i === atIdx, picked: isPicked(row) }" @mousedown.prevent="acceptAt(i)" @mousemove="atIdx = i">
-          <span class="slash-ico">{{ isPicked(row) ? '✓' : '◈' }}</span>
-          <span class="slash-name">{{ row.title }}</span>
-          <span class="slash-desc">{{ row.meta }}</span>
-          <span v-if="row.sub" class="slash-sub">{{ row.sub }}</span>
+        <div class="menu-rows">
+          <div v-for="(row, i) in atRows" :key="row.id" class="slash-row" :class="{ active: i === atIdx, picked: isPicked(row) }" @mousedown.prevent="acceptAt(i)" @mousemove="atIdx = i">
+            <span class="slash-ico">{{ isPicked(row) ? '✓' : '◈' }}</span>
+            <span class="slash-name">{{ row.title }}</span>
+            <span class="slash-desc">{{ row.meta }}</span>
+            <span v-if="row.sub" class="slash-sub">{{ row.sub }}</span>
+          </div>
         </div>
         <div v-if="at === 'jira'" class="at-foot">type to search · Enter selects and stays open · Esc done</div>
         <div v-else-if="at === 'repo-pick' && repoPick?.segment === 'commits'" class="branch-strip">
@@ -468,7 +476,9 @@ function submit(): void {
 .cmd-chip { display: inline-flex; align-items: center; gap: 6px; margin-top: 3px; color: var(--color-ember); border: 1px solid var(--color-ember-dim); background: var(--ag-panel); border-radius: 999px; padding: 2px 6px 2px 12px; font-size: var(--text-caption); font-weight: var(--weight-bold); flex: none; }
 .chip-x { border: none; background: none; color: var(--color-steel); cursor: pointer; font-size: 10px; padding: 2px 4px; border-radius: 50%; }
 .chip-x:hover { color: var(--color-paper); background: var(--ag-surface); }
-.slash-menu { position: absolute; bottom: calc(100% + 8px); left: 0; right: 0; background: var(--ag-surface); border: 1px solid var(--ag-line-2); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.5); padding: 4px; z-index: 30; }
+.slash-menu { position: absolute; bottom: calc(100% + 8px); left: 0; right: 0; background: var(--ag-surface); border: 1px solid var(--ag-line-2); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.5); padding: 4px; z-index: 30; max-height: 340px; overflow-y: auto; }
+.slash-menu.has-rows { display: flex; flex-direction: column; overflow: hidden; }
+.menu-rows { overflow-y: auto; min-height: 0; flex: 1; }
 .slash-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; cursor: pointer; }
 .slash-row.active { background: var(--ag-panel); }
 .slash-row.picked { opacity: .55; }
@@ -488,7 +498,7 @@ function submit(): void {
 .branch-strip { display: flex; align-items: center; gap: 6px; padding: 4px 10px 8px; flex-wrap: wrap; border-bottom: 1px solid var(--ag-line); margin-bottom: 4px; }
 .branch-label { font-size: 10px; color: var(--color-steel); }
 .seg.branch { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.branch-search { background: var(--ag-panel); border: 1px solid var(--ag-line); border-radius: 4px; outline: none; color: var(--color-paper); font-family: var(--font-mono); font-size: 10px; padding: 2px 6px; width: 140px; margin-left: auto; }
+.branch-search { background: var(--ag-panel); border: 1px solid var(--ag-line); border-radius: 6px; outline: none; color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 4px 10px; width: 260px; margin-left: auto; }
 .composer { position: relative; pointer-events: auto; width: calc(100% - 2 * var(--s-4)); max-width: 720px; margin: 0 auto; border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); padding: var(--s-2) var(--s-3); background: var(--ag-surface); }
 .composer:focus-within { border-color: var(--color-ember-dim); }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: var(--s-2); align-items: center; }
