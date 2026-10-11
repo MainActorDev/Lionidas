@@ -7,7 +7,7 @@ import { ref, computed } from 'vue';
 export interface Ref { kind: 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo'; locator: string }
 
 const props = defineProps<{ busy?: boolean }>();
-const emit = defineEmits<{ send: [text: string, refs: Ref[], appBundle: string]; abort: [] }>();
+const emit = defineEmits<{ send: [text: string, refs: Ref[], appBundle: string]; abort: []; skill: [command: string, ask: string] }>();
 
 const text = ref('');
 const refs = ref<Ref[]>([]);
@@ -17,6 +17,12 @@ const newKind = ref<Ref['kind']>('jira');
 const newLocator = ref('');
 
 const ready = computed(() => text.value.trim().length > 0 && !props.busy);
+const slashHint = computed(() => {
+  const t = text.value.trim();
+  if (!t.startsWith('/') || t.includes(' ')) return [];
+  return SKILLS.filter((s) => s.startsWith(t));
+});
+function applySkill(h: string): void { text.value = `${h} `; }
 const willRun = computed(() => refs.value.length > 0);
 
 function addRef(): void {
@@ -28,9 +34,21 @@ function addRef(): void {
 }
 function removeRef(i: number): void { refs.value = refs.value.filter((_, idx) => idx !== i); }
 
+const SKILLS = ['/planning', '/breakdown', '/author'] as const;
+
 function submit(): void {
   if (!ready.value) return;
-  emit('send', text.value.trim(), refs.value.map((r) => ({ ...r })), appBundle.value.trim());
+  const t = text.value.trim();
+  // rev20b: slash skills route to their own workflow (no refs needed)
+  if (t.startsWith('/')) {
+    const [cmd, ...rest] = t.split(/\s+/);
+    if ((SKILLS as readonly string[]).includes(cmd ?? '')) {
+      emit('skill', cmd ?? '', rest.join(' '));
+      text.value = ''; refs.value = [];
+      return;
+    }
+  }
+  emit('send', t, refs.value.map((r) => ({ ...r })), appBundle.value.trim());
   text.value = ''; refs.value = [];
 }
 function onKey(e: KeyboardEvent): void {
@@ -41,6 +59,9 @@ function onKey(e: KeyboardEvent): void {
 <template>
   <div class="wrap">
     <div class="composer">
+      <div v-if="slashHint.length" class="slash-hints">
+        <button v-for="h in slashHint" :key="h" class="slash-hint" @click="applySkill(h)">{{ h }}</button>
+      </div>
       <div v-if="refs.length || pickerOpen" class="chips">
         <span v-for="(r, i) in refs" :key="r.kind + r.locator" class="chip" :class="{ jira: r.kind === 'jira' }" @click="removeRef(i)">
           {{ r.kind === 'jira' ? '◈' : '△' }} {{ r.locator }} ✕
@@ -68,6 +89,9 @@ function onKey(e: KeyboardEvent): void {
 
 <style scoped>
 .wrap { position: sticky; bottom: 0; margin: 0 0 var(--s-3); background: var(--ag-bg); }
+.slash-hints { display: flex; gap: 6px; margin-bottom: 6px; }
+.slash-hint { border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); background: var(--ag-panel); color: var(--color-ember); font-family: var(--font-mono); font-size: var(--text-caption); padding: 2px 10px; cursor: pointer; }
+.slash-hint:hover { border-color: var(--color-ember-dim); color: var(--color-paper); }
 .composer { pointer-events: auto; width: calc(100% - 2 * var(--s-4)); max-width: 720px; margin: 0 auto; border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); padding: var(--s-2) var(--s-3); background: var(--ag-surface); }
 .composer:focus-within { border-color: var(--color-ember-dim); }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: var(--s-2); align-items: center; }

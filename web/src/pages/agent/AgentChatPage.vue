@@ -216,6 +216,33 @@ function resend(msg: Msg): void {
   void send(msg.text, (msg.refs ?? []).map((r) => ({ kind: r.kind as PipelineRef['kind'], locator: r.name })), '');
 }
 
+/** rev20b: panel errors surface as system messages. */
+function onPanelError(m: string): void {
+  messages.value = [...messages.value, { role: 'system', text: m }];
+}
+
+/** rev20b: slash skill — one profile as a single-stage workflow (run panel shows it). */
+async function runSkill(command: string, ask: string): Promise<void> {
+  if (!sessionId.value) await newChat();
+  const sid = sessionId.value!;
+  messages.value = [...messages.value, { role: 'user', text: `${command} ${ask}` }];
+  sending.value = true;
+  try {
+    const r = await fetch('/api/agent/skill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ command, ask, appBundle: appBundleHint() }) });
+    const b = (await r.json()) as { run?: { runId?: string; status?: string }; error?: string };
+    if (!r.ok || !b.run?.runId) {
+      messages.value = [...messages.value, { role: 'system', text: `skill failed: ${b.error ?? r.status}` }];
+      return;
+    }
+    runId.value = b.run.runId;
+    bindRun(sid, b.run.runId);
+    void panel.value?.refresh();
+  } finally {
+    sending.value = false;
+  }
+}
+function appBundleHint(): string { return ''; }
+
 /** rev8 #1: abort the live turn — partial transcript is persisted server-side. */
 async function abortTurn(): Promise<void> {
   if (!sessionId.value) return;
@@ -308,10 +335,10 @@ onBeforeUnmount(() => { ws?.close(); if (pollTimer) clearInterval(pollTimer); })
     <ChatSidebar ref="sidebar" :me="me" :active-id="sessionId" @select="openSession" @new-chat="newChat" @renamed="onRenamed" @deleted="onDeleted" />
     <div class="mid">
       <Thread :messages="messages" :title="title" :live="panel?.live ?? false" :waiting="sending && !streaming" :streaming="streaming" :tool-stops="toolStops" :session-id="sessionId" @resend="resend">
-        <Composer :busy="sending" @send="send" @abort="abortTurn" />
+        <Composer :busy="sending" @send="send" @abort="abortTurn" @skill="runSkill" />
       </Thread>
     </div>
-    <RunPanel ref="panel" :run-id="runId" />
+    <RunPanel ref="panel" @error="onPanelError" :run-id="runId" />
   </div>
 </template>
 

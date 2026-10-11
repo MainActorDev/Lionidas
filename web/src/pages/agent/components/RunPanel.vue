@@ -11,7 +11,7 @@ interface Artifact { id: string; kind: string; name: string; version: number; ru
 interface ArtifactBody extends Artifact { body: string; provenance_json: string | null }
 
 const props = defineProps<{ runId: string | null }>();
-const emit = defineEmits<{ collapsed: [] }>();
+const emit = defineEmits<{ collapsed: []; error: [msg: string] }>();
 
 const run = ref<RunState | null>(null);
 const tab = ref<'pipeline' | 'artifacts'>('pipeline');
@@ -21,7 +21,20 @@ const knowledge = ref<ArtifactBody | null>(null);
 const answers = ref<Record<string, string>>({});
 const working = ref(false);
 
-const live = computed(() => run.value?.run.status === 'running' || run.value?.run.status === 'awaiting_answer');
+const live = computed(() => run.value?.run.status === 'running' || run.value?.run.status === 'awaiting_answer' || run.value?.run.status === 'awaiting_gate');
+const advancing = ref(false);
+async function advance(): Promise<void> {
+  if (!props.runId || advancing.value) return;
+  advancing.value = true;
+  try {
+    const r = await fetch(`/api/agent/pipeline/${props.runId}/advance`, { method: 'POST' });
+    if (!r.ok) {
+      const b = (await r.json().catch(() => ({}))) as { error?: string };
+      emit('error', b.error ?? 'advance failed');
+    }
+    await refresh();
+  } finally { advancing.value = false; }
+}
 const question = computed(() => run.value?.stages.find((s) => s.status === 'paused' && s.question));
 
 async function refresh(): Promise<void> {
@@ -95,6 +108,11 @@ defineExpose({ refresh, open, panelOpen, live });
             </div>
             <div v-if="i < run.stages.length - 1" class="flink" :class="{ done: run.stages[i + 1]!.status !== 'pending' }"></div>
           </template>
+          <div v-if="run.run.status === 'awaiting_gate'" class="gate">
+            <div class="ql">stage gate — review the output above</div>
+            <div class="qt">Approve the handoff to continue?</div>
+            <div class="row"><button class="btn primary" :disabled="advancing" @click="advance">continue →</button></div>
+          </div>
           <div v-if="run.run.status === 'done'" class="alldone">✓ run complete</div>
           <div v-if="run.run.status === 'failed'" class="allfail">✕ run failed</div>
         </div>
@@ -154,6 +172,7 @@ defineExpose({ refresh, open, panelOpen, live });
 .alldone { font-size: var(--text-caption); color: var(--color-paper); margin-top: 6px; }
 .allfail { font-size: var(--text-caption); color: var(--color-ember); margin-top: 6px; }
 
+.gate { border: 1px solid var(--color-ember-dim); border-left: 2px solid var(--color-ember); border-radius: var(--r-sm); padding: var(--s-2) var(--s-3); background: var(--ag-panel); }
 .q { border: 1px solid var(--color-ember-dim); border-left: 2px solid var(--color-ember); border-radius: var(--r-sm); padding: var(--s-2) var(--s-3); background: var(--ag-surface); }
 .ql { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-ember); margin-bottom: 6px; }
 .qt { font-size: var(--text-body); line-height: 1.55; margin-bottom: var(--s-2); color: var(--color-paper); }

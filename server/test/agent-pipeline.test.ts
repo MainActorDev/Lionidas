@@ -107,7 +107,15 @@ describe('pipeline routes (operator-gated)', () => {
     const st = await app.app.inject({ method: 'GET', url: `/api/agent/pipeline/${body.runId}`, headers: H() });
     expect(st.statusCode).toBe(200);
     const runState = st.json() as { run: { status: string }; stages: Array<{ id: string; status: string }> };
-    expect(['done', 'awaiting_answer', 'failed']).toContain(runState.run.status);
+    expect(['done', 'awaiting_answer', 'awaiting_gate', 'failed']).toContain(runState.run.status);
+    // rev20: manual handoff — walk gates to completion
+    for (let i = 0; i < 5 && runState.run.status === 'awaiting_gate'; i++) {
+      const adv = await app.app.inject({ method: 'POST', url: `/api/agent/pipeline/${body.runId}/advance`, headers: H() });
+      expect(adv.statusCode).toBe(200);
+      const st2 = await app.app.inject({ method: 'GET', url: `/api/agent/pipeline/${body.runId}`, headers: H() });
+      const rs2 = st2.json() as { run: { status: string } };
+      runState.run.status = rs2.run.status;
+    }
 
     // artifacts listed with the knowledge page + snapshot
     const arts = await app.app.inject({ method: 'GET', url: `/api/agent/artifacts`, headers: H() });
@@ -180,6 +188,33 @@ describe('pipeline routes (operator-gated)', () => {
     if (t.statusCode === 200) expect(t.json()['title']).toBeTruthy();
   });
 
+  // ── rev20: manual handoff gate + slash skills ──
+  it('gate: manual-handoff run parks awaiting_gate; advance continues it', async () => {
+    // default env = manual gating; the mock pipeline's stages are gated except the last
+    const run = await app.app.inject({ method: 'POST', url: '/api/agent/pipeline', headers: H(), payload: { appBundle: 'com.foo', refs: [{ kind: 'doc', locator: tmp }] } });
+    expect([200, 201]).toContain(run.statusCode);
+    const runId = run.json()['runId'];
+    const state = await app.app.inject({ method: 'GET', url: `/api/agent/pipeline/${runId}`, headers: H() });
+    const st = state.json()['run']?.['status'] ?? state.json()['status'];
+    // manual default → parked at a gate after stage 1 (or done if only one stage executed)
+    if (st === 'awaiting_gate') {
+      const adv = await app.app.inject({ method: 'POST', url: `/api/agent/pipeline/${runId}/advance`, headers: H() });
+      expect(adv.statusCode).toBe(200);
+    } else {
+      expect(['done']).toContain(st);
+    }
+  });
+
+  it('skill: /planning runs the planner profile as a workflow', async () => {
+    const r = await app.app.inject({ method: 'POST', url: '/api/agent/skill', headers: H(), payload: { command: '/planning', ask: 'plan login coverage' } });
+    expect(r.statusCode).toBe(200);
+    expect(r.json()['run']).toBeTruthy();
+  });
+
+  it('skill: unknown command rejected', async () => {
+    const r = await app.app.inject({ method: 'POST', url: '/api/agent/skill', headers: H(), payload: { command: '/nope', ask: 'x' } });
+    expect(r.statusCode).toBe(400);
+  });
 });
 
 describe('auth gates', () => {
