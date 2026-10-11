@@ -129,10 +129,12 @@ describe('pipeline routes (operator-gated)', () => {
     expect((await app.app.inject({ method: 'POST', url: '/api/agent/pipeline', headers: H(), payload: { appBundle: 'com.foo', refs: [{ kind: 'nope', locator: 'x' }] } })).statusCode).toBe(400);
   });
 
-  it('external refs (jira) reject honestly when no fetcher is configured', async () => {
+  it('external refs (jira) with no token compile as an honest not-fetched note (rev23 F5)', async () => {
     const r = await app.app.inject({ method: 'POST', url: '/api/agent/pipeline', headers: H(), payload: { appBundle: 'com.foo', refs: [{ kind: 'jira', locator: 'DEMO-101' }] } });
-    expect(r.statusCode).toBe(422);
-    expect((r.json() as { error: string }).error).toContain('fetch not configured');
+    expect(r.statusCode).toBe(201);
+    const { runId } = r.json() as { runId: string };
+    const page = await app.agent.storage.latestArtifact('knowledge', 'app:com.foo');
+    expect(page?.body ?? '').toContain('not fetched'); // honest env-hint line, run proceeds
   });
 
   it('answer on a non-paused run → 409', async () => {

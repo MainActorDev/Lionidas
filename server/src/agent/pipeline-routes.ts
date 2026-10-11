@@ -16,10 +16,10 @@ export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, 
     if (!b?.appBundle || !Array.isArray(b.refs) || b.refs.length === 0) {
       return reply.code(400).send({ error: 'appBundle and non-empty refs required' });
     }
-    const KNOWN: ReadonlySet<string> = new Set(['jira', 'github-pr', 'github-commit', 'doc', 'repo']);
+    const KNOWN: ReadonlySet<string> = new Set(['jira', 'github-pr', 'github-commit', 'doc', 'repo', 'attachment']);
     const refs = b.refs
       .filter((r) => r.kind && r.locator && KNOWN.has(r.kind))
-      .map((r) => ({ kind: r.kind as 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo', locator: r.locator!, ...(r.note ? { note: r.note } : {}) }));
+      .map((r) => ({ kind: r.kind as 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo' | 'attachment', locator: r.locator!, ...(r.note ? { note: r.note } : {}) }));
     if (!refs.length) return reply.code(400).send({ error: 'refs entries need kind + locator' });
     try {
       const out = await pipeline.run({ appBundle: b.appBundle, refs }, process.env);

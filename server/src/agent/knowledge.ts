@@ -9,7 +9,7 @@ import { fileSource, repoSource } from './sources.ts';
 import { ingest } from '@mainactordev/butler';
 import type { SqliteStorage, StorageRetriever } from '@mainactordev/butler';
 
-export type RefKind = 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo';
+export type RefKind = 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo' | 'attachment';
 
 export interface PipelineRef {
   kind: RefKind;
@@ -84,6 +84,8 @@ export interface KnowledgeDeps {
   artifactsDir: string;
   /** resolve a jira/github locator to text (fixture-safe: tests pass a fake) */
   fetchExternal?: (ref: PipelineRef) => Promise<string>;
+  /** rev23 F5: attachment text by id (att_…) — text files merge, binaries emit their manifest line */
+  readAttachment?: (id: string) => Promise<string | null>;
 }
 
 export async function compileKnowledge(
@@ -103,6 +105,10 @@ export async function compileKnowledge(
     } else if (ref.kind === 'repo') {
       const r = await ingest(repoSource(ref.locator), deps.storage, { artifactsDir: deps.artifactsDir });
       integrated.push({ ref, content: `repo ingested with symbol chunks: ${r.documents.length} docs, ${r.skipped} skipped` });
+    } else if (ref.kind === 'attachment') {
+      const reader = deps.readAttachment ?? (() => Promise.resolve(null));
+      const text = await reader(ref.locator);
+      integrated.push({ ref, content: text ?? `[attachment ${ref.locator}] missing from store — skipped` });
     } else {
       const fetcher = deps.fetchExternal ?? (() => Promise.reject(new Error(`${ref.kind} fetch not configured (set AGENT_JIRA_* / AGENT_GITHUB_* or pass fetchExternal)`)));
       const content = await fetcher(ref);
