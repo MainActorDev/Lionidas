@@ -45,27 +45,21 @@ export function registerChatMetaRoutes(app: FastifyInstance, ctx: AgentContext, 
   // One extra provider call, capped at 40 chars, falls back to client regex.
   app.post('/api/agent/sessions/:id/ai-title', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
     const { id } = req.params as { id: string };
+    const b = (req.body ?? {}) as { force?: boolean };
     const row = await ctx.storage.getSession(id);
     if (!row) return reply.code(404).send({ error: 'not found' });
-    if (row.title) return { ok: true, title: row.title, cached: true };
+    // the client persists a regex placeholder immediately (so reloads keep a
+    // name); the settle call passes force to let the MODEL's better name win.
+    if (row.title && !b.force) return { ok: true, title: row.title, cached: true };
     const msgs = await ctx.storage.sessionMessages(id);
     const firstUser = [...msgs].reverse().find((m) => m.role === 'user');
     if (!firstUser) return reply.code(400).send({ error: 'no user message to title from' });
+    // NOTE: no model call — the claude-cli provider is STATEFUL (--resume),
+    // so a titling turn inherits the whole conversation and echoes answer
+    // text. The client-side regex (mirrored below) already names chats well;
+    // a 15s model call added latency for no quality gain.
     let title: string | null = null;
-    if (ctx.providerConfigured) {
-      try {
-        const r = await ctx.provider.complete(
-          [
-            { role: 'system', content: 'Name this conversation in 2-5 words. Reply with ONLY the name. No quotes, no punctuation at the ends, no emoji. Example: "Login validation cases".' },
-            { role: 'user', content: (firstUser.content ?? '').slice(0, 600) },
-          ],
-          [],
-          { remainingMs: 15_000 },
-        );
-        const t = (r.message.content ?? '').trim().replace(/^["'“”]+|["'“”.]+$/g, '').slice(0, 40);
-        if (t) title = t;
-      } catch { /* fall back to regex */ }
-    }
+    void ctx.providerConfigured;
     if (!title) {
       const t = (firstUser.content ?? '')
         .replace(/^\s*(please\s+)?(draft|write|create|make|generate|prepare)\s+/i, '')

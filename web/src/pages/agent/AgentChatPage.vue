@@ -116,7 +116,7 @@ let pendingAiTitle = false;
 function settleAiTitle(): void {
   if (!pendingAiTitle || !sessionId.value) return;
   pendingAiTitle = false;
-  void fetch(`/api/agent/sessions/${sessionId.value}/ai-title`, { method: 'POST' }).then((r) => (r.ok ? r.json() : null)).then((j: { title?: string } | null) => {
+  void fetch(`/api/agent/sessions/${sessionId.value}/ai-title`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ force: true }) }).then((r) => (r.ok ? r.json() : null)).then((j: { title?: string } | null) => {
     if (j?.title) { title.value = j.title; void sidebar.value?.load(); }
   }).catch(() => {/* keep regex title */});
 }
