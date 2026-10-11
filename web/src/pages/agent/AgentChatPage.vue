@@ -168,7 +168,9 @@ async function send(text: string, refs: PipelineRef[], appBundle: string): Promi
       }
       runId.value = pb.runId;
       bindRun(sid, pb.runId);
+      panel.value?.open();
       void panel.value?.refresh();
+      messages.value = [...messages.value, { role: 'system', text: `pipeline started — ${pb.runId} (${(pb as { status?: string }).status ?? 'running'})` }];
       // the chat turn (records the intent in the conversation)
       await fetch(`/api/agent/sessions/${sid}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: `${text} [refs: ${refs.map((r) => r.locator).join(', ')}]` }) });
     } else {
@@ -238,7 +240,9 @@ async function runSkill(command: string, ask: string): Promise<void> {
     }
     runId.value = b.run.runId;
     bindRun(sid, b.run.runId);
+    panel.value?.open(); // workflow started — surface the panel even if it was collapsed
     void panel.value?.refresh();
+    messages.value = [...messages.value, { role: 'system', text: `${command} run started — ${b.run.runId}${b.run.status ? ` (${b.run.status})` : ''}` }];
   } finally {
     sending.value = false;
   }
