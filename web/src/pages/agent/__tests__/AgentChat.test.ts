@@ -42,6 +42,7 @@ async function mountPage(role = 'operator'): Promise<ReturnType<typeof mount>> {
       { role: 'assistant', content: 'on it' },
     ] }));
     if (url.includes('/messages')) return Promise.resolve(jsonOk({ turn: { ok: true, answer: 'mock reply' } }));
+    if (url.includes('/api/agent/refs/jira')) return Promise.resolve(jsonOk({ configured: true, issues: [{ key: 'LP-1042', title: 'Add QR login', type: 'Story' }] }));
     if (url === '/api/agent/pipeline') return Promise.resolve(jsonOk({ runId: 'wfr_new', status: 'done', stages: [] }));
     return Promise.resolve(jsonOk({}));
   });
@@ -98,12 +99,15 @@ describe('agent chat page', () => {
 
   it('composer: refs attached ⇒ send starts the pipeline (deterministic rule)', async () => {
     const w = await mountPage('operator');
-    // rev23: @-mention flow — type @, pick jira from the family menu, pick the row
+    // rev23: @-mention flow — type @, pick jira, search returns fixture rows
     await w.find('textarea').setValue('@');
     await flushPromises();
     await w.findAll('.slash-row')[0]!.trigger('mousedown'); // @jira (row 0)
     await flushPromises();
-    await w.findAll('.slash-row')[0]!.trigger('mousedown'); // first ticket
+    await w.find('textarea').setValue('login');
+    await new Promise((r) => setTimeout(r, 450)); // debounce 300ms + fetch
+    await flushPromises();
+    await w.findAll('.slash-row')[0]!.trigger('mousedown'); // LP-1042 fixture row
     await flushPromises();
     await w.find('textarea').setValue('');
     await w.find('.bundle').setValue('com.lionparcel.dev');

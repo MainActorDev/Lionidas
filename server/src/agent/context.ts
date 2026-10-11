@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { buildToolRegistry } from './tools.ts';
 import { AttachmentStore } from './attachments.ts';
+import { registerJiraTools } from './jira-refs.ts';
 import { registerDraftTools } from './draft-tools.ts';
 import { V1_POLICY } from './policy.ts';
 import { LIONIDAS_SYSTEM_PROMPT } from './system-prompt.ts';
@@ -59,6 +60,7 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
     : undefined;
   const attachments = new AttachmentStore(db, cfg.artifactsDir);
   const registry = buildToolRegistry({ db, storage, retriever, artifactsDir: cfg.artifactsDir, attachments, ...(syncPresets ? { syncPresets } : {}) });
+  registerJiraTools(registry, cfg.env);
   registerDraftTools({ db, storage, retriever, registry, artifactsDir: cfg.artifactsDir });
 
   const baseUrl = cfg.env['BUTLER_PROVIDER_BASE_URL'];

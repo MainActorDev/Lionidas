@@ -117,20 +117,40 @@ const FAMILIES: Array<{ key: string; desc: string }> = [
   { key: '@attachment', desc: 'Attach a file' },
 ];
 
+/** typing in the jira level routes into the debounced search */
+watch(atQuery, (q) => { if (at.value === 'jira') jiraQueryChanged(q.replace(/^@jira?/, '').trim()); });
+
 function familyMatches(): Array<{ key: string; desc: string }> {
   const q = atQuery.value.trim();
   if (!q) return FAMILIES;
   return FAMILIES.filter((f) => f.key.startsWith(q));
 }
 
-/** stub rows for F1 — F2/F3/F4 replace these with live data */
-function stubJira(q: string): Array<{ key: string; title: string; type: string }> {
-  void q;
-  return [
-    { key: 'LP-1042', title: 'Add QR login', type: 'Story' },
-    { key: 'LP-1077', title: 'Login validation fixes', type: 'Subtask' },
-    { key: 'LP-900', title: 'Auth epic', type: 'Epic' },
-  ];
+/** rev23 F3: live jira search — debounced 300ms; honest states surface as rows */
+interface JiraRow { key: string; title: string; type: string }
+const jiraRows = ref<JiraRow[]>([]);
+const jiraState = ref<'idle' | 'loading' | 'error' | 'unconfigured'>('idle');
+let jiraTimer: ReturnType<typeof setTimeout> | undefined;
+
+async function fetchJira(q: string): Promise<void> {
+  jiraState.value = 'loading';
+  try {
+    const r = await fetch(`/api/agent/refs/jira?q=${encodeURIComponent(q)}`);
+    const b = (await r.json()) as { configured?: boolean; issues?: JiraRow[]; reason?: string; error?: string };
+    if (b.configured === false) { jiraState.value = 'unconfigured'; jiraRows.value = []; return; }
+    if (b.error) { jiraState.value = 'error'; jiraRows.value = []; return; }
+    jiraState.value = 'idle';
+    jiraRows.value = b.issues ?? [];
+  } catch {
+    jiraState.value = 'error';
+    jiraRows.value = [];
+  }
+}
+
+function jiraQueryChanged(q: string): void {
+  if (jiraTimer) clearTimeout(jiraTimer);
+  if (!q.trim()) { jiraRows.value = []; jiraState.value = 'idle'; return; }
+  jiraTimer = setTimeout(() => { void fetchJira(q); }, 300);
 }
 function stubRepos(): string[] { return ['ios-consumer', 'ios-consumer-intl']; }
 function stubRows(): Array<{ id: string; title: string; meta: string }> {
@@ -141,10 +161,15 @@ function stubRows(): Array<{ id: string; title: string; meta: string }> {
 }
 
 /** unified row model for the current at-level */
-interface AtRow { id: string; title: string; meta: string; sub?: string }
+interface AtRow { id: string; title: string; meta: string; sub?: string; locked?: boolean }
 const atRows = computed<Array<AtRow>>(() => {
   if (at.value === 'family') return familyMatches().map((f) => ({ id: f.key, title: f.key, meta: f.desc }));
-  if (at.value === 'jira') return stubJira(atQuery.value).map((i) => ({ id: i.key, title: i.key, meta: `${i.type} · ${i.title}` }));
+  if (at.value === 'jira') {
+    if (jiraState.value === 'unconfigured') return [{ id: '__unconfigured', title: '@jira', meta: 'Jira not configured — set JIRA_TOKEN and JIRA_BASE_URL on the server', locked: true }];
+    if (jiraState.value === 'error') return [{ id: '__error', title: '@jira', meta: 'Jira search failed — check the server logs / token', locked: true }];
+    if (jiraState.value === 'loading') return [{ id: '__loading', title: '@jira', meta: 'searching…', locked: true }];
+    return jiraRows.value.map((i) => ({ id: i.key, title: i.key, meta: `${i.type} · ${i.title}` }));
+  }
   if (at.value === 'repo') return stubRepos().map((r) => ({ id: r, title: r, meta: 'registered repo' }));
   if (at.value === 'repo-pick') return stubRows().map((r) => ({ id: r.id, title: r.id, meta: r.meta, sub: r.title }));
   return [];
@@ -157,7 +182,7 @@ function openFamilyPick(fam: string): void {
   atQuery.value = '';
   atIdx.value = 0;
   pickedKeys.value = new Set();
-  if (fam === '@jira') at.value = 'jira';
+  if (fam === '@jira') { at.value = 'jira'; atQuery.value = ''; }
   else if (fam === '@repo') at.value = 'repo';
   else if (fam === '@attachment') { at.value = 'closed'; emit('open-attachment'); return; }
   else at.value = 'closed';
@@ -166,7 +191,7 @@ function openFamilyPick(fam: string): void {
 /** commit a row: family level advances; jira/repo-pick rows CHIP (multi-select stays open) */
 function acceptAt(idx?: number): void {
   const row = atRows.value[idx ?? atIdx.value];
-  if (!row) return;
+  if (!row || row.locked) return;
   if (at.value === 'family') {
     openFamilyPick(row.id);
     return;
@@ -218,8 +243,11 @@ watch(text, (t) => {
     at.value = 'family';
     atQuery.value = t;
     atIdx.value = 0;
-  } else if (at.value !== 'closed' && (t.startsWith('@') && !t.includes(' '))) {
-    atQuery.value = t.slice(1) ? t : '@';
+  } else if (at.value !== 'closed' && t.startsWith('@') && !t.includes(' ')) {
+    atQuery.value = t;
+  } else if (at.value !== 'closed' && !t.startsWith('@')) {
+    // past the family token: the user is now SEARCHING (jira) or filtering (repo rows)
+    atQuery.value = t;
   }
 });
 
