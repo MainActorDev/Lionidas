@@ -51,4 +51,20 @@ None — all three answered 2026-10-11:
 
 ## Next step
 
-Implement on a fresh branch off main: (A) gated stages w/ manual default + advance route + run-panel gate card; (B) /planning /breakdown /author slash routing to single-stage workflows (bare input); then (C1) clean-room install test; then C2-C4 as follow-ups.
+A+B shipped (rev 20, ba07142). C1 clean-room findings:
+
+- Fresh install boots correctly under the PINNED node (.nvmrc 24.12.0 —
+  the repo's declared engine). Under node 24.20 SOME installs crash at
+  boot with a better-sqlite3 native assertion (Statement destructor vs
+  env teardown, GC-timing dependent — lldb-confirmed). The dev tree's
+  older-built binary masks it; freshly-built binaries expose it
+  inconsistently (cleanroom2 crash / cleanroom3 boot, same checksum —
+  indicating a deeper ABI/n-API timing issue in better-sqlite3@11.10
+  with newer node runtimes).
+- Mitigations landed: .npmrc build-from-source=better-sqlite3 (build
+  determinism), .nvmrc remains the contract (24.12.x engines).
+- Follow-up (C1b, recommended): bump better-sqlite3 to a release with
+  node 24.20 support, or pin engines strictly and CI-check boots on
+  the pinned runtime only.
+
+C2-C4 (retrieval memory, persistent MCP, evals) still queued.

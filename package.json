@@ -16,5 +16,20 @@
   },
   "engines": {
     "node": "24.12.x"
+  },
+  "pnpm": {
+    "neverBuiltDependencies": [],
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ],
+    "supportedArchitectures": {
+      "os": [
+        "darwin"
+      ],
+      "cpu": [
+        "arm64"
+      ]
+    }
   }
 }
