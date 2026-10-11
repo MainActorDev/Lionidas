@@ -122,17 +122,17 @@ export async function listCommits(repoDir: string, ownerName: string, branch: st
   }
 }
 
-/** open PRs */
+/** PRs — CLOSED list (merged + closed), newest first; merged/closed state shown */
 export async function listPulls(ownerName: string): Promise<{ rows: RepoRefRow[]; error?: string }> {
-  const r = await gh(['api', `repos/${ownerName}/pulls`, '--method', 'GET', '-f', `per_page=${MAX_ROWS}`, '-f', 'state=open'], process.env as Record<string, string | undefined>);
+  const r = await gh(['api', `repos/${ownerName}/pulls`, '--method', 'GET', '-f', `per_page=${MAX_ROWS}`, '-f', 'state=closed', '-f', 'sort=updated', '-f', 'direction=desc'], process.env as Record<string, string | undefined>);
   if (!r.ok) return { rows: [], error: r.error };
   try {
-    const data = JSON.parse(r.out) as Array<{ number: number; title: string; user?: { login?: string }; head?: { ref?: string } }>;
+    const data = JSON.parse(r.out) as Array<{ number: number; title: string; user?: { login?: string }; head?: { ref?: string }; merged_at?: string | null; closed_at?: string | null }>;
     return {
       rows: data.map((p) => ({
         id: `PR-${p.number}`,
         title: `PR-${p.number}`,
-        meta: `${p.user?.login ?? ''}${p.head?.ref ? ` · ${p.head.ref}` : ''}`,
+        meta: `${p.merged_at ? 'merged' : 'closed'} ${((p.merged_at ?? p.closed_at ?? '').slice(0, 10))} · ${p.user?.login ?? ''}${p.head?.ref ? ` · ${p.head.ref}` : ''}`,
         sub: p.title.slice(0, 72),
       })),
     };

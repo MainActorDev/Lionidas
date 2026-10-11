@@ -453,7 +453,7 @@ function submit(): void {
 
       <div class="input-line">
         <span v-if="activeCmd" class="cmd-chip">{{ activeCmd }}<button class="chip-x" title="remove command" @mousedown.prevent.stop @click="revertChip">✕</button></span>
-        <textarea v-model="text" :placeholder="activeCmd ? 'your prompt for this command…' : (at !== 'closed' ? 'search…' : 'message butler…')" @keydown="onKey"></textarea>
+        <textarea v-model="text" :placeholder="activeCmd ? 'describe what you want from this command…' : (at !== 'closed' ? 'type to search…' : 'ask about cases, runs, or draft new tests…')" @keydown="onKey"></textarea>
       </div>
       <div class="row">
         <button class="icon" title="mention a reference (@jira / @repo / @attachment)" @click="at = 'family'; atQuery = '@'; text = '@'">＋ @</button>
