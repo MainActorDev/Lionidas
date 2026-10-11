@@ -152,12 +152,48 @@ function jiraQueryChanged(q: string): void {
   if (!q.trim()) { jiraRows.value = []; jiraState.value = 'idle'; return; }
   jiraTimer = setTimeout(() => { void fetchJira(q); }, 300);
 }
-function stubRepos(): string[] { return ['ios-consumer', 'ios-consumer-intl']; }
-function stubRows(): Array<{ id: string; title: string; meta: string }> {
-  return [
-    { id: 'a1b2c3d', title: 'fix login flow', meta: 'main · 2d ago' },
-    { id: 'e4f5g6h', title: 'QR login scaffold', meta: 'feat/x · 5d ago' },
-  ];
+/** rev23 F4: live repo data — repos, branches (searchable), commits/PRs per segment */
+const repoList = ref<string[]>([]);
+const repoBranches = ref<Array<{ name: string; lastCommit: string }>>([]);
+const repoRows = ref<Array<{ id: string; title: string; meta: string; sub?: string }>>([]);
+const repoState = ref<'idle' | 'loading' | 'error'>('idle');
+const repoErrMsg = ref('');
+const branchQuery = ref('');
+let repoTimer: ReturnType<typeof setTimeout> | undefined;
+
+async function fetchRepos(): Promise<void> {
+  repoState.value = 'loading';
+  try {
+    const r = await fetch('/api/agent/refs/repos');
+    const b = (await r.json()) as { repos?: string[] };
+    repoList.value = b.repos ?? [];
+    repoState.value = 'idle';
+  } catch { repoState.value = 'error'; repoErrMsg.value = 'repo list unreachable'; }
+}
+
+async function fetchBranches(project: string, q: string): Promise<void> {
+  try {
+    const r = await fetch(`/api/agent/refs/repos/${encodeURIComponent(project)}/branches${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+    const b = (await r.json()) as { branches?: Array<{ name: string; lastCommit: string }>; error?: string };
+    repoBranches.value = b.error ? [] : (b.branches ?? []);
+  } catch { repoBranches.value = []; }
+}
+
+async function fetchRepoRows(project: string, segment: 'commits' | 'pulls', branch: string): Promise<void> {
+  repoState.value = 'loading';
+  try {
+    const ep = segment === 'pulls' ? 'pulls' : `commits${branch ? `?branch=${encodeURIComponent(branch)}` : ''}`;
+    const r = await fetch(`/api/agent/refs/repos/${encodeURIComponent(project)}/${ep}`);
+    const b = (await r.json()) as { rows?: Array<{ id: string; title: string; meta: string; sub?: string }>; error?: string };
+    if (b.error) { repoState.value = 'error'; repoErrMsg.value = b.error; repoRows.value = []; return; }
+    repoRows.value = b.rows ?? [];
+    repoState.value = 'idle';
+  } catch { repoState.value = 'error'; repoErrMsg.value = 'repo fetch failed'; }
+}
+
+function branchQueryChanged(project: string): void {
+  if (repoTimer) clearTimeout(repoTimer);
+  repoTimer = setTimeout(() => { void fetchBranches(project, branchQuery.value.trim()); }, 300);
 }
 
 /** unified row model for the current at-level */
@@ -170,8 +206,18 @@ const atRows = computed<Array<AtRow>>(() => {
     if (jiraState.value === 'loading') return [{ id: '__loading', title: '@jira', meta: 'searching…', locked: true }];
     return jiraRows.value.map((i) => ({ id: i.key, title: i.key, meta: `${i.type} · ${i.title}` }));
   }
-  if (at.value === 'repo') return stubRepos().map((r) => ({ id: r, title: r, meta: 'registered repo' }));
-  if (at.value === 'repo-pick') return stubRows().map((r) => ({ id: r.id, title: r.id, meta: r.meta, sub: r.title }));
+  if (at.value === 'repo') {
+    const q = atQuery.value.trim().toLowerCase();
+    return repoList.value.filter((r) => r.toLowerCase().includes(q)).map((r) => ({ id: r, title: r, meta: 'registered repo' }));
+  }
+  if (at.value === 'repo-pick') {
+    if (repoState.value === 'loading') return [{ id: '__loading', title: '@repo', meta: 'loading…', locked: true }];
+    if (repoState.value === 'error') return [{ id: '__error', title: '@repo', meta: repoErrMsg.value || 'repo fetch failed', locked: true }];
+    const q = atQuery.value.trim().toLowerCase();
+    return repoRows.value
+      .filter((r) => !q || r.id.toLowerCase().includes(q) || (r.sub ?? '').toLowerCase().includes(q))
+      .map((r) => ({ id: r.id, title: r.id, meta: r.meta, sub: r.sub }));
+  }
   return [];
 });
 
@@ -183,7 +229,7 @@ function openFamilyPick(fam: string): void {
   atIdx.value = 0;
   pickedKeys.value = new Set();
   if (fam === '@jira') { at.value = 'jira'; atQuery.value = ''; }
-  else if (fam === '@repo') at.value = 'repo';
+  else if (fam === '@repo') { at.value = 'repo'; void fetchRepos(); }
   else if (fam === '@attachment') { at.value = 'closed'; emit('open-attachment'); return; }
   else at.value = 'closed';
 }
@@ -198,6 +244,9 @@ function acceptAt(idx?: number): void {
   }
   if (at.value === 'repo') {
     repoPick.value = { project: row.id, segment: 'commits', branch: '' };
+    atQuery.value = '';
+    void fetchRepoRows(row.id, 'commits', '');
+    void fetchBranches(row.id, '');
     at.value = 'repo-pick';
     atQuery.value = '';
     atIdx.value = 0;
@@ -224,6 +273,18 @@ function addRefChip(kind: Ref['kind'], locator: string, label?: string): void {
   pickedKeys.value.add(`${kind}:${locator}`);
 }
 defineExpose({ addAttachmentChip });
+
+function setBranch(name: string): void {
+  if (!repoPick.value) return;
+  repoPick.value = { ...repoPick.value, branch: repoPick.value.branch === name ? '' : name };
+  void fetchRepoRows(repoPick.value.project, repoPick.value.segment, repoPick.value.branch);
+}
+function setSegment(seg: 'commits' | 'pulls'): void {
+  if (!repoPick.value || repoPick.value.segment === seg) return;
+  repoPick.value = { ...repoPick.value, segment: seg, branch: seg === 'pulls' ? '' : repoPick.value.branch };
+  atQuery.value = '';
+  void fetchRepoRows(repoPick.value.project, seg, seg === 'commits' ? repoPick.value.branch : '');
+}
 
 function closeAt(): void { at.value = 'closed'; atQuery.value = ''; }
 
@@ -296,7 +357,7 @@ function submit(): void {
         <div class="at-head">
           <span v-if="at === 'jira'" class="at-title">@jira — search tickets <span class="at-count">{{ pickedKeys.size }} selected</span></span>
           <span v-else-if="at === 'repo'" class="at-title">@repo — pick a repository</span>
-          <span v-else-if="at === 'repo-pick'" class="at-title">@repo:{{ repoPick?.project }} — <button class="seg" :class="{ on: repoPick?.segment === 'commits' }" @click="repoPick && (repoPick.segment = 'commits')">commits</button> <button class="seg" :class="{ on: repoPick?.segment === 'pulls' }" @click="repoPick && (repoPick.segment = 'pulls')">PRs</button> <span class="at-count">{{ pickedKeys.size }} selected · {{ refs.length }}/{{ REF_CAP }} refs</span></span>
+          <span v-else-if="at === 'repo-pick'" class="at-title">@repo:{{ repoPick?.project }} — <button class="seg" :class="{ on: repoPick?.segment === 'commits' }" @click="setSegment('commits')">commits</button> <button class="seg" :class="{ on: repoPick?.segment === 'pulls' }" @click="setSegment('pulls')">PRs</button> <span class="at-count">{{ pickedKeys.size }} selected · {{ refs.length }}/{{ REF_CAP }} refs</span></span>
           <span v-else class="at-title">mention a reference</span>
           <button class="at-done" title="done selecting (Esc)">done ✕</button>
         </div>
@@ -307,7 +368,12 @@ function submit(): void {
           <span v-if="row.sub" class="slash-sub">{{ row.sub }}</span>
         </div>
         <div v-if="at === 'jira'" class="at-foot">type to search · Enter selects and stays open · Esc done</div>
-        <div v-else-if="at === 'repo-pick'" class="at-foot">branch scope: {{ repoPick?.branch || 'default' }} — the SHA pins content regardless of branch</div>
+        <div v-else-if="at === 'repo-pick' && repoPick?.segment === 'commits'" class="branch-strip">
+          <span class="branch-label">branch:</span>
+          <button v-for="b in repoBranches" :key="b.name" class="seg branch" :class="{ on: repoPick?.branch === b.name }" :title="b.lastCommit" @click="setBranch(b.name)">{{ b.name }}</button>
+          <input v-model="branchQuery" class="branch-search" placeholder="search branches…" @input="repoPick && branchQueryChanged(repoPick.project)">
+        </div>
+        <div v-if="at === 'repo-pick'" class="at-foot">branch scope: {{ repoPick?.branch || 'default' }} — the SHA pins content regardless of branch</div>
       </div>
 
       <!-- slash menu (rev21) -->
@@ -365,6 +431,10 @@ function submit(): void {
 .at-foot { font-size: 10px; color: var(--color-steel); padding: 6px 10px 4px; border-top: 1px solid var(--ag-line); margin-top: 4px; }
 .seg { border: 1px solid var(--ag-line-2); background: none; color: var(--color-steel); border-radius: 4px; font-size: 10px; padding: 1px 8px; cursor: pointer; }
 .seg.on { color: var(--color-ember); border-color: var(--color-ember-dim); }
+.branch-strip { display: flex; align-items: center; gap: 6px; padding: 4px 10px 8px; flex-wrap: wrap; border-bottom: 1px solid var(--ag-line); margin-bottom: 4px; }
+.branch-label { font-size: 10px; color: var(--color-steel); }
+.seg.branch { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.branch-search { background: var(--ag-panel); border: 1px solid var(--ag-line); border-radius: 4px; outline: none; color: var(--color-paper); font-family: var(--font-mono); font-size: 10px; padding: 2px 6px; width: 140px; margin-left: auto; }
 .composer { position: relative; pointer-events: auto; width: calc(100% - 2 * var(--s-4)); max-width: 720px; margin: 0 auto; border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); padding: var(--s-2) var(--s-3); background: var(--ag-surface); }
 .composer:focus-within { border-color: var(--color-ember-dim); }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: var(--s-2); align-items: center; }

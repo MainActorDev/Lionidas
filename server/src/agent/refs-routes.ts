@@ -57,7 +57,8 @@ export async function registerRefRoutes(app: FastifyInstance, ctx: AgentContext)
     const { project } = req.params as { project: string };
     const tool = ctx.registry.get('repo.branches');
     if (!tool) return { branches: [] };
-    return JSON.parse(await tool.execute({ project }, { signal: undefined, sessionId: 'refs-route' })) as object;
+    const q = String((req.query as { q?: string }).q ?? '');
+    return JSON.parse(await tool.execute({ project, ...(q ? { q } : {}) }, { signal: undefined, sessionId: 'refs-route' })) as object;
   });
 
   app.get('/api/agent/refs/repos/:project/commits', { preHandler: requireRoleAtLeast('operator') }, async (req) => {
