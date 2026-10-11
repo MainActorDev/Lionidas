@@ -54,12 +54,10 @@ export function registerChatMetaRoutes(app: FastifyInstance, ctx: AgentContext, 
     const msgs = await ctx.storage.sessionMessages(id);
     const firstUser = [...msgs].reverse().find((m) => m.role === 'user');
     if (!firstUser) return reply.code(400).send({ error: 'no user message to title from' });
-    // NOTE: no model call — the claude-cli provider is STATEFUL (--resume),
-    // so a titling turn inherits the whole conversation and echoes answer
-    // text. The client-side regex (mirrored below) already names chats well;
-    // a 15s model call added latency for no quality gain.
+    // rev18: no model call — the claude-cli provider is STATEFUL (--resume),
+    // so a titling turn inherits the conversation and echoes answer text.
+    // Regex-derived title (mirrors the client) is instant and good enough.
     let title: string | null = null;
-    void ctx.providerConfigured;
     if (!title) {
       const t = (firstUser.content ?? '')
         .replace(/^\s*(please\s+)?(draft|write|create|make|generate|prepare)\s+/i, '')
