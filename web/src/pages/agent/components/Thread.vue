@@ -135,13 +135,13 @@ watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom
 /* rev15 design C: timeline rail — mirrors the run-panel stage flow */
 .rail { position: relative; margin: 6px 0 10px; padding-left: 22px; }
 .rail::before { content: ''; position: absolute; left: 7px; top: 6px; bottom: 6px; width: 1px; background: var(--ag-line-2); }
-.stop { position: relative; padding: 4px 0; font-size: var(--text-caption); }
+.stop { position: relative; padding: 4px 0; font-size: var(--text-caption); min-width: 0; overflow-wrap: anywhere; }
 .stop::before { content: ''; position: absolute; left: -19px; top: 11px; width: 7px; height: 7px; border-radius: 2px; background: var(--color-fog); }
 .stop.live::before { background: var(--color-ember); animation: agpulse 1.3s infinite; }
 .stop .name { color: var(--color-paper); font-weight: var(--weight-bold); }
-.stop .arg { color: var(--color-steel); }
+.stop .arg { color: var(--color-steel); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .stop .dur { float: right; color: var(--color-steel); font-size: 11px; }
-.stop .out { display: block; color: var(--color-steel); font-size: 11px; padding-left: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stop .out { display: block; color: var(--color-steel); font-size: 11px; padding-left: 14px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-all; }
 .stop.err .out { color: var(--color-ember); }
 .msg.streaming .cursor { display: inline-block; width: 7px; height: 14px; margin-left: 4px; background: var(--color-ember); animation: agblink 0.9s infinite; }
 @keyframes agblink { 50% { opacity: 0; } }

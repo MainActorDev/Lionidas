@@ -241,9 +241,12 @@ function connectWs(): void {
         toolStops.value = []; // rev15: rail retires with the turn
         void openSession(sessionId.value);
       }
-      // rev10: live delta → grow the streaming bubble
+      // rev10: live delta → grow the streaming bubble (tool-trace lines are
+      // dropped here — the rail renders them from turn.tool events; keeping
+      // both duplicated every call)
       if (e.type === 'agent.turn' && e.payload.sessionId === sessionId.value && e.payload.type === 'turn.delta') {
         const d = (e.payload as { detail?: { delta?: string } }).detail?.delta ?? '';
+        if (d.includes('\u23f5') || d.includes('\u23bf') || (streaming.value ?? '').endsWith('\n') && d.trim() === '') return;
         streaming.value = (streaming.value ?? '') + d;
       }
       // rev15: structured tool events → timeline stops

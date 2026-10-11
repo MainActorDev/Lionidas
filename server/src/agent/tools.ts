@@ -131,13 +131,13 @@ export function buildToolRegistry(deps: ToolDeps): ToolRegistry {
     async execute(args) {
       const app = typeof args['appBundle'] === 'string' ? args['appBundle'] : null;
       const rows = db.prepare(
-        `SELECT v.id, v.scope, v.app_bundle_id, v.key, v.is_secret, v.value, v.note FROM env_vars v
+        `SELECT v.id, v.scope, v.app_bundle_id, v.key, v.secret, v.value, v.note FROM env_vars v
          WHERE v.scope = 'global' OR (v.scope = 'app' AND (? IS NULL OR v.app_bundle_id = ?)) ORDER BY v.scope, v.key`,
-      ).all(app, app) as Array<{ id: string; scope: string; app_bundle_id: string | null; key: string; is_secret: number; value: string; note: string | null }>;
+      ).all(app, app) as Array<{ id: string; scope: string; app_bundle_id: string | null; key: string; secret: number; value: string; note: string | null }>;
       return JSON.stringify(rows.map((r) => ({
         id: r.id, scope: r.scope, app: r.app_bundle_id, key: r.key,
-        value: r.is_secret ? '██████ (secret — masked)' : r.value,
-        secret: Boolean(r.is_secret), note: r.note,
+        value: r.secret ? '██████ (secret — masked)' : r.value,
+        secret: Boolean(r.secret), note: r.note,
       })));
     },
   });
