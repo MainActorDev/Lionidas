@@ -43,6 +43,33 @@ export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, 
     };
   });
 
+  // rev20b: slash skills — /planning /breakdown /author run ONE profile as a
+  // single-stage workflow (bare input: knowledge page + profile prompt).
+  app.post('/api/agent/skill', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
+    const b = req.body as { command?: string; ask?: string; appBundle?: string } | null;
+    const KNOWN: ReadonlyMap<string, string> = new Map([['/planning', 'lionidas.planner'], ['/breakdown', 'lionidas.breaker'], ['/author', 'lionidas.author']]);
+    if (!b?.command || !KNOWN.has(b.command)) return reply.code(400).send({ error: `unknown skill — use one of ${[...KNOWN.keys()].join(' ')}` });
+    if (!b.ask?.trim()) return reply.code(400).send({ error: 'ask required' });
+    try {
+      const out = await pipeline.skill(b.command, b.ask.trim(), b.appBundle ?? '', process.env);
+      return { ok: true, run: out };
+    } catch (err) {
+      return reply.code(409).send({ error: err instanceof Error ? err.message : 'skill failed' });
+    }
+  });
+
+  // rev20: manual handoff — release a stage gate (human approves the transition)
+  app.post('/api/agent/pipeline/:id/advance', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    try {
+      await pipeline.advance(id);
+      const out = await pipeline.resume(id, process.env);
+      return { ok: true, run: out };
+    } catch (err) {
+      return reply.code(409).send({ error: err instanceof Error ? err.message : 'advance failed' });
+    }
+  });
+
   app.post('/api/agent/pipeline/:id/answer', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const b = req.body as { stageId?: string; answers?: Record<string, string> } | null;

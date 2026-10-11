@@ -2,14 +2,49 @@
 /** P3 agent chat — composer: textarea, ＋ refs picker, chips, round send.
  *  Deterministic rule (plan F4): refs attached ⇒ send starts a pipeline;
  *  no refs ⇒ chat turn only. No executor pill (F3 — deferred to P5). */
-import { ref, computed } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 
 export interface Ref { kind: 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo'; locator: string }
 
 const props = defineProps<{ busy?: boolean }>();
-const emit = defineEmits<{ send: [text: string, refs: Ref[], appBundle: string]; abort: [] }>();
+const emit = defineEmits<{ send: [text: string, refs: Ref[], appBundle: string]; abort: []; skill: [command: string, ask: string] }>();
 
 const text = ref('');
+/** rev22b: the ACTIVE command chip — a registered command the user committed
+ *  (typed + space, or picked from the menu). It renders INSIDE the input as a
+ *  token, distinct from the prompt text that follows. Unknown /text never
+ *  becomes a chip — it stays ordinary text. */
+const activeCmd = ref<string | null>(null);
+/** suppresses token→chip promotion while reverting a chip back to text */
+let reverting = false;
+
+watch(text, () => {
+  menuDismissed.value = false;
+  if (!text.value.startsWith('/')) activeIdx.value = 0;
+  // token → chip: '/planning ' becomes the chip, the rest is the prompt
+  if (!reverting && !activeCmd.value) {
+    const m = /^(\/\S+)(\s+.*|\s+)$/s.exec(text.value);
+    if (m && REGISTERED(m[1] ?? '')) {
+      activeCmd.value = m[1] ?? null;
+      text.value = text.value.slice((m[1] ?? '').length).replace(/^\s+/, '');
+    }
+  }
+});
+
+/** chip → text token (✕ or Backspace on empty): lets the user edit the command */
+function revertChip(): void {
+  if (!activeCmd.value) return;
+  const cmd = activeCmd.value;
+  reverting = true;
+  activeCmd.value = null;
+  text.value = `${cmd} `;
+  void nextTick(() => { reverting = false; });
+  void nextTick(() => {
+    const el = document.querySelector('.composer textarea') as HTMLTextAreaElement | null;
+    el?.focus();
+    el?.setSelectionRange(el.value.length, el.value.length);
+  });
+}
 const refs = ref<Ref[]>([]);
 const appBundle = ref('');
 const pickerOpen = ref(false);
@@ -28,19 +63,90 @@ function addRef(): void {
 }
 function removeRef(i: number): void { refs.value = refs.value.filter((_, idx) => idx !== i); }
 
+/** rev21: ChatGPT-style slash menu. SKILLS carries name + description. */
+const SKILLS: Array<{ cmd: string; desc: string }> = [
+  { cmd: '/planning', desc: 'Plan test cases from a request' },
+  { cmd: '/breakdown', desc: 'Break a plan into concrete steps' },
+  { cmd: '/author', desc: 'Author case YAML drafts' },
+];
+
+const menuDismissed = ref(false);
+const activeIdx = ref(0);
+
+const skillMatches = computed(() => {
+  const t = text.value.trim();
+  if (!t.startsWith('/')) return [];
+  return SKILLS.filter((s) => s.cmd.startsWith(t));
+});
+
+/** open only while the token could STILL become a REGISTERED command —
+ *  unregistered /text never opens a menu and is never treated as a command */
+const menuOpen = computed(() => {
+  const t = text.value;
+  return t.startsWith('/') && !t.includes(' ') && !menuDismissed.value && skillMatches.value.length > 0;
+});
+
+/** accept the selected command: insert it + trailing space, close the menu */
+function acceptSkill(idx?: number): void {
+  const pick = skillMatches.value[idx ?? activeIdx.value];
+  if (!pick) return;
+  activeCmd.value = pick.cmd;
+  text.value = '';
+  activeIdx.value = 0;
+  menuDismissed.value = false;
+  void nextTick(() => {
+    const el = document.querySelector('.composer textarea') as HTMLTextAreaElement | null;
+    el?.focus();
+    el?.setSelectionRange(el.value.length, el.value.length);
+  });
+}
+
+function onKey(e: KeyboardEvent): void {
+  if (e.key === 'Backspace' && activeCmd.value && text.value === '') { e.preventDefault(); revertChip(); return; }
+  if (menuOpen.value) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx.value = (activeIdx.value + 1) % skillMatches.value.length; return; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx.value = (activeIdx.value - 1 + skillMatches.value.length) % skillMatches.value.length; return; }
+    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); acceptSkill(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); menuDismissed.value = true; return; }
+  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+}
+
+const REGISTERED = (c: string): boolean => SKILLS.some((s) => s.cmd === c);
+
+
+
 function submit(): void {
   if (!ready.value) return;
-  emit('send', text.value.trim(), refs.value.map((r) => ({ ...r })), appBundle.value.trim());
+  const t = text.value.trim();
+  // rev22: ONLY registered commands are skills — any other slash text is an
+  // ordinary message (the tripwire/agent sees it as prose, never a command).
+  if (activeCmd.value) {
+    emit('skill', activeCmd.value, t);
+    text.value = ''; refs.value = []; activeCmd.value = null;
+    return;
+  }
+  const [first] = t.split(/\s+/);
+  if (first && REGISTERED(first)) {
+    emit('skill', first, t.slice(first.length).trim());
+    text.value = ''; refs.value = [];
+    return;
+  }
+  emit('send', t, refs.value.map((r) => ({ ...r })), appBundle.value.trim());
   text.value = ''; refs.value = [];
-}
-function onKey(e: KeyboardEvent): void {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
 }
 </script>
 
 <template>
   <div class="wrap">
     <div class="composer">
+      <div v-if="menuOpen" class="slash-menu">
+        <div v-for="(s, i) in skillMatches" :key="s.cmd" class="slash-row" :class="{ active: i === activeIdx }" @mousedown.prevent="acceptSkill(i)" @mousemove="activeIdx = i">
+          <span class="slash-ico">◈</span>
+          <span class="slash-name">{{ s.cmd }}</span>
+          <span class="slash-desc">{{ s.desc }}</span>
+        </div>
+      </div>
       <div v-if="refs.length || pickerOpen" class="chips">
         <span v-for="(r, i) in refs" :key="r.kind + r.locator" class="chip" :class="{ jira: r.kind === 'jira' }" @click="removeRef(i)">
           {{ r.kind === 'jira' ? '◈' : '△' }} {{ r.locator }} ✕
@@ -54,7 +160,10 @@ function onKey(e: KeyboardEvent): void {
           <button class="mini" @click="addRef">add</button>
         </span>
       </div>
-      <textarea v-model="text" placeholder="message butler…" @keydown="onKey"></textarea>
+      <div class="input-line">
+        <span v-if="activeCmd" class="cmd-chip">{{ activeCmd }}<button class="chip-x" title="remove command" @mousedown.prevent.stop @click="revertChip">✕</button></span>
+        <textarea v-model="text" :placeholder="activeCmd ? 'your prompt for this command…' : 'message butler…'" @keydown="onKey"></textarea>
+      </div>
       <div class="row">
         <button class="icon" title="attach references (jira / pr / doc / repo)" @click="pickerOpen = !pickerOpen">＋ refs</button>
         <input v-if="willRun" v-model="appBundle" class="bundle" placeholder="app bundle (com.lionparcel.dev)">
@@ -68,7 +177,18 @@ function onKey(e: KeyboardEvent): void {
 
 <style scoped>
 .wrap { position: sticky; bottom: 0; margin: 0 0 var(--s-3); background: var(--ag-bg); }
-.composer { pointer-events: auto; width: calc(100% - 2 * var(--s-4)); max-width: 720px; margin: 0 auto; border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); padding: var(--s-2) var(--s-3); background: var(--ag-surface); }
+.input-line { display: flex; align-items: flex-start; gap: 8px; }
+.input-line textarea { flex: 1; }
+.cmd-chip { display: inline-flex; align-items: center; gap: 6px; margin-top: 3px; color: var(--color-ember); border: 1px solid var(--color-ember-dim); background: var(--ag-panel); border-radius: 999px; padding: 2px 6px 2px 12px; font-size: var(--text-caption); font-weight: var(--weight-bold); flex: none; }
+.chip-x { border: none; background: none; color: var(--color-steel); cursor: pointer; font-size: 10px; padding: 2px 4px; border-radius: 50%; }
+.chip-x:hover { color: var(--color-paper); background: var(--ag-surface); }
+.slash-menu { position: absolute; bottom: calc(100% + 8px); left: 0; right: 0; background: var(--ag-surface); border: 1px solid var(--ag-line-2); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.5); padding: 4px; z-index: 30; }
+.slash-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; cursor: pointer; }
+.slash-row.active { background: var(--ag-panel); }
+.slash-ico { color: var(--color-ember); flex: none; font-size: 12px; }
+.slash-name { color: var(--color-paper); font-weight: var(--weight-bold); flex: none; }
+.slash-desc { color: var(--color-steel); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer { position: relative; pointer-events: auto; width: calc(100% - 2 * var(--s-4)); max-width: 720px; margin: 0 auto; border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); padding: var(--s-2) var(--s-3); background: var(--ag-surface); }
 .composer:focus-within { border-color: var(--color-ember-dim); }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: var(--s-2); align-items: center; }
 .chip { border: 1px solid var(--ag-line); border-radius: var(--r-sm); padding: 1px var(--s-2); font-size: var(--text-caption); color: var(--color-fog); background: var(--ag-panel); cursor: pointer; font-family: var(--font-mono); }
