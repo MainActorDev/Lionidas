@@ -98,10 +98,14 @@ describe('agent chat page', () => {
 
   it('composer: refs attached ⇒ send starts the pipeline (deterministic rule)', async () => {
     const w = await mountPage('operator');
-    // open picker, add a jira ref, set bundle + text
-    await w.find('.icon').trigger('click');
-    await w.find('.picker input').setValue('DEMO-101');
-    await w.find('.picker .mini').trigger('click');
+    // rev23: @-mention flow — type @, pick jira from the family menu, pick the row
+    await w.find('textarea').setValue('@');
+    await flushPromises();
+    await w.findAll('.slash-row')[0]!.trigger('mousedown'); // @jira (row 0)
+    await flushPromises();
+    await w.findAll('.slash-row')[0]!.trigger('mousedown'); // first ticket
+    await flushPromises();
+    await w.find('textarea').setValue('');
     await w.find('.bundle').setValue('com.lionparcel.dev');
     await w.find('textarea').setValue('draft cases');
     await w.find('.send').trigger('click');
@@ -110,7 +114,7 @@ describe('agent chat page', () => {
     expect(pipe).toBeTruthy();
     const body = JSON.parse(String(pipe![1]!.body)) as { appBundle: string; refs: Array<{ kind: string; locator: string }> };
     expect(body.appBundle).toBe('com.lionparcel.dev');
-    expect(body.refs[0]).toMatchObject({ kind: 'jira', locator: 'DEMO-101' });
+    expect(body.refs[0]).toMatchObject({ kind: 'jira', locator: 'LP-1042' });
   });
 
   it('run panel: question card answers via the answer+resume endpoints', async () => {

@@ -243,6 +243,11 @@ async function runSkill(command: string, ask: string): Promise<void> {
 }
 function appBundleHint(): string { return ''; }
 
+/** rev23 F1: @attachment → F2 wires a real picker; F1 stub keeps the event honest */
+function openAttachmentPicker(): void {
+  messages.value = [...messages.value, { role: 'system', text: 'attachments arrive in F2 — @jira and @repo pickers are live stubs' }];
+}
+
 /** rev8 #1: abort the live turn — partial transcript is persisted server-side. */
 async function abortTurn(): Promise<void> {
   if (!sessionId.value) return;
@@ -335,7 +340,7 @@ onBeforeUnmount(() => { ws?.close(); if (pollTimer) clearInterval(pollTimer); })
     <ChatSidebar ref="sidebar" :me="me" :active-id="sessionId" @select="openSession" @new-chat="newChat" @renamed="onRenamed" @deleted="onDeleted" />
     <div class="mid">
       <Thread :messages="messages" :title="title" :live="panel?.live ?? false" :waiting="sending && !streaming" :streaming="streaming" :tool-stops="toolStops" :session-id="sessionId" @resend="resend">
-        <Composer :busy="sending" @send="send" @abort="abortTurn" @skill="runSkill" />
+        <Composer :busy="sending" @send="send" @abort="abortTurn" @skill="runSkill" @open-attachment="openAttachmentPicker" />
       </Thread>
     </div>
     <RunPanel ref="panel" @error="onPanelError" :run-id="runId" />
