@@ -74,7 +74,11 @@ export function renderMarkdown(src: string): string {
     if (line.startsWith('```')) {
       flushPara(); closeList();
       if (inCode) { out.push('</code></pre>'); inCode = false; }
-      else { out.push('<pre><code>'); inCode = true; }
+      else {
+        const lang = line.slice(3).trim().split(/\s+/)[0] ?? '';
+        out.push(`<pre class="code${lang ? ` lang-${lang}` : ''}"><code>`);
+        inCode = true;
+      }
       continue;
     }
     if (inCode) { out.push(`${escapeHtml(raw)}\n`); continue; }

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tool-call designs — B cards</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  body { font-family: var(--font-mono); background: #141414; color: var(--color-paper); padding: 24px; margin: 0; }
+  .pagehead { font-size: 18px; margin-bottom: 4px; }
+  .pagesub { font-size: 12px; color: var(--color-steel); margin-bottom: 28px; }
+  .bubble { max-width: 640px; background: #222; border: 1px solid #3a3a3a; border-radius: 10px; border-bottom-left-radius: 3px; padding: 14px 16px; font-size: 13px; line-height: 1.7; }
+  .prose { color: var(--color-fog); margin: 0 0 10px; }
+  /* ── Option B: compact tool cards ── */
+  .tcard { background: #181818; border: 1px solid #2a2a2a; border-radius: 6px; margin: 6px 0; font-size: 12px; }
+  .thead { display: flex; align-items: center; gap: 8px; padding: 6px 10px; }
+  .thead .glyph { color: var(--color-ember); }
+  .thead .name { color: var(--color-paper); font-weight: 600; }
+  .thead .arg { color: var(--color-steel); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .thead .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-fog); flex: none; }
+  .thead .dot.live { background: var(--color-ember); animation: pulse 1.3s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .tbody { border-top: 1px solid #2a2a2a; padding: 5px 10px 6px 26px; color: var(--color-steel); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tbody.err { color: var(--color-ember); }
+  .tcard.done .thead .glyph { color: var(--color-fog); }
+</style>
+</head>
+<body>
+<div class="pagehead">B — tool cards</div>
+<div class="pagesub">each call = its own bordered card with status dot; result body collapses under the head; scannable, chunky</div>
+
+<div class="bubble">
+  <p class="prose">Triaging that failed run now.</p>
+
+  <div class="tcard live">
+    <div class="thead"><span class="dot live"></span><span class="glyph">⏵</span><span class="name">run.triage.get</span><span class="arg">run_fe7cf72a · step 0</span></div>
+  </div>
+
+  <div class="tcard done">
+    <div class="thead"><span class="dot"></span><span class="glyph">⏵</span><span class="name">evidence.get</span><span class="arg">ev_e168942471ff</span></div>
+    <div class="tbody">⎿ screenshot · 248 KB · rendered below</div>
+  </div>
+
+  <div class="tcard done">
+    <div class="thead"><span class="dot"></span><span class="glyph">⏵</span><span class="name">cases.list</span><span class="arg">com.lioparcel…int-dev</span></div>
+    <div class="tbody err">⎿ Exit code 1 — no cases matched</div>
+  </div>
+
+  <p class="prose" style="margin-top:10px">Found it — here's the failure with evidence:</p>
+</div>
+</body>
+</html>

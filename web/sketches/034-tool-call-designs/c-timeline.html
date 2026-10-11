@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tool-call designs — C timeline</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  body { font-family: var(--font-mono); background: #141414; color: var(--color-paper); padding: 24px; margin: 0; }
+  .pagehead { font-size: 18px; margin-bottom: 4px; }
+  .pagesub { font-size: 12px; color: var(--color-steel); margin-bottom: 28px; }
+  .bubble { max-width: 640px; background: #222; border: 1px solid #3a3a3a; border-radius: 10px; border-bottom-left-radius: 3px; padding: 14px 16px; font-size: 13px; line-height: 1.7; }
+  .prose { color: var(--color-fog); margin: 0 0 10px; }
+  /* ── Option C: vertical timeline rail ── */
+  .rail { position: relative; margin: 8px 0 10px; padding-left: 22px; }
+  .rail::before { content: ''; position: absolute; left: 7px; top: 6px; bottom: 6px; width: 1px; background: #3a3a3a; }
+  .stop { position: relative; padding: 4px 0; font-size: 12px; }
+  .stop::before { content: ''; position: absolute; left: -19px; top: 11px; width: 7px; height: 7px; border-radius: 2px; background: var(--color-fog); }
+  .stop.live::before { background: var(--color-ember); animation: pulse 1.3s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .stop .name { color: var(--color-paper); font-weight: 600; }
+  .stop .arg { color: var(--color-steel); }
+  .stop .out { display: block; color: var(--color-steel); font-size: 11px; padding-left: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stop .out.err { color: var(--color-ember); }
+  .stop .dur { float: right; color: var(--color-steel); font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="pagehead">C — timeline rail</div>
+<div class="pagesub">agent-run feel: dots on a vertical rail with durations; mirrors the run-panel stage flow language</div>
+
+<div class="bubble">
+  <p class="prose">Triaging that failed run now.</p>
+
+  <div class="rail">
+    <div class="stop live"><span class="name">run.triage.get</span> <span class="arg">run_fe7cf72a · step 0</span><span class="dur">running…</span></div>
+    <div class="stop"><span class="name">evidence.get</span> <span class="arg">ev_e168942471ff</span><span class="dur">0.4s</span>
+      <span class="out">⎿ screenshot · 248 KB · rendered below</span>
+    </div>
+    <div class="stop"><span class="name">cases.list</span> <span class="arg">com.lioparcel…int-dev</span><span class="dur">0.2s</span>
+      <span class="out err">⎿ Exit code 1 — no cases matched</span>
+    </div>
+  </div>
+
+  <p class="prose" style="margin-top:2px">Found it — here's the failure with evidence:</p>
+</div>
+</body>
+</html>

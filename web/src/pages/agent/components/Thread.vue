@@ -123,8 +123,11 @@ watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom
 .txt :deep(ul), .txt :deep(ol) { margin: 0 0 6px; padding-left: 18px; }
 .txt :deep(li) { margin: 2px 0; }
 .txt :deep(code) { font-family: var(--font-mono); font-size: var(--text-caption); background: var(--ag-panel); border: 1px solid var(--ag-line); border-radius: var(--r-sm); padding: 0 4px; }
-.txt :deep(pre) { background: var(--ag-panel); border: 1px solid var(--ag-line); border-radius: var(--r-sm); padding: var(--s-2); overflow-x: auto; margin: 0 0 6px; }
-.txt :deep(pre code) { background: none; border: none; padding: 0; font-size: var(--text-caption); }
+.txt :deep(pre.code) { background: var(--ag-panel); border: 1px solid var(--ag-line); border-radius: var(--r-sm); padding: var(--s-3); margin: 0 0 8px; font-family: var(--font-mono); font-size: var(--text-caption); line-height: 1.7; white-space: pre-wrap; overflow-wrap: break-word; tab-size: 2; }
+.txt :deep(pre.code code) { background: none; border: none; padding: 0; font-family: inherit; font-size: inherit; color: var(--color-fog); }
+/* yaml: subtle per-level tint on keys/structure via injected spans happens in
+   the renderer; here we only cap width so wrap keeps lines readable */
+.txt :deep(pre.lang-yaml) { max-height: 420px; overflow-y: auto; }
 .txt :deep(a) { color: var(--color-ember); }
 /* evidence embeds: capped, bordered, in-bubble media */
 .txt :deep(.ev-embed) { display: block; max-width: 100%; max-height: 320px; border: 1px solid var(--ag-line); border-radius: var(--r-sm); margin: 6px 0; }
