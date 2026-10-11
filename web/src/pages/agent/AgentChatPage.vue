@@ -132,17 +132,6 @@ async function onRenamed(id: string, t: string): Promise<void> {
 }
 
 /** rev5 #7 — delete: server cascades messages; notes/artifacts/runs stay. */
-async function onCleared(): Promise<void> {
-  const r = await fetch('/api/agent/sessions', { method: 'DELETE' });
-  if (!r.ok) { messages.value = [...messages.value, { role: 'system', text: 'clear-all failed' }]; return; }
-  const b = (await r.json()) as { deleted?: number };
-  // drop back to a fresh chat state
-  runId.value = null;
-  await newChat();
-  void sidebar.value?.load();
-  messages.value = [...messages.value, { role: 'system', text: `cleared ${b.deleted ?? 0} chats — notes, artifacts and runs kept` }];
-}
-
 async function onDeleted(id: string): Promise<void> {
   const r = await fetch(`/api/agent/sessions/${id}`, { method: 'DELETE' });
   if (r.ok) {
@@ -388,7 +377,7 @@ onBeforeUnmount(() => { ws?.close(); if (pollTimer) clearInterval(pollTimer); })
     </div>
   </div>
   <div v-else class="ag-root">
-    <ChatSidebar ref="sidebar" :me="me" :active-id="sessionId" @select="openSession" @new-chat="newChat" @renamed="onRenamed" @deleted="onDeleted" @cleared="onCleared" />
+    <ChatSidebar ref="sidebar" :me="me" :active-id="sessionId" @select="openSession" @new-chat="newChat" @renamed="onRenamed" @deleted="onDeleted" />
     <div class="mid">
       <Thread :messages="messages" :title="title" :live="panel?.live ?? false" :waiting="sending && !streaming" :streaming="streaming" :tool-stops="toolStops" :session-id="sessionId" @resend="resend">
         <div class="mid-inner" @paste="onPaste" @drop="onDrop" @dragover.prevent>
