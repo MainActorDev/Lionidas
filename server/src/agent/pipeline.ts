@@ -52,7 +52,7 @@ export interface PipelineHandle {
   resume(runId: string, env: Record<string, string | undefined>, mockScripts?: Parameters<typeof buildProfiles>[1]['mockScripts']): Promise<unknown>;
 }
 
-type WorkflowEventType = 'workflow.started' | 'workflow.knowledge_compiled' | 'workflow.stage_started' | 'workflow.stage_done' | 'workflow.paused' | 'workflow.answered' | 'workflow.stage_failed' | 'workflow.done';
+type WorkflowEventType = 'workflow.started' | 'workflow.knowledge_compiled' | 'workflow.stage_started' | 'workflow.stage_done' | 'workflow.paused' | 'workflow.answered' | 'workflow.stage_failed' | 'workflow.done' | 'workflow.turn.delta' | 'workflow.turn.tool';
 
 /** apply handoff gating to every stage except the last (auto = no gates). */
 function gate(spec: WorkflowSpec, env: Record<string, string | undefined>): WorkflowSpec {

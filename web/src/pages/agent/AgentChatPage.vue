@@ -304,8 +304,25 @@ function connectWs(): void {
   ws = new WebSocket(`${proto}://${location.host}/api/events`);
   ws.onmessage = (ev) => {
     try {
-      const e = JSON.parse(ev.data as string) as { type: string; payload: { runId?: string; sessionId?: string; type?: string } };
-      if (e.type === 'agent.workflow' && e.payload.runId && e.payload.runId === runId.value) void panel.value?.refresh();
+      const e = JSON.parse(ev.data as string) as { type: string; payload: { runId?: string; sessionId?: string; type?: string; detail?: unknown } };
+      if (e.type === 'agent.workflow' && e.payload.runId && e.payload.runId === runId.value) {
+        // rev23: stream the stage turn live — the same growing bubble as chat
+        const wt = e.payload.type;
+        if (wt === 'workflow.turn.delta' && typeof e.payload.detail === 'object' && e.payload.detail !== null) {
+          const d = (e.payload.detail as { delta?: string }).delta;
+          if (d) streaming.value = (streaming.value ?? '') + d;
+        } else if (wt === 'workflow.turn.tool') {
+          const d = e.payload.detail as { phase?: string; name?: string; arg?: string; result?: string; isError?: boolean };
+          const stop: ToolStop = { name: d.name ?? 'tool', live: d.phase !== 'result' };
+          if (d.arg !== undefined) stop.arg = d.arg;
+          if (d.result !== undefined) stop.result = d.result;
+          if (d.isError !== undefined) stop.isError = d.isError;
+          toolStops.value = [...toolStops.value.filter((t) => t.live), stop];
+        } else if (wt === 'workflow.stage_done' || wt === 'workflow.done') {
+          if (streaming.value) { streaming.value = null; toolStops.value = []; }
+        }
+        void panel.value?.refresh();
+      }
       // rev9 E1: a turn just ENDED on the open chat (any client) → refetch so
       // the answer/abort state appears without a manual reload
       if (e.type === 'agent.turn' && e.payload.sessionId === sessionId.value
