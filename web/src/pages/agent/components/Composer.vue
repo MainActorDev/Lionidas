@@ -41,11 +41,12 @@ const activeIdx = ref(0);
 
 const skillMatches = computed(() => {
   const t = text.value.trim();
-  if (!t.startsWith('/')) return SKILLS;
+  if (!t.startsWith('/')) return [];
   return SKILLS.filter((s) => s.cmd.startsWith(t));
 });
 
-/** open while typing a command token: starts with '/', no space yet, not dismissed */
+/** open only while the token could STILL become a REGISTERED command —
+ *  unregistered /text never opens a menu and is never treated as a command */
 const menuOpen = computed(() => {
   const t = text.value;
   return t.startsWith('/') && !t.includes(' ') && !menuDismissed.value && skillMatches.value.length > 0;
@@ -75,17 +76,24 @@ function onKey(e: KeyboardEvent): void {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
 }
 
+const REGISTERED = (c: string): boolean => SKILLS.some((s) => s.cmd === c);
+
+/** the command token when the CURRENT input begins with a REGISTERED command */
+const recognizedCmd = computed(() => {
+  const [first] = text.value.trim().split(/\s+/);
+  return first && REGISTERED(first) ? first : null;
+});
+
 function submit(): void {
   if (!ready.value) return;
   const t = text.value.trim();
-  // rev20b: slash skills route to their own workflow (no refs needed)
-  if (t.startsWith('/')) {
-    const [cmd, ...rest] = t.split(/\s+/);
-    if (SKILLS.some((s) => s.cmd === cmd)) {
-      emit('skill', cmd ?? '', rest.join(' '));
-      text.value = ''; refs.value = [];
-      return;
-    }
+  // rev22: ONLY registered commands are skills — any other slash text is an
+  // ordinary message (the tripwire/agent sees it as prose, never a command).
+  const [first] = t.split(/\s+/);
+  if (first && REGISTERED(first)) {
+    emit('skill', first, t.slice(first.length).trim());
+    text.value = ''; refs.value = [];
+    return;
   }
   emit('send', t, refs.value.map((r) => ({ ...r })), appBundle.value.trim());
   text.value = ''; refs.value = [];
@@ -95,6 +103,7 @@ function submit(): void {
 <template>
   <div class="wrap">
     <div class="composer">
+      <div v-if="recognizedCmd && !menuOpen" class="cmd-badge">▸ {{ recognizedCmd }} <span class="cmd-hint">— press send to run this command</span></div>
       <div v-if="menuOpen" class="slash-menu">
         <div v-for="(s, i) in skillMatches" :key="s.cmd" class="slash-row" :class="{ active: i === activeIdx }" @mousedown.prevent="acceptSkill(i)" @mousemove="activeIdx = i">
           <span class="slash-ico">◈</span>
@@ -129,6 +138,8 @@ function submit(): void {
 
 <style scoped>
 .wrap { position: sticky; bottom: 0; margin: 0 0 var(--s-3); background: var(--ag-bg); }
+.cmd-badge { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: var(--text-caption); color: var(--color-ember); border: 1px solid var(--color-ember-dim); border-radius: var(--r-sm); padding: 3px 10px; background: var(--ag-panel); }
+.cmd-badge .cmd-hint { color: var(--color-steel); }
 .slash-menu { position: absolute; bottom: calc(100% + 8px); left: 0; right: 0; background: var(--ag-surface); border: 1px solid var(--ag-line-2); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.5); padding: 4px; z-index: 30; }
 .slash-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; cursor: pointer; }
 .slash-row.active { background: var(--ag-panel); }
