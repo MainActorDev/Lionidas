@@ -104,7 +104,15 @@ function resetDraft(): void {
 }
 defineExpose({ addAttachmentChip, resetDraft });
 
-function removeRef(i: number): void { refs.value = refs.value.filter((_, idx) => idx !== i); }
+function removeRef(i: number): void {
+  const r = refs.value[i];
+  if (r) {
+    const next = new Set(pickedKeys.value);
+    next.delete(`${r.kind}:${r.locator}`);
+    pickedKeys.value = next; // list checkbox state follows the chip out
+  }
+  refs.value = refs.value.filter((_, idx) => idx !== i);
+}
 
 /** ── rev21: slash command menu ─────────────────────────────────────────── */
 const SKILLS: Array<{ cmd: string; desc: string }> = [
@@ -305,11 +313,23 @@ function acceptAt(idx?: number): void {
   if (at.value === 'jira' || at.value === 'repo-pick') {
     const kind: Ref['kind'] = at.value === 'jira' ? 'jira' : (repoPick.value?.segment === 'pulls' ? 'github-pr' : 'github-commit');
     const locator = at.value === 'jira' ? row.id : `${repoPick.value?.project ?? ''}/${row.id}`;
+    const key = `${kind}:${locator}`;
+    if (pickedKeys.value.has(key)) { toggleRefOff(key); return; } // unselect: chip + state go together
     const wasRepo = kind !== 'jira';
     addRefChip(kind, locator, row.title);
     if (wasRepo && repoPick.value) void repoAppsChipped(repoPick.value.project);
     return; // multi-select: menu STAYS open
   }
+}
+
+/** unselect: drop the chip AND its picked state (row returns to ◈) */
+function toggleRefOff(key: string): void {
+  const [kind, ...rest] = key.split(':');
+  const locator = rest.join(':');
+  refs.value = refs.value.filter((r) => !(r.kind === kind && r.locator === locator));
+  const next = new Set(pickedKeys.value);
+  next.delete(key);
+  pickedKeys.value = next;
 }
 
 /** rev23 F2: parent (page) chips a just-uploaded attachment — single-select by design */
@@ -338,6 +358,13 @@ function setSegment(seg: 'commits' | 'pulls'): void {
 }
 
 function closeAt(): void { at.value = 'closed'; atQuery.value = ''; }
+
+/** 'done ✕' button / Esc: commit the picked set, close the menu, clear the @ token */
+function doneAt(): void {
+  closeAt();
+  if (text.value.startsWith('@')) { reverting = true; text.value = ''; void nextTick(() => { reverting = false; }); }
+  focusTA();
+}
 
 function isPicked(row: AtRow): boolean {
   if (at.value === 'jira') return pickedKeys.value.has(`jira:${row.id}`);
@@ -376,7 +403,7 @@ function onKey(e: KeyboardEvent): void {
       return;
     }
     if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); acceptAt(); return; }
-    if (e.key === 'Escape') { e.preventDefault(); closeAt(); text.value = ''; return; }
+    if (e.key === 'Escape') { e.preventDefault(); doneAt(); return; }
   } else if (menuOpen.value) {
     if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx.value = (activeIdx.value + 1) % skillMatches.value.length; return; }
     if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx.value = (activeIdx.value - 1 + skillMatches.value.length) % skillMatches.value.length; return; }
@@ -416,7 +443,7 @@ function submit(): void {
           <span v-else-if="at === 'repo'" class="at-title">@repo — pick a repository</span>
           <span v-else-if="at === 'repo-pick'" class="at-title">@repo:{{ repoPick?.project }} — <button class="seg" :class="{ on: repoPick?.segment === 'commits' }" @click="setSegment('commits')">commits</button> <button class="seg" :class="{ on: repoPick?.segment === 'pulls' }" @click="setSegment('pulls')">PRs</button> <span class="at-count">{{ pickedKeys.size }} selected · {{ refs.length }}/{{ REF_CAP }} refs</span></span>
           <span v-else class="at-title">mention a reference</span>
-          <button class="at-done" title="done selecting (Esc)">done ✕</button>
+          <button class="at-done" title="done selecting (Esc)" @mousedown.prevent @click="doneAt">done ✕</button>
         </div>
         <div class="menu-rows">
           <div v-for="(row, i) in atRows" :key="row.id" class="slash-row" :class="{ active: i === atIdx, picked: isPicked(row) }" @mousedown.prevent="acceptAt(i)" @mousemove="atIdx = i">
