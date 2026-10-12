@@ -8,6 +8,7 @@ import type Database from 'better-sqlite3';
 import type { AgentContext } from './context.ts';
 import { buildProfiles } from './profiles.ts';
 import { compileKnowledge } from './knowledge.ts';
+import { fetchExternalText } from './ref-fetch.ts';
 import type { PipelineRef } from './knowledge.ts';
 
 export interface PipelineInput {
@@ -51,7 +52,7 @@ export interface PipelineHandle {
   resume(runId: string, env: Record<string, string | undefined>, mockScripts?: Parameters<typeof buildProfiles>[1]['mockScripts']): Promise<unknown>;
 }
 
-type WorkflowEventType = 'workflow.started' | 'workflow.knowledge_compiled' | 'workflow.stage_started' | 'workflow.stage_done' | 'workflow.paused' | 'workflow.answered' | 'workflow.stage_failed' | 'workflow.done';
+type WorkflowEventType = 'workflow.started' | 'workflow.knowledge_compiled' | 'workflow.stage_started' | 'workflow.stage_done' | 'workflow.paused' | 'workflow.answered' | 'workflow.stage_failed' | 'workflow.done' | 'workflow.turn.delta' | 'workflow.turn.tool';
 
 /** apply handoff gating to every stage except the last (auto = no gates). */
 function gate(spec: WorkflowSpec, env: Record<string, string | undefined>): WorkflowSpec {
@@ -84,7 +85,12 @@ export function buildPipeline(ctx: AgentContext, db: Database.Database, env: Rec
       // stage 0 (deterministic, no model): compile knowledge first (artifacts
       // carry provenance even before stages run)
       const tmpId = `wfr_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-      const knowledge = await compileKnowledge(input.appBundle, input.refs, { storage: ctx.storage, retriever: ctx.retriever, artifactsDir: ctx.artifactsDir }, tmpId);
+      const knowledge = await compileKnowledge(input.appBundle, input.refs, {
+        storage: ctx.storage, retriever: ctx.retriever, artifactsDir: ctx.artifactsDir,
+        readAttachment: (id) => ctx.attachments.readText(id),
+        // rev23: real external fetchers — jira via env token, github via gh CLI
+        fetchExternal: (ref) => fetchExternalText(ref, env),
+      }, tmpId);
       emit({ type: 'workflow.knowledge_compiled', runId: tmpId, detail: { version: knowledge.page.version, contradictions: knowledge.contradictions.length } });
       // runWorkflow OWNS the run row (one truth); the knowledge page carries tmpId provenance
       const payload = { knowledge: knowledge.page.body, refs: input.refs, appBundle: input.appBundle };

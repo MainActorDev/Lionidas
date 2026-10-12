@@ -54,6 +54,15 @@ export function registerAppScreenRoutes(app: FastifyInstance, db: Database.Datab
 
   /** All-bundles listing (registry-UI stage 1, A2 screens page): every
    *  registry with its screens — the page groups by bundle client-side. */
+  // rev23: known app bundles (registry + cases) — composer's app picker data
+  app.get('/api/apps/bundles', async () => {
+    const rows = db.prepare(`
+      SELECT app_bundle_id AS bundle FROM app_screens WHERE app_bundle_id IS NOT NULL
+      UNION SELECT app_bundle_id FROM templates WHERE app_bundle_id IS NOT NULL
+      ORDER BY bundle`).all() as Array<{ bundle: string }>;
+    return { bundles: rows.map((r) => r.bundle) };
+  });
+
   app.get('/api/apps/screens', async () => {
     const rows = db.prepare('SELECT app_bundle_id, screen_id, entry_json, refresh_json, states_json FROM app_screens ORDER BY app_bundle_id, screen_id').all() as
       Array<{ app_bundle_id: string; screen_id: string; entry_json: string; refresh_json: string | null; states_json: string }>;

@@ -13,11 +13,15 @@ import type Database from 'better-sqlite3';
 import { join } from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { buildToolRegistry } from './tools.ts';
+import { AttachmentStore } from './attachments.ts';
+import { registerJiraTools } from './jira-refs.ts';
+import { registerRepoTools } from './repo-refs.ts';
 import { registerDraftTools } from './draft-tools.ts';
 import { V1_POLICY } from './policy.ts';
 import { LIONIDAS_SYSTEM_PROMPT } from './system-prompt.ts';
 
 export interface AgentContext {
+  db: import('better-sqlite3').Database;
   storage: SqliteStorage;
   retriever: StorageRetriever;
   registry: ReturnType<typeof buildToolRegistry>;
@@ -31,6 +35,8 @@ export interface AgentContext {
   seedPromise: Promise<{ documents: number; skipped: number }>;
   /** how many times preset writes synced the live forge proxy (F2 observability) */
   syncPresetsCalls: number;
+  /** rev23 F2: attachment store (sha-deduped files + manifest) */
+  attachments: AttachmentStore;
 }
 
 /** claude --mcp-config JSON: one stdio server = the Lionidas registry. */
@@ -54,8 +60,11 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
   const syncPresets = cfg.syncPresets
     ? (): void => { syncState.calls += 1; cfg.syncPresets!(); }
     : undefined;
-  const registry = buildToolRegistry({ db, storage, retriever, artifactsDir: cfg.artifactsDir, ...(syncPresets ? { syncPresets } : {}) });
-  registerDraftTools({ db, storage, retriever, registry, artifactsDir: cfg.artifactsDir });
+  const attachments = new AttachmentStore(db, cfg.artifactsDir);
+  const registry = buildToolRegistry({ db, storage, retriever, artifactsDir: cfg.artifactsDir, attachments, ...(syncPresets ? { syncPresets } : {}) });
+  registerJiraTools(registry, cfg.env);
+  registerRepoTools(registry, { reposRoot: cfg.env['CRUCIBLE_REPOS_ROOT'] ?? './repos' });
+  registerDraftTools({ db, storage, retriever, registry, artifactsDir: cfg.artifactsDir, reposRoot: cfg.env['CRUCIBLE_REPOS_ROOT'] ?? './repos' });
 
   const baseUrl = cfg.env['BUTLER_PROVIDER_BASE_URL'];
   const apiKey = cfg.env['BUTLER_API_KEY'];
@@ -92,12 +101,14 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
     provider = new MockProvider([{ kind: 'assistant', content: 'agent provider not configured (set BUTLER_PROVIDER_BASE_URL / BUTLER_API_KEY / BUTLER_MODEL) — mock response' }]);
   }
 
-  const ctx: AgentContext = { storage, retriever, registry, provider, policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }), syncPresetsCalls: 0 };
+  const ctx: AgentContext = { db, storage, retriever, registry, provider, policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }), syncPresetsCalls: 0, attachments };
 
   Object.defineProperty(ctx, 'syncPresetsCalls', { get: () => syncState.calls });
 
   // boot-time source seed (idempotent, content-addressed; repo seed off under vitest for speed)
-  const seed = import('./sources.ts').then((m) => m.seedSources(ctx, process.env['VITEST'] === 'true' ? { repoRoot: '/nonexistent-repo-hermetic' } : undefined));
+  const seed = import('./sources.ts').then((m) => m.seedSources(ctx, process.env['VITEST'] === 'true'
+    ? { repoRoot: '/nonexistent-repo-hermetic' }
+    : { reposRoot: cfg.env['CRUCIBLE_REPOS_ROOT'] ?? './repos' }));
   ctx.seedPromise = seed;
 
   return ctx;

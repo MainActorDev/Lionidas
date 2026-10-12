@@ -4,7 +4,7 @@ export type AppEvents = {
   /** agent turn lifecycle (butler conversation transport bridged): hop-level
    *  progress for a session — consumed by the events WS + future UI. */
   'agent.turn': { sessionId: string; type: 'turn.start' | 'provider.response' | 'turn.end' | 'turn.error' | 'turn.delta' | 'turn.tool'; hop: number; detail?: unknown };
-  'agent.workflow': { runId: string; type: 'workflow.started' | 'workflow.knowledge_compiled' | 'workflow.stage_started' | 'workflow.stage_done' | 'workflow.paused' | 'workflow.answered' | 'workflow.stage_failed' | 'workflow.done'; stageId?: string; detail?: unknown };
+  'agent.workflow': { runId: string; type: 'workflow.started' | 'workflow.knowledge_compiled' | 'workflow.stage_started' | 'workflow.stage_done' | 'workflow.paused' | 'workflow.answered' | 'workflow.stage_failed' | 'workflow.done' | 'workflow.turn.delta' | 'workflow.turn.tool'; stageId?: string; detail?: unknown };
   'device.changed': { udid: string; name: string | null; state: string | null; platform?: string | null; kind?: string | null; lease_holder: string | null; lease_engine: string | null };
   'run.started': { runId: string; ticketKey: string; udid?: string; templateId?: string };
   'run.freshness.checked': { runId: string; freshness: string };

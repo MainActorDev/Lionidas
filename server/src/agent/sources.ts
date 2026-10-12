@@ -3,6 +3,7 @@
  *  later). Seeding is idempotent: butler's ingest is content-addressed, so
  *  unchanged docs are skipped on re-boot. */
 import { fileConnector, repoConnector, jiraConnector, ingest, type SqliteStorage, type StorageRetriever } from '@mainactordev/butler';
+import { join } from 'node:path';
 
 export function fileSource(root: string): ReturnType<typeof fileConnector> {
   return fileConnector('lionidas-files', { root });
@@ -22,7 +23,7 @@ export function jiraSource(cfg: { baseUrl: string; project: string; authHeader?:
 /** boot-time seed: fixture tickets always; repo (symbol chunks over the
  *  grammar-as-code) unless AGENT_INGEST_REPO=0. Errors are logged, never
  *  fatal — a missing/unreadable source must not block server boot. */
-export async function seedSources(deps: { storage: SqliteStorage; retriever: StorageRetriever; artifactsDir: string }, opts?: { fixturesRoot?: string; repoRoot?: string }): Promise<{ documents: number; skipped: number }> {
+export async function seedSources(deps: { storage: SqliteStorage; retriever: StorageRetriever; artifactsDir: string; reposRoot?: string }, opts?: { fixturesRoot?: string; repoRoot?: string; reposRoot?: string }): Promise<{ documents: number; skipped: number }> {
   const fixturesRoot = opts?.fixturesRoot ?? new URL('../../test/fixtures/agent-tickets', import.meta.url).pathname;
   let documents = 0;
   let skipped = 0;
@@ -43,6 +44,24 @@ export async function seedSources(deps: { storage: SqliteStorage; retriever: Sto
       for (const d of r.documents) deps.retriever.registerChunks(await deps.storage.documentChunks(d.sha256));
     } catch (err) {
       console.warn('[agent] repo seed skipped:', (err as Error).message);
+    }
+    // rev23: ALSO seed every REGISTERED workspace clone (ios-consumer etc.) —
+    // the agent's codebase reading depends on symbol chunks being present
+    const reposRoot = opts?.reposRoot ?? deps.reposRoot ?? process.env['CRUCIBLE_REPOS_ROOT'] ?? './repos';
+    if (!opts?.repoRoot) { // hermetic tests pass repoRoot to a nonexistent dir — skip there
+      try {
+        const { readdir } = await import('node:fs/promises');
+        const entries = await readdir(reposRoot, { withFileTypes: true }).catch(() => []);
+        for (const e of entries) {
+          if (!e.isDirectory() || e.name.startsWith('.')) continue;
+          const r2 = await ingest(repoSource(join(reposRoot, e.name)), deps.storage, { artifactsDir: deps.artifactsDir });
+          documents += r2.documents.length;
+          skipped += r2.skipped.length;
+          for (const d of r2.documents) deps.retriever.registerChunks(await deps.storage.documentChunks(d.sha256));
+        }
+      } catch (err) {
+        console.warn('[agent] registered-repo seed skipped:', (err as Error).message);
+      }
     }
   }
   return { documents, skipped };

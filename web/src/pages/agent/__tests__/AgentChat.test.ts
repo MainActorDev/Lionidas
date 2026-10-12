@@ -42,6 +42,8 @@ async function mountPage(role = 'operator'): Promise<ReturnType<typeof mount>> {
       { role: 'assistant', content: 'on it' },
     ] }));
     if (url.includes('/messages')) return Promise.resolve(jsonOk({ turn: { ok: true, answer: 'mock reply' } }));
+    if (url.includes('/api/agent/refs/jira')) return Promise.resolve(jsonOk({ configured: true, issues: [{ key: 'LP-1042', title: 'Add QR login', type: 'Story' }] }));
+    if (url.includes('/api/apps/bundles')) return Promise.resolve(jsonOk({ bundles: ['com.lionparcel.dev'] }));
     if (url === '/api/agent/pipeline') return Promise.resolve(jsonOk({ runId: 'wfr_new', status: 'done', stages: [] }));
     return Promise.resolve(jsonOk({}));
   });
@@ -98,19 +100,24 @@ describe('agent chat page', () => {
 
   it('composer: refs attached ⇒ send starts the pipeline (deterministic rule)', async () => {
     const w = await mountPage('operator');
-    // open picker, add a jira ref, set bundle + text
-    await w.find('.icon').trigger('click');
-    await w.find('.picker input').setValue('DEMO-101');
-    await w.find('.picker .mini').trigger('click');
-    await w.find('.bundle').setValue('com.lionparcel.dev');
+    // rev23: @-mention flow — type @, pick jira, search returns fixture rows
+    await w.find('textarea').setValue('@');
+    await flushPromises();
+    await w.findAll('.slash-row')[0]!.trigger('mousedown'); // @jira (row 0)
+    await flushPromises();
+    await w.find('textarea').setValue('login');
+    await new Promise((r) => setTimeout(r, 450)); // debounce 300ms + fetch
+    await flushPromises();
+    await w.findAll('.slash-row')[0]!.trigger('mousedown'); // LP-1042 fixture row
+    await flushPromises();
+    await w.find('textarea').setValue('');
     await w.find('textarea').setValue('draft cases');
     await w.find('.send').trigger('click');
     await flushPromises();
     const pipe = fetchMock.mock.calls.find((c) => String(c[0]).includes('/api/agent/pipeline'));
     expect(pipe).toBeTruthy();
-    const body = JSON.parse(String(pipe![1]!.body)) as { appBundle: string; refs: Array<{ kind: string; locator: string }> };
-    expect(body.appBundle).toBe('com.lionparcel.dev');
-    expect(body.refs[0]).toMatchObject({ kind: 'jira', locator: 'DEMO-101' });
+    const body = JSON.parse(String(pipe![1]!.body)) as { refs: Array<{ kind: string; locator: string }> };
+    expect(body.refs[0]).toMatchObject({ kind: 'jira', locator: 'LP-1042' });
   });
 
   it('run panel: question card answers via the answer+resume endpoints', async () => {

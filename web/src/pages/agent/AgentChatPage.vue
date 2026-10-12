@@ -32,6 +32,7 @@ const toolStops = ref<ToolStop[]>([]);
 const sidebar = ref<InstanceType<typeof ChatSidebar> | null>(null);
 const panel = ref<InstanceType<typeof RunPanel> | null>(null);
 const runId = ref<string | null>(null);
+const composer = ref<InstanceType<typeof Composer> | null>(null);
 let ws: WebSocket | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -54,6 +55,7 @@ async function loadMe(): Promise<void> {
 }
 
 async function openSession(id: string): Promise<void> {
+  composer.value?.resetDraft();
   sessionId.value = id;
   localStorage.setItem('agent.lastSession', id); // rev9 E2
   const r = await fetch(`/api/agent/sessions/${id}`);
@@ -78,6 +80,7 @@ async function openSession(id: string): Promise<void> {
 }
 
 async function newChat(): Promise<void> {
+  composer.value?.resetDraft();
   // create the butler session up-front so the run binds immediately
   const r = await fetch('/api/agent/sessions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: null, userId: me.value?.id ?? null }) });
   if (r.ok) {
@@ -157,8 +160,7 @@ async function send(text: string, refs: PipelineRef[], appBundle: string): Promi
   try {
     // deterministic rule (plan F4): refs ⇒ pipeline + chat turn; else chat only
     if (refs.length) {
-      if (!appBundle) { messages.value = [...messages.value, { role: 'system', text: 'app bundle required to start a run — attach it in the composer' }]; return; }
-      const pr = await fetch('/api/agent/pipeline', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ appBundle, refs }) });
+      const pr = await fetch('/api/agent/pipeline', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ refs }) });
       const pb = (await pr.json()) as { runId?: string; error?: string };
       if (!pr.ok || !pb.runId) {
         messages.value = [...messages.value, { role: 'system', text: `pipeline refused: ${pb.error ?? pr.status}` }];
@@ -166,7 +168,9 @@ async function send(text: string, refs: PipelineRef[], appBundle: string): Promi
       }
       runId.value = pb.runId;
       bindRun(sid, pb.runId);
+      panel.value?.open();
       void panel.value?.refresh();
+      messages.value = [...messages.value, { role: 'system', text: `pipeline started — ${pb.runId} (${(pb as { status?: string }).status ?? 'running'})` }];
       // the chat turn (records the intent in the conversation)
       await fetch(`/api/agent/sessions/${sid}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: `${text} [refs: ${refs.map((r) => r.locator).join(', ')}]` }) });
     } else {
@@ -228,20 +232,63 @@ async function runSkill(command: string, ask: string): Promise<void> {
   messages.value = [...messages.value, { role: 'user', text: `${command} ${ask}` }];
   sending.value = true;
   try {
-    const r = await fetch('/api/agent/skill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ command, ask, appBundle: appBundleHint() }) });
-    const b = (await r.json()) as { run?: { runId?: string; status?: string }; error?: string };
+    const r = await fetch('/api/agent/skill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ command, ask, appBundle: appBundleHint(), sessionId: sid }) });
+    const b = (await r.json()) as { run?: { runId?: string; status?: string }; answer?: string; error?: string };
     if (!r.ok || !b.run?.runId) {
       messages.value = [...messages.value, { role: 'system', text: `skill failed: ${b.error ?? r.status}` }];
       return;
     }
     runId.value = b.run.runId;
     bindRun(sid, b.run.runId);
+    panel.value?.open(); // workflow started — surface the panel even if it was collapsed
     void panel.value?.refresh();
+    // the ANSWER is the response — a regular assistant bubble, not a bare run note
+    if (b.answer) messages.value = [...messages.value, { role: 'assistant', text: b.answer }];
+    messages.value = [...messages.value, { role: 'system', text: `${command} run ${b.run.status ?? 'started'} — ${b.run.runId}` }];
   } finally {
     sending.value = false;
   }
 }
 function appBundleHint(): string { return ''; }
+
+/** rev23 F2: @attachment → hidden file input; upload on SELECT, chip via composer addRef */
+let attachInput: HTMLInputElement | null = null;
+function openAttachmentPicker(): void {
+  attachInput?.remove();
+  attachInput = document.createElement('input');
+  attachInput.type = 'file';
+  attachInput.style.display = 'none';
+  attachInput.addEventListener('change', () => { const f = attachInput?.files?.[0]; if (f) void uploadAttachment(f); });
+  document.body.appendChild(attachInput);
+  attachInput.click();
+}
+
+/** upload on select; on success the page asks the composer to chip it (single-select per plan) */
+async function uploadAttachment(file: File): Promise<void> {
+  const fd = new FormData();
+  fd.append('file', file, file.name);
+  try {
+    const r = await fetch('/api/agent/attachments', { method: 'POST', body: fd });
+    const b = (await r.json()) as { id?: string; fileName?: string; error?: string };
+    if (!r.ok || !b.id) {
+      messages.value = [...messages.value, { role: 'system', text: `attachment failed: ${b.error ?? r.status}` }];
+      return;
+    }
+    composer.value?.addAttachmentChip(b.id, b.fileName ?? file.name);
+  } catch (e) {
+    messages.value = [...messages.value, { role: 'system', text: `attachment failed: ${(e as Error).message}` }];
+  }
+}
+
+/** rev23 F2: paste/drop on the page → straight to an attachment chip */
+function onPaste(e: ClipboardEvent): void {
+  const f = e.clipboardData?.files?.[0];
+  if (f) { e.preventDefault(); void uploadAttachment(f); }
+}
+function onDrop(e: DragEvent): void {
+  const f = e.dataTransfer?.files?.[0];
+  if (f) { e.preventDefault(); void uploadAttachment(f); }
+}
 
 /** rev8 #1: abort the live turn — partial transcript is persisted server-side. */
 async function abortTurn(): Promise<void> {
@@ -257,8 +304,25 @@ function connectWs(): void {
   ws = new WebSocket(`${proto}://${location.host}/api/events`);
   ws.onmessage = (ev) => {
     try {
-      const e = JSON.parse(ev.data as string) as { type: string; payload: { runId?: string; sessionId?: string; type?: string } };
-      if (e.type === 'agent.workflow' && e.payload.runId && e.payload.runId === runId.value) void panel.value?.refresh();
+      const e = JSON.parse(ev.data as string) as { type: string; payload: { runId?: string; sessionId?: string; type?: string; detail?: unknown } };
+      if (e.type === 'agent.workflow' && e.payload.runId && e.payload.runId === runId.value) {
+        // rev23: stream the stage turn live — the same growing bubble as chat
+        const wt = e.payload.type;
+        if (wt === 'workflow.turn.delta' && typeof e.payload.detail === 'object' && e.payload.detail !== null) {
+          const d = (e.payload.detail as { delta?: string }).delta;
+          if (d) streaming.value = (streaming.value ?? '') + d;
+        } else if (wt === 'workflow.turn.tool') {
+          const d = e.payload.detail as { phase?: string; name?: string; arg?: string; result?: string; isError?: boolean };
+          const stop: ToolStop = { name: d.name ?? 'tool', live: d.phase !== 'result' };
+          if (d.arg !== undefined) stop.arg = d.arg;
+          if (d.result !== undefined) stop.result = d.result;
+          if (d.isError !== undefined) stop.isError = d.isError;
+          toolStops.value = [...toolStops.value.filter((t) => t.live), stop];
+        } else if (wt === 'workflow.stage_done' || wt === 'workflow.done') {
+          if (streaming.value) { streaming.value = null; toolStops.value = []; }
+        }
+        void panel.value?.refresh();
+      }
       // rev9 E1: a turn just ENDED on the open chat (any client) → refetch so
       // the answer/abort state appears without a manual reload
       if (e.type === 'agent.turn' && e.payload.sessionId === sessionId.value
@@ -335,7 +399,9 @@ onBeforeUnmount(() => { ws?.close(); if (pollTimer) clearInterval(pollTimer); })
     <ChatSidebar ref="sidebar" :me="me" :active-id="sessionId" @select="openSession" @new-chat="newChat" @renamed="onRenamed" @deleted="onDeleted" />
     <div class="mid">
       <Thread :messages="messages" :title="title" :live="panel?.live ?? false" :waiting="sending && !streaming" :streaming="streaming" :tool-stops="toolStops" :session-id="sessionId" @resend="resend">
-        <Composer :busy="sending" @send="send" @abort="abortTurn" @skill="runSkill" />
+        <div class="mid-inner" @paste="onPaste" @drop="onDrop" @dragover.prevent>
+          <Composer ref="composer" :busy="sending" @send="send" @abort="abortTurn" @skill="runSkill" @open-attachment="openAttachmentPicker" />
+        </div>
       </Thread>
     </div>
     <RunPanel ref="panel" @error="onPanelError" :run-id="runId" />

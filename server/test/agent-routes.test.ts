@@ -143,13 +143,16 @@ describe.skipIf(!hasButler)('agent routes (operator gate + transports)', () => {
 
 
   // ── rev5: deterministic scope guardrail ──
-  it('refuses clearly off-scope asks with 422 before any provider call', async () => {
-    const off = await app.app.inject({ method: 'POST', url: `/api/agent/sessions/${(await app.app.inject({ method: 'POST', url: '/api/agent/sessions', headers: { cookie: `crucible_session=${operatorCookie}` }, payload: {} })).json()['session']['id']}/messages`, headers: { cookie: `crucible_session=${operatorCookie}` }, payload: { content: 'write me a poem about the sea' } });
-    expect(off.statusCode).toBe(422);
-    expect(off.json()['error']).toContain('outside my scope');
+  it('off-scope asks reach the provider now (rev23: keyword wall removed — the system prompt refuses)', async () => {
+    const sid = (await app.app.inject({ method: 'POST', url: '/api/agent/sessions', headers: { cookie: `crucible_session=${operatorCookie}` }, payload: {} })).json()['session']['id'];
+    const r = await app.app.inject({ method: 'POST', url: `/api/agent/sessions/${sid}/messages`, headers: { cookie: `crucible_session=${operatorCookie}` }, payload: { content: 'write me a poem' } });
+    expect([200, 201]).toContain(r.statusCode);
   });
-  it('bare greetings get the scope hint, in-scope asks pass through', async () => {
-    const greet = await app.app.inject({ method: 'POST', url: `/api/agent/sessions/${(await app.app.inject({ method: 'POST', url: '/api/agent/sessions', headers: { cookie: `crucible_session=${operatorCookie}` }, payload: {} })).json()['session']['id']}/messages`, headers: { cookie: `crucible_session=${operatorCookie}` }, payload: { content: 'hi' } });
-    expect(greet.statusCode).toBe(422);
+  it('no keyword wall: greetings AND poem requests both reach the model (rev23 — LLM decides scope)', async () => {
+    for (const content of ['hi', 'write me a poem']) {
+      const sid = (await app.app.inject({ method: 'POST', url: '/api/agent/sessions', headers: { cookie: `crucible_session=${operatorCookie}` }, payload: {} })).json()['session']['id'];
+      const r = await app.app.inject({ method: 'POST', url: `/api/agent/sessions/${sid}/messages`, headers: { cookie: `crucible_session=${operatorCookie}` }, payload: { content } });
+      expect([200, 201]).toContain(r.statusCode); // mock provider answers; the 422 wall is gone
+    }
   });
 });

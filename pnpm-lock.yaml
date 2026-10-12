@@ -42,12 +42,15 @@ importers:
       '@crucible/shared':
         specifier: workspace:../shared
         version: link:../shared
+      '@fastify/multipart':
+        specifier: ^10.1.3
+        version: 10.1.3
       '@fastify/websocket':
         specifier: ^11.3.0
         version: 11.3.0
       '@mainactordev/butler':
-        specifier: git+https://github.com/MainActorDev/butler.git#v0.4.0
-        version: git+https://github.com/MainActorDev/butler.git#68ac8dfc9c741f48009b20a9c8ff11a7fd8fae6c(@modelcontextprotocol/server@2.2.0)(fastify@5.12.1)(supports-color@8.1.1)
+        specifier: git+https://github.com/MainActorDev/butler.git#v0.4.1
+        version: git+https://github.com/MainActorDev/butler.git#2047469ad85523232804900a1c02f37d16113666(@modelcontextprotocol/server@2.2.0)(fastify@5.12.1)(supports-color@8.1.1)
       '@modelcontextprotocol/sdk':
         specifier: ^1.31.0
         version: 1.31.0(supports-color@8.1.1)(zod@4.6.5)
@@ -541,6 +544,12 @@ packages:
   '@fastify/ajv-compiler@4.0.6':
     resolution: {integrity: sha512-NtuzM0SfaMJbGlnjr9LWQUN5LzgSrbB8tf/wRZNas+4E1O/Nmzl53e7ruT61HDZyRCJGC6FxIogmNZO1c5ETBA==}
 
+  '@fastify/busboy@3.2.3':
+    resolution: {integrity: sha512-fmo/IKgkenPzz3qTKG+sIUXdF/Kv83AkvvOXJHPTHJeKJbat8SsL1ihUaFaDotqoEl4UZ1Lf8Eb/3vK6eaWX2A==}
+
+  '@fastify/deepmerge@3.2.2':
+    resolution: {integrity: sha512-155eqA/WMQdN6gUD4RrhS2K0Pcz2Ou9pQ86L0sipOpP9ONbTA6oYw/hW4VdBjR4egcDHqmWUK9x80oUX7S1mDQ==}
+
   '@fastify/error@4.2.0':
     resolution: {integrity: sha512-RSo3sVDXfHskiBZKBPRgnQTtIqpi/7zhJOEmAxCiBcM7d0uwdGdxLlsCaLzGs8v8NnxIRlfG0N51p5yFaOentQ==}
 
@@ -552,6 +561,9 @@ packages:
 
   '@fastify/merge-json-schemas@0.2.1':
     resolution: {integrity: sha512-OA3KGBCy6KtIvLf8DINC5880o5iBlDX4SxzLQS8HorJAbqluzLRn80UXU0bxZn7UOFhFgpRJDasfwn9nG4FG4A==}
+
+  '@fastify/multipart@10.1.3':
+    resolution: {integrity: sha512-nLZopLYgAj+0BhcSm6upfT5x4fwKDfGlJ51U4Bkg1HknFaO6LjfCc2prqbXMNjRdM0cCVzp3L4bjkvfuuTLxJg==}
 
   '@fastify/proxy-addr@5.1.0':
     resolution: {integrity: sha512-INS+6gh91cLUjB+PVHfu1UqcB76Sqtpyp7bnL+FYojhjygvOPA9ctiD/JDKsyD9Xgu4hUhCSJBPig/w7duNajw==}
@@ -755,8 +767,8 @@ packages:
     resolution: {integrity: sha512-9I2Zn6+NJLfaGoz9jN3lpwDgAYvfGeNYdbAIjJOqzs4Tpc+VU3Jqq4IofSUBKajiDS8k9fZIg18/z13mpk1bsA==}
     engines: {node: '>=8'}
 
-  '@mainactordev/butler@git+https://github.com/MainActorDev/butler.git#68ac8dfc9c741f48009b20a9c8ff11a7fd8fae6c':
-    resolution: {commit: 68ac8dfc9c741f48009b20a9c8ff11a7fd8fae6c, repo: https://github.com/MainActorDev/butler.git, type: git}
+  '@mainactordev/butler@git+https://github.com/MainActorDev/butler.git#2047469ad85523232804900a1c02f37d16113666':
+    resolution: {commit: 2047469ad85523232804900a1c02f37d16113666, repo: https://github.com/MainActorDev/butler.git, type: git}
     version: 0.3.0
     hasBin: true
 
@@ -2619,6 +2631,10 @@ snapshots:
       ajv-formats: 3.0.1(ajv@8.20.0)
       fast-uri: 4.1.3
 
+  '@fastify/busboy@3.2.3': {}
+
+  '@fastify/deepmerge@3.2.2': {}
+
   '@fastify/error@4.2.0': {}
 
   '@fastify/fast-json-stringify-compiler@5.1.0':
@@ -2630,6 +2646,14 @@ snapshots:
   '@fastify/merge-json-schemas@0.2.1':
     dependencies:
       dequal: 2.0.3
+
+  '@fastify/multipart@10.1.3':
+    dependencies:
+      '@fastify/busboy': 3.2.3
+      '@fastify/deepmerge': 3.2.2
+      '@fastify/error': 4.2.0
+      fastify-plugin: 6.0.0
+      secure-json-parse: 4.1.0
 
   '@fastify/proxy-addr@5.1.0':
     dependencies:
@@ -2802,7 +2826,7 @@ snapshots:
 
   '@lukeed/ms@2.0.2': {}
 
-  '@mainactordev/butler@git+https://github.com/MainActorDev/butler.git#68ac8dfc9c741f48009b20a9c8ff11a7fd8fae6c(@modelcontextprotocol/server@2.2.0)(fastify@5.12.1)(supports-color@8.1.1)':
+  '@mainactordev/butler@git+https://github.com/MainActorDev/butler.git#2047469ad85523232804900a1c02f37d16113666(@modelcontextprotocol/server@2.2.0)(fastify@5.12.1)(supports-color@8.1.1)':
     dependencies:
       '@fastify/static': 10.1.5
       '@fastify/websocket': 11.3.1

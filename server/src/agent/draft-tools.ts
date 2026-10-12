@@ -5,6 +5,7 @@
  *  VERBATIM as tool results (the loop does one repair round). No shadow store. */
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import { parseCaseYaml } from '@crucible/shared/case-yaml';
 import { resolveCaseRefs, renderTemplateYaml } from '../routes/templates.ts';
 import type { ToolDeps } from './tools.ts';
@@ -157,13 +158,19 @@ export function registerDraftTools(deps: ToolDeps & { registry: import('@mainact
 
   registry.register({
     name: 'sources.ingest',
-    description: 'ingest source documents (kind=file: a directory of tickets/docs; kind=repo: a code repo with symbol chunks)',
+    description: 'ingest source documents (kind=file: a directory of tickets/docs; kind=repo: a code repo with symbol chunks). Registered repos accept their NAME (e.g. "ios-consumer-intl") or an absolute path.',
     permission: 'draft',
-    parameters: { type: 'object', properties: { kind: { type: 'string', enum: ['file', 'repo'] }, root: { type: 'string', description: 'absolute path' } }, required: ['kind', 'root'] },
+    parameters: { type: 'object', properties: { kind: { type: 'string', enum: ['file', 'repo'] }, root: { type: 'string', description: 'registered repo name (ios-consumer) or absolute path' } }, required: ['kind', 'root'] },
     async execute(args) {
       const butler = await import('@mainactordev/butler');
       const kind = String(args['kind'] ?? 'file');
-      const root = String(args['root'] ?? '');
+      const rootArg = String(args['root'] ?? '');
+      // rev23: repo NAME → the registered workspace clone (the agent has no way
+      // to learn absolute paths; names are what repo.list returns)
+      const root = /^[A-Za-z0-9._-]+$/.test(rootArg) && kind === 'repo'
+        ? join(deps.reposRoot ?? '.', rootArg)
+        : rootArg;
+      if (!root) return JSON.stringify({ error: 'root required' });
       const conn = kind === 'repo'
         ? butler.repoConnector('lionidas-repo', { origin: root, symbols: true })
         : butler.fileConnector('lionidas-files', { root });
