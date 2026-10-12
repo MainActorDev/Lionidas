@@ -37,7 +37,7 @@ async function resolveAppBundle(ctx: AgentContext, refs: Array<{ kind: string; l
   return null;
 }
 
-export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, pipeline: PipelineHandle): void {
+export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, pipeline: PipelineHandle, bus?: { on?: (t: 'agent.workflow', fn: (p: unknown) => void) => (() => void) | undefined }): void {
   app.post('/api/agent/pipeline', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
     const b = req.body as { appBundle?: string; refs?: Array<{ kind?: string; locator?: string; note?: string }> } | null;
     if (!Array.isArray(b?.refs) || b.refs.length === 0) {
@@ -80,6 +80,16 @@ export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, 
   // rev23: the command AND the answer persist to the session — a reload restores them.
   app.post('/api/agent/skill', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
     const b = req.body as { command?: string; ask?: string; appBundle?: string; sessionId?: string } | null;
+    // R2-F1: tap workflow events to build the tool narrative. The route sees the
+    // bus's agent.workflow events as (type, payload) — payload carries runId/event fields.
+    const toolCounts = new Map<string, number>();
+    const tap = (payload: unknown): void => {
+      const p = payload as { runId?: string; type?: string; detail?: unknown };
+      if (p.type !== 'workflow.turn.tool') return;
+      const d = p.detail as { name?: string; phase?: string } | undefined;
+      if (d?.name && d.phase !== 'result') toolCounts.set(d.name, (toolCounts.get(d.name) ?? 0) + 1);
+    };
+    const untap = bus?.on?.('agent.workflow', tap);
     const KNOWN: ReadonlyMap<string, string> = new Map([['/planning', 'lionidas.planner'], ['/breakdown', 'lionidas.breaker'], ['/author', 'lionidas.author']]);
     if (!b?.command || !KNOWN.has(b.command)) return reply.code(400).send({ error: `unknown skill — use one of ${[...KNOWN.keys()].join(' ')}` });
     if (!b.ask?.trim()) return reply.code(400).send({ error: 'ask required' });
@@ -97,9 +107,16 @@ export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, 
       if (b.sessionId) {
         await ctx.storage.appendMessage({ session_id: b.sessionId, role: 'user', content: `${b.command} ${b.ask.trim()}`, tokens_in: 0, tokens_out: 0, tool_calls_json: null, tool_results_json: null });
         if (answer) await ctx.storage.appendMessage({ session_id: b.sessionId, role: 'assistant', content: answer, tokens_in: 0, tokens_out: 0, tool_calls_json: null, tool_results_json: null });
+        // R2-F1: compact tool narrative — follow-ups see HOW the answer was derived
+        if (toolCounts.size) {
+          const narrative = `tools used by ${b.command}: ${[...toolCounts.entries()].map(([n, c]) => `${n} (${c})`).join(', ')}`;
+          await ctx.storage.appendMessage({ session_id: b.sessionId, role: 'assistant', content: `[${narrative} — run ${out.runId}]`, tokens_in: 0, tokens_out: 0, tool_calls_json: null, tool_results_json: null });
+        }
       }
+      untap?.();
       return { ok: true, run: { runId: out.runId, status: out.status }, ...(answer ? { answer } : {}) };
     } catch (err) {
+      untap?.();
       return reply.code(409).send({ error: err instanceof Error ? err.message : 'skill failed' });
     }
   });
