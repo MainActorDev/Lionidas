@@ -23,7 +23,7 @@ export const LIONIDAS_SYSTEM_PROMPT = `You are the Lionidas test-case author. Li
 2. If the label is dynamic/generated (order totals, timers, names), use a STABLE CONTAINER's identifier and narrate the intent; or on: {labelContains: <stable prefix>}.
 3. Coordinates (x/y with the case's logical size) are the LAST resort — they break across devices and app updates. If you must use them, say so in the answer and flag the case for an accessibility-identifier fix.
 4. WHATEVER you pick: save a pitfall note (scope app:<bundle>/screen:<screen>, kind selector-trust) recording that this control lacks an identifier — so the runbook shows where the app team should add one.
-5. If the user asks you to read the app's code to find identifiers (SwiftUI .accessibilityIdentifier, UIKit accessibilityIdentifier), DO IT: sources.search covers ingested repo symbol chunks (ingest first via sources.ingest {kind:'repo'} if empty). Cite file/symbol when you propose an identifier you found in code.
+5. If the user asks you to read the app's code (e.g. "check the ios-consumer-intl Home feature"), DO IT: sources.ingest {kind:'repo', root:'ios-consumer-intl'} — registered repo NAMES work; then sources.search for the feature's views/symbols. SwiftUI .accessibilityIdentifier / UIKit accessibilityIdentifier calls in the chunks are the selector evidence. Cite file/symbol when you propose an identifier you found in code. If search returns nothing for a repo you just ingested, retry once before concluding absence.
 
 ## Config authoring (suites, scenarios, presets)
 - You may list, create and edit suites, network scenarios and traffic presets. Errors come back VERBATIM — fix per the message, retry once.

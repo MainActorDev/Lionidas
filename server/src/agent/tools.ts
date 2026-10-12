@@ -16,6 +16,8 @@ export interface ToolDeps {
   syncPresets?: () => void;
   /** rev23 F2: attachment.get tool backing */
   attachments?: AttachmentStore;
+  /** rev23: registered workspace clones root — lets sources.ingest take repo NAMES */
+  reposRoot?: string;
 }
 
 interface TemplateLite { id: string; name: string; status: string | null; folder_id: string | null; app_bundle_id: string | null }

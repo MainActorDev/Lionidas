@@ -64,7 +64,7 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
   const registry = buildToolRegistry({ db, storage, retriever, artifactsDir: cfg.artifactsDir, attachments, ...(syncPresets ? { syncPresets } : {}) });
   registerJiraTools(registry, cfg.env);
   registerRepoTools(registry, { reposRoot: cfg.env['CRUCIBLE_REPOS_ROOT'] ?? './repos' });
-  registerDraftTools({ db, storage, retriever, registry, artifactsDir: cfg.artifactsDir });
+  registerDraftTools({ db, storage, retriever, registry, artifactsDir: cfg.artifactsDir, reposRoot: cfg.env['CRUCIBLE_REPOS_ROOT'] ?? './repos' });
 
   const baseUrl = cfg.env['BUTLER_PROVIDER_BASE_URL'];
   const apiKey = cfg.env['BUTLER_API_KEY'];
@@ -106,7 +106,9 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
   Object.defineProperty(ctx, 'syncPresetsCalls', { get: () => syncState.calls });
 
   // boot-time source seed (idempotent, content-addressed; repo seed off under vitest for speed)
-  const seed = import('./sources.ts').then((m) => m.seedSources(ctx, process.env['VITEST'] === 'true' ? { repoRoot: '/nonexistent-repo-hermetic' } : undefined));
+  const seed = import('./sources.ts').then((m) => m.seedSources(ctx, process.env['VITEST'] === 'true'
+    ? { repoRoot: '/nonexistent-repo-hermetic' }
+    : { reposRoot: cfg.env['CRUCIBLE_REPOS_ROOT'] ?? './repos' }));
   ctx.seedPromise = seed;
 
   return ctx;
