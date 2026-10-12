@@ -226,13 +226,13 @@ function onPanelError(m: string): void {
 }
 
 /** rev20b: slash skill — one profile as a single-stage workflow (run panel shows it). */
-async function runSkill(command: string, ask: string): Promise<void> {
+async function runSkill(command: string, ask: string, refs: PipelineRef[] = []): Promise<void> {
   if (!sessionId.value) await newChat();
   const sid = sessionId.value!;
-  messages.value = [...messages.value, { role: 'user', text: `${command} ${ask}` }];
+  messages.value = [...messages.value, { role: 'user', text: `${command} ${ask}`, ...(refs.length ? { refs: refs.map((r) => ({ kind: r.kind, name: r.locator })) } : {}) }];
   sending.value = true;
   try {
-    const r = await fetch('/api/agent/skill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ command, ask, appBundle: appBundleHint(), sessionId: sid }) });
+    const r = await fetch('/api/agent/skill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ command, ask, appBundle: appBundleHint(), sessionId: sid, refs: refs.map((x) => ({ kind: x.kind, locator: x.locator })) }) });
     const b = (await r.json()) as { run?: { runId?: string; status?: string }; answer?: string; error?: string };
     if (!r.ok || !b.run?.runId) {
       messages.value = [...messages.value, { role: 'system', text: `skill failed: ${b.error ?? r.status}` }];

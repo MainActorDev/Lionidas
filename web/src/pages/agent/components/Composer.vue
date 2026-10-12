@@ -8,7 +8,7 @@ import { ref, computed, watch, nextTick } from 'vue';
 export interface Ref { kind: 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo' | 'attachment'; locator: string; label?: string }
 
 const props = defineProps<{ busy?: boolean }>();
-const emit = defineEmits<{ send: [text: string, refs: Ref[], appBundle: string]; abort: []; skill: [command: string, ask: string]; 'open-attachment': [] }>();
+const emit = defineEmits<{ send: [text: string, refs: Ref[], appBundle: string]; abort: []; skill: [command: string, ask: string, refs: Ref[]]; 'open-attachment': [] }>();
 
 const text = ref('');
 /** rev22b: the ACTIVE command chip — a registered command the user committed
@@ -375,13 +375,14 @@ function submit(): void {
   if (!ready.value) return;
   const t = text.value.trim();
   if (activeCmd.value) {
-    emit('skill', activeCmd.value, t);
+    // R2-F2: refs RIDE the skill (compile-on-skill) instead of being discarded
+    emit('skill', activeCmd.value, t, refs.value.map((r) => ({ ...r })));
     text.value = ''; refs.value = []; activeCmd.value = null;
     return;
   }
   const [first] = t.split(/\s+/);
   if (first && REGISTERED(first)) {
-    emit('skill', first, t.slice(first.length).trim());
+    emit('skill', first, t.slice(first.length).trim(), refs.value.map((r) => ({ ...r })));
     text.value = ''; refs.value = [];
     return;
   }

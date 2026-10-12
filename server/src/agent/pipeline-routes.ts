@@ -79,7 +79,13 @@ export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, 
   // single-stage workflow (bare input: knowledge page + profile prompt).
   // rev23: the command AND the answer persist to the session — a reload restores them.
   app.post('/api/agent/skill', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
-    const b = req.body as { command?: string; ask?: string; appBundle?: string; sessionId?: string } | null;
+    const b = req.body as { command?: string; ask?: string; appBundle?: string; sessionId?: string; refs?: Array<{ kind?: string; locator?: string; note?: string }> } | null;
+    // R2-F2: refs validated with the SAME filter as the pipeline route (review R3)
+    const SKILL_KNOWN: ReadonlySet<string> = new Set(['jira', 'github-pr', 'github-commit', 'doc', 'repo', 'attachment']);
+    const refs = (Array.isArray(b?.refs) ? b!.refs! : [])
+      .filter((r) => r.kind && r.locator && SKILL_KNOWN.has(r.kind))
+      .map((r) => ({ kind: r.kind as 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo' | 'attachment', locator: r.locator!, ...(r.note ? { note: r.note } : {}) }));
+    const rejectedRefs = (Array.isArray(b?.refs) ? b!.refs! : []).filter((r) => r.kind && r.locator && !SKILL_KNOWN.has(r.kind)).map((r) => r.kind);
     // R2-F1: tap workflow events to build the tool narrative. The route sees the
     // bus's agent.workflow events as (type, payload) — payload carries runId/event fields.
     const toolCounts = new Map<string, number>();
@@ -94,7 +100,20 @@ export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, 
     if (!b?.command || !KNOWN.has(b.command)) return reply.code(400).send({ error: `unknown skill — use one of ${[...KNOWN.keys()].join(' ')}` });
     if (!b.ask?.trim()) return reply.code(400).send({ error: 'ask required' });
     try {
-      const out = await pipeline.skill(b.command, b.ask.trim(), b.appBundle ?? '', process.env) as { runId?: string; status?: string; finalOutput?: string | null };
+      // R2-F2: resolve the app (reuse the pipeline chain verbatim) and compile refs
+      // BEFORE the stage — the skill reads the fresh page. Compile failure proceeds
+      // with an honest note (operator decision).
+      const appBundle = (b.appBundle ?? '').trim() || (refs.length ? await resolveAppBundle(ctx, refs, process.env) : '') || '';
+      let compileNote = '';
+      if (refs.length) {
+        try {
+          if (!appBundle) throw new Error('could not determine the target app from the refs');
+          await pipeline.compileOnly(appBundle, refs, process.env);
+        } catch (err) {
+          compileNote = `refs partially compiled: ${(err instanceof Error ? err.message : String(err)).slice(0, 160)}`;
+        }
+      }
+      const out = await pipeline.skill(b.command, b.ask.trim(), appBundle || 'skill', process.env) as { runId?: string; status?: string; finalOutput?: string | null };
       // surface the stage answer for the chat (regular response, not a bare run note)
       let answer: string | null = out.finalOutput ?? null;
       if (!answer && out.runId) {
@@ -104,8 +123,10 @@ export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, 
           try { answer = JSON.parse(last.output_json) as string; } catch { answer = last.output_json; }
         }
       }
+      if (answer && rejectedRefs.length) answer = `${answer}\n\n[unrecognized ref kinds ignored: ${rejectedRefs.join(', ')}]`;
+      if (answer && compileNote) answer = `${compileNote}\n${answer}`;
       if (b.sessionId) {
-        await ctx.storage.appendMessage({ session_id: b.sessionId, role: 'user', content: `${b.command} ${b.ask.trim()}`, tokens_in: 0, tokens_out: 0, tool_calls_json: null, tool_results_json: null });
+        await ctx.storage.appendMessage({ session_id: b.sessionId, role: 'user', content: `${b.command} ${b.ask.trim()}${refs.length ? ` [refs: ${refs.map((r) => r.locator).join(', ')}]` : ''}`, tokens_in: 0, tokens_out: 0, tool_calls_json: null, tool_results_json: null });
         if (answer) await ctx.storage.appendMessage({ session_id: b.sessionId, role: 'assistant', content: answer, tokens_in: 0, tokens_out: 0, tool_calls_json: null, tool_results_json: null });
         // R2-F1: compact tool narrative — follow-ups see HOW the answer was derived
         if (toolCounts.size) {
