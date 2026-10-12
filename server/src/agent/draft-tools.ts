@@ -152,6 +152,13 @@ export function registerDraftTools(deps: ToolDeps & { registry: import('@mainact
         scope_key: String(args['scopeKey'] ?? ''), kind: (args['kind'] as never) ?? 'convention',
         content: String(args['content'] ?? ''), source_type: 'session', source_ref: String(args['sourceRef'] ?? ''), created_by: ctx.sessionId,
       });
+      // R2-F3: embed-at-save (best-effort — a failed embed never blocks the write)
+      try {
+        if (deps.embedder) {
+          const v = (await deps.embedder.embed([n.content]))[0]!;
+          await storage.saveNoteEmbedding(n.id, deps.embedder.model, v.length, new Float32Array(v));
+        }
+      } catch { /* retrieval falls back to recency */ }
       return `note ${n.id} saved`;
     },
   });

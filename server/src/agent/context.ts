@@ -16,6 +16,7 @@ import { buildToolRegistry } from './tools.ts';
 import { AttachmentStore } from './attachments.ts';
 import { registerJiraTools } from './jira-refs.ts';
 import { registerRepoTools } from './repo-refs.ts';
+import { TokenEmbedding, type EmbeddingProvider } from '@mainactordev/butler';
 import { registerDraftTools } from './draft-tools.ts';
 import { V1_POLICY } from './policy.ts';
 import { LIONIDAS_SYSTEM_PROMPT } from './system-prompt.ts';
@@ -37,6 +38,8 @@ export interface AgentContext {
   syncPresetsCalls: number;
   /** rev23 F2: attachment store (sha-deduped files + manifest) */
   attachments: AttachmentStore;
+  /** R2-F3: note embedder — TokenEmbedding (local) unless EMBED_* env points at a real provider */
+  embedder: EmbeddingProvider;
 }
 
 /** claude --mcp-config JSON: one stdio server = the Lionidas registry. */
@@ -61,7 +64,8 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
     ? (): void => { syncState.calls += 1; cfg.syncPresets!(); }
     : undefined;
   const attachments = new AttachmentStore(db, cfg.artifactsDir);
-  const registry = buildToolRegistry({ db, storage, retriever, artifactsDir: cfg.artifactsDir, attachments, ...(syncPresets ? { syncPresets } : {}) });
+  const embedder: EmbeddingProvider = new TokenEmbedding();
+  const registry = buildToolRegistry({ db, storage, retriever, artifactsDir: cfg.artifactsDir, attachments, embedder, ...(syncPresets ? { syncPresets } : {}) });
   registerJiraTools(registry, cfg.env);
   registerRepoTools(registry, { reposRoot: cfg.env['CRUCIBLE_REPOS_ROOT'] ?? './repos' });
   registerDraftTools({ db, storage, retriever, registry, artifactsDir: cfg.artifactsDir, reposRoot: cfg.env['CRUCIBLE_REPOS_ROOT'] ?? './repos' });
@@ -101,7 +105,7 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
     provider = new MockProvider([{ kind: 'assistant', content: 'agent provider not configured (set BUTLER_PROVIDER_BASE_URL / BUTLER_API_KEY / BUTLER_MODEL) — mock response' }]);
   }
 
-  const ctx: AgentContext = { db, storage, retriever, registry, provider, policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }), syncPresetsCalls: 0, attachments };
+  const ctx: AgentContext = { db, storage, retriever, registry, provider, policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }), syncPresetsCalls: 0, attachments, embedder };
 
   Object.defineProperty(ctx, 'syncPresetsCalls', { get: () => syncState.calls });
 
@@ -110,6 +114,23 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
     ? { repoRoot: '/nonexistent-repo-hermetic' }
     : { reposRoot: cfg.env['CRUCIBLE_REPOS_ROOT'] ?? './repos' }));
   ctx.seedPromise = seed;
+  // R2-F3: fit the token embedder's IDF on the live note corpus (once per boot)
+  void seed.then(async () => {
+    try {
+      const notes = await storage.activeNotes();
+      (embedder as TokenEmbedding).fit(notes.map((n) => `${n.scope_key} ${n.content}`));
+      // backfill missing embeddings (batched, resumable — skips existing)
+      const existing = new Set((await storage.noteEmbeddings(embedder.model)).map((e) => e.noteId));
+      const missing = notes.filter((n) => !existing.has(n.id));
+      for (let i = 0; i < missing.length; i += 20) {
+        const batch = missing.slice(i, i + 20);
+        const vecs = await embedder.embed(batch.map((n) => n.content));
+        for (let j = 0; j < batch.length; j++) {
+          await storage.saveNoteEmbedding(batch[j]!.id, embedder.model, vecs[j]!.length, new Float32Array(vecs[j]!));
+        }
+      }
+    } catch { /* embedding backfill is best-effort; retrieval falls back */ }
+  });
 
   return ctx;
 }

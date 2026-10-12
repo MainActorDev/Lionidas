@@ -18,6 +18,8 @@ export interface ToolDeps {
   attachments?: AttachmentStore;
   /** rev23: registered workspace clones root — lets sources.ingest take repo NAMES */
   reposRoot?: string;
+  /** R2-F3: note embedder for embed-at-save */
+  embedder?: import('@mainactordev/butler').EmbeddingProvider;
 }
 
 interface TemplateLite { id: string; name: string; status: string | null; folder_id: string | null; app_bundle_id: string | null }

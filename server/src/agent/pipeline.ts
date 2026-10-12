@@ -74,6 +74,7 @@ export function buildPipeline(ctx: AgentContext, db: Database.Database, env: Rec
 
   const deps = (appBundle: string, mockScripts?: Parameters<typeof buildProfiles>[1]['mockScripts']) => ({
     storage: ctx.storage,
+    embedder: ctx.embedder, // R2-F3: stage turns retrieve relevant notes
     workflow,
     registry: ctx.registry,
     profiles: (() => {
