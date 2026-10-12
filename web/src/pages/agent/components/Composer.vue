@@ -135,8 +135,12 @@ const FAMILIES: Array<{ key: string; desc: string }> = [
   { key: '@attachment', desc: 'Attach a file' },
 ];
 
-/** typing in the jira level routes into the debounced search */
-watch(atQuery, (q) => { if (at.value === 'jira') jiraQueryChanged(q.replace(/^@jira?/, '').trim()); });
+/** R2-fix4: the search box LIVES IN THE MENU — jiraQuery drives the search,
+ *  rowFilter filters repo rows; the textarea no longer feeds the pickers */
+const jiraQuery = ref('');
+const rowFilter = ref('');
+const jiraSearchInput = ref<HTMLInputElement | null>(null);
+watch(atQuery, () => { /* textarea no longer feeds picker queries */ });
 
 function familyMatches(): Array<{ key: string; desc: string }> {
   const q = atQuery.value.trim();
@@ -219,19 +223,20 @@ interface AtRow { id: string; title: string; meta: string; sub?: string; locked?
 const atRows = computed<Array<AtRow>>(() => {
   if (at.value === 'family') return familyMatches().map((f) => ({ id: f.key, title: f.key, meta: f.desc }));
   if (at.value === 'jira') {
+    if (!jiraQuery.value.trim() && jiraState.value === 'idle') return [{ id: '__hint', title: '@jira', meta: 'type in the search box above to find tickets', locked: true }];
     if (jiraState.value === 'unconfigured') return [{ id: '__unconfigured', title: '@jira', meta: 'Jira not configured — set JIRA_TOKEN and JIRA_BASE_URL on the server', locked: true }];
     if (jiraState.value === 'error') return [{ id: '__error', title: '@jira', meta: 'Jira search failed — check the server logs / token', locked: true }];
     if (jiraState.value === 'loading') return [{ id: '__loading', title: '@jira', meta: 'searching…', locked: true }];
     return jiraRows.value.map((i) => ({ id: i.key, title: i.key, meta: `${i.type} · ${i.title}` }));
   }
   if (at.value === 'repo') {
-    const q = atQuery.value.trim().toLowerCase();
+    const q = rowFilter.value.trim().toLowerCase();
     return repoList.value.filter((r) => r.toLowerCase().includes(q)).map((r) => ({ id: r, title: r, meta: 'registered repo' }));
   }
   if (at.value === 'repo-pick') {
     if (repoState.value === 'loading') return [{ id: '__loading', title: '@repo', meta: 'loading…', locked: true }];
     if (repoState.value === 'error') return [{ id: '__error', title: '@repo', meta: repoErrMsg.value || 'repo fetch failed', locked: true }];
-    const q = atQuery.value.trim().toLowerCase();
+    const q = rowFilter.value.trim().toLowerCase();
     return repoRows.value
       .filter((r) => !q || r.id.toLowerCase().includes(q) || (r.sub ?? '').toLowerCase().includes(q))
       .map((r) => ({ id: r.id, title: r.id, meta: r.meta, sub: r.sub }));
@@ -244,7 +249,10 @@ const atMenuOpen = computed(() => at.value !== 'closed' && atRows.value.length >
 /** family → picker routing */
 function openFamilyPick(fam: string): void {
   atQuery.value = '';
+  jiraQuery.value = '';
+  rowFilter.value = '';
   atIdx.value = 0;
+  if (fam === '@jira') void nextTick(() => jiraSearchInput.value?.focus());
   pickedKeys.value = new Set();
   if (fam === '@jira') { at.value = 'jira'; atQuery.value = ''; }
   else if (fam === '@repo') { at.value = 'repo'; void fetchRepos(); }
@@ -336,15 +344,11 @@ function isPicked(row: AtRow): boolean {
 /** @ token detection: opens the family menu while the token is still a bare '@…' */
 watch(text, (t) => {
   if (reverting) return;
+  // R2-fix4: the textarea only OPENS the picker ('@'); searching/filtering
+  // happens in the menu's own search box, not here
   if (at.value === 'closed' && t.startsWith('@') && !t.includes(' ')) {
     at.value = 'family';
-    atQuery.value = t;
     atIdx.value = 0;
-  } else if (at.value !== 'closed' && t.startsWith('@') && !t.includes(' ')) {
-    atQuery.value = t;
-  } else if (at.value !== 'closed' && !t.startsWith('@')) {
-    // past the family token: the user is now SEARCHING (jira) or filtering (repo rows)
-    atQuery.value = t;
   }
 });
 
@@ -398,9 +402,11 @@ function submit(): void {
       <!-- @-mention menu (rev23 F1): family → picker; multi-select for jira/repo-pick -->
       <div v-if="atMenuOpen" class="slash-menu has-rows">
         <div class="at-head">
-          <span v-if="at === 'jira'" class="at-title">@jira — search tickets <span class="at-count">{{ pickedKeys.size }} selected</span></span>
+          <span v-if="at === 'jira'" class="at-title">@jira
+            <input ref="jiraSearchInput" v-model="jiraQuery" class="at-search" placeholder="search tickets…" @keydown.stop @input="jiraQueryChanged(jiraQuery)">
+            <span class="at-count">{{ pickedKeys.size }} selected</span></span>
           <span v-else-if="at === 'repo'" class="at-title">@repo — pick a repository</span>
-          <span v-else-if="at === 'repo-pick'" class="at-title">@repo:{{ repoPick?.project }} — <button class="seg" :class="{ on: repoPick?.segment === 'commits' }" @click="setSegment('commits')">commits</button> <button class="seg" :class="{ on: repoPick?.segment === 'pulls' }" @click="setSegment('pulls')">PRs</button> <span class="at-count">{{ pickedKeys.size }} selected · {{ refs.length }}/{{ REF_CAP }} refs</span></span>
+          <span v-else-if="at === 'repo-pick'" class="at-title">@repo:{{ repoPick?.project }} <input v-model="rowFilter" class="at-search" placeholder="filter…" @keydown.stop> — <button class="seg" :class="{ on: repoPick?.segment === 'commits' }" @click="setSegment('commits')">commits</button> <button class="seg" :class="{ on: repoPick?.segment === 'pulls' }" @click="setSegment('pulls')">PRs</button> <span class="at-count">{{ pickedKeys.size }} selected · {{ refs.length }}/{{ REF_CAP }} refs</span></span>
           <span v-else class="at-title">mention a reference</span>
           <button class="at-done" title="done selecting (Esc)" @mousedown.prevent @click="doneAt">done ✕</button>
         </div>
@@ -439,7 +445,7 @@ function submit(): void {
 
       <div class="input-line">
         <span v-if="activeCmd" class="cmd-chip">{{ activeCmd }}<button class="chip-x" title="remove command" @mousedown.prevent.stop @click="revertChip">✕</button></span>
-        <textarea v-model="text" :placeholder="activeCmd ? 'describe what you want from this command…' : (at !== 'closed' ? 'type to search…' : 'ask about cases, runs, or draft new tests…')" @keydown="onKey"></textarea>
+        <textarea v-model="text" :placeholder="activeCmd ? 'describe what you want from this command…' : 'ask about cases, runs, or draft new tests…'" @keydown="onKey"></textarea>
       </div>
       <div class="row">
         <button class="icon" title="mention a reference (@jira / @repo / @attachment)" @click="at = 'family'; atQuery = '@'; text = '@'">＋ @</button>
@@ -474,6 +480,8 @@ function submit(): void {
 .at-count { color: var(--color-ember); }
 .at-done { border: none; background: none; color: var(--color-steel); cursor: pointer; font-size: 11px; }
 .at-done:hover { color: var(--color-paper); }
+.at-search { background: var(--ag-panel); border: 1px solid var(--ag-line); border-radius: 6px; outline: none; color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 3px 8px; width: 200px; }
+.at-search:focus { border-color: var(--color-ember-dim); }
 .at-foot { font-size: 10px; color: var(--color-steel); padding: 6px 10px 4px; border-top: 1px solid var(--ag-line); margin-top: 4px; }
 .seg { border: 1px solid var(--ag-line-2); background: none; color: var(--color-steel); border-radius: 4px; font-size: 10px; padding: 1px 8px; cursor: pointer; }
 .seg.on { color: var(--color-ember); border-color: var(--color-ember-dim); }

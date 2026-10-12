@@ -20,18 +20,33 @@ const me = ref<Me | null>(null);
 const sessionId = ref<string | null>(null);
 const title = ref('new chat');
 const messages = ref<Msg[]>([]);
-const sending = ref(false);
+/** R2-fix: per-session turn state — UI behavior must not leak across chats.
+ *  Each session keeps its own sending/streaming/tools/run slot; the template
+ *  refs below are computed views of the ACTIVE session's state. */
+interface ToolStop { name: string; arg?: string; result?: string; isError?: boolean; live: boolean }
+interface TurnState { sending: boolean; streaming: string | null; toolStops: ToolStop[]; runId: string | null }
+const turnStates = ref<Record<string, TurnState>>({});
+const turn = (sid: string | null): TurnState => {
+  if (!sid) return { sending: false, streaming: null, toolStops: [], runId: null };
+  turnStates.value[sid] ??= { sending: false, streaming: null, toolStops: [], runId: null };
+  return turnStates.value[sid]!;
+};
+const cur = computed<TurnState>(() => turn(sessionId.value));
+const sending = computed(() => cur.value.sending);
+const streaming = computed<string | null>(() => cur.value.streaming);
+const toolStops = computed<ToolStop[]>(() => cur.value.toolStops);
+const runId = computed<string | null>(() => cur.value.runId);
+const setTurn = (mut: (t: TurnState) => void): void => {
+  if (!sessionId.value) return;
+  const t = turn(sessionId.value);
+  mut(t);
+  turnStates.value = { ...turnStates.value };
+};
 // rev8 #2: single-slot queue — one pending send waits for the live turn
 // (the server 409s concurrent turns anyway; this makes the wait invisible)
 const queued = ref<{ text: string; refs: PipelineRef[]; appBundle: string } | null>(null);
-// rev10: live streaming — deltas accumulate into a growing assistant bubble
-const streaming = ref<string | null>(null);
-// rev15 (design C): structured tool stops for the timeline rail
-interface ToolStop { name: string; arg?: string; result?: string; isError?: boolean; live: boolean }
-const toolStops = ref<ToolStop[]>([]);
 const sidebar = ref<InstanceType<typeof ChatSidebar> | null>(null);
 const panel = ref<InstanceType<typeof RunPanel> | null>(null);
-const runId = ref<string | null>(null);
 const composer = ref<InstanceType<typeof Composer> | null>(null);
 let ws: WebSocket | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -75,7 +90,7 @@ async function openSession(id: string): Promise<void> {
     }
   }
   messages.value = out;
-  runId.value = boundRun(id);
+  setTurn((t) => { t.runId = boundRun(id); });
   void panel.value?.refresh();
 }
 
@@ -88,7 +103,7 @@ async function newChat(): Promise<void> {
     sessionId.value = b.session.id;
     title.value = 'new chat';
     messages.value = [];
-    runId.value = null;
+    setTurn((t) => { t.runId = null; });
     void sidebar.value?.load();
   }
   if (sessionId.value) localStorage.setItem('agent.lastSession', sessionId.value); // rev9 E2
@@ -150,31 +165,21 @@ async function send(text: string, refs: PipelineRef[], appBundle: string): Promi
   }
   if (!sessionId.value) await newChat();
   const sid = sessionId.value!;
-  sending.value = true;
-  streaming.value = null;
-  toolStops.value = []; // rev15
+  setTurn((t) => { t.sending = true; });
+  setTurn((t) => { t.streaming = null; });
+  setTurn((t) => { t.toolStops = []; }); // rev15
   const prettyRefs = refs.map((r) => ({ kind: r.kind, name: r.locator }));
   messages.value = [...messages.value, { role: 'user', text, refs: prettyRefs }];
   const flightIdx = messages.value.length - 1; // the user bubble just appended
   maybeAutoTitle(text);
   try {
-    // deterministic rule (plan F4): refs ⇒ pipeline + chat turn; else chat only
-    if (refs.length) {
-      const pr = await fetch('/api/agent/pipeline', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ refs }) });
-      const pb = (await pr.json()) as { runId?: string; error?: string };
-      if (!pr.ok || !pb.runId) {
-        messages.value = [...messages.value, { role: 'system', text: `pipeline refused: ${pb.error ?? pr.status}` }];
-        return;
-      }
-      runId.value = pb.runId;
-      bindRun(sid, pb.runId);
-      panel.value?.open();
-      void panel.value?.refresh();
-      messages.value = [...messages.value, { role: 'system', text: `pipeline started — ${pb.runId} (${(pb as { status?: string }).status ?? 'running'})` }];
-      // the chat turn (records the intent in the conversation)
-      await fetch(`/api/agent/sessions/${sid}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: `${text} [refs: ${refs.map((r) => r.locator).join(', ')}]` }) });
-    } else {
-      const r = await fetch(`/api/agent/sessions/${sid}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: text }) });
+    // R2-fix3: refs alone no longer silently start the AUTHOR pipeline — a chat
+    // turn with refs is a CHAT turn (refs recorded in the message; the agent
+    // reads them via jira.get / repo tools). Pipelines start explicitly
+    // (/author, /breakdown) or from the run panel.
+    const refNote = refs.length ? ` [refs: ${refs.map((r) => r.locator).join(', ')}]` : '';
+    {
+      const r = await fetch(`/api/agent/sessions/${sid}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: `${text}${refNote}` }) });
       if (r.ok) {
         // butler contract: { turn: { ok, answer?, error? } } — the request can
         // succeed while the turn failed (outcome carries the verdict)
@@ -194,8 +199,8 @@ async function send(text: string, refs: PipelineRef[], appBundle: string): Promi
       }
     }
   } finally {
-    sending.value = false;
-    streaming.value = null; // rev12: never leave a frozen stream bubble
+    setTurn((t) => { t.sending = false; });
+    setTurn((t) => { t.streaming = null; }); // rev12: never leave a frozen stream bubble
     settleAiTitle(); // rev14: AI title after the turn — no more 400 race
     void sidebar.value?.load();
     const q = queued.value;
@@ -230,7 +235,7 @@ async function runSkill(command: string, ask: string, refs: PipelineRef[] = []):
   if (!sessionId.value) await newChat();
   const sid = sessionId.value!;
   messages.value = [...messages.value, { role: 'user', text: `${command} ${ask}`, ...(refs.length ? { refs: refs.map((r) => ({ kind: r.kind, name: r.locator })) } : {}) }];
-  sending.value = true;
+  setTurn((t) => { t.sending = true; });
   try {
     const r = await fetch('/api/agent/skill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ command, ask, appBundle: appBundleHint(), sessionId: sid, refs: refs.map((x) => ({ kind: x.kind, locator: x.locator })) }) });
     const b = (await r.json()) as { run?: { runId?: string; status?: string }; answer?: string; error?: string };
@@ -238,7 +243,7 @@ async function runSkill(command: string, ask: string, refs: PipelineRef[] = []):
       messages.value = [...messages.value, { role: 'system', text: `skill failed: ${b.error ?? r.status}` }];
       return;
     }
-    runId.value = b.run.runId;
+    const rid = b.run?.runId; if (rid) setTurn((t) => { t.runId = rid; });
     bindRun(sid, b.run.runId);
     panel.value?.open(); // workflow started — surface the panel even if it was collapsed
     void panel.value?.refresh();
@@ -246,7 +251,7 @@ async function runSkill(command: string, ask: string, refs: PipelineRef[] = []):
     if (b.answer) messages.value = [...messages.value, { role: 'assistant', text: b.answer }];
     messages.value = [...messages.value, { role: 'system', text: `${command} run ${b.run.status ?? 'started'} — ${b.run.runId}` }];
   } finally {
-    sending.value = false;
+    setTurn((t) => { t.sending = false; });
   }
 }
 function appBundleHint(): string { return ''; }
@@ -310,16 +315,16 @@ function connectWs(): void {
         const wt = e.payload.type;
         if (wt === 'workflow.turn.delta' && typeof e.payload.detail === 'object' && e.payload.detail !== null) {
           const d = (e.payload.detail as { delta?: string }).delta;
-          if (d) streaming.value = (streaming.value ?? '') + d;
+          if (d) setTurn((t) => { t.streaming = (streaming.value ?? '') + d; });
         } else if (wt === 'workflow.turn.tool') {
           const d = e.payload.detail as { phase?: string; name?: string; arg?: string; result?: string; isError?: boolean };
           const stop: ToolStop = { name: d.name ?? 'tool', live: d.phase !== 'result' };
           if (d.arg !== undefined) stop.arg = d.arg;
           if (d.result !== undefined) stop.result = d.result;
           if (d.isError !== undefined) stop.isError = d.isError;
-          toolStops.value = [...toolStops.value.filter((t) => t.live), stop];
+          setTurn((t) => { t.toolStops = [...toolStops.value.filter((t) => t.live), stop]; });
         } else if (wt === 'workflow.stage_done' || wt === 'workflow.done') {
-          if (streaming.value) { streaming.value = null; toolStops.value = []; }
+          if (streaming.value) { setTurn((t) => { t.streaming = null; }); setTurn((t) => { t.toolStops = []; }); }
         }
         void panel.value?.refresh();
       }
@@ -328,8 +333,8 @@ function connectWs(): void {
       if (e.type === 'agent.turn' && e.payload.sessionId === sessionId.value
           && (e.payload.type === 'turn.end' || e.payload.type === 'turn.error')
           && sessionId.value) {
-        streaming.value = null; // rev10: bubble completes via refetch
-        toolStops.value = []; // rev15: rail retires with the turn
+        setTurn((t) => { t.streaming = null; }); // rev10: bubble completes via refetch
+        setTurn((t) => { t.toolStops = []; }); // rev15: rail retires with the turn
         void openSession(sessionId.value);
       }
       // rev10: live delta → grow the streaming bubble (tool-trace lines are
@@ -338,7 +343,7 @@ function connectWs(): void {
       if (e.type === 'agent.turn' && e.payload.sessionId === sessionId.value && e.payload.type === 'turn.delta') {
         const d = (e.payload as { detail?: { delta?: string } }).detail?.delta ?? '';
         if (d.includes('\u23f5') || d.includes('\u23bf') || (streaming.value ?? '').endsWith('\n') && d.trim() === '') return;
-        streaming.value = (streaming.value ?? '') + d;
+        setTurn((t) => { t.streaming = (streaming.value ?? '') + d; });
       }
       // rev15: structured tool events → timeline stops
       if (e.type === 'agent.turn' && e.payload.sessionId === sessionId.value && e.payload.type === 'turn.tool') {
@@ -346,7 +351,7 @@ function connectWs(): void {
         if (t.phase === 'call') {
           const stop: ToolStop = { name: t.name ?? 'tool', live: true };
           if (t.arg !== undefined) stop.arg = t.arg;
-          toolStops.value = [...toolStops.value.filter((x) => !(x.live && x.name === t.name)), stop];
+          setTurn((ts) => { ts.toolStops = [...ts.toolStops.filter((x) => !(x.live && x.name === t.name)), stop]; });
         } else if (t.phase === 'result') {
           const i = toolStops.value.findIndex((x) => x.live && x.name === t.name);
           const patch: ToolStop = { name: t.name ?? 'tool', live: false };
@@ -360,9 +365,9 @@ function connectWs(): void {
             if (patch.result !== undefined) merged.result = patch.result;
             if (patch.isError !== undefined) merged.isError = patch.isError;
             arr[i] = merged;
-            toolStops.value = arr;
+            setTurn((t) => { t.toolStops = arr; });
           } else {
-            toolStops.value = [...toolStops.value, patch];
+            setTurn((t) => { t.toolStops = [...toolStops.value, patch]; });
           }
         }
       }
@@ -378,7 +383,7 @@ function startPolling(): void {
 onMounted(() => {
   void loadMe();
   const qRun = route.query['run'];
-  if (typeof qRun === 'string' && qRun) { runId.value = qRun; }
+  if (typeof qRun === 'string' && qRun) { setTurn((t) => { t.runId = qRun; }); }
   // rev9 E2: restore the last-open chat so a mid-flight reload lands back on it
   const last = localStorage.getItem('agent.lastSession');
   if (last) void openSession(last);
