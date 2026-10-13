@@ -224,14 +224,17 @@ watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom
 .status { display: inline-flex; align-items: center; gap: 8px; font-size: var(--text-caption); color: var(--color-steel); border: 1px solid var(--ag-line); border-radius: var(--r-sm); padding: 1px var(--s-2); margin-bottom: 6px; }
 /* ── user bubble: command chip + inline ref chips (composer-parity) ── */
 .cmd-tag { display: inline-block; margin: 0 0 4px; padding: 1px 8px; border: 1px solid rgba(232, 145, 109, .4); border-radius: 999px; color: #e8916d; background: rgba(232, 145, 109, .08); font-size: var(--text-caption); font-weight: var(--weight-bold); }
-/* bubble chips match the COMPOSER's picked chips: kind-tinted translucent fill +
- *  solid ring — distinct from bubble text on the ember user background */
-.uchip { display: inline; border-radius: 3px; padding: 0 5px; font-family: var(--font-mono); font-weight: var(--weight-bold); background: rgba(0, 0, 0, .32); }
-.uchip.jira { color: #9cc8e8; background: rgba(127, 179, 213, .18); box-shadow: inset 0 0 0 1px rgba(127, 179, 213, .55); }
-.uchip.repo { color: #f2a67f; background: rgba(232, 145, 109, .18); box-shadow: inset 0 0 0 1px rgba(232, 145, 109, .55); }
-.uchip.case { color: #bcd8a6; background: rgba(168, 197, 138, .16); box-shadow: inset 0 0 0 1px rgba(168, 197, 138, .5); }
-.uchip.file { color: #c6aee0; background: rgba(176, 140, 207, .16); box-shadow: inset 0 0 0 1px rgba(176, 140, 207, .5); }
-.uchip.doc { color: var(--color-fog); background: rgba(0, 0, 0, .32); box-shadow: inset 0 0 0 1px rgba(128, 128, 128, .4); }
+/* bubble chips — v-html content needs :deep() to match under <style scoped>
+ *  (the whole reason earlier tweaks 'did nothing'). Kind-tinted fill + ring,
+ *  matched to the composer's picked chips. */
+.txt :deep(.uchip) { display: inline; border-radius: 3px; padding: 0 5px; font-family: var(--font-mono); font-weight: var(--weight-bold); background: rgba(0, 0, 0, .32); }
+.txt :deep(.uchip.jira) { color: #9cc8e8; background: rgba(127, 179, 213, .18); box-shadow: inset 0 0 0 1px rgba(127, 179, 213, .55); }
+.txt :deep(.uchip.repo) { color: #f2a67f; background: rgba(232, 145, 109, .18); box-shadow: inset 0 0 0 1px rgba(232, 145, 109, .55); }
+.txt :deep(.uchip.case) { color: #bcd8a6; background: rgba(168, 197, 138, .16); box-shadow: inset 0 0 0 1px rgba(168, 197, 138, .5); }
+.txt :deep(.uchip.file) { color: #c6aee0; background: rgba(176, 140, 207, .16); box-shadow: inset 0 0 0 1px rgba(176, 140, 207, .5); }
+.txt :deep(.uchip.doc) { color: var(--color-fog); background: rgba(0, 0, 0, .32); box-shadow: inset 0 0 0 1px rgba(128, 128, 128, .4); }
+.txt :deep(.uchip-row) { display: block; margin-top: 4px; }
+.txt :deep(.cmd-tag) { display: inline-block; margin: 0 0 4px; padding: 1px 8px; border: 1px solid rgba(232, 145, 109, .5); border-radius: 999px; color: #f2a67f; background: rgba(0, 0, 0, .28); font-size: var(--text-caption); font-weight: var(--weight-bold); }
 .uchip-row { display: block; margin-top: 4px; }
 .msg.user .txt :deep(p) { margin: 0; }
 
