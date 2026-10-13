@@ -3,13 +3,14 @@
  *  Slash commands (rev21/22) unchanged. Refs are creatable ONLY through the
  *  @ pickers — the free-typed kind+locator form is gone. Selected refs render
  *  as capsule chips in the input line; send maps them to PipelineRef[]. */
-import { ref, computed, watch, nextTick } from 'vue';
+import { ref, computed, watch, nextTick, onMounted } from 'vue';
+import { DEFAULT_COMMANDS } from '../commandRegistry.ts';
 
 export interface Ref { kind: 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo' | 'attachment' | 'case'; locator: string; label?: string }
 /** a /command token rides the same range machinery (kind 'cmd' is Composer-internal; never sent as a Ref) */
 
 const props = defineProps<{ busy?: boolean }>();
-const emit = defineEmits<{ send: [text: string, refs: Ref[], appBundle: string]; abort: []; skill: [command: string | string[], ask: string, refs: Ref[]]; 'open-attachment': [] }>();
+const emit = defineEmits<{ send: [text: string, refs: Ref[], appBundle: string, commands: string[]]; abort: []; 'open-attachment': [] }>();
 
 const text = ref('');
 /** command tokens now ride the range machinery (kind 'cmd'); activeCmd is a
@@ -54,12 +55,17 @@ function addAttachmentChip(id: string, fileName: string): void {
 defineExpose({ addAttachmentChip, resetDraft });
 
 /** ── rev21: slash command menu ─────────────────────────────────────────── */
-const SKILLS: Array<{ cmd: string; desc: string }> = [
-  { cmd: '/planning', desc: 'Plan test cases from a request' },
-  { cmd: '/breakdown', desc: 'Break a plan into concrete steps' },
-  { cmd: '/author', desc: 'Author case YAML drafts' },
-];
-const REGISTERED = (c: string): boolean => SKILLS.some((s) => s.cmd === c);
+// palette rows come from the live registry (fallback: the shared constant — CR4)
+const SKILLS = ref<Array<{ cmd: string; desc: string }>>(DEFAULT_COMMANDS.map((c) => ({ cmd: c.cmd, desc: c.description })));
+onMounted(() => {
+  void fetch('/api/agent/commands')
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+    .then((b: { commands?: Array<{ cmd: string; description: string }> }) => {
+      if (b.commands?.length) SKILLS.value = b.commands.map((c) => ({ cmd: c.cmd, desc: c.description }));
+    })
+    .catch((e) => console.warn('[composer] command registry fetch failed — using defaults', e));
+});
+const REGISTERED = (c: string): boolean => SKILLS.value.some((s) => s.cmd === c);
 
 /** ── slash palette = SAME interaction as @ (operator: 'make the slash behavior
  *  the same as @'): caret-anchored, typed-in-place query, ghost chip while
@@ -70,10 +76,10 @@ const slashStart = ref(-1);
 const slashQuery = ref('');
 const activeIdx = ref(0);
 
-const skillMatches = computed(() => {
+const skillMatches = computed<Array<{ cmd: string; desc: string }>>(() => {
   const q = slashQuery.value;
-  if (!q) return SKILLS;
-  return SKILLS.filter((s) => s.cmd.startsWith(`/${q}`) || s.cmd.slice(1).startsWith(q));
+  if (!q) return SKILLS.value;
+  return SKILLS.value.filter((s) => s.cmd.startsWith(`/${q}`) || s.cmd.slice(1).startsWith(q));
 });
 
 /** active command = the first cmd token (legacy leading position wins) */
@@ -452,21 +458,15 @@ function submit(): void {
   const t = text.value.trim();
   // ALL command chips (anywhere in the text) ride the skill call; the ENGINE
   // decides execution order (planning → breakdown → author), not typing order.
+  // commands-as-chat-turns: command chips ride the SAME chat turn (no skill path)
   const cmdTokens = tokens.value.filter((x) => x.kind === 'cmd').sort((a, b) => a.start - b.start);
-  if (cmdTokens.length) {
-    let stripped = text.value;
-    for (const ct of [...cmdTokens].reverse()) stripped = stripped.slice(0, ct.start) + stripped.slice(ct.end);
-    const ask = stripped.replace(/\s+/g, ' ').trim();
-    const cmds = cmdTokens.map((x) => x.label);
-    emit('skill', cmds.length === 1 ? cmds[0]! : cmds, ask, refs.value.map((r) => ({ ...r })));
-    text.value = ''; refs.value = []; tokens.value = [];
-    closePalette(); closeSlash();
-    return;
-  }
-
-  emit('send', t, refs.value.map((r) => ({ ...r })), (appBundle.value ?? '').trim());
+  let stripped = text.value;
+  for (const ct of [...cmdTokens].reverse()) stripped = stripped.slice(0, ct.start) + stripped.slice(ct.end);
+  const ask = stripped.replace(/\s+/g, ' ').trim() || (cmdTokens.length ? text.value.trim() : '');
+  const cmds = cmdTokens.map((x) => x.label);
+  emit('send', ask, refs.value.map((r) => ({ ...r })), (appBundle.value ?? '').trim(), cmds);
   text.value = ''; refs.value = []; tokens.value = [];
-  closePalette();
+  closePalette(); closeSlash();
 }
 </script>
 

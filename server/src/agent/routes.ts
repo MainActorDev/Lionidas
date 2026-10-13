@@ -4,6 +4,7 @@
 import type { FastifyInstance } from 'fastify';
 import { registerConversationApi, mountMcp } from '@mainactordev/butler';
 import { registerMentionRoutes } from './mention-search.ts';
+import { orderCommands, overlayBlock, toolsFor, registerCommandRoutes } from './commands.ts';
 import { requireRole } from '../auth/roles.ts';
 import type { AgentContext } from './context.ts';
 import type { AppEvents, TypedEventBus } from '../ws/bus.ts';
@@ -27,11 +28,29 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AgentContext, bus
       systemPrompt: ctx.systemPrompt,
       embedder: ctx.embedder, // R2-F3: ranked note injection
       emit: (e) => { bus.emit('agent.turn', { sessionId: e.sessionId, type: e.type, hop: e.hop, ...(e.detail !== undefined ? { detail: e.detail } : {}) }); },
+      commandOverlay: (cmds) => {
+        const specs = orderCommands(cmds);
+        if (!specs.length) return null;
+        const envelope = ctx.registry.list().filter((t) => t.permission === 'read').map((t) => t.name);
+        const t = toolsFor(specs, envelope);
+        if (specs.length === 1) {
+          // single command: inline overlay (pi pole — proven, zero-cost)
+          return { promptBlock: overlayBlock(specs), ...(t ? { tools: t } : {}) };
+        }
+        // MULTI-command: the MODEL orchestrates (plan 20261013T162000Z) — no stacked
+        // bodies, no engine sort; stage.run is the execution unit, semantics order it
+        const names = specs.map((c) => c.cmd).join(', ');
+        return {
+          promptBlock: `\n\n--- MULTIPLE COMMANDS REQUESTED: ${names} ---\nYou orchestrate this turn. Each requested command names a stage of test-authoring work; the dependencies live in what each stage needs (breakdown consumes a scope; author consumes cases). Call stage.run once per command with the input it needs — order them yourself from the task semantics — then synthesize the results into one answer. The user's ask follows.\n---`,
+          ...(t ? { tools: t } : {}),
+        };
+      },
       sink: ctx.sink, // R3-S5: durable turns — event log rides the storage DB
       contextWindow: 200_000,
     });
 
     registerMentionRoutes(scope, ctx);
+    registerCommandRoutes(scope);
 
     await mountMcp(scope, {
       registry: ctx.registry,

@@ -17,6 +17,7 @@ import { buildToolRegistry } from './tools.ts';
 import { AttachmentStore } from './attachments.ts';
 import { registerJiraTools } from './jira-refs.ts';
 import { registerRepoTools } from './repo-refs.ts';
+import { registerStageRunTool } from './stage-run.ts';
 import { TokenEmbedding, type EmbeddingProvider } from '@mainactordev/butler';
 import { registerDraftTools } from './draft-tools.ts';
 import { V1_POLICY } from './policy.ts';
@@ -111,6 +112,7 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
     provider = new MockProvider([{ kind: 'assistant', content: 'agent provider not configured (set BUTLER_PROVIDER_BASE_URL / BUTLER_API_KEY / BUTLER_MODEL) — mock response' }]);
   }
 
+  registerStageRunTool(registry, { db, storage, sink, retriever, registry, provider, policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }), syncPresetsCalls: 0, attachments, embedder } as AgentContext, cfg.env);
   const ctx: AgentContext = { db, storage, sink, retriever, registry, provider, policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }), syncPresetsCalls: 0, attachments, embedder };
 
   Object.defineProperty(ctx, 'syncPresetsCalls', { get: () => syncState.calls });
