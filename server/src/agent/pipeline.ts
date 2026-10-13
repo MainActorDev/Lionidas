@@ -52,7 +52,7 @@ export interface PipelineHandle {
   knowledgePage(appBundle: string): Promise<string | null>;
   answer(runId: string, stageId: string, answers: Record<string, string>): Promise<void>;
   advance(runId: string): Promise<void>;
-  skill(command: string, ask: string, appBundle: string, env: Record<string, string | undefined>): Promise<unknown>;
+  skill(command: string | string[], ask: string, appBundle: string, env: Record<string, string | undefined>): Promise<unknown>;
   resume(runId: string, env: Record<string, string | undefined>, mockScripts?: Parameters<typeof buildProfiles>[1]['mockScripts']): Promise<unknown>;
 }
 
@@ -125,9 +125,18 @@ export function buildPipeline(ctx: AgentContext, db: Database.Database, env: Rec
       const page = await ctx.storage.latestArtifact('knowledge', `app:${appBundle}`);
       return page?.body ?? null;
     },
-    async skill(command, ask, appBundle, env) {
+    async skill(command: string | string[], ask: string, appBundle: string, env: Record<string, string | undefined>) {
       void env;
-      const profileId = command === '/planning' ? 'lionidas.planner' : command === '/breakdown' ? 'lionidas.breaker' : 'lionidas.author';
+      // MULTI-COMMAND (operator direction 2026-10-13): a message may carry
+      // several commands anywhere in the text; the ENGINE decides the order —
+      // the fixed Lionidas dependency chain planning → breakdown → author —
+      // regardless of where the user typed them. Each command = one stage;
+      // each stage's ask = the user ask + the PRIOR stage's output (chained).
+      const CMDS = ['/planning', '/breakdown', '/author'];
+      const wanted: string[] = Array.isArray(command) ? (command as unknown as string[]) : [command as string];
+      const ordered = CMDS.filter((c) => wanted.includes(c)); // engine order, deduped
+      const profileOf = (c: string): string => c === '/planning' ? 'lionidas.planner' : c === '/breakdown' ? 'lionidas.breaker' : 'lionidas.author';
+      const profileId = profileOf(ordered[0] ?? '/planning');
       // R2-F2: knowledge-page grounding — the latest app page rides the ask as
       // BACKGROUND (tools are truth; the page is context)
       let grounding = '';
@@ -145,9 +154,22 @@ export function buildPipeline(ctx: AgentContext, db: Database.Database, env: Rec
         }
       }
       const spec: WorkflowSpec = {
-        id: `lionidas.skill.${profileId.split('.')[1]}`,
+        id: ordered.length > 1 ? `lionidas.skill.chain` : `lionidas.skill.${profileId.split('.')[1]}`,
         input: (x: unknown) => (typeof x === 'object' && x !== null && 'ask' in x ? { ok: true as const, value: x } : { ok: false as const, error: 'ask required' }),
-        stages: [{ id: 'run', profileId, input: (x: unknown) => ({ ok: true as const, value: x }) }],
+        // one stage per command, in ENGINE order; stage input chains the prior
+        // stage's output into the next ask (the workflow passes stage outputs)
+        stages: ordered.map((c, i) => ({
+          id: c.slice(1), // 'planning' | 'breakdown' | 'author'
+          profileId: profileOf(c),
+          // chain: stage N's ask = user ask + stage N-1's OUTPUT (carry rides)
+          input: (x: unknown) => {
+            if (typeof x !== 'object' || x === null || !('ask' in x)) return { ok: false as const, error: 'ask required' };
+            const base = x as { ask: string; appBundle?: string; priorOutput?: string };
+            if (i === 0 || !base.priorOutput) return { ok: true as const, value: { ask: base.ask, appBundle: base.appBundle } };
+            return { ok: true as const, value: { ask: `${base.ask}\n\n--- PRIOR STAGE OUTPUT (${ordered[i - 1]}) — build on it, do not redo it ---\n${base.priorOutput}`, appBundle: base.appBundle } };
+          },
+          handoff: (out: unknown) => ({ ask: '', priorOutput: typeof out === 'string' ? out.slice(0, 12_000) : JSON.stringify(out).slice(0, 12_000) }),
+        })),
       } as WorkflowSpec;
       return runWorkflow(spec, deps(appBundle || 'skill', undefined), { input: { ask: `${ask}${grounding}`, appBundle } });
     },

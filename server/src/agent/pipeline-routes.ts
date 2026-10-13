@@ -43,7 +43,7 @@ export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, 
     if (!Array.isArray(b?.refs) || b.refs.length === 0) {
       return reply.code(400).send({ error: 'refs required' });
     }
-    const KNOWN: ReadonlySet<string> = new Set(['jira', 'github-pr', 'github-commit', 'doc', 'repo', 'attachment']);
+    const KNOWN: ReadonlySet<string> = new Set(['jira', 'github-pr', 'github-commit', 'doc', 'repo', 'attachment', 'case']);
     const refs = b.refs
       .filter((r) => r.kind && r.locator && KNOWN.has(r.kind))
       .map((r) => ({ kind: r.kind as 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo' | 'attachment', locator: r.locator!, ...(r.note ? { note: r.note } : {}) }));
@@ -81,7 +81,7 @@ export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, 
   app.post('/api/agent/skill', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
     const b = req.body as { command?: string; ask?: string; appBundle?: string; sessionId?: string; refs?: Array<{ kind?: string; locator?: string; note?: string }> } | null;
     // R2-F2: refs validated with the SAME filter as the pipeline route (review R3)
-    const SKILL_KNOWN: ReadonlySet<string> = new Set(['jira', 'github-pr', 'github-commit', 'doc', 'repo', 'attachment']);
+    const SKILL_KNOWN: ReadonlySet<string> = new Set(['jira', 'github-pr', 'github-commit', 'doc', 'repo', 'attachment', 'case']);
     const refs = (Array.isArray(b?.refs) ? b!.refs! : [])
       .filter((r) => r.kind && r.locator && SKILL_KNOWN.has(r.kind))
       .map((r) => ({ kind: r.kind as 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo' | 'attachment', locator: r.locator!, ...(r.note ? { note: r.note } : {}) }));
@@ -97,13 +97,17 @@ export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, 
     };
     const untap = bus?.on?.('agent.workflow', tap);
     const KNOWN: ReadonlyMap<string, string> = new Map([['/planning', 'lionidas.planner'], ['/breakdown', 'lionidas.breaker'], ['/author', 'lionidas.author']]);
-    if (!b?.command || !KNOWN.has(b.command)) return reply.code(400).send({ error: `unknown skill — use one of ${[...KNOWN.keys()].join(' ')}` });
-    if (!b.ask?.trim()) return reply.code(400).send({ error: 'ask required' });
+    // MULTI-COMMAND: command may be a string OR array; the ENGINE orders them
+    const body = b ?? ({} as NonNullable<typeof b>);
+    const rawCmds: string[] = Array.isArray(body.command) ? ((body.command as unknown as string[]).filter((c): c is string => typeof c === 'string')) : [String(body.command ?? '')];
+    const cmds = [...new Set(rawCmds.filter((c): c is string => typeof c === 'string' && KNOWN.has(c)))];
+    if (!cmds.length) return reply.code(400).send({ error: `unknown skill — use one of ${[...KNOWN.keys()].join(' ')}` });
+    if (!body.ask?.trim()) return reply.code(400).send({ error: 'ask required' });
     try {
       // R2-F2: resolve the app (reuse the pipeline chain verbatim) and compile refs
       // BEFORE the stage — the skill reads the fresh page. Compile failure proceeds
       // with an honest note (operator decision).
-      const appBundle = (b.appBundle ?? '').trim() || (refs.length ? await resolveAppBundle(ctx, refs, process.env) : '') || '';
+      const appBundle = (body.appBundle ?? '').trim() || (refs.length ? await resolveAppBundle(ctx, refs, process.env) : '') || '';
       let compileNote = '';
       if (refs.length) {
         try {
@@ -113,7 +117,7 @@ export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, 
           compileNote = `refs partially compiled: ${(err instanceof Error ? err.message : String(err)).slice(0, 160)}`;
         }
       }
-      const out = await pipeline.skill(b.command, b.ask.trim(), appBundle || 'skill', process.env) as { runId?: string; status?: string; finalOutput?: string | null };
+      const out = await pipeline.skill(cmds.length > 1 ? cmds : cmds[0]!, body.ask.trim(), appBundle || 'skill', process.env) as { runId?: string; status?: string; finalOutput?: string | null };
       // surface the stage answer for the chat (regular response, not a bare run note)
       let answer: string | null = out.finalOutput ?? null;
       if (!answer && out.runId) {
@@ -125,15 +129,18 @@ export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, 
       }
       if (answer && rejectedRefs.length) answer = `${answer}\n\n[unrecognized ref kinds ignored: ${rejectedRefs.join(', ')}]`;
       if (answer && compileNote) answer = `${compileNote}\n${answer}`;
-      if (b.sessionId) {
+      // session rows only when the session actually exists (drills/APA calls pass
+      // synthetic ids; the run itself is the source of truth for those)
+      const sessionExists = body.sessionId ? await ctx.storage.getSession(body.sessionId) : null;
+      if (body.sessionId && sessionExists) {
         // R3-S5 single-writer rule: skill-route message rows ride the durable
         // log via message.append commands; the sink projects butler_messages.
-        ctx.sink.handle(b.sessionId, { kind: 'message.append', sessionId: b.sessionId, role: 'user', content: `${b.command} ${b.ask.trim()}${refs.length ? ` [refs: ${refs.map((r) => r.locator).join(', ')}]` : ''}` }, `skill:${out.runId}:user`);
-        if (answer) ctx.sink.handle(b.sessionId, { kind: 'message.append', sessionId: b.sessionId, role: 'assistant', content: answer }, `skill:${out.runId}:answer`);
+        ctx.sink.handle(body.sessionId, { kind: 'message.append', sessionId: body.sessionId, role: 'user', content: `${cmds.join(' ')} ${body.ask.trim()}${refs.length ? ` [refs: ${refs.map((r) => `${r.kind}:${r.locator}`).join(', ')}]` : ''}` }, `skill:${out.runId}:user`);
+        if (answer) ctx.sink.handle(body.sessionId, { kind: 'message.append', sessionId: body.sessionId, role: 'assistant', content: answer }, `skill:${out.runId}:answer`);
         // R2-F1: compact tool narrative — follow-ups see HOW the answer was derived
         if (toolCounts.size) {
-          const narrative = `tools used by ${b.command}: ${[...toolCounts.entries()].map(([n, c]) => `${n} (${c})`).join(', ')}`;
-          ctx.sink.handle(b.sessionId, { kind: 'message.append', sessionId: b.sessionId, role: 'assistant', content: `[${narrative} — run ${out.runId}]` }, `skill:${out.runId}:narrative`);
+          const narrative = `tools used by ${cmds.join(' → ')}: ${[...toolCounts.entries()].map(([n, c]) => `${n} (${c})`).join(', ')}`;
+          ctx.sink.handle(body.sessionId, { kind: 'message.append', sessionId: body.sessionId, role: 'assistant', content: `[${narrative} — run ${out.runId}]` }, `skill:${out.runId}:narrative`);
         }
       }
       untap?.();

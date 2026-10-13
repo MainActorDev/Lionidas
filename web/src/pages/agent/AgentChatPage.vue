@@ -177,7 +177,9 @@ async function send(text: string, refs: PipelineRef[], appBundle: string): Promi
     // turn with refs is a CHAT turn (refs recorded in the message; the agent
     // reads them via jira.get / repo tools). Pipelines start explicitly
     // (/author, /breakdown) or from the run panel.
-    const refNote = refs.length ? ` [refs: ${refs.map((r) => r.locator).join(', ')}]` : '';
+    // kind-tagged so the model knows HOW to read each ref (jira.get / case.yaml.get /
+    // repo.read) — bare locators made the model guess and it went hunting the DB
+    const refNote = refs.length ? ` [refs: ${refs.map((r) => `${r.kind}:${r.locator}`).join(', ')}]` : '';
     {
       const r = await fetch(`/api/agent/sessions/${sid}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: `${text}${refNote}` }) });
       if (r.ok) {
@@ -231,10 +233,10 @@ function onPanelError(m: string): void {
 }
 
 /** rev20b: slash skill — one profile as a single-stage workflow (run panel shows it). */
-async function runSkill(command: string, ask: string, refs: PipelineRef[] = []): Promise<void> {
+async function runSkill(command: string | string[], ask: string, refs: PipelineRef[] = []): Promise<void> {
   if (!sessionId.value) await newChat();
   const sid = sessionId.value!;
-  messages.value = [...messages.value, { role: 'user', text: `${command} ${ask}`, ...(refs.length ? { refs: refs.map((r) => ({ kind: r.kind, name: r.locator })) } : {}) }];
+  messages.value = [...messages.value, { role: 'user', text: `${Array.isArray(command) ? command.join(' ') : command} ${ask}`, ...(refs.length ? { refs: refs.map((r) => ({ kind: r.kind, name: r.locator })) } : {}) }];
   setTurn((t) => { t.sending = true; });
   try {
     const r = await fetch('/api/agent/skill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ command, ask, appBundle: appBundleHint(), sessionId: sid, refs: refs.map((x) => ({ kind: x.kind, locator: x.locator })) }) });

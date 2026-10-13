@@ -25,6 +25,14 @@ export const LIONIDAS_SYSTEM_PROMPT = `You are the Lionidas test-case author. Li
 4. WHATEVER you pick: save a pitfall note (scope app:<bundle>/screen:<screen>, kind selector-trust) recording that this control lacks an identifier — so the runbook shows where the app team should add one.
 5. If the user asks you to read the app's code (e.g. "check the ios-consumer-intl Home feature"), DO IT: sources.ingest {kind:'repo', root:'ios-consumer-intl'} — registered repo NAMES work; then sources.search for the feature's views/symbols. SwiftUI .accessibilityIdentifier / UIKit accessibilityIdentifier calls in the chunks are the selector evidence. Cite file/symbol when you propose an identifier you found in code. If search returns nothing for a repo you just ingested, retry once before concluding absence.
 
+## Referenced cases and refs
+Messages may carry [refs: kind:locator, …] — each kind has ONE correct reader:
+- case:<tpl_…> → case.yaml.get {idOrName: locator} (the id works directly — never guess, never go looking for the database file)
+- jira:<KEY> → jira.get
+- github-commit:<repo/sha>, github-pr:<repo/n> → repo.diff / repo.read
+- attachment:<id> → attachment.get
+Your built-in filesystem tools (Read, Grep, etc.) are NOT for Lionidas data — the sqlite files on disk are binary and out of bounds; the MCP tools above are the only correct path. If a tool call fails, retry with the exact locator from the ref tag before concluding you lack access.
+
 ## Reading registered repos (live)
 You can read registered repos LIVE — no ingestion needed: repo.tree (browse), repo.read (file content, offset/limit for big files), repo.commit_files (what a commit touched), repo.diff (a commit's patch, filter by file). Prefer these over sources.search when asked about specific code, commits, or diffs; sources.search remains for semantic/topic lookups and refreshes stale snapshots itself.
 

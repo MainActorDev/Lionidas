@@ -7,6 +7,58 @@ interface Msg { role: 'user' | 'assistant' | 'system'; text: string; refs?: Ref[
 import { ref, watch, nextTick } from 'vue';
 import { renderMarkdown } from '../markdown.ts';
 
+/** user-bubble renderer (mention-palette round): the '[refs: kind:loc]' suffix is
+ *  a transport artifact — never show it raw. Ref labels render as kind-tinted
+ *  inline chips (same palette as the composer); plain text keeps markdown. Works
+ *  for live-sent messages (m.refs) AND reloaded history (kinds parsed from the
+ *  suffix). Bare locators from pre-kind history still chip via m.refs. */
+interface BubbleRef { kind: string; locator: string }
+function parseRefSuffix(text: string): { clean: string; refs: BubbleRef[] } {
+  const m = /\s*\[refs:\s*([^\]]+)\]\s*$/.exec(text);
+  if (!m) return { clean: text, refs: [] };
+  const refs = (m[1] ?? '').split(',').map((x) => x.trim()).filter(Boolean).map((x) => {
+    const at = x.indexOf(':');
+    return at > 0 ? { kind: x.slice(0, at), locator: x.slice(at + 1) } : { kind: 'doc', locator: x };
+  });
+  return { clean: text.slice(0, m.index).trimEnd(), refs };
+}
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function chip(kind: string, label: string): string {
+  const cls = kind === 'jira' ? 'jira' : kind === 'case' ? 'case' : kind === 'github-commit' || kind === 'github-pr' ? 'repo' : kind === 'attachment' ? 'file' : 'doc';
+  return `<span class="uchip ${cls}">@${esc(label)}</span>`;
+}
+function refLabel(kind: string, locator: string): string {
+  if (kind === 'jira' || kind === 'case') return locator;
+  return locator;
+}
+/** a leading registered-skill token renders as the command chip (matches the composer's activeCmd) */
+const KNOWN_CMDS = ['/planning', '/breakdown', '/author'];
+function userCommand(text: string): string | null {
+  const first = text.trim().split(/\s+/)[0] ?? '';
+  return KNOWN_CMDS.includes(first) ? first : null;
+}
+function renderUserText(m: { text: string; refs?: Array<{ kind: string; name: string }> }): string {
+  const cmd = userCommand(m.text);
+  const stripped = cmd ? m.text.trim().slice(cmd.length).trimStart() : m.text;
+  const { clean, refs: parsed } = parseRefSuffix(stripped);
+  const all: BubbleRef[] = [
+    ...parsed,
+    ...(m.refs ?? []).filter((r) => !parsed.some((p) => p.locator === r.name)).map((r) => ({ kind: r.kind, locator: r.name })),
+  ];
+  let out = renderMarkdown(clean);
+  // chip parsed refs by their label appearance in the text (live: labels were inserted by picks)
+  for (const r of all) {
+    const label = esc(refLabel(r.kind, r.locator));
+    if (label && out.includes(label)) out = out.split(label).join(chip(r.kind, r.locator));
+  }
+  // refs that never appeared inline (bare suffix history) render as trailing chips
+  const missing = all.filter((r) => !clean.includes(refLabel(r.kind, r.locator)));
+  if (missing.length) out += `<span class="uchip-row">${missing.map((r) => chip(r.kind, refLabel(r.kind, r.locator))).join('')}</span>`;
+  return out;
+}
+
 const props = defineProps<{ messages: Msg[]; title: string; live: boolean; waiting: boolean; streaming: string | null; sessionId?: string | null; toolStops?: Array<{ name: string; arg?: string; result?: string; isError?: boolean; live: boolean }> }>();
 const copied = ref(false);
 function copySessionId(): void {
@@ -51,10 +103,8 @@ watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom
         <div v-for="(m, i) in messages.filter((x) => (x.text ?? '').trim())" :key="i" class="msg" :class="m.role">
           <template v-if="m.role === 'user'">
             <div class="body" :class="{ aborted: m.aborted }">
-              <div class="txt" v-html="renderMarkdown(m.text)"></div>
-              <div v-if="m.refs?.length" class="atts">
-                <span v-for="r in m.refs" :key="r.name" class="att" :class="{ jira: r.kind === 'jira' }">{{ r.kind === 'jira' ? '◈' : '△' }} {{ r.name }}</span>
-              </div>
+              <span v-if="userCommand(m.text)" class="cmd-tag">{{ userCommand(m.text) }}</span>
+              <div class="txt" v-html="renderUserText(m)"></div>
               <div v-if="m.aborted" class="ab-actions" @click.stop>
                 <span class="ab-tag">aborted</span>
                 <button class="ab-btn" @click="emit('resend', m)">resend</button>
@@ -172,6 +222,22 @@ watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom
 .txt :deep(td) { color: var(--color-fog); }
 .txt :deep(strong) { color: var(--color-paper); }
 .status { display: inline-flex; align-items: center; gap: 8px; font-size: var(--text-caption); color: var(--color-steel); border: 1px solid var(--ag-line); border-radius: var(--r-sm); padding: 1px var(--s-2); margin-bottom: 6px; }
+/* ── user bubble: command chip + inline ref chips (composer-parity) ── */
+.cmd-tag { display: inline-block; margin: 0 0 4px; padding: 1px 8px; border: 1px solid rgba(232, 145, 109, .4); border-radius: 999px; color: #e8916d; background: rgba(232, 145, 109, .08); font-size: var(--text-caption); font-weight: var(--weight-bold); }
+/* bubble chips — v-html content needs :deep() to match under <style scoped>
+ *  (the whole reason earlier tweaks 'did nothing'). Kind-tinted fill + ring,
+ *  matched to the composer's picked chips. */
+.txt :deep(.uchip) { display: inline; border-radius: 3px; padding: 0 5px; font-family: var(--font-mono); font-weight: var(--weight-bold); background: rgba(0, 0, 0, .32); }
+.txt :deep(.uchip.jira) { color: #9cc8e8; background: rgba(127, 179, 213, .18); box-shadow: inset 0 0 0 1px rgba(127, 179, 213, .55); }
+.txt :deep(.uchip.repo) { color: #f2a67f; background: rgba(232, 145, 109, .18); box-shadow: inset 0 0 0 1px rgba(232, 145, 109, .55); }
+.txt :deep(.uchip.case) { color: #bcd8a6; background: rgba(168, 197, 138, .16); box-shadow: inset 0 0 0 1px rgba(168, 197, 138, .5); }
+.txt :deep(.uchip.file) { color: #c6aee0; background: rgba(176, 140, 207, .16); box-shadow: inset 0 0 0 1px rgba(176, 140, 207, .5); }
+.txt :deep(.uchip.doc) { color: var(--color-fog); background: rgba(0, 0, 0, .32); box-shadow: inset 0 0 0 1px rgba(128, 128, 128, .4); }
+.txt :deep(.uchip-row) { display: block; margin-top: 4px; }
+.txt :deep(.cmd-tag) { display: inline-block; margin: 0 0 4px; padding: 1px 8px; border: 1px solid rgba(232, 145, 109, .5); border-radius: 999px; color: #f2a67f; background: rgba(0, 0, 0, .28); font-size: var(--text-caption); font-weight: var(--weight-bold); }
+.uchip-row { display: block; margin-top: 4px; }
+.msg.user .txt :deep(p) { margin: 0; }
+
 .atts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: var(--s-2); }
 .att { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--ag-line); border-radius: var(--r-sm); padding: 0 var(--s-2); font-size: var(--text-caption); color: var(--color-fog); background: var(--ag-panel); }
 .att.jira { color: var(--color-ember); border-color: var(--color-ember-dim); }

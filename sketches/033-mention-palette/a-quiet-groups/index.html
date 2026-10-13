@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Mention palette — A: Quiet groups</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: ui-monospace, "SF Mono", Menlo, monospace; background: #141414; color: #e8e4de; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.stage { width: 720px; }
+.bubble { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px; padding: 20px; }
+.msg { margin-bottom: 18px; font-size: 13px; line-height: 1.6; }
+.msg.user { color: #c9c4bd; }
+.msg.assistant { color: #e8e4de; }
+.composer { position: relative; margin-top: 24px; }
+/* ── the palette ── */
+.palette { position: absolute; bottom: calc(100% + 8px); left: 0; width: 560px; background: #1d1d1d; border: 1px solid #333; border-radius: 6px; box-shadow: 0 12px 40px rgba(0,0,0,.5); overflow: hidden; }
+.p-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #2a2a2a; color: #7d8a99; font-size: 10px; letter-spacing: .08em; }
+.p-head .q { color: #e8e4de; font-size: 12px; letter-spacing: 0; }
+.p-body { max-height: 320px; overflow-y: auto; padding: 4px 0 8px; }
+.group { margin-top: 6px; }
+.group-label { padding: 4px 12px 2px; font-size: 9.5px; color: #7d8a99; letter-spacing: .1em; text-transform: uppercase; }
+.row { display: flex; align-items: center; gap: 10px; padding: 6px 12px; font-size: 12.5px; cursor: pointer; border-left: 2px solid transparent; }
+.row:hover, .row.active { background: #232323; border-left-color: #b3542c; }
+.row .ico { width: 18px; text-align: center; color: #7d8a99; font-size: 11px; flex: none; }
+.row .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .t b { color: #e8916d; font-weight: 600; } /* fuzzy match highlight */
+.row .m { color: #7d8a99; font-size: 10.5px; flex: none; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row.state { color: #7d8a99; cursor: default; }
+.row.state:hover { background: none; border-left-color: transparent; }
+/* ── the composer with inline chips ── */
+.inputbox { background: #1f1f1f; border: 1px solid #3a3a3a; border-radius: 8px; padding: 10px 12px; font-size: 13px; line-height: 1.7; min-height: 64px; cursor: text; }
+.inputbox .ghost { color: #555; }
+.chip { display: inline-block; background: #2a2018; border: 1px solid #b3542c66; color: #e8916d; border-radius: 4px; padding: 0 6px; margin: 0 1px; font-size: 12px; white-space: nowrap; }
+.chip .k { color: #8a6a4f; font-size: 9px; margin-right: 3px; }
+.caret { display: inline-block; width: 1.5px; height: 15px; background: #e8e4de; vertical-align: -2px; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.inputbar { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
+.btn { border: 1px solid #3a3a3a; background: none; color: #7d8a99; border-radius: 4px; padding: 3px 8px; font-family: inherit; font-size: 11px; cursor: pointer; }
+.btn:hover { color: #e8e4de; border-color: #555; }
+.hint { margin-left: auto; color: #555; font-size: 10.5px; }
+kbd { border: 1px solid #3a3a3a; border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; font-size: 10px; color: #7d8a99; }
+</style></head><body>
+<div class="stage">
+  <div class="msg user">what changed in the tracking milestone stepper? @<span style="color:#e8916d">733e224 ios-consumer-intl</span></div>
+  <div class="msg assistant">PR #421 (CUST-6223) replaced the status-derived stepper with a BE-config-driven one — +945/−200 across 8 files…</div>
+
+  <div class="composer">
+    <div class="palette" id="pal">
+      <div class="p-head">REFERENCE <span class="q">@cust</span> <span style="margin-left:auto">↑↓ navigate · ↵ pick · esc close</span></div>
+      <div class="p-body">
+        <div class="group">
+          <div class="group-label">Recent</div>
+          <div class="row"><span class="ico">◆</span><span class="t"><b>CUST</b>-6223 milestone stepper</span><span class="m">jira · used 12m ago</span></div>
+          <div class="row"><span class="ico">◇</span><span class="t"><b>733e</b>224 · BE-driven milestones</span><span class="m">ios-consumer-intl · commit</span></div>
+        </div>
+        <div class="group">
+          <div class="group-label">Jira</div>
+          <div class="row active"><span class="ico">◆</span><span class="t"><b>CUST</b>-6001 · Guest checkout voucher</span><span class="m">story · in progress</span></div>
+          <div class="row"><span class="ico">◆</span><span class="t"><b>CUST</b>-6388 · Analyze &amp; create testcase</span><span class="m">subtask · todo</span></div>
+          <div class="row state"><span class="ico">…</span><span class="t">searching jira…</span></div>
+        </div>
+        <div class="group">
+          <div class="group-label">Cases</div>
+          <div class="row"><span class="ico">▣</span><span class="t">login_flow_ok · <b>Guest</b> login happy path</span><span class="m">smoke · 12 steps</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="inputbox" id="box">
+      <span class="chip"><span class="k">JIRA</span>CUST-6223</span> relates to
+      <span class="chip"><span class="k">REPO</span>733e224</span> — also check <span class="ghost">@cust<span class="caret"></span></span>
+    </div>
+    <div class="inputbar">
+      <button class="btn">＋ attach</button>
+      <button class="btn">⌘ /planning</button>
+      <span class="hint"><kbd>⌘↵</kbd> send</span>
+    </div>
+  </div>
+</div>
+<script>
+// interactivity: typing filters rows; enter picks (chip inserts); esc closes; backspace removes chip as a unit
+const rows = [...document.querySelectorAll('.row:not(.state)')];
+const pal = document.getElementById('pal');
+const box = document.getElementById('box');
+let active = rows.findIndex(r => r.classList.contains('active'));
+const ghost = () => document.querySelector('.ghost');
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    rows[active]?.classList.remove('active');
+    active = (active + (e.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length;
+    rows[active].classList.add('active');
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    const t = rows[active]?.querySelector('.t')?.textContent ?? 'CUST-6001';
+    box.insertBefore(Object.assign(document.createElement('span'), { className: 'chip', innerHTML: `<span class="k">JIRA</span>${t.split(' ·')[0]}` }), ghost());
+    box.insertBefore(document.createTextNode(' '), ghost());
+    pal.style.display = 'none';
+    ghost().remove();
+  } else if (e.key === 'Escape') { pal.style.display = 'none'; }
+});
+box.addEventListener('click', () => { pal.style.display = 'block'; });
+</script>
+</body></html>
