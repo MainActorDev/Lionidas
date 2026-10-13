@@ -16,7 +16,7 @@
     "@crucible/shared": "workspace:../shared",
     "@fastify/multipart": "^10.1.3",
     "@fastify/websocket": "^11.3.0",
-    "@mainactordev/butler": "git+https://github.com/MainActorDev/butler.git#a0b711e",
+    "@mainactordev/butler": "git+https://github.com/MainActorDev/butler.git#1bca3e986f3455b94403689e8b571398d7dd79da",
     "@modelcontextprotocol/sdk": "^1.31.0",
     "@types/ws": "^8.18.1",
     "better-sqlite3": "^13.0.3",
