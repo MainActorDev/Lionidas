@@ -1,7 +1,7 @@
 # R3: Durable chat core (event-sourced turns + literal ACP wire) — PLAN
 
 - Source brainstorm: `brainstorm/20261013T034831Z-solid-chat-core-t3code-analysis.md` (+ ACP section, commit `9132909`)
-- Created: 2026-10-13T04:03:41Z · Ready: 2026-10-13 (decision log below)
+- Created: 2026-10-13T04:03:41Z · Ready: 2026-10-13 · Revised after review `reviews/20261013T034831Z-solid-chat-core-t3code-analysis-plan-review.md` (R1-R8 applied)
 - Status: **Ready** — execution gated on PR #35 merging (human merge)
 
 ## Decision log (operator answers, 2026-10-13)
@@ -16,12 +16,12 @@
 Rebuild butler's chat core as an event-sourced turn engine speaking literal ACP, consumed by Lionidas. Done when:
 
 1. Every chat turn is a durable command → event log → projection; a crash mid-turn leaves replayable state and resumes or fails honestly (no lying spinners, no lost turns).
-2. Butler exposes ACP v1 methods (`session/new|prompt|update|cancel|load|list`, `fs/*` gated, `permission` flow) over JSON-RPC (stdio + the existing WS bridge for the web UI); an off-the-shelf ACP client can run a session against Lionidas.
+2. Butler exposes ACP v1 methods as a LIBRARY surface — `createAcpAgent()` typed request/notification handlers — with TWO transports over ONE implementation: a thin `acp-stdio` wrapper binary for third-party clients, and in-process consumption by Lionidas (which forwards notifications over its existing WS). An off-the-shelf ACP client (named at S3 start; name + version recorded with the acceptance transcript) can run a session against Lionidas.
 3. Tool calls stream as ACP entities (`tool_call`/`tool_call_update` patched by `toolCallId` — order-correlation dead); usage streams (`usage_update`); compaction is a negotiated, visible event.
 4. Workflow stage turns write into the same per-turn event log (a stage turn = a turn with a runId); skill runs become replayable like chat.
 5. The provider seam is capability-flagged (`supportsStreaming`, `supportsResume`, session semantics); orchestration never branches on provider kind.
 6. UI renders projections only (no owned turn state); per-session subscriptions (already partly true post-`10fdac7`) verified under the audit checklist.
-7. Token accounting: per-hop marginal cost; history windowing with visible compaction; the 200k false-trip class is gone (budget trips only on genuine overspend).
+7. Token accounting — TWO meters, both surfaced in `usage_update`: (a) **cost** = Σ per-hop tokens (existing budget semantics, cap raised to a deliberate number); (b) **context** = last-hop input vs the provider's real window. Budget trips separately on each; the 200k false-trip class (cost sum misread as context) is gone.
 8. Production-grade bar (operator's explicit words): exhaustive hermetic suites for the orchestrator (pure `(state, command) → events` — table tests), effect-worker drain tests (no sleep-based tests), migration/back-compat for existing `butler_sessions`/`butler_messages` (old rows readable, new turns evented), typed contracts generated from one schema, README/docs in butler, CHANGELOG, tagged.
 
 ## Scope
@@ -47,10 +47,11 @@ UI/ACP client ── JSON-RPC (ACP v1) ─▶ butler boundary
                                 loop events → ACP session/update → client
 ```
 
-- **Event store**: new tables `butler_turns`, `butler_turn_events` (append-only; content JSON validated against the typed schema). Sessions/messages tables remain as PROJECTIONS (rewritten by the sink) so existing consumers keep working during migration.
+- **Event store**: new tables `butler_turns`, `butler_turn_events` (append-only; content JSON validated against the typed schema). Sessions/messages tables remain as PROJECTIONS (rewritten by the sink) so existing consumers keep working during migration. **Single-writer rule (review R1):** the sink is the ONLY writer of message rows; ALL message writes — including lionidas' direct `appendMessage` calls today (`pipeline-routes.ts:131-135` user/answer/narrative rows) — become orchestrator commands. A stray direct write is a test failure, not a silent desync.
 - **Orchestrator**: pure function, table-testable; serializes per session; decides `turn.requested`, `turn.started`, `chunk`, `tool_call`, `usage`, `turn.completed/failed/aborted` events. No I/O.
 - **EffectWorker**: consumes outbox rows; executes provider turns via the existing runLoop (now emitting ACP-shaped events with stable `toolCallId`s); feeds completions/errors back as commands. Crash recovery = retry un-retired outbox rows with idempotency keys.
-- **ACP wire**: `session/prompt` maps to a `turn.requested` command; the 14 `session/update` kinds map 1:1 from engine events (thought chunks map from claude-cli thinking blocks); capabilities negotiated at `session/new` (butler advertises what the active provider truly supports — ACP's "report only what the provider does" rule, which matches t3code's).
+- **ACP wire**: `createAcpAgent()` — the ACP method surface as a library (typed handlers). `acp-stdio` wrapper binary serves third-party clients; Lionidas imports the SAME handlers in-process and forwards notifications over its WS. One implementation, two transports, zero drift (review R2). `session/prompt` maps to a `turn.requested` command; the 14 `session/update` kinds map 1:1 from engine events (thought chunks map from claude-cli thinking blocks). Negotiation is at `initialize`, TWO-SIDED: butler returns `AgentCapabilities` reporting only what the active provider truly supports, and receives `ClientCapabilities` (review R4). `fs/*` and `terminal/*` are CLIENT-side methods the agent may call when the client advertises them — butler does NOT call them in v0.5.0. Permission flow: not advertised in v0.5.0 (tool policy unchanged, auto-approve; revisit when write-tools arrive) (review R8).
+- **ACP/run boundary (review R3)**: ACP covers CHAT turns and the streaming of stage-turn events. The workflow RUN lifecycle (start, gate advance, pause/resume) remains a Lionidas-level API — a run parked at `awaiting_gate` cannot be one `session/prompt` call (ACP has no parked stopReason), and the skill route today already holds HTTP open for a whole run (`pipeline-routes.ts:116`). An ACP client triggering a skill sees: the chat turn completes, workflow events stream as notifications, run status via the Lionidas API.
 - **Provider capability flags**: extend `ExecutorConfig` with a caps record; `claude-cli` declares `resume: per-key`, `streaming: true`; `openai-compat` declares its own; orchestration + ACP layering read flags only.
 
 ## Interfaces
@@ -62,15 +63,15 @@ UI/ACP client ── JSON-RPC (ACP v1) ─▶ butler boundary
 ## Stages (each ends verified; butler-tagged at S6)
 
 ### S1 — Event store + orchestrator skeleton (butler)
-Tables, pure orchestrator with table tests for the core commands (prompt, cancel, abort, complete, fail), EventSink transaction, projection writer for sessions/messages. Hermetic: replay determinism, idempotent command retries, crash-between-commit-and-effect recovery.
+Tables, pure orchestrator with table tests for the core commands (prompt, cancel, abort, complete, fail, message.append from callers), EventSink transaction, projection writer for sessions/messages. Single-writer rule enforced: message rows written only via commands; replay determinism, idempotent command retries, crash-between-commit-and-effect recovery. Acceptance for R1: zero `appendMessage` callers outside the sink (grep-verifiable).
 ### S2 — EffectWorker + runLoop ACP-shaping
-Outbox worker; runLoop emits stable toolCallIds + ACP-shaped events (chunk/tool_call/usage); drain-based tests. The 200k accounting fix lands here (per-hop marginal cost; budget trips honest).
+Outbox worker; runLoop emits stable toolCallIds + ACP-shaped events (chunk/tool_call/usage). Token accounting lands here as TWO meters (review R5): cost = Σ per-hop usage (deliberate cap), context = last-hop input vs provider window — separate trips, both in `usage_update`. S2 opens with a per-provider HISTORY INVENTORY (review R6): where history lives per adapter (openai-compat: explicit message array, windowable; claude-cli: continuity via `--resume`, provider holds history server-side — windowing is a no-op until a new session is cut) and what compaction can honestly do per provider; compaction tests assert only what the inventory says is possible. Drain-based tests; scripted 8-hop turn proves cost accumulates while context tracks last-hop (neither false-trips).
 ### S3 — ACP v1 wire
-JSON-RPC server (stdio) implementing session lifecycle; capabilities negotiation; `session/update` forwarding. Verify against the ACP schema's own test vectors where they exist, plus a reference-client smoke (any ACP sample client).
+`createAcpAgent()` library surface + `acp-stdio` wrapper binary (review R2). `initialize` two-sided negotiation; `fs/*`/`terminal/*` uncalled; no permission capability (review R4/R8). ACP/run boundary implemented (review R3): `session/prompt` returns at TURN end even when a triggered run is gated; stage-turn `session/update`s continue after the return. Conformance against the ACP schema's own test vectors + the named reference client (name + version recorded).
 ### S4 — Workflow stage turns join the log
 Stage executor routes its turns through commands (runId-keyed); gates/pause/resume untouched. Skills become replayable; run panel reads the same events.
 ### S5 — Lionidas consumption
-Pin tag; WS bridge carries ACP-shaped events; UI projections replace owned state; UI-state audit pass (entry points × surfaces × reverse states checklist); live drills: crash-mid-turn (kill server, restart, turn resumes or fails honestly with events intact), two-session isolation, skill+follow-up, streaming.
+Pin tag; WS bridge carries ACP-shaped events (forwarding the in-process handler notifications); UI projections replace owned state; ALL remaining lionidas message writes rerouted through commands (review R1 — the grep gate); UI-state audit pass (entry points × surfaces × reverse states checklist); live drills: crash-mid-turn (kill server, restart, turn resumes or fails honestly with events intact), two-session isolation, skill+follow-up, streaming.
 ### S6 — Production-grade pass (butler)
 Docs (README architecture section, CHANGELOG), migration test from a real v0.4.2 DB snapshot, concurrency test (two clients, one session, serialized), performance sanity (event append < 5ms), tag v0.5.0 (minor: wire addition + engine rework; breaking internals documented).
 
@@ -86,7 +87,7 @@ Docs (README architecture section, CHANGELOG), migration test from a real v0.4.2
 ## Validation & acceptance
 
 1. Kill -9 the server mid-chat-turn → restart → the turn appears as `failed` with partial content preserved; a new message works immediately (no lying spinner).
-2. An off-the-shelf ACP client completes a session against Lionidas (prompt → streamed updates → tool calls patched by id → usage → cancel).
+2. An off-the-shelf ACP client (named at S3 start, name + version recorded) completes a session against Lionidas (prompt → streamed updates → tool calls patched by id → usage → cancel).
 3. Replaying any session's event log reproduces the projection bit-for-bit (property test).
 4. Round-2 regression drills green on the new core: codeword isolation, skill+ref+follow-up, two-topic memory retrieval.
 5. Suites: butler (orchestrator table tests + effect drain tests + ACP conformance), server, web; tsc ×3; no sleep-based tests (t3code's rule, adopted).
