@@ -47,27 +47,40 @@ describe('mention palette e2e', () => {
     w2.unmount();
   });
 
-  it('Backspace at token start removes the whole token (and its ref)', async () => {
+  it('chip is ATOMIC: Backspace-after deletes whole; Backspace-before selects then deletes', async () => {
     const w = mount(Composer, { attachTo: document.body });
     const ta = w.find('textarea');
     await ta.setValue('@milestone');
     await new Promise((r) => setTimeout(r, 260));
-    const rowsDom = w.findAll('.slash-row:not(.state)');
-    const caseRow = rowsDom.find((r) => r.text().includes('tracking_milestone_labels'));
-    expect(caseRow).toBeTruthy();
+    const caseRow = w.findAll('.slash-row:not(.state)').find((r) => r.text().includes('tracking_milestone_labels'));
     await caseRow!.trigger('mousedown');
     await flushPromises();
     const el = ta.element as HTMLTextAreaElement;
     const label = 'tracking_milestone_labels';
     const start = el.value.indexOf(label);
     expect(start).toBeGreaterThanOrEqual(0);
-    // caret at token start → Backspace deletes label + trailing space as a unit
-    el.setSelectionRange(start, start);
+
+    // caret AFTER the chip → one Backspace deletes the WHOLE chip
+    const after = start + label.length + 1;
+    el.setSelectionRange(after, after);
     await ta.trigger('keydown', { key: 'Backspace' });
     await flushPromises();
-    expect((ta.element as HTMLTextAreaElement).value.includes(label)).toBe(false);
-    const sendCalls = (w as unknown as { emitted: (e: string) => Array<Array<unknown>> | undefined }).emitted('send');
-    void sendCalls;
+    expect(el.value.includes(label)).toBe(false);
+
+    // caret BEFORE the chip → press 1 SELECTS the chip, press 2 deletes it
+    await ta.setValue('@milestone');
+    await new Promise((r) => setTimeout(r, 260));
+    const caseRow2 = w.findAll('.slash-row:not(.state)').find((r) => r.text().includes('tracking_milestone_labels'));
+    await caseRow2!.trigger('mousedown');
+    await flushPromises();
+    const start2 = el.value.indexOf(label);
+    el.setSelectionRange(start2, start2);
+    await ta.trigger('keydown', { key: 'Backspace' });
+    expect(el.selectionStart).toBe(start2);
+    expect(el.selectionEnd).toBe(start2 + label.length);
+    expect(el.value.includes(label)).toBe(true);
+    await ta.trigger('keydown', { key: 'Backspace' });
+    await flushPromises();
+    expect(el.value.includes(label)).toBe(false);
     w.unmount();
-  });
-});
+  });});

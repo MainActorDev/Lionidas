@@ -145,8 +145,6 @@ const paletteLoading = ref(false);
 const jiraRows = ref<PaletteRow[]>([]);   // async tier
 const jiraSearching = ref(false);
 const tokens = ref<TokenRange[]>([]);     // MR1: ranges, never sentinels
-/** caret to restore after Vue's v-model re-render (pick/backspace keep the caret honest) */
-let pendingCaret = -1;
 let paletteSeq = 0;
 
 /** recent refs — palette memory only; draft NEVER pre-populated (MR2) */
@@ -180,11 +178,21 @@ const atRows = computed<PaletteRow[]>(() => {
 });
 
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
+/** snap: a caret placed strictly INSIDE a chip jumps to its end (the chip is atomic) */
+function snapCaretOutOfTokens(): void {
+  const el = ta();
+  if (!el || el.selectionStart !== el.selectionEnd) return;
+  const c = el.selectionStart ?? -1;
+  const inside = tokens.value.find((t) => t.start < c && c < t.end);
+  if (inside) el.setSelectionRange(inside.end, inside.end);
+}
+
 /** caret-based @ token detection: opens while typing; query = '@'+… to caret */
 function onTextForPalette(): void {
   if (reverting) return;
   const el = ta();
   if (!el) return;
+  snapCaretOutOfTokens();
   const caret = el.selectionStart ?? 0;
   const before = text.value.slice(0, caret);
   const m = /(^|\s)@([A-Za-z0-9_./#-]*)$/.exec(before);
@@ -239,6 +247,60 @@ function closePalette(): void {
   paletteSeq++;
 }
 
+
+/** ── imperative edit primitive (the Slack chip model) ────────────────────
+ *  Every programmatic edit sets el.value + el.setSelectionRange SYNCHRONOUSLY,
+ *  then dispatches an input event so v-model syncs FROM the element. There is
+ *  no re-render window for the caret to drift in. Tokens shift atomically. */
+function applyEdit(newValue: string, caret: number, tokenEdit: (t: TokenRange) => TokenRange | null): void {
+  const el = ta();
+  if (!el) { text.value = newValue; return; }
+  el.value = newValue;
+  const pos = Math.max(0, Math.min(caret, newValue.length));
+  el.focus();
+  el.setSelectionRange(pos, pos);
+  // shift/drop token ranges through this edit
+  const oldTokens = [...tokens.value].sort((a, b) => a.start - b.start);
+  tokens.value = oldTokens.map(tokenEdit).filter((t): t is TokenRange => t !== null);
+  el.dispatchEvent(new Event('input', { bubbles: true })); // v-model syncs from the element
+}
+
+/** find the token the caret relates to: 'inside' (start<caret<end incl. selection),
+ *  'before' (caret === start), 'after' (caret === end) */
+function tokenAtCaret(el: HTMLTextAreaElement): { token: TokenRange; side: 'before' | 'after' | 'inside' } | null {
+  const c = el.selectionStart ?? -1;
+  const sel = (el.selectionEnd ?? c) - c;
+  for (const t of tokens.value) {
+    if (sel > 0 && c < t.end && (el.selectionEnd ?? c) > t.start) return { token: t, side: 'inside' };
+    if (c === t.start) return { token: t, side: 'before' };
+    // 'after' includes the swallowed trailing space position — Backspace right after a chip+space
+    // deletes the CHIP (what every mention UI does), not the lone space first
+    const spaceAfter = text.value[t.end] === ' ' ? 1 : 0;
+    if (c === t.end || c === t.end + spaceAfter) return { token: t, side: 'after' };
+    if (c > t.start && c < t.end) return { token: t, side: 'inside' };
+  }
+  return null;
+}
+
+/** remove one token (chip) entirely: text span + one adjacent space + its ref */
+function removeToken(t: TokenRange, caretTarget: number): void {
+  let start = t.start;
+  let end = t.end;
+  const v = text.value;
+  if (v[end] === ' ') end += 1;          // swallow the trailing space
+  else if (v[start - 1] === ' ') start -= 1; // or a leading one
+  const cutLen = end - start;
+  const removedToken = t;
+  applyEdit(v.slice(0, start) + v.slice(end), start, (tok) => {
+    if (tok === removedToken) return null;
+    if (tok.start >= end) return { ...tok, start: tok.start - cutLen, end: tok.end - cutLen };
+    return tok;
+  });
+  const ref = refs.value.find((r) => r.kind === t.kind && r.locator === t.locator);
+  if (ref) refs.value = refs.value.filter((r) => r !== ref);
+  void caretTarget;
+}
+
 /** pick: autocomplete the token text in-place + record the RANGE (MR1) */
 function acceptPalette(idx?: number): void {
   const row = atRows.value[idx ?? atIdx.value];
@@ -250,25 +312,18 @@ function acceptPalette(idx?: number): void {
     : row.ref.kind === 'case' ? (row.title)
     : `${row.ref.locator}`;
   const insert = `${label} `;
-  const caret = el.selectionStart ?? text.value.length;
-  const end = caret;
-  // replace '@query' with 'label '
-  text.value = text.value.slice(0, atStart.value) + insert + text.value.slice(end);
-  // shift existing token ranges after the edit point
-  const removed = end - atStart.value;
-  const added = insert.length;
-  const kept: TokenRange[] = [];
-  for (const t of tokens.value) {
-    if (t.end <= atStart.value) kept.push(t);
-    else if (t.start >= end) kept.push({ ...t, start: t.start - removed + added, end: t.end - removed + added });
-    // overlapping tokens are dropped (shouldn't happen)
-  }
-  kept.push({ start: atStart.value, end: atStart.value + label.length, kind: row.ref.kind, locator: row.ref.locator, label });
-  tokens.value = kept;
+  const at = atStart.value;
+  const end = el.selectionStart ?? at;
+  const removedLen = end - at;
+  const newToken: TokenRange = { start: at, end: at + label.length, kind: row.ref.kind, locator: row.ref.locator, label };
+  applyEdit(text.value.slice(0, at) + insert + text.value.slice(end), at + insert.length, (t) => {
+    if (t.start >= end) return { ...t, start: t.start - removedLen + insert.length, end: t.end - removedLen + insert.length };
+    return t;
+  });
+  tokens.value = [...tokens.value, newToken].sort((a, b) => a.start - b.start);
   const ref: Ref = { kind: row.ref.kind, locator: row.ref.locator, label };
   if (refs.value.length < REF_CAP && !refs.value.some((r) => r.kind === ref.kind && r.locator === ref.locator)) refs.value.push(ref);
   pushRecent(ref);
-  pendingCaret = atStart.value + insert.length;
   closePalette();
 }
 
@@ -291,40 +346,65 @@ function ta(): HTMLTextAreaElement | null {
   return taEl.value ?? (document.querySelector('.composer textarea') as HTMLTextAreaElement | null);
 }
 
-/** overlay mirrors the textarea's scroll (long drafts) + pending caret restore */
+/** overlay mirrors the textarea's scroll (long drafts) — caret needs no restore:
+ *  applyEdit sets value+selection synchronously and lets v-model sync FROM the
+ *  element, so no re-render ever moves the caret. */
 watch(() => [text.value, tokens.value.length], () => {
   void nextTick(() => {
     const el = taEl.value;
     const ov = document.querySelector('.ta-overlay') as HTMLElement | null;
     if (el && ov) ov.scrollTop = el.scrollTop;
-    if (el && pendingCaret >= 0) {
-      const pos = Math.min(pendingCaret, el.value.length);
-      el.focus();
-      el.setSelectionRange(pos, pos);
-      pendingCaret = -1;
-      // v-model may re-set value once more after this tick — re-assert on the next frame
-      requestAnimationFrame(() => {
-        if (document.activeElement === el) el.setSelectionRange(pos, pos);
-      });
-    }
   });
 });
 
 
 function onKey(e: KeyboardEvent): void {
   if (e.key === 'Backspace' && activeCmd.value && text.value === '') { e.preventDefault(); revertChip(); return; }
-  // MR1: Backspace at a token start removes the WHOLE token (as a unit)
-  if (e.key === 'Backspace' && !activeCmd.value) {
-    const el = ta();
-    const caret = el?.selectionStart ?? -1;
-    const atStartHit = tokens.value.find((t) => t.start === caret);
-    if (atStartHit) {
+  // ── atomic chip keys (the Slack model, complete) ──
+  const el = ta();
+  if (el && !activeCmd.value) {
+    const hit = tokenAtCaret(el);
+
+    // Backspace: caret right AFTER a chip (or a selection touching it) → delete the chip whole
+    if (e.key === 'Backspace' && (hit?.side === 'after' || hit?.side === 'inside')) {
       e.preventDefault();
-      text.value = text.value.slice(0, atStartHit.start) + text.value.slice(atStartHit.end).replace(/^\s+/, '');
-      tokens.value = tokens.value.filter((t) => t !== atStartHit).map((t) => (t.start >= atStartHit.end ? { ...t, start: t.start - (atStartHit.end - atStartHit.start), end: t.end - (atStartHit.end - atStartHit.start) } : t));
-      const ref = refs.value.find((r) => r.locator === atStartHit.locator && r.kind === atStartHit.kind);
-      if (ref) refs.value = refs.value.filter((r) => r !== ref);
-      pendingCaret = atStartHit.start;
+      removeToken(hit.token, hit.token.start);
+      return;
+    }
+    // Backspace: caret just BEFORE a chip → select the chip first (Slack's two-stage), second press deletes
+    if (e.key === 'Backspace' && hit?.side === 'before') {
+      e.preventDefault();
+      if (el.selectionStart === el.selectionEnd) {
+        el.setSelectionRange(hit.token.start, hit.token.end); // stage 1: highlight
+      } else {
+        removeToken(hit.token, hit.token.start);              // stage 2: delete
+      }
+      return;
+    }
+    // Delete (forward): caret just BEFORE a chip → remove it whole
+    if (e.key === 'Delete' && (hit?.side === 'before' || hit?.side === 'inside')) {
+      e.preventDefault();
+      removeToken(hit.token, hit.token.start);
+      return;
+    }
+    // ArrowLeft/ArrowRight over a chip with no selection → jump the WHOLE chip (atomic)
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && el.selectionStart === el.selectionEnd && hit) {
+      e.preventDefault();
+      const pos = e.key === 'ArrowLeft' ? hit.token.start : hit.token.end;
+      el.setSelectionRange(pos, pos);
+      return;
+    }
+    // any printable/editing key with a selection covering a chip → delete the chip first (atomic replace)
+    if (hit?.side === 'inside' && e.key.length === 1 && !e.metaKey && !e.ctrlKey) {
+      e.preventDefault();
+      removeToken(hit.token, hit.token.start);
+      // let the character land after the chip removal
+      const insert = e.key;
+      const at = hit.token.start;
+      applyEdit(text.value.slice(0, at) + insert + text.value.slice(at), at + insert.length, (t) => {
+        if (t.start >= at) return { ...t, start: t.start + insert.length, end: t.end + insert.length };
+        return t;
+      });
       return;
     }
   }
@@ -398,7 +478,7 @@ function submit(): void {
         <span v-if="activeCmd" class="cmd-chip">{{ activeCmd }}<button class="chip-x" title="remove command" @mousedown.prevent.stop @click="revertChip">✕</button></span>
         <div class="ta-wrap">
           <div class="ta-overlay" aria-hidden="true"><template v-for="(seg, i) in overlaySegments" :key="i"><span v-if="seg.token" class="chip inline" :class="seg.token.kind">{{ seg.token.label }}</span><template v-else>{{ seg.text }}</template></template></div>
-          <textarea ref="taEl" v-model="text" :placeholder="activeCmd ? 'describe what you want from this command…' : 'ask about cases, runs, or draft new tests…  ·  @ to reference'" @keydown="onKey" @click="onTextForPalette" @keyup="onTextForPalette"></textarea>
+          <textarea ref="taEl" v-model="text" :placeholder="activeCmd ? 'describe what you want from this command…' : 'ask about cases, runs, or draft new tests…  ·  @ to reference'" @keydown="onKey" @click="onTextForPalette" @keyup="onTextForPalette" @select="snapCaretOutOfTokens"></textarea>
         </div>
       </div>
       <div class="row">
