@@ -177,7 +177,9 @@ async function send(text: string, refs: PipelineRef[], appBundle: string): Promi
     // turn with refs is a CHAT turn (refs recorded in the message; the agent
     // reads them via jira.get / repo tools). Pipelines start explicitly
     // (/author, /breakdown) or from the run panel.
-    const refNote = refs.length ? ` [refs: ${refs.map((r) => r.locator).join(', ')}]` : '';
+    // kind-tagged so the model knows HOW to read each ref (jira.get / case.yaml.get /
+    // repo.read) — bare locators made the model guess and it went hunting the DB
+    const refNote = refs.length ? ` [refs: ${refs.map((r) => `${r.kind}:${r.locator}`).join(', ')}]` : '';
     {
       const r = await fetch(`/api/agent/sessions/${sid}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: `${text}${refNote}` }) });
       if (r.ok) {

@@ -128,7 +128,7 @@ export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, 
       if (b.sessionId) {
         // R3-S5 single-writer rule: skill-route message rows ride the durable
         // log via message.append commands; the sink projects butler_messages.
-        ctx.sink.handle(b.sessionId, { kind: 'message.append', sessionId: b.sessionId, role: 'user', content: `${b.command} ${b.ask.trim()}${refs.length ? ` [refs: ${refs.map((r) => r.locator).join(', ')}]` : ''}` }, `skill:${out.runId}:user`);
+        ctx.sink.handle(b.sessionId, { kind: 'message.append', sessionId: b.sessionId, role: 'user', content: `${b.command} ${b.ask.trim()}${refs.length ? ` [refs: ${refs.map((r) => `${r.kind}:${r.locator}`).join(', ')}]` : ''}` }, `skill:${out.runId}:user`);
         if (answer) ctx.sink.handle(b.sessionId, { kind: 'message.append', sessionId: b.sessionId, role: 'assistant', content: answer }, `skill:${out.runId}:answer`);
         // R2-F1: compact tool narrative — follow-ups see HOW the answer was derived
         if (toolCounts.size) {
