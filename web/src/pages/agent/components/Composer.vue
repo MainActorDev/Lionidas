@@ -597,6 +597,9 @@ textarea { width: 100%; background: none; border: none; outline: none; color: va
  *  inset ring ONLY: zero padding, zero margin, no border — the chip occupies
  *  exactly the width of its raw text. */
 .chip.inline { display: inline; border-radius: 3px; padding: 0; margin: 0; font-size: inherit; line-height: inherit; background: #2c2c2c; box-shadow: inset 0 0 0 1px #3d3d3d; color: var(--color-paper); border: none; text-decoration: none; }
-.chip.inline.querying { color: #e8916d; background: rgba(232, 145, 109, .06); box-shadow: inset 0 0 0 1px rgba(232, 145, 109, .35); border-radius: 3px; padding: 0; }
+/* the in-flight @token is a REAL chip (operator feedback: the faint ghost read as
+ *  plain text) — filled ember family, solid ring, same weight as picked chips;
+ *  only the dashed ring says 'still being typed' */
+.chip.inline.querying { color: #f2a67f; background: rgba(232, 145, 109, .22); box-shadow: inset 0 0 0 1px rgba(232, 145, 109, .7); border-radius: 3px; padding: 0; font-weight: var(--weight-bold); }
 .chip.inline.jira { color: #7fb3d5; } .chip.inline.github-commit, .chip.inline.github-pr { color: #e8916d; } .chip.inline.case { color: #a8c58a; } .chip.inline.attachment { color: #b08ccf; }
 </style>
