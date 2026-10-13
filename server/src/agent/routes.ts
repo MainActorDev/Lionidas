@@ -26,6 +26,8 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AgentContext, bus
       systemPrompt: ctx.systemPrompt,
       embedder: ctx.embedder, // R2-F3: ranked note injection
       emit: (e) => { bus.emit('agent.turn', { sessionId: e.sessionId, type: e.type, hop: e.hop, ...(e.detail !== undefined ? { detail: e.detail } : {}) }); },
+      sink: ctx.sink, // R3-S5: durable turns — event log rides the storage DB
+      contextWindow: 200_000,
     });
 
     await mountMcp(scope, {

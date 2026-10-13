@@ -2,6 +2,7 @@
  *  lifecycle as other deps. Provider: env-configured OpenAI-compatible, or
  *  the honest MockProvider when env is absent. */
 import {
+  EventSink,
   MockProvider,
   OpenAICompatProvider,
   SqliteStorage,
@@ -22,6 +23,8 @@ import { V1_POLICY } from './policy.ts';
 import { LIONIDAS_SYSTEM_PROMPT } from './system-prompt.ts';
 
 export interface AgentContext {
+  /** R3-S5: durable turn engine (event log shares the storage DB) */
+  sink: EventSink;
   db: import('better-sqlite3').Database;
   storage: SqliteStorage;
   retriever: StorageRetriever;
@@ -56,6 +59,9 @@ function cfg_artifactsDir(env: Record<string, string | undefined>): string {
 
 export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; artifactsDir: string; env: Record<string, string | undefined>; syncPresets?: () => void }): AgentContext {
   const storage = new SqliteStorage(join(cfg.dbPath + '.agent.db'));
+  // R3-S5: the durable turn engine rides the SAME sqlite file (its own tables;
+  // single-writer rule: butler_messages writes flow through the sink's commands)
+  const sink = new EventSink(storage.handle());
   const retriever = new StorageRetriever(storage);
   // observability: preset-proxy sync count (tests + future metrics). The wrap
   // happens BEFORE the registry build so every tool closure shares the counter.
@@ -105,7 +111,7 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
     provider = new MockProvider([{ kind: 'assistant', content: 'agent provider not configured (set BUTLER_PROVIDER_BASE_URL / BUTLER_API_KEY / BUTLER_MODEL) — mock response' }]);
   }
 
-  const ctx: AgentContext = { db, storage, retriever, registry, provider, policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }), syncPresetsCalls: 0, attachments, embedder };
+  const ctx: AgentContext = { db, storage, sink, retriever, registry, provider, policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }), syncPresetsCalls: 0, attachments, embedder };
 
   Object.defineProperty(ctx, 'syncPresetsCalls', { get: () => syncState.calls });
 

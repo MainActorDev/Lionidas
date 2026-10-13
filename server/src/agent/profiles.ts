@@ -70,7 +70,7 @@ export function buildProfiles(env: Record<string, string | undefined>, opts: { a
     planner: {
       id: 'lionidas.planner',
       systemPrompt: PLANNER_PROMPT,
-      tools: ['cases.list', 'case.yaml.get', 'runs.history', 'screens.registry', 'folders.tree', 'sources.search', 'notes.read'],
+      tools: ['cases.list', 'case.yaml.get', 'runs.history', 'screens.registry', 'folders.tree', 'sources.search', 'notes.read', 'repo.read', 'repo.tree', 'repo.commit_files', 'repo.diff'],
       policy: 'read',
       provider: executor(env, 'AGENT_PLANNER', mock(opts.mockScripts?.planner)),
       budgets: { maxHops: 10 },
@@ -88,7 +88,7 @@ export function buildProfiles(env: Record<string, string | undefined>, opts: { a
     author: {
       id: 'lionidas.author',
       systemPrompt: AUTHOR_PROMPT,
-      tools: ['cases.list', 'case.yaml.get', 'screens.registry', 'folders.tree', 'notes.read', 'sources.search', 'case.draft.save', 'case.draft.edit', 'note.save', 'sources.ingest'],
+      tools: ['cases.list', 'case.yaml.get', 'screens.registry', 'folders.tree', 'notes.read', 'sources.search', 'case.draft.save', 'case.draft.edit', 'note.save', 'sources.ingest', 'repo.read', 'repo.tree', 'repo.commit_files', 'repo.diff'],
       policy: 'draft',
       provider: executor(env, 'AGENT_AUTHOR', mock(opts.mockScripts?.author)),
       budgets: { maxHops: 14 },

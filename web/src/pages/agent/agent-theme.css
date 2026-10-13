@@ -27,3 +27,39 @@
 }
 
 .ag-root * { box-sizing: border-box; }
+
+/* ═══ Syntax highlighting (highlight.ts) — one palette, ember-adjacent,
+ *   tuned for #141414 canvas. WCAG-AA (4.5:1) targets on all text colors. */
+.code-hl code { display: block; }
+.hl-kw   { color: #e8916d; }  /* keywords — warm ember, matches accent family */
+.hl-str  { color: #a8c58a; }  /* strings — sage */
+.hl-num  { color: #d4a94e; }  /* numbers/anchors — gold */
+.hl-cmt  { color: #6b7a6b; font-style: italic; }  /* comments — muted sage, AA at large code size */
+.hl-key  { color: #7fb3d5; }  /* JSON/YAML keys — steel blue */
+.hl-type { color: #d9b8a8; }  /* types/_capitals — warm sand */
+.hl-attr { color: #b08ccf; }  /* annotations/decorators/flags — lavender */
+.hl-var  { color: #7fb3d5; }  /* bash $vars */
+.hl-punc { color: #8a8a8a; }  /* punctuation — neutral */
+.hl-op   { color: #c9c9c9; }  /* operators */
+.hl-id   { color: inherit; }  /* identifiers — base paper */
+.hl-meta { color: #8a8a8a; }  /* diff headers @@, +++ */
+.hl-add  { color: #a8c58a; background: rgba(120, 180, 90, .08); display: inline-block; width: 100%; }
+.hl-del  { color: #d98a7a; background: rgba(210, 100, 80, .08); display: inline-block; width: 100%; }
+.hl-ctx  { color: #8a8a8a; }  /* diff context lines */
+
+/* code block chrome: hairline header band with language label */
+pre.code-hl { padding: 0; overflow: hidden; }
+pre.code-hl code { padding: var(--s-3); white-space: pre; overflow-x: auto; }
+
+/* language chip: header band drawn via ::before */
+pre.code-hl[data-lang]::before {
+  content: attr(data-lang);
+  display: block;
+  padding: 4px var(--s-3);
+  border-bottom: 1px solid var(--ag-line);
+  color: var(--color-steel);
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: lowercase;
+  user-select: none;
+}

@@ -126,12 +126,14 @@ export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, 
       if (answer && rejectedRefs.length) answer = `${answer}\n\n[unrecognized ref kinds ignored: ${rejectedRefs.join(', ')}]`;
       if (answer && compileNote) answer = `${compileNote}\n${answer}`;
       if (b.sessionId) {
-        await ctx.storage.appendMessage({ session_id: b.sessionId, role: 'user', content: `${b.command} ${b.ask.trim()}${refs.length ? ` [refs: ${refs.map((r) => r.locator).join(', ')}]` : ''}`, tokens_in: 0, tokens_out: 0, tool_calls_json: null, tool_results_json: null });
-        if (answer) await ctx.storage.appendMessage({ session_id: b.sessionId, role: 'assistant', content: answer, tokens_in: 0, tokens_out: 0, tool_calls_json: null, tool_results_json: null });
+        // R3-S5 single-writer rule: skill-route message rows ride the durable
+        // log via message.append commands; the sink projects butler_messages.
+        ctx.sink.handle(b.sessionId, { kind: 'message.append', sessionId: b.sessionId, role: 'user', content: `${b.command} ${b.ask.trim()}${refs.length ? ` [refs: ${refs.map((r) => r.locator).join(', ')}]` : ''}` }, `skill:${out.runId}:user`);
+        if (answer) ctx.sink.handle(b.sessionId, { kind: 'message.append', sessionId: b.sessionId, role: 'assistant', content: answer }, `skill:${out.runId}:answer`);
         // R2-F1: compact tool narrative — follow-ups see HOW the answer was derived
         if (toolCounts.size) {
           const narrative = `tools used by ${b.command}: ${[...toolCounts.entries()].map(([n, c]) => `${n} (${c})`).join(', ')}`;
-          await ctx.storage.appendMessage({ session_id: b.sessionId, role: 'assistant', content: `[${narrative} — run ${out.runId}]`, tokens_in: 0, tokens_out: 0, tool_calls_json: null, tool_results_json: null });
+          ctx.sink.handle(b.sessionId, { kind: 'message.append', sessionId: b.sessionId, role: 'assistant', content: `[${narrative} — run ${out.runId}]` }, `skill:${out.runId}:narrative`);
         }
       }
       untap?.();
