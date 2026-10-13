@@ -92,6 +92,29 @@ Docs (README architecture section, CHANGELOG), migration test from a real v0.4.2
 4. Round-2 regression drills green on the new core: codeword isolation, skill+ref+follow-up, two-topic memory retrieval.
 5. Suites: butler (orchestrator table tests + effect drain tests + ACP conformance), server, web; tsc ×3; no sleep-based tests (t3code's rule, adopted).
 
+## Harness reference scan (pi, OmO, DeepSeek Harness — 2026-10-13, folded in pre-execution)
+
+Operator: "think about these repos for the harnesses. We have all the time in the world to ensure Lionidas is working perfectly." All three cloned and read at code level; findings mapped onto THIS plan (no scope change — refinements only):
+
+**pi (earendil-works/pi, MIT, ~390k TS)** — the strongest reference of the three for us:
+- **Session TREE, not a log line**: entries form a tree in JSONL; the active branch supplies history; forking/compaction insert summary ENTRIES without deleting originals (`session-manager.ts:57-183`, docs/how-pi-works.md). Refinement for S1: give `butler_turn_events` an optional `parent_id` so future branching (retry-from-here, explore-two-ways) is representable without migration. Cost: one nullable column.
+- **Steering vs follow-up queues** (`agent-session.ts:393-399,1120-1140`): a mid-run user message can STEER (inject after current assistant turn) or QUEUE (enter after pending work) — with visible queue state emitted to the UI. We have neither: mid-run sends are undefined behavior. Refinement for S1/S2: model a `message.queued` command + queue-state events; the UI shows the queue instead of guessing.
+- **Compaction as a session entry with originals preserved** (docs/compaction.md): matches our R5/R6 design; confirms the ACP `compaction_update` mapping is honest.
+- **One agent core, four interfaces** (interactive/print/JSON/RPC/SDK all drive the same session machinery) — validates our `createAcpAgent()` one-implementation-many-transports decision (review R2).
+
+**DeepSeek Harness (deepseek-ai/deepseek-harness, MIT, Cordis-based)** — validates the architecture wholesale, plus one warning:
+- Their session plane is EXACTLY our S1 design: append-only durable log + projection units folding events into current values + projection CHECKPOINT cache for cold reads (`packages/session/README.md`, session-projection*). Independent confirmation the event/projection split is the industry shape.
+- **FROZEN adjacent format migrations** (session-format-v0→v1→v2→v3→v4, each "frozen" once released): our migration shim (S6) should adopt the same discipline — a released event schema version never edited; evolution = a new frozen migration file. Refinement for S1: stamp event rows with a schema version from day one.
+- **They ship an ACP profile as a first-class bundle** (`dsh-acp-app`: stdio JSON-RPC, stdout reserved for ACP frames, drain-on-SIGTERM) — a production reference implementation of exactly our S3; read their bridge before writing ours.
+- Warning taken: developer-preview, "THERE WILL BE COMPATIBILITY-BREAKING CHANGES", Cordis DI adds a framework we do NOT adopt (their everything-is-a-plugin composition is explicitly out for butler — we keep explicit modules).
+
+**OmO (code-yeongyu/oh-my-openagent, SUL-1.0 license, Rust+TS)** — two useful ideas, one decisive caution:
+- 5.0 is **built ON pi** ("OmO ❤️ Pi") — third-party validation that pi's harness core is solid enough to build products on.
+- Useful idea: **Kibitzer** — a read-only recall sidecar whose ONLY act is a nudge ("recalled memory: <hint>"), never a write; memory writes happen through a separate nudge cadence. Relevant later to our F3 memory work (round 4+), not to R3.
+- **License caution: SUL-1.0 is NOT OSI-open** — read for inspiration only, copy NOTHING. Their pi-based memory architecture docs are instructive; no code or prose flows into butler/lionidas.
+
+**Net effect on this plan:** three refinements folded into stages — (1) `parent_id` column on turn events (S1); (2) schema-version stamping + frozen-migration discipline (S1/S6); (3) steering/follow-up queue commands + visible queue state (S1/S2, small). pi and dsh are MIT: mechanisms may be studied and re-implemented; OmO is reference-only. No re-plan needed; execution order unchanged.
+
 ## Rollout
 
 Branch `feat/agent-round3` off main after PR #35 merges. Butler v0.5.0 tag at S6; lionidas pins it at S5 (dev pin at S2 for drilling). No user-visible UI change except honest failure states. C4 golden-set evals follow as round 4, written against the new core.
