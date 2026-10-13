@@ -98,14 +98,15 @@ describe('agent chat page', () => {
     expect(calls.some((u) => u.includes('/api/agent/sessions/') && u.includes('/messages'))).toBe(true);
   });
 
-  it('composer: refs attached ⇒ send starts the pipeline (deterministic rule)', async () => {
+  it('composer: refs ride a CHAT turn (R2-fix3 — no silent author pipeline)', async () => {
     const w = await mountPage('operator');
-    // rev23: @-mention flow — type @, pick jira, search returns fixture rows
+    // @ opens the picker; searching happens in the MENU's search box (R2-fix4)
     await w.find('textarea').setValue('@');
     await flushPromises();
     await w.findAll('.slash-row')[0]!.trigger('mousedown'); // @jira (row 0)
     await flushPromises();
-    await w.find('textarea').setValue('login');
+    const search = w.find('.at-search');
+    await search.setValue('login');
     await new Promise((r) => setTimeout(r, 450)); // debounce 300ms + fetch
     await flushPromises();
     await w.findAll('.slash-row')[0]!.trigger('mousedown'); // LP-1042 fixture row
@@ -114,10 +115,14 @@ describe('agent chat page', () => {
     await w.find('textarea').setValue('draft cases');
     await w.find('.send').trigger('click');
     await flushPromises();
+    // NO pipeline call — refs ride the chat turn
     const pipe = fetchMock.mock.calls.find((c) => String(c[0]).includes('/api/agent/pipeline'));
-    expect(pipe).toBeTruthy();
-    const body = JSON.parse(String(pipe![1]!.body)) as { refs: Array<{ kind: string; locator: string }> };
-    expect(body.refs[0]).toMatchObject({ kind: 'jira', locator: 'LP-1042' });
+    expect(pipe).toBeFalsy();
+    const msg = fetchMock.mock.calls.find((c) => String(c[0]).includes('/messages') && String(c[0]).includes('POST') === false && false) ?? fetchMock.mock.calls.reverse().find((c) => String(c[0]).includes('/messages'));
+    fetchMock.mock.calls.reverse();
+    expect(msg).toBeTruthy();
+    const body = JSON.parse(String(msg![1]!.body)) as { content: string };
+    expect(body.content).toContain('[refs: LP-1042]');
   });
 
   it('run panel: question card answers via the answer+resume endpoints', async () => {

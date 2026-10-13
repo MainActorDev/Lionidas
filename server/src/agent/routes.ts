@@ -24,6 +24,7 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AgentContext, bus
       registry: ctx.registry,
       policy: ctx.policy,
       systemPrompt: ctx.systemPrompt,
+      embedder: ctx.embedder, // R2-F3: ranked note injection
       emit: (e) => { bus.emit('agent.turn', { sessionId: e.sessionId, type: e.type, hop: e.hop, ...(e.detail !== undefined ? { detail: e.detail } : {}) }); },
     });
 

@@ -46,6 +46,10 @@ const SPEC: WorkflowSpec = {
 export interface PipelineHandle {
   workflow: SqliteWorkflowStorage;
   run(input: PipelineInput, env: Record<string, string | undefined>, mockScripts?: Parameters<typeof buildProfiles>[1]['mockScripts']): Promise<unknown>;
+  /** R2-F2: compile refs into the knowledge page without running stages (skills call this) */
+  compileOnly(appBundle: string, refs: PipelineRef[], env: Record<string, string | undefined>): Promise<{ pageId: string; version: number }>;
+  /** R2-F2: latest knowledge page body for an app (skill prompt grounding) */
+  knowledgePage(appBundle: string): Promise<string | null>;
   answer(runId: string, stageId: string, answers: Record<string, string>): Promise<void>;
   advance(runId: string): Promise<void>;
   skill(command: string, ask: string, appBundle: string, env: Record<string, string | undefined>): Promise<unknown>;
@@ -70,6 +74,7 @@ export function buildPipeline(ctx: AgentContext, db: Database.Database, env: Rec
 
   const deps = (appBundle: string, mockScripts?: Parameters<typeof buildProfiles>[1]['mockScripts']) => ({
     storage: ctx.storage,
+    embedder: ctx.embedder, // R2-F3: stage turns retrieve relevant notes
     workflow,
     registry: ctx.registry,
     profiles: (() => {
@@ -108,14 +113,43 @@ export function buildPipeline(ctx: AgentContext, db: Database.Database, env: Rec
     async advance(runId) {
       await advanceWorkflow(deps('', undefined), runId);
     },
+    async compileOnly(appBundle, refs, env) {
+      const knowledge = await compileKnowledge(appBundle, refs, {
+        storage: ctx.storage, retriever: ctx.retriever, artifactsDir: ctx.artifactsDir,
+        readAttachment: (id) => ctx.attachments.readText(id),
+        fetchExternal: (ref) => fetchExternalText(ref, env),
+      }, `skill_${Date.now().toString(36)}`);
+      return { pageId: knowledge.page.id, version: knowledge.page.version };
+    },
+    async knowledgePage(appBundle) {
+      const page = await ctx.storage.latestArtifact('knowledge', `app:${appBundle}`);
+      return page?.body ?? null;
+    },
     async skill(command, ask, appBundle, env) {
+      void env;
       const profileId = command === '/planning' ? 'lionidas.planner' : command === '/breakdown' ? 'lionidas.breaker' : 'lionidas.author';
+      // R2-F2: knowledge-page grounding — the latest app page rides the ask as
+      // BACKGROUND (tools are truth; the page is context)
+      let grounding = '';
+      if (appBundle && appBundle !== 'skill') {
+        const page = await ctx.storage.latestArtifact('knowledge', `app:${appBundle}`);
+        if (page) {
+          // R2-F2: the page grows APPEND-first (fresh "Integrated this run" sections land at the
+          // END after carried-forward priors) — a head-truncation window can cut the fresh content
+          // the skill just compiled. Keep the TAIL; label the elided head.
+          const body = page.body;
+          const trimmed = body.length > 6000
+            ? `[…older page content elided — ${body.length - 6000} chars]\n${body.slice(-6000)}`
+            : body;
+          grounding = `\n\n--- KNOWLEDGE PAGE BACKGROUND (app:${appBundle} — compiled from earlier refs; the LATEST integrated sections are at the end; may be stale — live tools WIN over this page) ---\n${trimmed}\n--- END BACKGROUND ---`;
+        }
+      }
       const spec: WorkflowSpec = {
         id: `lionidas.skill.${profileId.split('.')[1]}`,
         input: (x: unknown) => (typeof x === 'object' && x !== null && 'ask' in x ? { ok: true as const, value: x } : { ok: false as const, error: 'ask required' }),
         stages: [{ id: 'run', profileId, input: (x: unknown) => ({ ok: true as const, value: x }) }],
       } as WorkflowSpec;
-      return runWorkflow(spec, deps(appBundle || 'skill', undefined), { input: { ask, appBundle } });
+      return runWorkflow(spec, deps(appBundle || 'skill', undefined), { input: { ask: `${ask}${grounding}`, appBundle } });
     },
     async resume(runId, env2, mockScripts) {
       const run = await workflow.getWorkflowRun(runId);
