@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Mention palette — B: Verbose command</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: ui-monospace, "SF Mono", Menlo, monospace; background: #141414; color: #e8e4de; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.stage { width: 720px; }
+.msg { margin-bottom: 18px; font-size: 13px; line-height: 1.6; color: #c9c4bd; }
+.composer { position: relative; margin-top: 24px; }
+/* verbose: kind-first rows, meta column, rich previews */
+.palette { position: absolute; bottom: calc(100% + 8px); left: 0; width: 640px; background: #1d1d1d; border: 1px solid #333; border-radius: 6px; box-shadow: 0 12px 40px rgba(0,0,0,.5); overflow: hidden; }
+.p-search { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #2a2a2a; }
+.p-search .at { color: #e8916d; font-size: 15px; }
+.p-search input { flex: 1; background: none; border: none; outline: none; color: #e8e4de; font-family: inherit; font-size: 13px; }
+.p-search .count { color: #7d8a99; font-size: 10.5px; }
+.p-body { max-height: 340px; overflow-y: auto; }
+.row { display: grid; grid-template-columns: 70px 1fr 160px; gap: 10px; align-items: center; padding: 8px 14px; font-size: 12.5px; cursor: pointer; border-left: 2px solid transparent; }
+.row:hover, .row.active { background: #232323; border-left-color: #b3542c; }
+.kind { font-size: 9.5px; letter-spacing: .06em; padding: 2px 6px; border-radius: 3px; text-align: center; }
+.kind.jira { background: #2a4a6a33; color: #7fb3d5; border: 1px solid #7fb3d533; }
+.kind.repo { background: #b3542c22; color: #e8916d; border: 1px solid #e8916d33; }
+.kind.case { background: #a8c58a22; color: #a8c58a; border: 1px solid #a8c58a33; }
+.kind.file { background: #b08ccf22; color: #b08ccf; border: 1px solid #b08ccf33; }
+.row .t { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .t b { color: #e8916d; }
+.row .sub { color: #7d8a99; font-size: 10.5px; margin-top: 2px; }
+.row .m { color: #7d8a99; font-size: 10.5px; text-align: right; }
+/* verbose composer: chips get kind tint + close affordance */
+.inputbox { background: #1f1f1f; border: 1px solid #3a3a3a; border-radius: 8px; padding: 10px 12px; font-size: 13px; line-height: 1.8; min-height: 64px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; border-radius: 4px; padding: 1px 4px 1px 7px; margin: 0 1px; font-size: 12px; }
+.chip .x { color: #0006; font-size: 10px; padding: 0 2px; border-radius: 2px; cursor: pointer; }
+.chip .x:hover { background: #0003; }
+.chip.jira { background: #2a4a6a44; color: #7fb3d5; border: 1px solid #7fb3d544; } .chip.jira .x:hover { background: #7fb3d522; }
+.chip.repo { background: #b3542c33; color: #e8916d; border: 1px solid #e8916d44; } .chip.repo .x:hover { background: #e8916d22; }
+.chip.case { background: #a8c58a2e; color: #a8c58a; border: 1px solid #a8c58a44; } .chip.case .x:hover { background: #a8c58a22; }
+.inputbar { display: flex; gap: 8px; margin-top: 8px; }
+.btn { border: 1px solid #3a3a3a; background: none; color: #7d8a99; border-radius: 4px; padding: 3px 8px; font-family: inherit; font-size: 11px; cursor: pointer; }
+.btn:hover { color: #e8e4de; border-color: #555; }
+</style></head><body>
+<div class="stage">
+  <div class="msg">The verbose stance: every row announces its KIND loudly (tinted pills), two-line rows with subtitles, chips carry kind colors + explicit × close.</div>
+  <div class="composer">
+    <div class="palette">
+      <div class="p-search"><span class="at">@</span><input value="milestone" autofocus><span class="count">7 results · ↑↓ ↵ esc</span></div>
+      <div class="p-body">
+        <div class="row active"><span class="kind jira">JIRA</span><div><div class="t"><b>milestone</b> stepper — CUST-6223</div><div class="sub">Story · CA MY tracking · in progress · mridhot</div></div><span class="m">matched title</span></div>
+        <div class="row"><span class="kind repo">COMMIT</span><div><div class="t">feat(tracking): add <b>milestone</b> stepper driven by BE</div><div class="sub">733e224 · ios-consumer-intl · mridhot · today</div></div><span class="m">message match</span></div>
+        <div class="row"><span class="kind case">CASE</span><div><div class="t">tracking_<b>milestone</b>_labels_fit</div><div class="sub">suite smoke · 9 steps · updated yesterday</div></div><span class="m">name match</span></div>
+        <div class="row"><span class="kind file">FILE</span><div><div class="t">tracking_<b>milestone</b>_config.json</div><div class="sub">attachment · 2.1 KB · attached 3m ago</div></div><span class="m">attachment</span></div>
+      </div>
+    </div>
+    <div class="inputbox">
+      <span class="chip jira">CUST-6223 <span class="x">✕</span></span> and
+      <span class="chip repo">733e224 <span class="x">✕</span></span> — does the <span class="chip case">tracking_milestone_labels_fit <span class="x">✕</span></span> case still pass?
+    </div>
+    <div class="inputbar"><button class="btn">＋ attach</button><button class="btn">⌘ /planning</button></div>
+  </div>
+</div>
+<script>
+document.querySelectorAll('.row').forEach((r, i) => r.addEventListener('click', () => {
+  document.querySelectorAll('.row').forEach(x => x.classList.remove('active')); r.classList.add('active');
+}));
+document.querySelectorAll('.chip .x').forEach(x => x.addEventListener('click', () => x.parentElement.remove()));
+document.querySelector('input').addEventListener('input', (e) => { document.querySelector('.count').textContent = `${7 - e.target.value.length % 5} results · ↑↓ ↵ esc`; });
+</script>
+</body></html>

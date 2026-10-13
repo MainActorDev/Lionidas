@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Mention palette — C: Compact flat</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: ui-monospace, "SF Mono", Menlo, monospace; background: #141414; color: #e8e4de; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.stage { width: 720px; }
+.msg { margin-bottom: 18px; font-size: 13px; line-height: 1.6; color: #c9c4bd; }
+.composer { position: relative; margin-top: 24px; }
+/* compact: no group headers, single-line rows, inline kind prefix, minimal chrome */
+.palette { position: absolute; bottom: calc(100% + 6px); left: 0; width: 480px; background: #1d1d1d; border: 1px solid #333; border-radius: 5px; box-shadow: 0 8px 32px rgba(0,0,0,.5); padding: 4px; }
+.row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; font-size: 12px; border-radius: 3px; cursor: pointer; white-space: nowrap; }
+.row:hover, .row.active { background: #2b2b2b; }
+.row .k { color: #7d8a99; font-size: 10px; width: 34px; flex: none; }
+.row.j .k { color: #7fb3d5; } .row.r .k { color: #e8916d; } .row.c .k { color: #a8c58a; } .row.f .k { color: #b08ccf; }
+.row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.row .t b { color: #fff; font-weight: 600; text-decoration: underline; text-decoration-color: #b3542c66; text-underline-offset: 3px; }
+.row .m { color: #7d8a99; font-size: 10px; }
+.p-foot { display: flex; justify-content: space-between; padding: 4px 8px 2px; color: #555; font-size: 9.5px; border-top: 1px solid #2a2a2a; margin-top: 4px; }
+/* compact chips: minimal, no borders, subtle tint */
+.inputbox { background: #1f1f1f; border: 1px solid #3a3a3a; border-radius: 8px; padding: 10px 12px; font-size: 13px; line-height: 1.7; min-height: 64px; }
+.chip { background: #2a2a2a; color: #e8e4de; border-radius: 3px; padding: 0 5px; margin: 0 1px; font-size: 12px; }
+.chip.j { color: #7fb3d5; } .chip.r { color: #e8916d; } .chip.c { color: #a8c58a; }
+.caret { display: inline-block; width: 1.5px; height: 14px; background: #e8e4de; vertical-align: -2px; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.inputbar { display: flex; gap: 8px; margin-top: 8px; }
+.btn { border: 1px solid #3a3a3a; background: none; color: #7d8a99; border-radius: 4px; padding: 3px 8px; font-family: inherit; font-size: 11px; cursor: pointer; }
+.btn:hover { color: #e8e4de; }
+</style></head><body>
+<div class="stage">
+  <div class="msg">The compact stance: everything flat, no group labels — kind rides as a 3-letter prefix; rows are one line; chips are borderless tint. Closest to Cursor/Linear.</div>
+  <div class="composer">
+    <div class="palette">
+      <div class="row j active"><span class="k">jira</span><span class="t"><b>cust</b>-6223 milestone stepper</span><span class="m">story</span></div>
+      <div class="row j"><span class="k">jira</span><span class="t"><b>cust</b>-6388 analyze testcase</span><span class="m">todo</span></div>
+      <div class="row r"><span class="k">repo</span><span class="t">733e224 be-driven milestones</span><span class="m">intl</span></div>
+      <div class="row c"><span class="k">case</span><span class="t"><b>guest</b>_login_happy_path</span><span class="m">smoke</span></div>
+      <div class="row f"><span class="k">file</span><span class="t">milestone_config.json</span><span class="m">2.1kb</span></div>
+      <div class="p-foot"><span>@ reference</span><span>↑↓ ↵ esc</span></div>
+    </div>
+    <div class="inputbox">
+      plan <span class="chip j">CUST-6223</span> using <span class="chip r">733e224</span> and cover <span class="chip c">guest_login</span>@cust<span class="caret"></span>
+    </div>
+    <div class="inputbar"><button class="btn">＋</button><button class="btn">/planning</button></div>
+  </div>
+</div>
+<script>
+const rows = [...document.querySelectorAll('.row')];
+let a = 0;
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); rows[a].classList.remove('active'); a = (a + (e.key === 'ArrowDown' ? 1 : rows.length - 1)) % rows.length; rows[a].classList.add('active'); }
+});
+rows.forEach((r, i) => r.addEventListener('mouseenter', () => { rows[a].classList.remove('active'); a = i; rows[a].classList.add('active'); }));
+</script>
+</body></html>
