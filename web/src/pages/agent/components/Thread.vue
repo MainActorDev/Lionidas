@@ -27,7 +27,7 @@ function esc(s: string): string {
 }
 function chip(kind: string, label: string): string {
   const cls = kind === 'jira' ? 'jira' : kind === 'case' ? 'case' : kind === 'github-commit' || kind === 'github-pr' ? 'repo' : kind === 'attachment' ? 'file' : 'doc';
-  return `<span class="uchip ${cls}">${esc(label)}</span>`;
+  return `<span class="uchip ${cls}">@${esc(label)}</span>`;
 }
 function refLabel(kind: string, locator: string): string {
   if (kind === 'jira' || kind === 'case') return locator;

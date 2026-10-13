@@ -312,31 +312,41 @@ function acceptPalette(idx?: number): void {
     : row.ref.kind === 'case' ? (row.title)
     : `${row.ref.locator}`;
   const insert = `${label} `;
-  const at = atStart.value;
-  const end = el.selectionStart ?? at;
-  const removedLen = end - at;
-  const newToken: TokenRange = { start: at, end: at + label.length, kind: row.ref.kind, locator: row.ref.locator, label };
-  applyEdit(text.value.slice(0, at) + insert + text.value.slice(end), at + insert.length, (t) => {
+  const atPos = atStart.value;
+  const end = el.selectionStart ?? atPos;
+  const removedLen = end - atPos;
+  const newToken: TokenRange = { start: atPos, end: atPos + label.length, kind: row.ref.kind, locator: row.ref.locator, label };
+  applyEdit(text.value.slice(0, atPos) + insert + text.value.slice(end), atPos + insert.length, (t) => {
     if (t.start >= end) return { ...t, start: t.start - removedLen + insert.length, end: t.end - removedLen + insert.length };
     return t;
   });
   tokens.value = [...tokens.value, newToken].sort((a, b) => a.start - b.start);
-  const ref: Ref = { kind: row.ref.kind, locator: row.ref.locator, label };
-  if (refs.value.length < REF_CAP && !refs.value.some((r) => r.kind === ref.kind && r.locator === ref.locator)) refs.value.push(ref);
-  pushRecent(ref);
+  const pickedRef: Ref = { kind: row.ref.kind, locator: row.ref.locator, label };
+  if (refs.value.length < REF_CAP && !refs.value.some((r) => r.kind === pickedRef.kind && r.locator === pickedRef.locator)) refs.value.push(pickedRef);
+  pushRecent(pickedRef);
   closePalette();
 }
 
 /** overlay model: plain text + chip ranges → render segments */
-const overlaySegments = computed<Array<{ text: string; token?: TokenRange }>>(() => {
-  const segs: Array<{ text: string; token?: TokenRange }> = [];
+const overlaySegments = computed<Array<{ text: string; token?: TokenRange; active?: boolean }>>(() => {
+  const segs: Array<{ text: string; token?: TokenRange; active?: boolean }> = [];
   let pos = 0;
   for (const t of [...tokens.value].sort((a, b) => a.start - b.start)) {
     if (t.start > pos) segs.push({ text: text.value.slice(pos, t.start) });
     segs.push({ text: text.value.slice(t.start, t.end), token: t });
     pos = t.end;
   }
-  if (pos < text.value.length) segs.push({ text: text.value.slice(pos) });
+  const tail = text.value.slice(pos);
+  if (tail) {
+    // the in-flight '@query' (palette open) renders as a ghost chip — mention
+    // mode is visibly live before anything is picked
+    if (atOpen.value && atStart.value >= pos) {
+      const q = text.value.slice(atStart.value);
+      segs.push({ text: q, active: true });
+    } else {
+      segs.push({ text: tail });
+    }
+  }
   return segs;
 });
 
@@ -477,7 +487,7 @@ function submit(): void {
       <div class="input-line">
         <span v-if="activeCmd" class="cmd-chip">{{ activeCmd }}<button class="chip-x" title="remove command" @mousedown.prevent.stop @click="revertChip">✕</button></span>
         <div class="ta-wrap">
-          <div class="ta-overlay" aria-hidden="true"><template v-for="(seg, i) in overlaySegments" :key="i"><span v-if="seg.token" class="chip inline" :class="seg.token.kind">{{ seg.token.label }}</span><template v-else>{{ seg.text }}</template></template></div>
+          <div class="ta-overlay" aria-hidden="true"><template v-for="(seg, i) in overlaySegments" :key="i"><span v-if="seg.token" class="chip inline" :class="seg.token.kind">{{ seg.token.label }}</span><span v-else-if="seg.active" class="chip inline querying">@{{ seg.text }}</span><template v-else>{{ seg.text }}</template></template></div>
           <textarea ref="taEl" v-model="text" :placeholder="activeCmd ? 'describe what you want from this command…' : 'ask about cases, runs, or draft new tests…  ·  @ to reference'" @keydown="onKey" @click="onTextForPalette" @keyup="onTextForPalette" @select="snapCaretOutOfTokens"></textarea>
         </div>
       </div>
@@ -587,5 +597,6 @@ textarea { width: 100%; background: none; border: none; outline: none; color: va
  *  inset ring ONLY: zero padding, zero margin, no border — the chip occupies
  *  exactly the width of its raw text. */
 .chip.inline { display: inline; border-radius: 3px; padding: 0; margin: 0; font-size: inherit; line-height: inherit; background: #2c2c2c; box-shadow: inset 0 0 0 1px #3d3d3d; color: var(--color-paper); border: none; text-decoration: none; }
+.chip.inline.querying { color: #e8916d; background: rgba(232, 145, 109, .06); box-shadow: inset 0 0 0 1px rgba(232, 145, 109, .35); border-radius: 3px; padding: 0; }
 .chip.inline.jira { color: #7fb3d5; } .chip.inline.github-commit, .chip.inline.github-pr { color: #e8916d; } .chip.inline.case { color: #a8c58a; } .chip.inline.attachment { color: #b08ccf; }
 </style>
