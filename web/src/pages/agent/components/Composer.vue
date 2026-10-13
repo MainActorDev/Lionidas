@@ -581,6 +581,11 @@ textarea { width: 100%; background: none; border: none; outline: none; color: va
 .ta-wrap textarea { position: relative; z-index: 2; background: transparent; caret-color: var(--color-paper); color: transparent; }
 .ta-wrap textarea::placeholder { color: var(--color-steel); opacity: .8; }
 .ta-wrap textarea::selection { color: transparent; background: rgba(179, 84, 44, .30); }
-.chip.inline { display: inline; border-radius: 3px; padding: 0 5px; margin: 0; font-size: inherit; line-height: inherit; background: #2a2a2a; color: var(--color-paper); border: none; text-decoration: none; }
+/* WIDTH-NEUTRAL chips: the overlay must be metrically IDENTICAL to the textarea
+ *  or the caret drifts from the text (reported as "minus 1 letter" — 10px of chip
+ *  padding ≈ one mono character). Chip-ness comes from background + radius + an
+ *  inset ring ONLY: zero padding, zero margin, no border — the chip occupies
+ *  exactly the width of its raw text. */
+.chip.inline { display: inline; border-radius: 3px; padding: 0; margin: 0; font-size: inherit; line-height: inherit; background: #2c2c2c; box-shadow: inset 0 0 0 1px #3d3d3d; color: var(--color-paper); border: none; text-decoration: none; }
 .chip.inline.jira { color: #7fb3d5; } .chip.inline.github-commit, .chip.inline.github-pr { color: #e8916d; } .chip.inline.case { color: #a8c58a; } .chip.inline.attachment { color: #b08ccf; }
 </style>
