@@ -52,7 +52,20 @@ function addAttachmentChip(id: string, fileName: string): void {
   pushRecent(r);
   focusTA();
 }
-defineExpose({ addAttachmentChip, resetDraft });
+/** edit-back from the queue (visible-queue plan Stage B): restore a draft */
+function loadDraft(draftText: string, draftRefs: Ref[], draftCommands: string[]): void {
+  resetDraft();
+  text.value = `${draftCommands.length ? `${draftCommands.join(' ')} ` : ''}${draftText}`;
+  refs.value = [...draftRefs];
+  // command tokens as ranges
+  let pos = 0;
+  for (const c of draftCommands) {
+    const at = text.value.indexOf(c, pos);
+    if (at >= 0) { tokens.value.push({ start: at, end: at + c.length, kind: 'cmd', locator: c, label: c }); pos = at + c.length; }
+  }
+  focusTA();
+}
+defineExpose({ addAttachmentChip, resetDraft, loadDraft });
 
 /** ── rev21: slash command menu ─────────────────────────────────────────── */
 // palette rows come from the live registry (fallback: the shared constant — CR4)

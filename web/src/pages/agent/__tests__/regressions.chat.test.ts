@@ -70,12 +70,11 @@ describe('regression: false-abort (c9e153b + liveTurn)', () => {
   });
 });
 
-describe('regression: queue-displacement (9fc33a2 part 2)', () => {
-  it('a displaced queued message is never silently deleted — it stays, marked displaced', async () => {
+describe('regression: queue-displacement → SUPERSEDED by multi-slot queue (Stage B)', () => {
+  it('two sends while busy BOTH stay queued — nothing displaced, nothing deleted', async () => {
     const w = await mountPage();
-    const vm = w.vm as unknown as { messages: Array<{ text: string; displaced?: boolean }>; send: (t: string, r: unknown, a: string, c?: string[]) => Promise<void> };
+    const vm = w.vm as unknown as { messages: Array<{ text: string; status?: string }>; send: (t: string, r: unknown, a: string, c?: string[]) => Promise<void> };
     vm.messages = [];
-    // first send starts a turn that does NOT resolve (pending promise) → sending stays true
     let release: ((v: unknown) => void) | null = null;
     fetchMock.mockImplementation((url: string, init?: { method?: string }) => {
       if (url.includes('/messages') && init?.method === 'POST' && !release) { return new Promise((res) => { release = res; }); }
@@ -87,17 +86,17 @@ describe('regression: queue-displacement (9fc33a2 part 2)', () => {
     });
     void vm.send('in-flight ask', [], '');
     await flushPromises();
-    // two more sends arrive while busy → both queue; second displaces first
     void vm.send('first queued', [], '');
     await flushPromises();
     void vm.send('second queued', [], '');
     await flushPromises();
     const first = vm.messages.find((m) => m.text.includes('first queued'));
-    expect(first).toBeTruthy();
-    expect(first?.displaced).toBe(true);
+    const second = vm.messages.find((m) => m.text.includes('second queued'));
+    expect(first).toBeTruthy();                     // BOTH remain — the lock
+    expect(second).toBeTruthy();
+    expect(first?.status ?? second?.status).toBeDefined(); // visibly queued
     release?.(jsonOk({ turn: { ok: true, answer: 'done' } }));
     await flushPromises();
-    void release;
     w.unmount();
   });
 });
