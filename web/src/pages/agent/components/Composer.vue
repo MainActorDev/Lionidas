@@ -9,7 +9,7 @@ export interface Ref { kind: 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'r
 /** a /command token rides the same range machinery (kind 'cmd' is Composer-internal; never sent as a Ref) */
 
 const props = defineProps<{ busy?: boolean }>();
-const emit = defineEmits<{ send: [text: string, refs: Ref[], appBundle: string]; abort: []; skill: [command: string, ask: string, refs: Ref[]]; 'open-attachment': [] }>();
+const emit = defineEmits<{ send: [text: string, refs: Ref[], appBundle: string]; abort: []; skill: [command: string | string[], ask: string, refs: Ref[]]; 'open-attachment': [] }>();
 
 const text = ref('');
 /** command tokens now ride the range machinery (kind 'cmd'); activeCmd is a
@@ -450,13 +450,17 @@ function onKey(e: KeyboardEvent): void {
 function submit(): void {
   if (!ready.value) return;
   const t = text.value.trim();
-  const cmdToken = tokens.value.find((x) => x.kind === 'cmd');
-  if (cmdToken && activeCmd.value) {
-    // R2-F2: refs RIDE the skill (compile-on-skill). The ask = text minus the
-    // command token (it emitted as the command, not prose).
-    const ask = (text.value.slice(0, cmdToken.start) + text.value.slice(cmdToken.end)).replace(/\s+/g, ' ').trim();
-    emit('skill', cmdToken.label, ask, refs.value.map((r) => ({ ...r })));
+  // ALL command chips (anywhere in the text) ride the skill call; the ENGINE
+  // decides execution order (planning → breakdown → author), not typing order.
+  const cmdTokens = tokens.value.filter((x) => x.kind === 'cmd').sort((a, b) => a.start - b.start);
+  if (cmdTokens.length) {
+    let stripped = text.value;
+    for (const ct of [...cmdTokens].reverse()) stripped = stripped.slice(0, ct.start) + stripped.slice(ct.end);
+    const ask = stripped.replace(/\s+/g, ' ').trim();
+    const cmds = cmdTokens.map((x) => x.label);
+    emit('skill', cmds.length === 1 ? cmds[0]! : cmds, ask, refs.value.map((r) => ({ ...r })));
     text.value = ''; refs.value = []; tokens.value = [];
+    closePalette(); closeSlash();
     return;
   }
 

@@ -233,10 +233,10 @@ function onPanelError(m: string): void {
 }
 
 /** rev20b: slash skill — one profile as a single-stage workflow (run panel shows it). */
-async function runSkill(command: string, ask: string, refs: PipelineRef[] = []): Promise<void> {
+async function runSkill(command: string | string[], ask: string, refs: PipelineRef[] = []): Promise<void> {
   if (!sessionId.value) await newChat();
   const sid = sessionId.value!;
-  messages.value = [...messages.value, { role: 'user', text: `${command} ${ask}`, ...(refs.length ? { refs: refs.map((r) => ({ kind: r.kind, name: r.locator })) } : {}) }];
+  messages.value = [...messages.value, { role: 'user', text: `${Array.isArray(command) ? command.join(' ') : command} ${ask}`, ...(refs.length ? { refs: refs.map((r) => ({ kind: r.kind, name: r.locator })) } : {}) }];
   setTurn((t) => { t.sending = true; });
   try {
     const r = await fetch('/api/agent/skill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ command, ask, appBundle: appBundleHint(), sessionId: sid, refs: refs.map((x) => ({ kind: x.kind, locator: x.locator })) }) });
