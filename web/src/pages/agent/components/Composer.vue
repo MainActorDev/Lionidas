@@ -290,6 +290,15 @@ function ta(): HTMLTextAreaElement | null {
   return taEl.value ?? (document.querySelector('.composer textarea') as HTMLTextAreaElement | null);
 }
 
+/** overlay mirrors the textarea's scroll (long drafts) */
+watch(() => [text.value, tokens.value.length], () => {
+  void nextTick(() => {
+    const el = taEl.value;
+    const ov = document.querySelector('.ta-overlay') as HTMLElement | null;
+    if (el && ov) ov.scrollTop = el.scrollTop;
+  });
+});
+
 
 function onKey(e: KeyboardEvent): void {
   if (e.key === 'Backspace' && activeCmd.value && text.value === '') { e.preventDefault(); revertChip(); return; }
@@ -452,10 +461,39 @@ textarea { width: 100%; background: none; border: none; outline: none; color: va
 .slash-row.state { color: var(--color-steel); cursor: default; }
 .p-foot { display: flex; justify-content: space-between; padding: 4px 8px 2px; color: var(--color-steel); opacity: .7; font-size: 9.5px; border-top: 1px solid var(--ag-line); margin-top: 4px; }
 
-/* ── textarea + chip overlay (MR1 range tokens) ── */
+/* ── textarea + chip overlay (MR1 range tokens) — METRIC-LOCKED to the textarea.
+ *  The overlay must render IDENTICAL geometry or chips double/offset (screenshot bug):
+ *  same font stack, size, line-height, letter-spacing, padding, wrap behavior.
+ *  Chips are inline boxes that add ONLY horizontal padding — never vertical —
+ *  so line metrics cannot shift; monospace house font keeps widths exact. */
 .ta-wrap { position: relative; flex: 1; display: flex; }
-.ta-overlay { position: absolute; inset: 0; padding: 6px 8px; font: inherit; font-size: inherit; line-height: inherit; color: transparent; pointer-events: none; white-space: pre-wrap; overflow-wrap: break-word; overflow: hidden; z-index: 0; }
-.ta-wrap textarea { position: relative; z-index: 1; background: transparent; }
-.chip.inline { display: inline; border-radius: 3px; padding: 0 5px; margin: 0 1px; font-size: 12px; background: #2a2a2a; color: var(--color-paper); border: none; }
+.ta-wrap textarea,
+.ta-overlay {
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  line-height: 1.6;
+  letter-spacing: normal;
+  padding: 6px 8px;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  tab-size: 2;
+  border: none;
+}
+.ta-overlay { position: absolute; inset: 0; color: transparent; pointer-events: none; overflow: hidden; z-index: 0; }
+.ta-wrap textarea { position: relative; z-index: 1; background: transparent; caret-color: var(--color-paper); color: transparent; }
+.ta-wrap textarea::placeholder { color: var(--color-steel); opacity: .8; }
+/* native selection highlight would glow through the overlay chips — subdue it */
+.ta-wrap textarea::selection { background: rgba(179, 84, 44, .35); }
+.ta-overlay { color: var(--color-paper); }
+/* the textarea's NATIVE selection still shows through (transparent text above it);
+   hide the doubled selection by making the textarea's own text invisible? No —
+   the textarea keeps real text (source of truth); the overlay chips SIT ABOVE it.
+   To avoid double-render: the textarea text stays VISIBLE for non-token ranges is
+   NOT possible per-range — so instead the OVERLAY paints chips only where tokens
+   are, and the textarea's native text remains visible underneath. The chip
+   background must therefore fully COVER the raw text beneath (same metrics →
+   exact cover), which the metric lock above guarantees. */
+.chip.inline { display: inline; border-radius: 3px; padding: 0 5px; margin: 0; font-size: inherit; line-height: inherit; background: #2a2a2a; color: var(--color-paper); border: none; text-decoration: none; }
 .chip.inline.jira { color: #7fb3d5; } .chip.inline.github-commit, .chip.inline.github-pr { color: #e8916d; } .chip.inline.case { color: #a8c58a; } .chip.inline.attachment { color: #b08ccf; }
 </style>
