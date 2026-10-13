@@ -48,10 +48,16 @@ const alignOf = (c: string): string => {
   return '';
 };
 
+import { highlightBlock, normalizeLang } from './highlight.ts';
+
+const LANG_LABEL: Record<string, string> = { ts: 'typescript', js: 'javascript', sh: 'shell', text: '' };
+
 export function renderMarkdown(src: string): string {
   const lines = src.split('\n');
   const out: string[] = [];
   let inCode = false;
+  let codeBuf: string[] = [];
+  let codeLang = '';
   let listType: 'ul' | 'ol' | null = null;
   let para: string[] = [];
   // table state: [] = none; [cells] = candidate header held; [-1] = inside a
@@ -73,15 +79,18 @@ export function renderMarkdown(src: string): string {
     const line = raw.replace(/\s+$/, '');
     if (line.startsWith('```')) {
       flushPara(); closeList();
-      if (inCode) { out.push('</code></pre>'); inCode = false; }
-      else {
-        const lang = line.slice(3).trim().split(/\s+/)[0] ?? '';
-        out.push(`<pre class="code${lang ? ` lang-${lang}` : ''}"><code>`);
+      if (inCode) {
+        // close: highlight the buffered block (escape happens inside)
+        const langAttr = codeLang ? ` data-lang="${escapeHtml(codeLang)}"` : '';
+        out.push(`<pre class="code code-hl${codeLang ? ` lang-${normalizeLang(codeLang)}` : ''}"${langAttr}><code>${highlightBlock(codeBuf.join('\n'), codeLang)}</code></pre>`);
+        inCode = false; codeBuf = []; codeLang = '';
+      } else {
+        codeLang = line.slice(3).trim().split(/\s+/)[0] ?? '';
         inCode = true;
       }
       continue;
     }
-    if (inCode) { out.push(`${escapeHtml(raw)}\n`); continue; }
+    if (inCode) { codeBuf.push(raw); continue; }
     if (!line.trim()) {
       flushPara(); closeList();
       if (tableRows[0]?.[0] === '__INTABLE__') out.push('</tbody></table>');
@@ -161,6 +170,9 @@ export function renderMarkdown(src: string): string {
   }
   flushPara(); closeList();
   if (tableRows[0]?.[0] === '__INTABLE__') out.push('</tbody></table>');
-  if (inCode) out.push('</code></pre>');
+  if (inCode) {
+    // unterminated fence (streaming): render what arrived so far, highlighted
+    out.push(`<pre class="code code-hl${codeLang ? ` lang-${normalizeLang(codeLang)}` : ''}"${codeLang ? ` data-lang="${escapeHtml(codeLang)}"` : ''}><code>${highlightBlock(codeBuf.join('\n'), codeLang)}</code></pre>`);
+  }
   return out.join('\n');
 }

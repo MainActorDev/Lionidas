@@ -18,7 +18,7 @@ describe('agent chat markdown renderer', () => {
   it('renders fenced code blocks and headings, escapes HTML', () => {
     const html = renderMarkdown('## Heading\n\n```\ntap(<script>)\n```\n');
     expect(html).toContain('<h4>Heading</h4>');
-    expect(html).toContain('<pre class="code"><code>');
+    expect(html).toContain('<pre class="code code-hl"><code>');
     expect(html).toContain('tap(&lt;script&gt;)');
     expect(html).not.toContain('<script>');
   });
