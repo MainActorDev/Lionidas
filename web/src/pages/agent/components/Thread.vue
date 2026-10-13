@@ -2,7 +2,7 @@
 /** P3 agent chat — thread: user bubbles + agent prose, refs rows, tool
  *  traces, status line (sketch b1-warm anatomy). Read-only rendering. */
 interface Ref { kind: string; name: string }
-interface Msg { role: 'user' | 'assistant' | 'system'; text: string; refs?: Ref[]; toolTrace?: string; status?: string; aborted?: boolean }
+interface Msg { role: 'user' | 'assistant' | 'system'; text: string; refs?: Ref[]; toolTrace?: string; status?: string; aborted?: boolean; displaced?: boolean }
 
 import { ref, watch, nextTick } from 'vue';
 import { renderMarkdown } from '../markdown.ts';
@@ -106,13 +106,12 @@ watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom
       <div class="inner">
         <div v-for="(m, i) in messages.filter((x) => (x.text ?? '').trim())" :key="i" class="msg" :class="m.role">
           <template v-if="m.role === 'user'">
-            <div class="body" :class="{ aborted: m.aborted }">
-              <div v-if="m.status" class="status inflight">{{ m.status }}</div>
+            <div class="body" :class="{ aborted: m.aborted, displaced: m.displaced }">
               <span v-for="c in userCommands(m.text)" :key="c" class="cmd-tag">{{ c }}</span>
               <div class="txt" v-html="renderUserText(m)"></div>
               <div v-if="m.aborted" class="ab-actions" @click.stop>
                 <span class="ab-tag">aborted</span>
-                <button class="ab-btn" @click="emit('resend', m)">resend</button>
+                <button v-if="!(waiting || streaming !== null)" class="ab-btn" @click="emit('resend', m)">resend</button>
               </div>
             </div>
           </template>
@@ -176,6 +175,8 @@ watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom
 .msg.user .txt :deep(code) { background: rgba(0,0,0,.25); border-color: rgba(0,0,0,.25); }
 /* rev9: aborted user message — dimmed, dashed, with resend */
 .msg.user .body.aborted { background: transparent; border: 1px dashed var(--ag-line-2); }
+.msg.user .body.displaced { opacity: .55; }
+.msg.user .body.displaced .txt { text-decoration: line-through; text-decoration-color: var(--color-steel); }
 .body.aborted .txt { color: var(--color-fog); }
 .ab-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .ab-tag { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-ember); }

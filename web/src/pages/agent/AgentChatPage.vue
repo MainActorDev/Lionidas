@@ -13,7 +13,7 @@ import type { Ref as PipelineRef } from './components/Composer.vue';
 import './agent-theme.css';
 
 interface Me { id: string; name: string; email: string; role: string }
-interface Msg { role: 'user' | 'assistant' | 'system'; text: string; refs?: Array<{ kind: string; name: string }>; toolTrace?: string; status?: string; aborted?: boolean }
+interface Msg { role: 'user' | 'assistant' | 'system'; text: string; refs?: Array<{ kind: string; name: string }>; toolTrace?: string; status?: string; aborted?: boolean; displaced?: boolean }
 
 const route = useRoute();
 const me = ref<Me | null>(null);
@@ -44,7 +44,7 @@ const setTurn = (mut: (t: TurnState) => void): void => {
 };
 // rev8 #2: single-slot queue — one pending send waits for the live turn
 // (the server 409s concurrent turns anyway; this makes the wait invisible)
-const queued = ref<{ text: string; refs: PipelineRef[]; appBundle: string; commands?: string[] } | null>(null);
+const queued = ref<{ text: string; refs: PipelineRef[]; appBundle: string; commands?: string[]; bubble?: Msg } | null>(null);
 const sidebar = ref<InstanceType<typeof ChatSidebar> | null>(null);
 const panel = ref<InstanceType<typeof RunPanel> | null>(null);
 const composer = ref<InstanceType<typeof Composer> | null>(null);
@@ -166,10 +166,15 @@ async function send(text: string, refs: PipelineRef[], appBundle: string, comman
   const cmdNote = commands.length ? ` [cmds: ${commands.join(' ')}]` : '';
   const refNote = refs.length ? ` [refs: ${refs.map((r) => `${r.kind}:${r.locator}`).join(', ')}]` : '';
   if (sending.value) {
-    // #2: max one queued — a newer send replaces the older queued one
-    if (queued.value) messages.value = messages.value.filter((m) => m.text !== queued.value?.text || m.role !== 'user');
-    queued.value = { text, refs, appBundle, ...(commands.length ? { commands } : {}) };
-    messages.value = [...messages.value, { role: 'user', text: `${text}${cmdNote}${refNote}`, refs: refs.map((r) => ({ kind: r.kind, name: r.locator })) }];
+    // max one queued: a newer send DISPLACES the older queued one — visibly
+    // (struck-through stays in the thread; nothing silently vanishes)
+    if (queued.value) {
+      messages.value = messages.value.map((m) => (m === queued.value?.bubble ? { ...m, displaced: true } : m));
+      queued.value = null;
+    }
+    const bubble: Msg = { role: 'user', text: `${text}${cmdNote}${refNote}`, refs: refs.map((r) => ({ kind: r.kind, name: r.locator })) };
+    queued.value = { text, refs, appBundle, ...(commands.length ? { commands } : {}), bubble };
+    messages.value = [...messages.value, bubble];
     return;
   }
   if (!sessionId.value) await newChat();
@@ -232,9 +237,22 @@ function markAborted(idx: number): void {
 }
 
 /** rev9: resend an aborted user message as a fresh turn. */
+/** inverse of the send composition: recover commands/refs from a stored message
+ *  so a RESEND is identical to the original send (bug: the suffixes otherwise
+ *  ride as literal prose and the command intent is lost) */
+function decomposeStored(text: string): { ask: string; commands: string[] } {
+  const cmds = /\s*\[cmds:\s*([^\]]+)\]\s*/.exec(text)?.[1]?.split(/\s+/).filter((c) => c.startsWith('/')) ?? [];
+  const ask = text.replace(/\s*\[cmds:\s*[^\]]+\]\s*/g, ' ').replace(/\s*\[refs:\s*[^\]]+\]\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  return { ask, commands: cmds };
+}
+
 function resend(msg: Msg): void {
+  // resend only makes sense when nothing is streaming — otherwise it would
+  // silently displace the queued message (the exact screenshot scenario)
+  if (sending.value || queued.value) return;
   messages.value = messages.value.filter((x) => x !== msg);
-  void send(msg.text, (msg.refs ?? []).map((r) => ({ kind: r.kind as PipelineRef['kind'], locator: r.name })), '');
+  const { ask, commands } = decomposeStored(msg.text);
+  void send(ask, (msg.refs ?? []).map((r) => ({ kind: r.kind as PipelineRef['kind'], locator: r.name })), '', commands);
 }
 
 /** rev20b: panel errors surface as system messages. */
