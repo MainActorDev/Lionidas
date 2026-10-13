@@ -42,11 +42,27 @@ Also notable: per-turn **checkpoints as git refs** (diff/restore any turn), test
 
 Estimated: 2-3 focused sessions for 1-3 (butler + lionidas), half a session for 4-5. NOT a rewrite of the UI — Thread/Composer components keep rendering, just fed by projections.
 
+## Additional reference analyzed: ACP (agentclientprotocol/agent-client-protocol)
+
+Cloned and read the schema directly (`schema/v1/schema.json`, 178 defs; Rust reference libs). ACP is Zed's open **JSON-RPC wire protocol between editor-clients and coding agents** — the standardized version of exactly the seam Lionidas has between its UI and butler. It is the COMPLEMENT to t3code: t3code showed the *engine* patterns (event-sourcing, projections); ACP shows the *wire vocabulary*.
+
+What we should adopt verbatim (it's MIT/Apache-2, spec-first, versioned):
+
+1. **The `session/update` notification taxonomy — 14 kinds, one discriminated union**: `user_message_chunk`, `agent_message_chunk`, `agent_thought_chunk`, `tool_call`, `tool_call_update` (partial patches by toolCallId!), `plan`, `available_commands_update`, `current_mode_update`, `config_option_update`, `session_info_update`, `usage_update` (context window used/size), `notice`, `compaction_update`, `compaction_summary_chunk`. This is a battle-tested superset of our `turn.delta`/`turn.tool` — the event contract for the durable turn log, designed by people who shipped it across many agents.
+2. **Entity-with-ID + patch updates**: tools and compactions are entities with IDs; the first update fixes their timeline position, later updates PATCH in place by ID (`ToolCallUpdate`: "all fields except the call ID are optional"). Our tool rail guesses correlation by call ORDER — the ACP pattern fixes that class properly.
+3. **Capability negotiation at session start** (`AgentSessionCapabilities` MUST-set: new/prompt/cancel/update; MAY-advertise the rest) — same philosophy as t3code's flags, at the protocol level. Directly replaces our provider-kind branching.
+4. **`usage_update` as a first-class stream event** — context-window used/size pushed live. This is the principled fix for our 200k-budget surprise: the UI would have SEEN the context filling before it tripped.
+5. **Compaction as a visible protocol event** (`compaction_update` + streamed summary chunks) — they made context-window exhaustion a *user-visible, negotiated* operation. Maps to our history-windowing problem exactly.
+6. **Their schema discipline** (from AGENTS.md): "a malformed value for a known discriminator must not fall through to an untagged fallback" and strict-vs-lenient rules per field — the validation policy our contract package should copy.
+
+Relation between the two references: t3code internally ADOPTS ACP for some providers (`provider-acp` package, "ACP Registry" adapters — the adding-a-provider doc treats ACP as the preferred integration shape). So the ecosystem answer is consistent: **ACP vocabulary at the boundary, event-sourced engine behind it.** That is precisely the recommendation for Lionidas: ACP-shaped typed events (adapted, not adopted wholesale — we're not editor↔agent, we're UI↔engine) on top of the orchestration-lite core.
+
 ## Open questions
 
 1. Scope: harden the chat core only (recommend), or also reconsider the workflow/pipeline engine's storage under the same event model (bigger, later)?
 2. Butler stays the home (recommend — the turn engine already lives there), or a new lionidas-side package?
 3. Sequencing: this as round 3, before or after the C4 golden-set evals?
+4. ACP alignment: adopt the session/update *taxonomy* with our own schema (recommend — matches our entities), or literally implement ACP over JSON-RPC (only worth it if Lionidas ever wants third-party agent clients)?
 
 ## Next step
 
