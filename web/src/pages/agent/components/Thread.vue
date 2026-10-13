@@ -107,6 +107,7 @@ watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom
         <div v-for="(m, i) in messages.filter((x) => (x.text ?? '').trim())" :key="i" class="msg" :class="m.role">
           <template v-if="m.role === 'user'">
             <div class="body" :class="{ aborted: m.aborted }">
+              <div v-if="m.status" class="status inflight">{{ m.status }}</div>
               <span v-for="c in userCommands(m.text)" :key="c" class="cmd-tag">{{ c }}</span>
               <div class="txt" v-html="renderUserText(m)"></div>
               <div v-if="m.aborted" class="ab-actions" @click.stop>
@@ -225,6 +226,7 @@ watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom
 .txt :deep(th) { background: var(--ag-panel); color: var(--color-paper); font-weight: var(--weight-bold); white-space: nowrap; }
 .txt :deep(td) { color: var(--color-fog); }
 .txt :deep(strong) { color: var(--color-paper); }
+.status.inflight { color: #e8916d; border-color: rgba(232,145,109,.4); animation: agpulse 1.6s ease-in-out infinite; }
 .status { display: inline-flex; align-items: center; gap: 8px; font-size: var(--text-caption); color: var(--color-steel); border: 1px solid var(--ag-line); border-radius: var(--r-sm); padding: 1px var(--s-2); margin-bottom: 6px; }
 /* ── user bubble: command chip + inline ref chips (composer-parity) ── */
 .cmd-tag { display: inline-block; margin: 0 0 4px; padding: 1px 8px; border: 1px solid rgba(232, 145, 109, .4); border-radius: 999px; color: #e8916d; background: rgba(232, 145, 109, .08); font-size: var(--text-caption); font-weight: var(--weight-bold); }

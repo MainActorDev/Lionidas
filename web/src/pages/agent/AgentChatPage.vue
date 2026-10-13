@@ -75,21 +75,28 @@ async function openSession(id: string): Promise<void> {
   localStorage.setItem('agent.lastSession', id); // rev9 E2
   const r = await fetch(`/api/agent/sessions/${id}`);
   if (!r.ok) return;
-  const b = (await r.json()) as { session: { title: string | null }; messages: Array<{ role: string; content: string | null }> };
+  const b = (await r.json()) as { session: { title: string | null }; messages: Array<{ role: string; content: string | null }>; liveTurn?: { turnId: string; startedAt: number } | null };
   title.value = b.session.title ?? (title.value === 'new chat' ? id : title.value);
-  // rev9: a user message followed by NO assistant text = aborted/lost turn → distinct + resend
+  // rev9 + sess_e2e40228: a trailing unanswered user message is IN FLIGHT when the
+  // durable log has an active turn (streaming here or in a sibling process) —
+  // render 'in flight…', not a false ABORTED; only genuinely dead turns abort.
+  const inFlight = Boolean(b.liveTurn);
   const rows = b.messages.filter((m) => (m.role === 'user' || m.role === 'assistant') && (m.content ?? '').trim());
   const out: Msg[] = [];
   for (const m of rows) {
     if (m.role === 'user') {
       const next = rows[rows.indexOf(m) + 1];
+      const isLast = rows.indexOf(m) === rows.length - 1;
       const unanswered = !next || next.role === 'user';
-      out.push({ role: 'user', text: m.content ?? '', aborted: unanswered });
+      // only the TRAILING message can be in flight; earlier gaps are real aborts
+      const status: Msg['status'] = unanswered && isLast && inFlight ? 'in flight…' : undefined;
+      out.push({ role: 'user', text: m.content ?? '', aborted: unanswered && !status, ...(status ? { status } : {}) });
     } else {
       out.push({ role: 'assistant', text: m.content ?? '' });
     }
   }
   messages.value = out;
+  if (inFlight) setTurn((t) => { t.sending = true; t.streaming = null; }); // show the waiting dots
   setTurn((t) => { t.runId = boundRun(id); });
   void panel.value?.refresh();
 }
