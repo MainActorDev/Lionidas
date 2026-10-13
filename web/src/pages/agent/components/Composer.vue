@@ -145,6 +145,8 @@ const paletteLoading = ref(false);
 const jiraRows = ref<PaletteRow[]>([]);   // async tier
 const jiraSearching = ref(false);
 const tokens = ref<TokenRange[]>([]);     // MR1: ranges, never sentinels
+/** caret to restore after Vue's v-model re-render (pick/backspace keep the caret honest) */
+let pendingCaret = -1;
 let paletteSeq = 0;
 
 /** recent refs — palette memory only; draft NEVER pre-populated (MR2) */
@@ -266,8 +268,7 @@ function acceptPalette(idx?: number): void {
   const ref: Ref = { kind: row.ref.kind, locator: row.ref.locator, label };
   if (refs.value.length < REF_CAP && !refs.value.some((r) => r.kind === ref.kind && r.locator === ref.locator)) refs.value.push(ref);
   pushRecent(ref);
-  const newCaret = atStart.value + insert.length;
-  void nextTick(() => { el.focus(); el.setSelectionRange(newCaret, newCaret); });
+  pendingCaret = atStart.value + insert.length;
   closePalette();
 }
 
@@ -290,12 +291,22 @@ function ta(): HTMLTextAreaElement | null {
   return taEl.value ?? (document.querySelector('.composer textarea') as HTMLTextAreaElement | null);
 }
 
-/** overlay mirrors the textarea's scroll (long drafts) */
+/** overlay mirrors the textarea's scroll (long drafts) + pending caret restore */
 watch(() => [text.value, tokens.value.length], () => {
   void nextTick(() => {
     const el = taEl.value;
     const ov = document.querySelector('.ta-overlay') as HTMLElement | null;
     if (el && ov) ov.scrollTop = el.scrollTop;
+    if (el && pendingCaret >= 0) {
+      const pos = Math.min(pendingCaret, el.value.length);
+      el.focus();
+      el.setSelectionRange(pos, pos);
+      pendingCaret = -1;
+      // v-model may re-set value once more after this tick — re-assert on the next frame
+      requestAnimationFrame(() => {
+        if (document.activeElement === el) el.setSelectionRange(pos, pos);
+      });
+    }
   });
 });
 
@@ -313,7 +324,7 @@ function onKey(e: KeyboardEvent): void {
       tokens.value = tokens.value.filter((t) => t !== atStartHit).map((t) => (t.start >= atStartHit.end ? { ...t, start: t.start - (atStartHit.end - atStartHit.start), end: t.end - (atStartHit.end - atStartHit.start) } : t));
       const ref = refs.value.find((r) => r.locator === atStartHit.locator && r.kind === atStartHit.kind);
       if (ref) refs.value = refs.value.filter((r) => r !== ref);
-      void nextTick(() => { el?.focus(); el?.setSelectionRange(atStartHit.start, atStartHit.start); });
+      pendingCaret = atStartHit.start;
       return;
     }
   }
