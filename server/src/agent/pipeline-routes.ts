@@ -43,7 +43,7 @@ export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, 
     if (!Array.isArray(b?.refs) || b.refs.length === 0) {
       return reply.code(400).send({ error: 'refs required' });
     }
-    const KNOWN: ReadonlySet<string> = new Set(['jira', 'github-pr', 'github-commit', 'doc', 'repo', 'attachment']);
+    const KNOWN: ReadonlySet<string> = new Set(['jira', 'github-pr', 'github-commit', 'doc', 'repo', 'attachment', 'case']);
     const refs = b.refs
       .filter((r) => r.kind && r.locator && KNOWN.has(r.kind))
       .map((r) => ({ kind: r.kind as 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo' | 'attachment', locator: r.locator!, ...(r.note ? { note: r.note } : {}) }));
@@ -81,7 +81,7 @@ export function registerPipelineRoutes(app: FastifyInstance, ctx: AgentContext, 
   app.post('/api/agent/skill', { preHandler: requireRoleAtLeast('operator') }, async (req, reply) => {
     const b = req.body as { command?: string; ask?: string; appBundle?: string; sessionId?: string; refs?: Array<{ kind?: string; locator?: string; note?: string }> } | null;
     // R2-F2: refs validated with the SAME filter as the pipeline route (review R3)
-    const SKILL_KNOWN: ReadonlySet<string> = new Set(['jira', 'github-pr', 'github-commit', 'doc', 'repo', 'attachment']);
+    const SKILL_KNOWN: ReadonlySet<string> = new Set(['jira', 'github-pr', 'github-commit', 'doc', 'repo', 'attachment', 'case']);
     const refs = (Array.isArray(b?.refs) ? b!.refs! : [])
       .filter((r) => r.kind && r.locator && SKILL_KNOWN.has(r.kind))
       .map((r) => ({ kind: r.kind as 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo' | 'attachment', locator: r.locator!, ...(r.note ? { note: r.note } : {}) }));

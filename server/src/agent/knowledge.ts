@@ -9,7 +9,7 @@ import { fileSource, repoSource } from './sources.ts';
 import { ingest } from '@mainactordev/butler';
 import type { SqliteStorage, StorageRetriever } from '@mainactordev/butler';
 
-export type RefKind = 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo' | 'attachment';
+export type RefKind = 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo' | 'attachment' | 'case';
 
 export interface PipelineRef {
   kind: RefKind;

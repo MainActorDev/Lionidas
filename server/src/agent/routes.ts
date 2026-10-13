@@ -3,6 +3,7 @@
  *  cookies AND PATs both resolve through registerUserResolution. */
 import type { FastifyInstance } from 'fastify';
 import { registerConversationApi, mountMcp } from '@mainactordev/butler';
+import { registerMentionRoutes } from './mention-search.ts';
 import { requireRole } from '../auth/roles.ts';
 import type { AgentContext } from './context.ts';
 import type { AppEvents, TypedEventBus } from '../ws/bus.ts';
@@ -29,6 +30,8 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AgentContext, bus
       sink: ctx.sink, // R3-S5: durable turns — event log rides the storage DB
       contextWindow: 200_000,
     });
+
+    registerMentionRoutes(scope, ctx);
 
     await mountMcp(scope, {
       registry: ctx.registry,

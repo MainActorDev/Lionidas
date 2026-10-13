@@ -5,7 +5,7 @@
  *  as capsule chips in the input line; send maps them to PipelineRef[]. */
 import { ref, computed, watch, nextTick } from 'vue';
 
-export interface Ref { kind: 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo' | 'attachment'; locator: string; label?: string }
+export interface Ref { kind: 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo' | 'attachment' | 'case'; locator: string; label?: string }
 
 const props = defineProps<{ busy?: boolean }>();
 const emit = defineEmits<{ send: [text: string, refs: Ref[], appBundle: string]; abort: []; skill: [command: string, ask: string, refs: Ref[]]; 'open-attachment': [] }>();
@@ -22,6 +22,7 @@ let reverting = false;
 watch(text, () => {
   menuDismissed.value = false;
   if (!text.value.startsWith('/')) activeIdx.value = 0;
+  onTextForPalette();
   // token → chip: '/planning ' becomes the chip, the rest is the prompt
   if (!reverting && !activeCmd.value) {
     const m = /^(\/\S+)(\s+.*|\s+)$/s.exec(text.value);
@@ -58,21 +59,25 @@ const willRun = computed(() => refs.value.length > 0);
 /** session switch: the composer is per-conversation — chips/bundle never leak across chats */
 function resetDraft(): void {
   refs.value = [];
+  tokens.value = [];
   activeCmd.value = null;
   text.value = '';
-  closeAt();
+  closePalette();
+}
+
+/** ＋ attach flow: an uploaded file becomes a chip-style inline token at the caret end */
+function addAttachmentChip(id: string, fileName: string): void {
+  const label = fileName;
+  const at = text.value.length;
+  text.value = `${text.value}${text.value && !text.value.endsWith(' ') ? ' ' : ''}${label} `;
+  const start = at === 0 ? 0 : text.value.indexOf(label);
+  tokens.value.push({ start, end: start + label.length, kind: 'attachment', locator: id, label });
+  const r: Ref = { kind: 'attachment', locator: id, label };
+  if (refs.value.length < REF_CAP && !refs.value.some((x) => x.kind === r.kind && x.locator === id)) refs.value.push(r);
+  pushRecent(r);
+  focusTA();
 }
 defineExpose({ addAttachmentChip, resetDraft });
-
-function removeRef(i: number): void {
-  const r = refs.value[i];
-  if (r) {
-    const next = new Set(pickedKeys.value);
-    next.delete(`${r.kind}:${r.locator}`);
-    pickedKeys.value = next; // list checkbox state follows the chip out
-  }
-  refs.value = refs.value.filter((_, idx) => idx !== i);
-}
 
 /** ── rev21: slash command menu ─────────────────────────────────────────── */
 const SKILLS: Array<{ cmd: string; desc: string }> = [
@@ -116,256 +121,203 @@ function focusTA(): void {
   });
 }
 
-/** ── rev23 (F1): @-mention ref pickers ───────────────────────────────────
- *  Levels: family (@jira/@repo/@attachment) → family-specific picker.
- *  F1 wires the full menu/chip state machine with STUB level-2 data; F2–F4
- *  replace the stubs with live fetches. */
-type AtLevel = 'closed' | 'family' | 'jira' | 'repo' | 'repo-pick' | 'attachment';
-const at = ref<AtLevel>('closed');
+/** ── mention palette (sketch 033-C, plan 20261013T072312Z): ONE caret-anchored
+ *  palette; query = text from '@' to caret; RANGE-TRACKED inline tokens
+ *  (review MR1 — plain text only, sentinels FORBIDDEN); two-tier search
+ *  (local instant + async jira, MR3). The old family/repo-wizard machine is
+ *  deleted. Chips render in an overlay aligned to the textarea. */
+interface PaletteRow {
+  id: string;
+  kind: 'case' | 'repo' | 'file' | 'jira' | 'recent';
+  title: string;
+  meta: string;
+  ref: { kind: Ref['kind']; locator: string };
+}
+/** an inline token: a RANGE over the plain text (MR1) */
+interface TokenRange { start: number; end: number; kind: Ref['kind']; locator: string; label: string }
+
+const atOpen = ref(false);
 const atQuery = ref('');
+const atStart = ref(-1);          // index of '@' in text
 const atIdx = ref(0);
-/** repo two-level state */
-const repoPick = ref<{ project: string; segment: 'commits' | 'pulls'; branch: string } | null>(null);
-/** multi-select session: (kind, locator) pairs chipped during THIS open menu */
-const pickedKeys = ref<Set<string>>(new Set());
+const paletteRows = ref<PaletteRow[]>([]);
+const paletteLoading = ref(false);
+const jiraRows = ref<PaletteRow[]>([]);   // async tier
+const jiraSearching = ref(false);
+const tokens = ref<TokenRange[]>([]);     // MR1: ranges, never sentinels
+let paletteSeq = 0;
 
-const FAMILIES: Array<{ key: string; desc: string }> = [
-  { key: '@jira', desc: 'Search a Jira ticket (epic/story/subtask)' },
-  { key: '@repo', desc: 'Pick a repo, then commits or PRs' },
-  { key: '@attachment', desc: 'Attach a file' },
-];
-
-/** R2-fix4: the search box LIVES IN THE MENU — jiraQuery drives the search,
- *  rowFilter filters repo rows; the textarea no longer feeds the pickers */
-const jiraQuery = ref('');
-const rowFilter = ref('');
-const jiraSearchInput = ref<HTMLInputElement | null>(null);
-watch(atQuery, () => { /* textarea no longer feeds picker queries */ });
-
-function familyMatches(): Array<{ key: string; desc: string }> {
-  const q = atQuery.value.trim();
-  if (!q) return FAMILIES;
-  return FAMILIES.filter((f) => f.key.startsWith(q));
-}
-
-/** rev23 F3: live jira search — debounced 300ms; honest states surface as rows */
-interface JiraRow { key: string; title: string; type: string }
-const jiraRows = ref<JiraRow[]>([]);
-const jiraState = ref<'idle' | 'loading' | 'error' | 'unconfigured'>('idle');
-let jiraTimer: ReturnType<typeof setTimeout> | undefined;
-
-async function fetchJira(q: string): Promise<void> {
-  jiraState.value = 'loading';
+/** recent refs — palette memory only; draft NEVER pre-populated (MR2) */
+const RECENT_KEY = 'lionidas.recentRefs';
+function pushRecent(r: Ref): void {
   try {
-    const r = await fetch(`/api/agent/refs/jira?q=${encodeURIComponent(q)}`);
-    const b = (await r.json()) as { configured?: boolean; issues?: JiraRow[]; reason?: string; error?: string };
-    if (b.configured === false) { jiraState.value = 'unconfigured'; jiraRows.value = []; return; }
-    if (b.error) { jiraState.value = 'error'; jiraRows.value = []; return; }
-    jiraState.value = 'idle';
-    jiraRows.value = b.issues ?? [];
-  } catch {
-    jiraState.value = 'error';
-    jiraRows.value = [];
-  }
+    const cur = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]') as Ref[];
+    const next = [{ ...r }, ...cur.filter((x) => !(x.kind === r.kind && x.locator === r.locator))].slice(0, 8);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+  } catch { /* private mode etc. */ }
 }
-
-function jiraQueryChanged(q: string): void {
-  if (jiraTimer) clearTimeout(jiraTimer);
-  if (!q.trim()) { jiraRows.value = []; jiraState.value = 'idle'; return; }
-  jiraTimer = setTimeout(() => { void fetchJira(q); }, 300);
-}
-/** rev23 F4: live repo data — repos, branches (searchable), commits/PRs per segment */
-const repoList = ref<string[]>([]);
-const repoBranches = ref<Array<{ name: string; lastCommit: string }>>([]);
-const repoRows = ref<Array<{ id: string; title: string; meta: string; sub?: string }>>([]);
-const repoState = ref<'idle' | 'loading' | 'error'>('idle');
-const repoErrMsg = ref('');
-const branchQuery = ref('');
-let repoTimer: ReturnType<typeof setTimeout> | undefined;
-
-async function fetchRepos(): Promise<void> {
-  repoState.value = 'loading';
+function recentRefs(): PaletteRow[] {
   try {
-    const r = await fetch('/api/agent/refs/repos');
-    const b = (await r.json()) as { repos?: string[] };
-    repoList.value = b.repos ?? [];
-    repoState.value = 'idle';
-  } catch { repoState.value = 'error'; repoErrMsg.value = 'repo list unreachable'; }
+    return (JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]') as Ref[]).map((r, i) => ({
+      id: `recent:${i}:${r.kind}:${r.locator}`,
+      kind: 'recent' as const,
+      title: r.label ?? r.locator,
+      meta: r.kind,
+      ref: { kind: r.kind, locator: r.locator },
+    }));
+  } catch { return []; }
 }
 
-async function fetchBranches(project: string, q: string): Promise<void> {
-  try {
-    const r = await fetch(`/api/agent/refs/repos/${encodeURIComponent(project)}/branches${q ? `?q=${encodeURIComponent(q)}` : ''}`);
-    const b = (await r.json()) as { branches?: Array<{ name: string; lastCommit: string }>; error?: string };
-    repoBranches.value = b.error ? [] : (b.branches ?? []);
-  } catch { repoBranches.value = []; }
-}
-
-async function fetchRepoRows(project: string, segment: 'commits' | 'pulls', branch: string): Promise<void> {
-  repoState.value = 'loading';
-  try {
-    const ep = segment === 'pulls' ? 'pulls' : `commits${branch ? `?branch=${encodeURIComponent(branch)}` : ''}`;
-    const r = await fetch(`/api/agent/refs/repos/${encodeURIComponent(project)}/${ep}`);
-    const b = (await r.json()) as { rows?: Array<{ id: string; title: string; meta: string; sub?: string }>; error?: string };
-    if (b.error) { repoState.value = 'error'; repoErrMsg.value = b.error; repoRows.value = []; return; }
-    repoRows.value = b.rows ?? [];
-    repoState.value = 'idle';
-  } catch { repoState.value = 'error'; repoErrMsg.value = 'repo fetch failed'; }
-}
-
-function branchQueryChanged(project: string): void {
-  if (repoTimer) clearTimeout(repoTimer);
-  repoTimer = setTimeout(() => { void fetchBranches(project, branchQuery.value.trim()); }, 300);
-}
-
-/** unified row model for the current at-level */
-interface AtRow { id: string; title: string; meta: string; sub?: string; locked?: boolean }
-const atRows = computed<Array<AtRow>>(() => {
-  if (at.value === 'family') return familyMatches().map((f) => ({ id: f.key, title: f.key, meta: f.desc }));
-  if (at.value === 'jira') {
-    if (!jiraQuery.value.trim() && jiraState.value === 'idle') return [{ id: '__hint', title: '@jira', meta: 'type in the search box above to find tickets', locked: true }];
-    if (jiraState.value === 'unconfigured') return [{ id: '__unconfigured', title: '@jira', meta: 'Jira not configured — set JIRA_TOKEN and JIRA_BASE_URL on the server', locked: true }];
-    if (jiraState.value === 'error') return [{ id: '__error', title: '@jira', meta: 'Jira search failed — check the server logs / token', locked: true }];
-    if (jiraState.value === 'loading') return [{ id: '__loading', title: '@jira', meta: 'searching…', locked: true }];
-    return jiraRows.value.map((i) => ({ id: i.key, title: i.key, meta: `${i.type} · ${i.title}` }));
-  }
-  if (at.value === 'repo') {
-    const q = rowFilter.value.trim().toLowerCase();
-    return repoList.value.filter((r) => r.toLowerCase().includes(q)).map((r) => ({ id: r, title: r, meta: 'registered repo' }));
-  }
-  if (at.value === 'repo-pick') {
-    if (repoState.value === 'loading') return [{ id: '__loading', title: '@repo', meta: 'loading…', locked: true }];
-    if (repoState.value === 'error') return [{ id: '__error', title: '@repo', meta: repoErrMsg.value || 'repo fetch failed', locked: true }];
-    const q = rowFilter.value.trim().toLowerCase();
-    return repoRows.value
-      .filter((r) => !q || r.id.toLowerCase().includes(q) || (r.sub ?? '').toLowerCase().includes(q))
-      .map((r) => ({ id: r.id, title: r.id, meta: r.meta, sub: r.sub }));
-  }
-  return [];
+/** rows: async jira first (if landed), then local + recent */
+const atRows = computed<PaletteRow[]>(() => {
+  const local = paletteRows.value;
+  const rec = atQuery.value ? [] : recentRefs().slice(0, 3);
+  const seen = new Set(local.concat(jiraRows.value).map((r) => r.ref.kind + r.ref.locator));
+  const fresh = rec.filter((r) => !seen.has(r.ref.kind + ':' + r.ref.locator));
+  return [...jiraRows.value, ...local, ...fresh];
 });
 
-const atMenuOpen = computed(() => at.value !== 'closed' && atRows.value.length > 0);
-
-/** family → picker routing */
-function openFamilyPick(fam: string): void {
-  atQuery.value = '';
-  jiraQuery.value = '';
-  rowFilter.value = '';
-  atIdx.value = 0;
-  if (fam === '@jira') void nextTick(() => jiraSearchInput.value?.focus());
-  pickedKeys.value = new Set();
-  if (fam === '@jira') { at.value = 'jira'; atQuery.value = ''; }
-  else if (fam === '@repo') { at.value = 'repo'; void fetchRepos(); }
-  else if (fam === '@attachment') { at.value = 'closed'; emit('open-attachment'); return; }
-  else at.value = 'closed';
-}
-
-/** commit a row: family level advances; jira/repo-pick rows CHIP (multi-select stays open) */
-function acceptAt(idx?: number): void {
-  const row = atRows.value[idx ?? atIdx.value];
-  if (!row || row.locked) return;
-  if (at.value === 'family') {
-    openFamilyPick(row.id);
-    return;
-  }
-  if (at.value === 'repo') {
-    repoPick.value = { project: row.id, segment: 'commits', branch: '' };
-    atQuery.value = '';
-    void fetchRepoRows(row.id, 'commits', '');
-    void fetchBranches(row.id, '');
-    at.value = 'repo-pick';
-    atQuery.value = '';
-    atIdx.value = 0;
-    return;
-  }
-  if (at.value === 'jira' || at.value === 'repo-pick') {
-    const kind: Ref['kind'] = at.value === 'jira' ? 'jira' : (repoPick.value?.segment === 'pulls' ? 'github-pr' : 'github-commit');
-    const locator = at.value === 'jira' ? row.id : `${repoPick.value?.project ?? ''}/${row.id}`;
-    const key = `${kind}:${locator}`;
-    if (pickedKeys.value.has(key)) { toggleRefOff(key); return; } // unselect: chip + state go together
-    addRefChip(kind, locator, row.title);
-    return; // multi-select: menu STAYS open
-  }
-}
-
-/** unselect: drop the chip AND its picked state (row returns to ◈) */
-function toggleRefOff(key: string): void {
-  const [kind, ...rest] = key.split(':');
-  const locator = rest.join(':');
-  refs.value = refs.value.filter((r) => !(r.kind === kind && r.locator === locator));
-  const next = new Set(pickedKeys.value);
-  next.delete(key);
-  pickedKeys.value = next;
-}
-
-/** rev23 F2: parent (page) chips a just-uploaded attachment — single-select by design */
-function addAttachmentChip(id: string, fileName: string): void {
-  addRefChip('attachment', id, fileName);
-  closeAt();
-}
-/** commit a ref chip (dedup + cap) */
-function addRefChip(kind: Ref['kind'], locator: string, label?: string): void {
-  if (refs.value.length >= REF_CAP) return; // cap blocks gracefully (footer shows n/8)
-  if (refs.value.some((r) => r.kind === kind && r.locator === locator)) return; // dedup
-  refs.value = [...refs.value, { kind, locator, ...(label ? { label } : {}) }];
-  pickedKeys.value.add(`${kind}:${locator}`);
-}
-
-function setBranch(name: string): void {
-  if (!repoPick.value) return;
-  repoPick.value = { ...repoPick.value, branch: repoPick.value.branch === name ? '' : name };
-  void fetchRepoRows(repoPick.value.project, repoPick.value.segment, repoPick.value.branch);
-}
-function setSegment(seg: 'commits' | 'pulls'): void {
-  if (!repoPick.value || repoPick.value.segment === seg) return;
-  repoPick.value = { ...repoPick.value, segment: seg, branch: seg === 'pulls' ? '' : repoPick.value.branch };
-  atQuery.value = '';
-  void fetchRepoRows(repoPick.value.project, seg, seg === 'commits' ? repoPick.value.branch : '');
-}
-
-function closeAt(): void { at.value = 'closed'; atQuery.value = ''; }
-
-/** 'done ✕' button / Esc: commit the picked set, close the menu, clear the @ token */
-function doneAt(): void {
-  closeAt();
-  if (text.value.startsWith('@')) { reverting = true; text.value = ''; void nextTick(() => { reverting = false; }); }
-  focusTA();
-}
-
-function isPicked(row: AtRow): boolean {
-  if (at.value === 'jira') return pickedKeys.value.has(`jira:${row.id}`);
-  if (at.value === 'repo-pick') {
-    const kind = repoPick.value?.segment === 'pulls' ? 'github-pr' : 'github-commit';
-    return pickedKeys.value.has(`${kind}:${repoPick.value?.project ?? ''}/${row.id}`);
-  }
-  return false;
-}
-
-/** @ token detection: opens the family menu while the token is still a bare '@…' */
-watch(text, (t) => {
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+/** caret-based @ token detection: opens while typing; query = '@'+… to caret */
+function onTextForPalette(): void {
   if (reverting) return;
-  // R2-fix4: the textarea only OPENS the picker ('@'); searching/filtering
-  // happens in the menu's own search box, not here
-  if (at.value === 'closed' && t.startsWith('@') && !t.includes(' ')) {
-    at.value = 'family';
-    atIdx.value = 0;
+  const el = ta();
+  if (!el) return;
+  const caret = el.selectionStart ?? 0;
+  const before = text.value.slice(0, caret);
+  const m = /(^|\s)@([A-Za-z0-9_./#-]*)$/.exec(before);
+  if (!m) { if (atOpen.value) closePalette(); return; }
+  const startIdx = caret - (m[2]?.length ?? 0) - 1;
+  // word-char directly before '@' (emails) suppresses — m[1] requires whitespace/start
+  if (!atOpen.value) { atOpen.value = true; atStart.value = startIdx; atIdx.value = 0; }
+  atQuery.value = m[2] ?? '';
+  scheduleSearch(atQuery.value);
+}
+
+function scheduleSearch(q: string): void {
+  if (searchTimer) clearTimeout(searchTimer);
+  const seq = ++paletteSeq;
+  searchTimer = setTimeout(() => void doSearch(q, seq), 180);
+}
+
+async function doSearch(q: string, seq: number): Promise<void> {
+  paletteLoading.value = true;
+  // async jira tier (MR3): fills in when it lands
+  if (q.trim().length >= 2) {
+    jiraSearching.value = true;
+    void fetch(`/api/agent/refs/jira?q=${encodeURIComponent(q)}`)
+      .then((r) => r.json())
+      .then((b: { issues?: Array<{ key: string; title: string; type?: string }> }) => {
+        if (seq !== paletteSeq) return;
+        jiraRows.value = (b.issues ?? []).slice(0, 4).map((i) => ({
+          id: `jira:${i.key}`, kind: 'jira' as const, title: `${i.key} · ${i.title}`,
+          meta: i.type ?? 'jira', ref: { kind: 'jira' as const, locator: i.key },
+        }));
+      })
+      .catch(() => { if (seq === paletteSeq) jiraRows.value = []; })
+      .finally(() => { jiraSearching.value = false; });
+  } else { jiraRows.value = []; }
+  // local tier
+  try {
+    const r = await fetch(`/api/agent/refs/search?q=${encodeURIComponent(q)}`);
+    const b = (await r.json()) as { rows?: PaletteRow[] };
+    if (seq !== paletteSeq) return;
+    paletteRows.value = (b.rows ?? []).slice(0, 12);
+  } catch { if (seq === paletteSeq) paletteRows.value = []; }
+  paletteLoading.value = false;
+}
+
+function closePalette(): void {
+  atOpen.value = false;
+  atQuery.value = '';
+  atStart.value = -1;
+  paletteRows.value = [];
+  jiraRows.value = [];
+  if (searchTimer) clearTimeout(searchTimer);
+  paletteSeq++;
+}
+
+/** pick: autocomplete the token text in-place + record the RANGE (MR1) */
+function acceptPalette(idx?: number): void {
+  const row = atRows.value[idx ?? atIdx.value];
+  if (!row) return;
+  const el = ta();
+  if (!el || atStart.value < 0) { closePalette(); return; }
+  const label = row.ref.kind === 'jira' ? row.ref.locator
+    : row.ref.kind === 'attachment' ? (row.title)
+    : row.ref.kind === 'case' ? (row.title)
+    : `${row.ref.locator}`;
+  const insert = `${label} `;
+  const caret = el.selectionStart ?? text.value.length;
+  const end = caret;
+  // replace '@query' with 'label '
+  text.value = text.value.slice(0, atStart.value) + insert + text.value.slice(end);
+  // shift existing token ranges after the edit point
+  const removed = end - atStart.value;
+  const added = insert.length;
+  const kept: TokenRange[] = [];
+  for (const t of tokens.value) {
+    if (t.end <= atStart.value) kept.push(t);
+    else if (t.start >= end) kept.push({ ...t, start: t.start - removed + added, end: t.end - removed + added });
+    // overlapping tokens are dropped (shouldn't happen)
   }
+  kept.push({ start: atStart.value, end: atStart.value + label.length, kind: row.ref.kind, locator: row.ref.locator, label });
+  tokens.value = kept;
+  const ref: Ref = { kind: row.ref.kind, locator: row.ref.locator, label };
+  if (refs.value.length < REF_CAP && !refs.value.some((r) => r.kind === ref.kind && r.locator === ref.locator)) refs.value.push(ref);
+  pushRecent(ref);
+  const newCaret = atStart.value + insert.length;
+  void nextTick(() => { el.focus(); el.setSelectionRange(newCaret, newCaret); });
+  closePalette();
+}
+
+/** overlay model: plain text + chip ranges → render segments */
+const overlaySegments = computed<Array<{ text: string; token?: TokenRange }>>(() => {
+  const segs: Array<{ text: string; token?: TokenRange }> = [];
+  let pos = 0;
+  for (const t of [...tokens.value].sort((a, b) => a.start - b.start)) {
+    if (t.start > pos) segs.push({ text: text.value.slice(pos, t.start) });
+    segs.push({ text: text.value.slice(t.start, t.end), token: t });
+    pos = t.end;
+  }
+  if (pos < text.value.length) segs.push({ text: text.value.slice(pos) });
+  return segs;
 });
+
+const taEl = ref<HTMLTextAreaElement | null>(null);
+function ta(): HTMLTextAreaElement | null {
+  // component-scoped first (tests don't attach to document); document fallback for safety
+  return taEl.value ?? (document.querySelector('.composer textarea') as HTMLTextAreaElement | null);
+}
+
 
 function onKey(e: KeyboardEvent): void {
   if (e.key === 'Backspace' && activeCmd.value && text.value === '') { e.preventDefault(); revertChip(); return; }
-  if (e.key === 'Backspace' && !activeCmd.value && text.value === '' && refs.value.length) { e.preventDefault(); refs.value = refs.value.slice(0, -1); return; }
-  if (atMenuOpen.value) {
+  // MR1: Backspace at a token start removes the WHOLE token (as a unit)
+  if (e.key === 'Backspace' && !activeCmd.value) {
+    const el = ta();
+    const caret = el?.selectionStart ?? -1;
+    const atStartHit = tokens.value.find((t) => t.start === caret);
+    if (atStartHit) {
+      e.preventDefault();
+      text.value = text.value.slice(0, atStartHit.start) + text.value.slice(atStartHit.end).replace(/^\s+/, '');
+      tokens.value = tokens.value.filter((t) => t !== atStartHit).map((t) => (t.start >= atStartHit.end ? { ...t, start: t.start - (atStartHit.end - atStartHit.start), end: t.end - (atStartHit.end - atStartHit.start) } : t));
+      const ref = refs.value.find((r) => r.locator === atStartHit.locator && r.kind === atStartHit.kind);
+      if (ref) refs.value = refs.value.filter((r) => r !== ref);
+      void nextTick(() => { el?.focus(); el?.setSelectionRange(atStartHit.start, atStartHit.start); });
+      return;
+    }
+  }
+  if (atOpen.value) {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
-      atIdx.value = e.key === 'ArrowDown'
-        ? (atIdx.value + 1) % atRows.value.length
-        : (atIdx.value - 1 + atRows.value.length) % atRows.value.length;
+      const n = Math.max(1, atRows.value.length);
+      atIdx.value = e.key === 'ArrowDown' ? (atIdx.value + 1) % n : (atIdx.value - 1 + n) % n;
       void nextTick(() => document.querySelector('.slash-row.active')?.scrollIntoView({ block: 'nearest' }));
       return;
     }
-    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); acceptAt(); return; }
-    if (e.key === 'Escape') { e.preventDefault(); doneAt(); return; }
+    if ((e.key === 'Enter' || e.key === 'Tab') && atRows.value.length) { e.preventDefault(); acceptPalette(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); closePalette(); return; }
   } else if (menuOpen.value) {
     if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx.value = (activeIdx.value + 1) % skillMatches.value.length; return; }
     if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx.value = (activeIdx.value - 1 + skillMatches.value.length) % skillMatches.value.length; return; }
@@ -381,50 +333,36 @@ function submit(): void {
   if (activeCmd.value) {
     // R2-F2: refs RIDE the skill (compile-on-skill) instead of being discarded
     emit('skill', activeCmd.value, t, refs.value.map((r) => ({ ...r })));
-    text.value = ''; refs.value = []; activeCmd.value = null;
+    text.value = ''; refs.value = []; tokens.value = []; activeCmd.value = null;
     return;
   }
   const [first] = t.split(/\s+/);
   if (first && REGISTERED(first)) {
     emit('skill', first, t.slice(first.length).trim(), refs.value.map((r) => ({ ...r })));
-    text.value = ''; refs.value = [];
+    text.value = ''; refs.value = []; tokens.value = [];
     return;
   }
   emit('send', t, refs.value.map((r) => ({ ...r })), (appBundle.value ?? '').trim());
-  text.value = ''; refs.value = [];
-  closeAt();
+  text.value = ''; refs.value = []; tokens.value = [];
+  closePalette();
 }
 </script>
 
 <template>
   <div class="wrap">
     <div class="composer">
-      <!-- @-mention menu (rev23 F1): family → picker; multi-select for jira/repo-pick -->
-      <div v-if="atMenuOpen" class="slash-menu has-rows">
-        <div class="at-head">
-          <span v-if="at === 'jira'" class="at-title">@jira
-            <input ref="jiraSearchInput" v-model="jiraQuery" class="at-search" placeholder="search tickets…" @keydown.stop @input="jiraQueryChanged(jiraQuery)">
-            <span class="at-count">{{ pickedKeys.size }} selected</span></span>
-          <span v-else-if="at === 'repo'" class="at-title">@repo — pick a repository</span>
-          <span v-else-if="at === 'repo-pick'" class="at-title">@repo:{{ repoPick?.project }} <input v-model="rowFilter" class="at-search" placeholder="filter…" @keydown.stop> — <button class="seg" :class="{ on: repoPick?.segment === 'commits' }" @click="setSegment('commits')">commits</button> <button class="seg" :class="{ on: repoPick?.segment === 'pulls' }" @click="setSegment('pulls')">PRs</button> <span class="at-count">{{ pickedKeys.size }} selected · {{ refs.length }}/{{ REF_CAP }} refs</span></span>
-          <span v-else class="at-title">mention a reference</span>
-          <button class="at-done" title="done selecting (Esc)" @mousedown.prevent @click="doneAt">done ✕</button>
-        </div>
+      <!-- mention palette (sketch 033-C): one flat list, kind prefixes, async jira row -->
+      <div v-if="atOpen" class="slash-menu palette">
         <div class="menu-rows">
-          <div v-for="(row, i) in atRows" :key="row.id" class="slash-row" :class="{ active: i === atIdx, picked: isPicked(row) }" @mousedown.prevent="acceptAt(i)" @mousemove="atIdx = i">
-            <span class="slash-ico">{{ isPicked(row) ? '✓' : '◈' }}</span>
+          <div v-for="(row, i) in atRows" :key="row.id" class="slash-row" :class="{ active: i === atIdx }" @mousedown.prevent="acceptPalette(i)" @mousemove="atIdx = i">
+            <span class="pk" :class="row.kind">{{ row.kind }}</span>
             <span class="slash-name">{{ row.title }}</span>
             <span class="slash-desc">{{ row.meta }}</span>
-            <span v-if="row.sub" class="slash-sub">{{ row.sub }}</span>
           </div>
+          <div v-if="!atRows.length" class="slash-row state"><span class="pk">…</span><span class="slash-name">{{ paletteLoading ? 'searching…' : 'no matches' }}</span></div>
+          <div v-if="jiraSearching" class="slash-row state"><span class="pk jira">jira</span><span class="slash-name">searching jira…</span></div>
         </div>
-        <div v-if="at === 'jira'" class="at-foot">type to search · Enter selects and stays open · Esc done</div>
-        <div v-else-if="at === 'repo-pick' && repoPick?.segment === 'commits'" class="branch-strip">
-          <span class="branch-label">branch:</span>
-          <button v-for="b in repoBranches" :key="b.name" class="seg branch" :class="{ on: repoPick?.branch === b.name }" :title="b.lastCommit" @click="setBranch(b.name)">{{ b.name }}</button>
-          <input v-model="branchQuery" class="branch-search" placeholder="search branches…" @input="repoPick && branchQueryChanged(repoPick.project)">
-        </div>
-        <div v-if="at === 'repo-pick'" class="at-foot">branch scope: {{ repoPick?.branch || 'default' }} — the SHA pins content regardless of branch</div>
+        <div class="p-foot"><span>@ reference</span><span>↑↓ ↵ esc</span></div>
       </div>
 
       <!-- slash menu (rev21) -->
@@ -436,20 +374,16 @@ function submit(): void {
         </div>
       </div>
 
-      <!-- ref capsule chips -->
-      <div v-if="refs.length" class="chips">
-        <span v-for="(r, i) in refs" :key="r.kind + r.locator" class="chip ref-chip" :class="{ jira: r.kind === 'jira' }" @click="removeRef(i)">
-          <span class="ref-kind">@{{ r.kind === 'github-pr' || r.kind === 'github-commit' ? 'repo' : r.kind }}</span><span class="ref-name">{{ r.kind === 'attachment' ? (r.label ?? r.locator) : r.locator }}</span> ✕
-        </span>
-      </div>
-
       <div class="input-line">
         <span v-if="activeCmd" class="cmd-chip">{{ activeCmd }}<button class="chip-x" title="remove command" @mousedown.prevent.stop @click="revertChip">✕</button></span>
-        <textarea v-model="text" :placeholder="activeCmd ? 'describe what you want from this command…' : 'ask about cases, runs, or draft new tests…'" @keydown="onKey"></textarea>
+        <div class="ta-wrap">
+          <div class="ta-overlay" aria-hidden="true"><template v-for="(seg, i) in overlaySegments" :key="i"><span v-if="seg.token" class="chip inline" :class="seg.token.kind">{{ seg.token.label }}</span><template v-else>{{ seg.text }}</template></template></div>
+          <textarea ref="taEl" v-model="text" :placeholder="activeCmd ? 'describe what you want from this command…' : 'ask about cases, runs, or draft new tests…  ·  @ to reference'" @keydown="onKey" @click="onTextForPalette" @keyup="onTextForPalette"></textarea>
+        </div>
       </div>
       <div class="row">
-        <button class="icon" title="mention a reference (@jira / @repo / @attachment)" @click="at = 'family'; atQuery = '@'; text = '@'">＋ @</button>
-        <span class="hint">{{ willRun ? 'refs attached — sending starts the author pipeline' : '@ for refs · / for commands · enter to send' }}</span>
+        <button class="icon" title="attach a file" @click="emit('open-attachment')">＋</button>
+        <span class="hint">{{ willRun ? `${refs.length} reference${refs.length > 1 ? 's' : ''} attached` : '@ to reference · / for commands · enter to send' }}</span>
         <button v-if="!busy" class="send" :class="{ ready }" :disabled="!ready" @click="submit">send</button>
         <button v-else class="send stop" @click="emit('abort')">stop</button>
       </div>
@@ -508,4 +442,20 @@ textarea { width: 100%; background: none; border: none; outline: none; color: va
 .send.ready:hover { background: var(--color-ember-dim); }
 .send.stop { opacity: 1; background: none; border-color: var(--ag-line-2); color: var(--color-fog); }
 .send.stop:hover { color: var(--color-ember); border-color: var(--color-ember-dim); }
+
+/* ── mention palette (sketch 033-C compact flat) ── */
+.slash-menu.palette { width: 460px; padding: 4px; border-radius: 5px; }
+.slash-menu.palette .menu-rows { max-height: 300px; overflow-y: auto; padding: 0; }
+.pk { color: var(--color-steel); font-size: 10px; width: 34px; flex: none; }
+.pk.jira { color: #7fb3d5; } .pk.repo { color: #e8916d; } .pk.case { color: #a8c58a; } .pk.file { color: #b08ccf; } .pk.recent { color: var(--color-steel); }
+.slash-row .slash-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slash-row.state { color: var(--color-steel); cursor: default; }
+.p-foot { display: flex; justify-content: space-between; padding: 4px 8px 2px; color: var(--color-steel); opacity: .7; font-size: 9.5px; border-top: 1px solid var(--ag-line); margin-top: 4px; }
+
+/* ── textarea + chip overlay (MR1 range tokens) ── */
+.ta-wrap { position: relative; flex: 1; display: flex; }
+.ta-overlay { position: absolute; inset: 0; padding: 6px 8px; font: inherit; font-size: inherit; line-height: inherit; color: transparent; pointer-events: none; white-space: pre-wrap; overflow-wrap: break-word; overflow: hidden; z-index: 0; }
+.ta-wrap textarea { position: relative; z-index: 1; background: transparent; }
+.chip.inline { display: inline; border-radius: 3px; padding: 0 5px; margin: 0 1px; font-size: 12px; background: #2a2a2a; color: var(--color-paper); border: none; }
+.chip.inline.jira { color: #7fb3d5; } .chip.inline.github-commit, .chip.inline.github-pr { color: #e8916d; } .chip.inline.case { color: #a8c58a; } .chip.inline.attachment { color: #b08ccf; }
 </style>

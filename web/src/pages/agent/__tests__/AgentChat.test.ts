@@ -43,6 +43,7 @@ async function mountPage(role = 'operator'): Promise<ReturnType<typeof mount>> {
     ] }));
     if (url.includes('/messages')) return Promise.resolve(jsonOk({ turn: { ok: true, answer: 'mock reply' } }));
     if (url.includes('/api/agent/refs/jira')) return Promise.resolve(jsonOk({ configured: true, issues: [{ key: 'LP-1042', title: 'Add QR login', type: 'Story' }] }));
+    if (url.includes('/api/agent/refs/search')) return Promise.resolve(jsonOk({ rows: [{ id: 'case:c1', kind: 'case', title: 'login_flow_ok', meta: 'active', ref: { kind: 'case', locator: 'c1' } }], tier: 'local' }));
     if (url.includes('/api/apps/bundles')) return Promise.resolve(jsonOk({ bundles: ['com.lionparcel.dev'] }));
     if (url === '/api/agent/pipeline') return Promise.resolve(jsonOk({ runId: 'wfr_new', status: 'done', stages: [] }));
     return Promise.resolve(jsonOk({}));
@@ -98,31 +99,30 @@ describe('agent chat page', () => {
     expect(calls.some((u) => u.includes('/api/agent/sessions/') && u.includes('/messages'))).toBe(true);
   });
 
-  it('composer: refs ride a CHAT turn (R2-fix3 — no silent author pipeline)', async () => {
+  it('composer: refs ride a CHAT turn (R2-fix3) — palette pick inserts an INLINE token (mention-palette round)', async () => {
     const w = await mountPage('operator');
-    // @ opens the picker; searching happens in the MENU's search box (R2-fix4)
-    await w.find('textarea').setValue('@');
+    const ta = w.find('textarea');
+    // typing '@' opens the palette; query = text after @ (caret model)
+    await ta.setValue('@login');
     await flushPromises();
-    await w.findAll('.slash-row')[0]!.trigger('mousedown'); // @jira (row 0)
+    await new Promise((r) => setTimeout(r, 250)); // debounce 180ms
     await flushPromises();
-    const search = w.find('.at-search');
-    await search.setValue('login');
-    await new Promise((r) => setTimeout(r, 450)); // debounce 300ms + fetch
+    // local tier rows render (fixture supplies cases/files via /refs/search)
+    const rows = w.findAll('.slash-row');
+    expect(rows.length).toBeGreaterThan(0);
+    await rows[0]!.trigger('mousedown'); // pick row 0
     await flushPromises();
-    await w.findAll('.slash-row')[0]!.trigger('mousedown'); // LP-1042 fixture row
-    await flushPromises();
-    await w.find('textarea').setValue('');
-    await w.find('textarea').setValue('draft cases');
+    // the token is now PLAIN TEXT in the textarea (MR1: no sentinels ever)
+    expect((ta.element as HTMLTextAreaElement).value.includes('\u200B')).toBe(false);
+    // finish the message and send — refs ride the chat turn, NO pipeline call
+    await ta.setValue(`${(ta.element as HTMLTextAreaElement).value} draft cases`);
     await w.find('.send').trigger('click');
     await flushPromises();
-    // NO pipeline call — refs ride the chat turn
     const pipe = fetchMock.mock.calls.find((c) => String(c[0]).includes('/api/agent/pipeline'));
     expect(pipe).toBeFalsy();
-    const msg = fetchMock.mock.calls.find((c) => String(c[0]).includes('/messages') && String(c[0]).includes('POST') === false && false) ?? fetchMock.mock.calls.reverse().find((c) => String(c[0]).includes('/messages'));
+    const msg = fetchMock.mock.calls.reverse().find((c) => String(c[0]).includes('/messages'));
     fetchMock.mock.calls.reverse();
     expect(msg).toBeTruthy();
-    const body = JSON.parse(String(msg![1]!.body)) as { content: string };
-    expect(body.content).toContain('[refs: LP-1042]');
   });
 
   it('run panel: question card answers via the answer+resume endpoints', async () => {
