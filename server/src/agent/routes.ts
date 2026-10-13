@@ -32,7 +32,18 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AgentContext, bus
         const specs = orderCommands(cmds);
         if (!specs.length) return null;
         const envelope = ctx.registry.list().filter((t) => t.permission === 'read').map((t) => t.name);
-        const t = toolsFor(specs, envelope); return { promptBlock: overlayBlock(specs), ...(t ? { tools: t } : {}) };
+        const t = toolsFor(specs, envelope);
+        if (specs.length === 1) {
+          // single command: inline overlay (pi pole — proven, zero-cost)
+          return { promptBlock: overlayBlock(specs), ...(t ? { tools: t } : {}) };
+        }
+        // MULTI-command: the MODEL orchestrates (plan 20261013T162000Z) — no stacked
+        // bodies, no engine sort; stage.run is the execution unit, semantics order it
+        const names = specs.map((c) => c.cmd).join(', ');
+        return {
+          promptBlock: `\n\n--- MULTIPLE COMMANDS REQUESTED: ${names} ---\nYou orchestrate this turn. Each requested command names a stage of test-authoring work; the dependencies live in what each stage needs (breakdown consumes a scope; author consumes cases). Call stage.run once per command with the input it needs — order them yourself from the task semantics — then synthesize the results into one answer. The user's ask follows.\n---`,
+          ...(t ? { tools: t } : {}),
+        };
       },
       sink: ctx.sink, // R3-S5: durable turns — event log rides the storage DB
       contextWindow: 200_000,
