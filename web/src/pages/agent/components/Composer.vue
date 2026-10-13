@@ -571,20 +571,16 @@ textarea { width: 100%; background: none; border: none; outline: none; color: va
   tab-size: 2;
   border: none;
 }
-.ta-overlay { position: absolute; inset: 0; color: transparent; pointer-events: none; overflow: hidden; z-index: 0; }
-.ta-wrap textarea { position: relative; z-index: 1; background: transparent; caret-color: var(--color-paper); color: transparent; }
+/* LAYER ORDER (the fix for both screenshots): overlay paints ALL text+chips at
+ *  z-index 1 — BELOW the textarea. The textarea sits ABOVE (z-index 2) with
+ *  transparent text: its native CARET therefore paints OVER chips (17.39.55 —
+ *  caret was hidden behind chip backgrounds), and its SELECTION uses a fully
+ *  transparent selected-text color so the browser's forced contrast text can't
+ *  mirror under the overlay (17.39.50) — only the tinted bar shows. */
+.ta-overlay { position: absolute; inset: 0; color: var(--color-paper); pointer-events: none; overflow: hidden; z-index: 1; }
+.ta-wrap textarea { position: relative; z-index: 2; background: transparent; caret-color: var(--color-paper); color: transparent; }
 .ta-wrap textarea::placeholder { color: var(--color-steel); opacity: .8; }
-/* native selection highlight would glow through the overlay chips — subdue it */
-.ta-wrap textarea::selection { background: rgba(179, 84, 44, .35); }
-.ta-overlay { color: var(--color-paper); }
-/* the textarea's NATIVE selection still shows through (transparent text above it);
-   hide the doubled selection by making the textarea's own text invisible? No —
-   the textarea keeps real text (source of truth); the overlay chips SIT ABOVE it.
-   To avoid double-render: the textarea text stays VISIBLE for non-token ranges is
-   NOT possible per-range — so instead the OVERLAY paints chips only where tokens
-   are, and the textarea's native text remains visible underneath. The chip
-   background must therefore fully COVER the raw text beneath (same metrics →
-   exact cover), which the metric lock above guarantees. */
+.ta-wrap textarea::selection { color: transparent; background: rgba(179, 84, 44, .30); }
 .chip.inline { display: inline; border-radius: 3px; padding: 0 5px; margin: 0; font-size: inherit; line-height: inherit; background: #2a2a2a; color: var(--color-paper); border: none; text-decoration: none; }
 .chip.inline.jira { color: #7fb3d5; } .chip.inline.github-commit, .chip.inline.github-pr { color: #e8916d; } .chip.inline.case { color: #a8c58a; } .chip.inline.attachment { color: #b08ccf; }
 </style>
