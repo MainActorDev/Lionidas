@@ -6,47 +6,21 @@
 import { ref, computed, watch, nextTick } from 'vue';
 
 export interface Ref { kind: 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo' | 'attachment' | 'case'; locator: string; label?: string }
+/** a /command token rides the same range machinery (kind 'cmd' is Composer-internal; never sent as a Ref) */
 
 const props = defineProps<{ busy?: boolean }>();
 const emit = defineEmits<{ send: [text: string, refs: Ref[], appBundle: string]; abort: []; skill: [command: string, ask: string, refs: Ref[]]; 'open-attachment': [] }>();
 
 const text = ref('');
-/** rev22b: the ACTIVE command chip — a registered command the user committed
- *  (typed + space, or picked from the menu). It renders INSIDE the input as a
- *  token, distinct from the prompt text that follows. Unknown /text never
- *  becomes a chip — it stays ordinary text. */
-const activeCmd = ref<string | null>(null);
-/** suppresses token→chip promotion while reverting a chip back to text */
-let reverting = false;
+/** command tokens now ride the range machinery (kind 'cmd'); activeCmd is a
+ *  computed view over tokens. The old text-mangling promotion/revert is gone —
+ *  Backspace-as-unit replaces it. */
+let reverting = false; // suppresses palette re-open while clearing text programmatically
 
 watch(text, () => {
-  menuDismissed.value = false;
-  if (!text.value.startsWith('/')) activeIdx.value = 0;
   onTextForPalette();
-  // token → chip: '/planning ' becomes the chip, the rest is the prompt
-  if (!reverting && !activeCmd.value) {
-    const m = /^(\/\S+)(\s+.*|\s+)$/s.exec(text.value);
-    if (m && REGISTERED(m[1] ?? '')) {
-      activeCmd.value = m[1] ?? null;
-      text.value = text.value.slice((m[1] ?? '').length).replace(/^\s+/, '');
-    }
-  }
+  onTextForSlash();
 });
-
-/** chip → text token (✕ or Backspace on empty): lets the user edit the command */
-function revertChip(): void {
-  if (!activeCmd.value) return;
-  const cmd = activeCmd.value;
-  reverting = true;
-  activeCmd.value = null;
-  text.value = `${cmd} `;
-  void nextTick(() => { reverting = false; });
-  void nextTick(() => {
-    const el = document.querySelector('.composer textarea') as HTMLTextAreaElement | null;
-    el?.focus();
-    el?.setSelectionRange(el.value.length, el.value.length);
-  });
-}
 
 const refs = ref<Ref[]>([]);
 const appBundle = ref('');
@@ -60,9 +34,9 @@ const willRun = computed(() => refs.value.length > 0);
 function resetDraft(): void {
   refs.value = [];
   tokens.value = [];
-  activeCmd.value = null;
   text.value = '';
   closePalette();
+  closeSlash();
 }
 
 /** ＋ attach flow: an uploaded file becomes a chip-style inline token at the caret end */
@@ -87,30 +61,67 @@ const SKILLS: Array<{ cmd: string; desc: string }> = [
 ];
 const REGISTERED = (c: string): boolean => SKILLS.some((s) => s.cmd === c);
 
-const menuDismissed = ref(false);
+/** ── slash palette = SAME interaction as @ (operator: 'make the slash behavior
+ *  the same as @'): caret-anchored, typed-in-place query, ghost chip while
+ *  typing, pick inserts an INLINE ATOMIC cmd token; Backspace-as-unit; Esc.
+ *  activeCmd (leading-chip model) is derived from the token for send(). */
+const slashOpen = ref(false);
+const slashStart = ref(-1);
+const slashQuery = ref('');
 const activeIdx = ref(0);
 
 const skillMatches = computed(() => {
-  const t = text.value.trim();
-  if (!t.startsWith('/')) return [];
-  return SKILLS.filter((s) => s.cmd.startsWith(t));
+  const q = slashQuery.value;
+  if (!q) return SKILLS;
+  return SKILLS.filter((s) => s.cmd.startsWith(`/${q}`) || s.cmd.slice(1).startsWith(q));
 });
 
-/** open only while the token could STILL become a REGISTERED command */
-const menuOpen = computed(() => {
-  const t = text.value;
-  return t.startsWith('/') && !t.includes(' ') && !menuDismissed.value && skillMatches.value.length > 0;
+/** active command = the first cmd token (legacy leading position wins) */
+const activeCmd = computed<string | null>(() => {
+  const t = tokens.value.find((x) => x.kind === 'cmd');
+  if (!t) return null;
+  // only a leading token (at text start, modulo whitespace) counts as THE command
+  return text.value.trimStart().startsWith(t.label) ? t.label : null;
 });
 
-/** accept the selected command: commit the chip, close the menu */
+/** caret-based '/' token detection — mirrors onTextForPalette */
+function onTextForSlash(): void {
+  if (reverting) return;
+  const el = ta();
+  if (!el) return;
+  const caret = el.selectionStart ?? 0;
+  const before = text.value.slice(0, caret);
+  const m = /(^|\s)\/([A-Za-z0-9-]*)$/.exec(before);
+  if (!m) { if (slashOpen.value) closeSlash(); return; }
+  const startIdx = caret - (m[2]?.length ?? 0) - 1;
+  if (!slashOpen.value) { slashOpen.value = true; slashStart.value = startIdx; activeIdx.value = 0; }
+  else slashStart.value = startIdx;
+  slashQuery.value = m[2] ?? '';
+}
+
+function closeSlash(): void {
+  slashOpen.value = false;
+  slashStart.value = -1;
+  slashQuery.value = '';
+}
+
+/** pick: replace '/query' with the command as an inline atomic token */
 function acceptSkill(idx?: number): void {
   const pick = skillMatches.value[idx ?? activeIdx.value];
   if (!pick) return;
-  activeCmd.value = pick.cmd;
-  text.value = '';
-  activeIdx.value = 0;
-  menuDismissed.value = false;
-  focusTA();
+  const el = ta();
+  if (!el || slashStart.value < 0) { closeSlash(); return; }
+  const at = slashStart.value;
+  const end = el.selectionStart ?? at;
+  const insert = `${pick.cmd} `;
+  const removedLen = end - at;
+  const newToken: TokenRange = { start: at, end: at + pick.cmd.length, kind: 'cmd', locator: pick.cmd, label: pick.cmd };
+  applyEdit(text.value.slice(0, at) + insert + text.value.slice(end), at + insert.length, (t) => {
+    if (t.start >= end) return { ...t, start: t.start - removedLen + insert.length, end: t.end - removedLen + insert.length };
+    return t;
+  });
+  tokens.value = [...tokens.value, newToken].sort((a, b) => a.start - b.start);
+  closeSlash();
 }
 
 function focusTA(): void {
@@ -134,7 +145,7 @@ interface PaletteRow {
   ref: { kind: Ref['kind']; locator: string };
 }
 /** an inline token: a RANGE over the plain text (MR1) */
-interface TokenRange { start: number; end: number; kind: Ref['kind']; locator: string; label: string }
+interface TokenRange { start: number; end: number; kind: Ref['kind'] | 'cmd'; locator: string; label: string }
 
 const atOpen = ref(false);
 const atQuery = ref('');
@@ -369,10 +380,9 @@ watch(() => [text.value, tokens.value.length], () => {
 
 
 function onKey(e: KeyboardEvent): void {
-  if (e.key === 'Backspace' && activeCmd.value && text.value === '') { e.preventDefault(); revertChip(); return; }
-  // ── atomic chip keys (the Slack model, complete) ──
+  // ── atomic chip keys (the Slack model, complete — refs AND commands) ──
   const el = ta();
-  if (el && !activeCmd.value) {
+  if (el) {
     const hit = tokenAtCaret(el);
 
     // Backspace: caret right AFTER a chip (or a selection touching it) → delete the chip whole
@@ -428,11 +438,11 @@ function onKey(e: KeyboardEvent): void {
     }
     if ((e.key === 'Enter' || e.key === 'Tab') && atRows.value.length) { e.preventDefault(); acceptPalette(); return; }
     if (e.key === 'Escape') { e.preventDefault(); closePalette(); return; }
-  } else if (menuOpen.value) {
+  } else if (slashOpen.value && skillMatches.value.length) {
     if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx.value = (activeIdx.value + 1) % skillMatches.value.length; return; }
     if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx.value = (activeIdx.value - 1 + skillMatches.value.length) % skillMatches.value.length; return; }
     if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); acceptSkill(); return; }
-    if (e.key === 'Escape') { e.preventDefault(); menuDismissed.value = true; return; }
+    if (e.key === 'Escape') { e.preventDefault(); closeSlash(); return; }
   }
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
 }
@@ -440,18 +450,16 @@ function onKey(e: KeyboardEvent): void {
 function submit(): void {
   if (!ready.value) return;
   const t = text.value.trim();
-  if (activeCmd.value) {
-    // R2-F2: refs RIDE the skill (compile-on-skill) instead of being discarded
-    emit('skill', activeCmd.value, t, refs.value.map((r) => ({ ...r })));
-    text.value = ''; refs.value = []; tokens.value = []; activeCmd.value = null;
-    return;
-  }
-  const [first] = t.split(/\s+/);
-  if (first && REGISTERED(first)) {
-    emit('skill', first, t.slice(first.length).trim(), refs.value.map((r) => ({ ...r })));
+  const cmdToken = tokens.value.find((x) => x.kind === 'cmd');
+  if (cmdToken && activeCmd.value) {
+    // R2-F2: refs RIDE the skill (compile-on-skill). The ask = text minus the
+    // command token (it emitted as the command, not prose).
+    const ask = (text.value.slice(0, cmdToken.start) + text.value.slice(cmdToken.end)).replace(/\s+/g, ' ').trim();
+    emit('skill', cmdToken.label, ask, refs.value.map((r) => ({ ...r })));
     text.value = ''; refs.value = []; tokens.value = [];
     return;
   }
+
   emit('send', t, refs.value.map((r) => ({ ...r })), (appBundle.value ?? '').trim());
   text.value = ''; refs.value = []; tokens.value = [];
   closePalette();
@@ -475,17 +483,19 @@ function submit(): void {
         <div class="p-foot"><span>@ reference</span><span>↑↓ ↵ esc</span></div>
       </div>
 
-      <!-- slash menu (rev21) -->
-      <div v-if="menuOpen" class="slash-menu">
-        <div v-for="(s, i) in skillMatches" :key="s.cmd" class="slash-row" :class="{ active: i === activeIdx }" @mousedown.prevent="acceptSkill(i)" @mousemove="activeIdx = i">
-          <span class="slash-ico">◈</span>
-          <span class="slash-name">{{ s.cmd }}</span>
-          <span class="slash-desc">{{ s.desc }}</span>
+      <!-- slash palette — same interaction as @ (one flat list above the caret) -->
+      <div v-if="slashOpen && skillMatches.length" class="slash-menu palette">
+        <div class="menu-rows">
+          <div v-for="(s, i) in skillMatches" :key="s.cmd" class="slash-row" :class="{ active: i === activeIdx }" @mousedown.prevent="acceptSkill(i)" @mousemove="activeIdx = i">
+            <span class="pk cmd">cmd</span>
+            <span class="slash-name">{{ s.cmd }}</span>
+            <span class="slash-desc">{{ s.desc }}</span>
+          </div>
         </div>
+        <div class="p-foot"><span>/ command</span><span>↑↓ ↵ esc</span></div>
       </div>
 
       <div class="input-line">
-        <span v-if="activeCmd" class="cmd-chip">{{ activeCmd }}<button class="chip-x" title="remove command" @mousedown.prevent.stop @click="revertChip">✕</button></span>
         <div class="ta-wrap">
           <div class="ta-overlay" aria-hidden="true"><template v-for="(seg, i) in overlaySegments" :key="i"><span v-if="seg.token" class="chip inline" :class="seg.token.kind">{{ seg.token.label }}</span><span v-else-if="seg.active" class="chip inline querying">@{{ seg.text }}</span><template v-else>{{ seg.text }}</template></template></div>
           <textarea ref="taEl" v-model="text" :placeholder="activeCmd ? 'describe what you want from this command…' : 'ask about cases, runs, or draft new tests…  ·  @ to reference'" @keydown="onKey" @click="onTextForPalette" @keyup="onTextForPalette" @select="snapCaretOutOfTokens"></textarea>
@@ -600,6 +610,8 @@ textarea { width: 100%; background: none; border: none; outline: none; color: va
 /* the in-flight @token is a REAL chip (operator feedback: the faint ghost read as
  *  plain text) — filled ember family, solid ring, same weight as picked chips;
  *  only the dashed ring says 'still being typed' */
+.chip.inline.cmd { color: #f2a67f; background: rgba(232, 145, 109, .18); box-shadow: inset 0 0 0 1px rgba(232, 145, 109, .55); border-radius: 3px; padding: 0; font-weight: var(--weight-bold); }
+.pk.cmd { color: #e8916d; }
 .chip.inline.querying { color: #f2a67f; background: rgba(232, 145, 109, .22); box-shadow: inset 0 0 0 1px rgba(232, 145, 109, .7); border-radius: 3px; padding: 0; font-weight: var(--weight-bold); }
 .chip.inline.jira { color: #7fb3d5; } .chip.inline.github-commit, .chip.inline.github-pr { color: #e8916d; } .chip.inline.case { color: #a8c58a; } .chip.inline.attachment { color: #b08ccf; }
 </style>
