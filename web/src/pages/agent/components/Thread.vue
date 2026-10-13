@@ -33,16 +33,20 @@ function refLabel(kind: string, locator: string): string {
   if (kind === 'jira' || kind === 'case') return locator;
   return locator;
 }
-/** a leading registered-skill token renders as the command chip (matches the composer's activeCmd) */
-const KNOWN_CMDS = ['/planning', '/breakdown', '/author'];
-function userCommand(text: string): string | null {
+/** command tags: from the [cmds: /a /b] convention first (chat-turn commands,
+ *  review CR2), falling back to a leading '/cmd' token (legacy skill rows) */
+import { DEFAULT_COMMANDS } from '../commandRegistry.ts';
+const KNOWN_CMDS = DEFAULT_COMMANDS.map((c) => c.cmd);
+function userCommands(text: string): string[] {
+  const m = /\[cmds:\s*([^\]]+)\]/.exec(text);
+  if (m) return (m[1] ?? '').split(/\s+/).filter((c) => KNOWN_CMDS.includes(c));
   const first = text.trim().split(/\s+/)[0] ?? '';
-  return KNOWN_CMDS.includes(first) ? first : null;
+  return KNOWN_CMDS.includes(first) ? [first] : [];
 }
 function renderUserText(m: { text: string; refs?: Array<{ kind: string; name: string }> }): string {
-  const cmd = userCommand(m.text);
-  const stripped = cmd ? m.text.trim().slice(cmd.length).trimStart() : m.text;
-  const { clean, refs: parsed } = parseRefSuffix(stripped);
+  // strip BOTH transport suffixes ([cmds:] handled as tags above, [refs:] chipped below)
+  const noCmds = m.text.replace(/\s*\[cmds:\s*[^\]]+\]\s*/g, ' ').trim();
+  const { clean, refs: parsed } = parseRefSuffix(noCmds);
   const all: BubbleRef[] = [
     ...parsed,
     ...(m.refs ?? []).filter((r) => !parsed.some((p) => p.locator === r.name)).map((r) => ({ kind: r.kind, locator: r.name })),
@@ -103,7 +107,7 @@ watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom
         <div v-for="(m, i) in messages.filter((x) => (x.text ?? '').trim())" :key="i" class="msg" :class="m.role">
           <template v-if="m.role === 'user'">
             <div class="body" :class="{ aborted: m.aborted }">
-              <span v-if="userCommand(m.text)" class="cmd-tag">{{ userCommand(m.text) }}</span>
+              <span v-for="c in userCommands(m.text)" :key="c" class="cmd-tag">{{ c }}</span>
               <div class="txt" v-html="renderUserText(m)"></div>
               <div v-if="m.aborted" class="ab-actions" @click.stop>
                 <span class="ab-tag">aborted</span>

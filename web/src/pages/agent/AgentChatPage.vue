@@ -44,7 +44,7 @@ const setTurn = (mut: (t: TurnState) => void): void => {
 };
 // rev8 #2: single-slot queue — one pending send waits for the live turn
 // (the server 409s concurrent turns anyway; this makes the wait invisible)
-const queued = ref<{ text: string; refs: PipelineRef[]; appBundle: string } | null>(null);
+const queued = ref<{ text: string; refs: PipelineRef[]; appBundle: string; commands?: string[] } | null>(null);
 const sidebar = ref<InstanceType<typeof ChatSidebar> | null>(null);
 const panel = ref<InstanceType<typeof RunPanel> | null>(null);
 const composer = ref<InstanceType<typeof Composer> | null>(null);
@@ -155,12 +155,14 @@ async function onDeleted(id: string): Promise<void> {
   }
 }
 
-async function send(text: string, refs: PipelineRef[], appBundle: string): Promise<void> {
+async function send(text: string, refs: PipelineRef[], appBundle: string, commands: string[] = []): Promise<void> {
+  const cmdNote = commands.length ? ` [cmds: ${commands.join(' ')}]` : '';
+  const refNote = refs.length ? ` [refs: ${refs.map((r) => `${r.kind}:${r.locator}`).join(', ')}]` : '';
   if (sending.value) {
     // #2: max one queued — a newer send replaces the older queued one
     if (queued.value) messages.value = messages.value.filter((m) => m.text !== queued.value?.text || m.role !== 'user');
-    queued.value = { text, refs, appBundle };
-    messages.value = [...messages.value, { role: 'user', text, refs: refs.map((r) => ({ kind: r.kind, name: r.locator })) }];
+    queued.value = { text, refs, appBundle, ...(commands.length ? { commands } : {}) };
+    messages.value = [...messages.value, { role: 'user', text: `${text}${cmdNote}${refNote}`, refs: refs.map((r) => ({ kind: r.kind, name: r.locator })) }];
     return;
   }
   if (!sessionId.value) await newChat();
@@ -169,7 +171,7 @@ async function send(text: string, refs: PipelineRef[], appBundle: string): Promi
   setTurn((t) => { t.streaming = null; });
   setTurn((t) => { t.toolStops = []; }); // rev15
   const prettyRefs = refs.map((r) => ({ kind: r.kind, name: r.locator }));
-  messages.value = [...messages.value, { role: 'user', text, refs: prettyRefs }];
+  messages.value = [...messages.value, { role: 'user', text: `${text}${cmdNote}${refNote}`, refs: prettyRefs }];
   const flightIdx = messages.value.length - 1; // the user bubble just appended
   maybeAutoTitle(text);
   try {
@@ -179,9 +181,10 @@ async function send(text: string, refs: PipelineRef[], appBundle: string): Promi
     // (/author, /breakdown) or from the run panel.
     // kind-tagged so the model knows HOW to read each ref (jira.get / case.yaml.get /
     // repo.read) — bare locators made the model guess and it went hunting the DB
+    const cmdNote = commands.length ? ` [cmds: ${commands.join(' ')}]` : '';
     const refNote = refs.length ? ` [refs: ${refs.map((r) => `${r.kind}:${r.locator}`).join(', ')}]` : '';
     {
-      const r = await fetch(`/api/agent/sessions/${sid}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: `${text}${refNote}` }) });
+      const r = await fetch(`/api/agent/sessions/${sid}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: `${text}${cmdNote}${refNote}`, ...(commands.length ? { commands } : {}) }) });
       if (r.ok) {
         // butler contract: { turn: { ok, answer?, error? } } — the request can
         // succeed while the turn failed (outcome carries the verdict)
@@ -208,7 +211,7 @@ async function send(text: string, refs: PipelineRef[], appBundle: string): Promi
     const q = queued.value;
     if (q) {
       queued.value = null;
-      void send(q.text, q.refs, q.appBundle); // single-slot: fire the waiting message
+      void send(q.text, q.refs, q.appBundle, q.commands ?? []); // single-slot: fire the waiting message
     }
   }
 }
@@ -232,30 +235,7 @@ function onPanelError(m: string): void {
   messages.value = [...messages.value, { role: 'system', text: m }];
 }
 
-/** rev20b: slash skill — one profile as a single-stage workflow (run panel shows it). */
-async function runSkill(command: string | string[], ask: string, refs: PipelineRef[] = []): Promise<void> {
-  if (!sessionId.value) await newChat();
-  const sid = sessionId.value!;
-  messages.value = [...messages.value, { role: 'user', text: `${Array.isArray(command) ? command.join(' ') : command} ${ask}`, ...(refs.length ? { refs: refs.map((r) => ({ kind: r.kind, name: r.locator })) } : {}) }];
-  setTurn((t) => { t.sending = true; });
-  try {
-    const r = await fetch('/api/agent/skill', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ command, ask, appBundle: appBundleHint(), sessionId: sid, refs: refs.map((x) => ({ kind: x.kind, locator: x.locator })) }) });
-    const b = (await r.json()) as { run?: { runId?: string; status?: string }; answer?: string; error?: string };
-    if (!r.ok || !b.run?.runId) {
-      messages.value = [...messages.value, { role: 'system', text: `skill failed: ${b.error ?? r.status}` }];
-      return;
-    }
-    const rid = b.run?.runId; if (rid) setTurn((t) => { t.runId = rid; });
-    bindRun(sid, b.run.runId);
-    panel.value?.open(); // workflow started — surface the panel even if it was collapsed
-    void panel.value?.refresh();
-    // the ANSWER is the response — a regular assistant bubble, not a bare run note
-    if (b.answer) messages.value = [...messages.value, { role: 'assistant', text: b.answer }];
-    messages.value = [...messages.value, { role: 'system', text: `${command} run ${b.run.status ?? 'started'} — ${b.run.runId}` }];
-  } finally {
-    setTurn((t) => { t.sending = false; });
-  }
-}
+// commands ride chat turns now (plan 20261013T144145Z); the /api/agent/skill path is API-only
 function appBundleHint(): string { return ''; }
 
 /** rev23 F2: @attachment → hidden file input; upload on SELECT, chip via composer addRef */
@@ -407,7 +387,7 @@ onBeforeUnmount(() => { ws?.close(); if (pollTimer) clearInterval(pollTimer); })
     <div class="mid">
       <Thread :messages="messages" :title="title" :live="panel?.live ?? false" :waiting="sending && !streaming" :streaming="streaming" :tool-stops="toolStops" :session-id="sessionId" @resend="resend">
         <div class="mid-inner" @paste="onPaste" @drop="onDrop" @dragover.prevent>
-          <Composer ref="composer" :busy="sending" @send="send" @abort="abortTurn" @skill="runSkill" @open-attachment="openAttachmentPicker" />
+          <Composer ref="composer" :busy="sending" @send="send" @abort="abortTurn" @open-attachment="openAttachmentPicker" />
         </div>
       </Thread>
     </div>
