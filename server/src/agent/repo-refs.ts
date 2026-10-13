@@ -2,7 +2,7 @@
  *  repo.list (registered repos on disk), repo.branches (top-3 active seed +
  *  searchable), repo.commits (branch-scoped), repo.pulls.
  *  Fixed argv, timeouts, output caps; gh errors surface as honest row data. */
-import { readdir } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -256,5 +256,127 @@ export function registerRepoTools(registry: ToolRegistry, deps: RepoToolsDeps, e
       return JSON.stringify(await listPulls(owner));
     },
   });
+
+  // ── live repo reading (agent-repo-reading plan; review RR2 containment) ──
+  const READ_CAP = 12_000; // matches the chunk-cap policy (1e79223)
+  /** containment: resolved path must stay inside repoDir; no .., no absolute */
+  const safeSub = (project: string, sub: string): string | null => {
+    const root = safeDir(project);
+    if (!root) return null;
+    if (path.isAbsolute(sub) || sub.split(/[\\/]/).includes('..')) return null;
+    const resolved = path.resolve(root, sub);
+    const r = path.resolve(root);
+    if (resolved !== r && !resolved.startsWith(r + path.sep)) return null;
+    return resolved;
+  };
+  const cap = (text: string): { text: string; truncated: boolean } =>
+    text.length > READ_CAP ? { text: text.slice(0, READ_CAP), truncated: true } : { text, truncated: false };
+
+  registry.register({
+    name: 'repo.read',
+    description: 'read a file from a registered repo (live, line-numbered; use offset/limit for large files)',
+    permission: 'read',
+    parameters: { type: 'object', properties: { project: { type: 'string' }, path: { type: 'string', description: 'repo-relative path' }, offset: { type: 'number', description: '1-based start line' }, limit: { type: 'number', description: 'max lines' } }, required: ['project', 'path'] },
+    async execute(args) {
+      const file = safeSub(String(args['project'] ?? ''), String(args['path'] ?? ''));
+      if (!file) return JSON.stringify({ error: 'invalid project or path (traversal rejected)' });
+      try {
+        const st = await stat(file);
+        if (st.isDirectory()) return JSON.stringify({ error: 'path is a directory — use repo.tree' });
+        if (st.size > 2 * 1024 * 1024) return JSON.stringify({ error: `file too large (${st.size} bytes) — read via offset/limit is not supported above 2MB` });
+        const raw = await readFile(file, 'utf8');
+        if (raw.includes('\u0000')) return JSON.stringify({ error: 'binary file — not readable' });
+        const all = raw.split('\n');
+        const offset = Math.max(1, Number(args['offset'] ?? 1) || 1);
+        const limit = Math.min(Math.max(1, Number(args['limit'] ?? 400) || 400), 1000);
+        const slice = all.slice(offset - 1, offset - 1 + limit);
+        const numbered = slice.map((l, i) => `${offset + i}\t${l}`).join('\n');
+        const { text, truncated } = cap(numbered);
+        return JSON.stringify({ path: String(args['path']), offset, totalLines: all.length, lines: text, ...(truncated ? { truncated: true, note: `capped at ${READ_CAP} chars — narrow with offset/limit` } : {}) });
+      } catch { return JSON.stringify({ error: 'path not found' }); }
+    },
+  });
+
+  registry.register({
+    name: 'repo.tree',
+    description: 'list a directory of a registered repo (names, kinds, sizes)',
+    permission: 'read',
+    parameters: { type: 'object', properties: { project: { type: 'string' }, path: { type: 'string', description: 'repo-relative dir (default root)' } }, required: ['project'] },
+    async execute(args) {
+      const root = safeDir(String(args['project'] ?? ''));
+      if (!root) return JSON.stringify({ error: 'invalid project name' });
+      const sub = String(args['path'] ?? '');
+      const dir = sub ? safeSub(String(args['project'] ?? ''), sub) : path.resolve(root);
+      if (!dir) return JSON.stringify({ error: 'invalid path (traversal rejected)' });
+      try {
+        const entries = await readdir(dir, { withFileTypes: true });
+        const rows = [];
+        for (const e of entries.sort((a, b) => a.name.localeCompare(b.name)).slice(0, 500)) {
+          let bytes = 0;
+          try { if (e.isFile()) bytes = (await stat(path.join(dir, e.name))).size; } catch { /* gone */ }
+          rows.push({ name: e.name, kind: e.isDirectory() ? 'dir' : 'file', bytes });
+        }
+        return JSON.stringify({ path: sub || '.', entries: rows, ...(entries.length > 500 ? { truncated: true } : {}) });
+      } catch { return JSON.stringify({ error: 'directory not found' }); }
+    },
+  });
+
+  registry.register({
+    name: 'repo.commit_files',
+    description: 'files changed by a commit (status + adds/dels), local git',
+    permission: 'read',
+    parameters: { type: 'object', properties: { project: { type: 'string' }, sha: { type: 'string' } }, required: ['project', 'sha'] },
+    async execute(args) {
+      const root = safeDir(String(args['project'] ?? ''));
+      if (!root) return JSON.stringify({ error: 'invalid project name' });
+      const sha = String(args['sha'] ?? '').trim();
+      if (!/^[A-Za-z0-9._\/^-]{3,64}$/.test(sha) || sha.includes('..')) return JSON.stringify({ error: 'invalid sha' });
+      try {
+        const { stdout } = await exec('git', ['show', '--no-color', '--name-status', '--format=%H%n%s', sha], { cwd: root, timeout: 15_000, maxBuffer: 8 * 1024 * 1024 });
+        const lines = stdout.split('\n');
+        const full = lines[0] ?? '';
+        const subject = lines[1] ?? '';
+        const files = lines.slice(2).filter((l) => l.trim()).map((l) => {
+          const m = /^(\w)\t+(.+)$/.exec(l.trim());
+          return m ? { status: m[1], path: m[2] } : { status: '?', path: l.trim() };
+        });
+        return JSON.stringify({ sha: full.slice(0, 12), subject, files: files.slice(0, 200), ...(files.length > 200 ? { truncated: true, fileCount: files.length } : {}) });
+      } catch (e) { return JSON.stringify({ error: `git failed — ${(e as Error).message.split('\n')[0]?.slice(0, 120)}` }); }
+    },
+  });
+
+  registry.register({
+    name: 'repo.diff',
+    description: 'diff of a commit: per-file stat + hunks (truncated; filter by file, then repo.read for full content)',
+    permission: 'read',
+    parameters: { type: 'object', properties: { project: { type: 'string' }, sha: { type: 'string' }, file: { type: 'string', description: 'only this file' }, maxChars: { type: 'number', description: `cap (default ${12_000}, max 24000)` } }, required: ['project', 'sha'] },
+    async execute(args) {
+      const root = safeDir(String(args['project'] ?? ''));
+      if (!root) return JSON.stringify({ error: 'invalid project name' });
+      const sha = String(args['sha'] ?? '').trim();
+      if (!/^[A-Za-z0-9._\/^-]{3,64}$/.test(sha) || sha.includes('..')) return JSON.stringify({ error: 'invalid sha' });
+      const fileArg = typeof args['file'] === 'string' && args['file'] ? String(args['file']) : null;
+      if (fileArg && !safeSub(String(args['project'] ?? ''), fileArg)) return JSON.stringify({ error: 'invalid file (traversal rejected)' });
+      const maxChars = Math.min(Math.max(2_000, Number(args['maxChars'] ?? READ_CAP) || READ_CAP), 24_000);
+      try {
+        const gitArgs = ['show', '--no-color', '--format=%H %s', '--stat', '--stat-width=200', '-p', '--diff-merges=first-parent'];
+        if (fileArg) gitArgs.push('--', fileArg);
+        gitArgs.push(sha);
+        const { stdout } = await exec('git', gitArgs, { cwd: root, timeout: 20_000, maxBuffer: 12 * 1024 * 1024 });
+        // actual git shape: '<sha> <subject>\n--\n<statlines>\n\n<patch from diff --git…>'
+        const diffAt = stdout.indexOf('diff --git');
+        const statPart = diffAt === -1 ? stdout.slice(stdout.indexOf('\n') + 1) : stdout.slice(stdout.indexOf('\n--\n') + 4, diffAt).trim();
+        let patch = diffAt === -1 ? '' : stdout.slice(diffAt);
+        if (fileArg) {
+          // with --, output still carries stat + full patch for that file
+          patch = patch.slice(patch.indexOf('\n@@') >= 0 ? patch.indexOf('\n@@') : 0);
+        }
+        const budget = maxChars - Math.min(statPart.length, maxChars / 2);
+        const { text, truncated } = patch.length > budget ? { text: patch.slice(0, budget), truncated: true } : { text: patch, truncated: false };
+        return JSON.stringify({ sha: sha.slice(0, 12), stat: statPart.slice(0, Math.floor(maxChars / 2)), ...(truncated ? { truncated: true, note: 'hunks truncated — filter by file, then repo.read' } : {}), patch: text });
+      } catch (e) { return JSON.stringify({ error: `git failed — ${(e as Error).message.split('\n')[0]?.slice(0, 120)}` }); }
+    },
+  });
+
   void env;
 }

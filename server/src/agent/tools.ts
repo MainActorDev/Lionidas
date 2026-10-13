@@ -6,6 +6,7 @@ import type Database from 'better-sqlite3';
 import { renderTemplateYaml } from '../routes/templates.ts';
 import { registerConfigTools } from './config-tools.ts';
 import type { AttachmentStore } from './attachments.ts';
+import { join } from 'node:path';
 
 export interface ToolDeps {
   db: Database.Database;
@@ -165,15 +166,59 @@ export function buildToolRegistry(deps: ToolDeps): ToolRegistry {
     },
   });
 
+  // R3 repo-reading plan, Stage C: staleness guard. Track last ingest per source;
+  // stale (>1h) → kick a background re-ingest and SAY SO (honest note, review RR3).
+  const lastIngestAt = new Map<string, number>();
+  const STALE_MS = 60 * 60 * 1000;
+  const ingestRepoInBackground = (root: string): void => {
+    const key = `repo:${root}`;
+    if (lastIngestAt.get(key) === -1) return; // refresh already in flight
+    lastIngestAt.set(key, -1);
+    void (async () => {
+      try {
+        const butler = await import('@mainactordev/butler');
+        const conn = butler.repoConnector('lionidas-repo', { origin: root, symbols: true });
+        const r = await butler.ingest(conn, storage, { artifactsDir: deps.artifactsDir });
+        for (const d of r.documents) retriever.registerChunks(await storage.documentChunks(d.sha256));
+        lastIngestAt.set(key, Date.now());
+      } catch { lastIngestAt.delete(key); } // allow retry on next search
+    })();
+  };
+  const markIngestFresh = (root: string): void => { lastIngestAt.set(`repo:${root}`, Date.now()); };
+  const repoSnapshotAgeMs = (root: string): number | null => {
+    const t = lastIngestAt.get(`repo:${root}`);
+    return typeof t === 'number' && t > 0 ? Date.now() - t : null;
+  };
+
   registry.register({
     name: 'sources.search',
-    description: 'BM25 search over ingested source documents (tickets, repos)',
+    description: 'BM25 search over ingested source documents (tickets, repos); refreshes stale repo snapshots (>1h) in the background',
     permission: 'read',
     parameters: { type: 'object', properties: { query: { type: 'string' }, topK: { type: 'number' } }, required: ['query'] },
     async execute(args) {
       const hits = await retriever.retrieve(String(args['query'] ?? ''), Math.min(Number(args['topK'] ?? 3) || 3, 10));
-      if (hits.length === 0) return 'no documents ingested yet (call sources.ingest first)';
-      return hits.map((h) => `[${h.kind} ${h.ref.slice(0, 12)}${h.headingPath ? ` ${h.headingPath}` : ''}] ${h.content.slice(0, 400)}`).join('\n---\n');
+      // staleness: if a registered repo backs recent hits and is stale, kick refresh
+      let staleNote = '';
+      const reposRoot = deps.reposRoot ?? './repos';
+      const seenRoots = new Set<string>();
+      for (const h of hits) {
+        const m = /repo:\/\/([^/]+)\/(.+)$/.exec(h.ref);
+        void m;
+      }
+      // simpler + honest: refresh when ANY registered repo has a tracked stale snapshot
+      try {
+        const { readdirSync } = await import('node:fs');
+        for (const name of readdirSync(reposRoot)) {
+          const root = join(reposRoot, name);
+          const age = repoSnapshotAgeMs(root);
+          if (age !== null && age > STALE_MS) {
+            ingestRepoInBackground(root);
+            staleNote = `[snapshot: ${Math.round(age / 60_000)}min old — refresh kicked, results may predate it]`;
+          }
+        }
+      } catch { /* no repos root — plain search */ }
+      if (hits.length === 0) return `${staleNote ? staleNote + '\n' : ''}no documents ingested yet (call sources.ingest first)`;
+      return `${staleNote ? staleNote + '\n' : ''}${hits.map((h) => `[${h.kind} ${h.ref.slice(0, 12)}${h.headingPath ? ` ${h.headingPath}` : ''}] ${h.content.slice(0, 400)}`).join('\n---\n')}`;
     },
   });
 
