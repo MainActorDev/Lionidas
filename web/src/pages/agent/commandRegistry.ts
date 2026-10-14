@@ -6,4 +6,5 @@ export const DEFAULT_COMMANDS: CommandLite[] = [
   { cmd: '/planning', description: 'Plan test cases from a request', order: 1 },
   { cmd: '/breakdown', description: 'Break a plan into concrete steps', order: 2 },
   { cmd: '/author', description: 'Author case YAML drafts', order: 3 },
+  { cmd: '/implement-identifiers', description: 'Implement missing a11y identifiers in app code', order: 4 },
 ];
