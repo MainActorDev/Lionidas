@@ -8,7 +8,9 @@ import {
   SqliteStorage,
   StorageRetriever,
   claudeCliProvider,
+  createModelRouter,
   type Provider,
+  type ModelRouter,
 } from '@mainactordev/butler';
 import type Database from 'better-sqlite3';
 import { join } from 'node:path';
@@ -31,6 +33,10 @@ export interface AgentContext {
   retriever: StorageRetriever;
   registry: ReturnType<typeof buildToolRegistry>;
   provider: Provider;
+  /** model routing (v0.6.0): router + route seam when a registry is configured;
+   *  undefined = single-provider mode (legacy env) — callers fall back to provider */
+  router?: ModelRouter;
+  routeComplete?: (model: string | undefined) => (messages: import('@mainactordev/butler').ProviderMessage[], tools: import('@mainactordev/butler').ProviderTool[], opts: Parameters<Provider['complete']>[2]) => Promise<import('@mainactordev/butler').ProviderResponse>;
   policy: typeof V1_POLICY;
   systemPrompt: string;
   artifactsDir: string;
@@ -85,6 +91,28 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
   const providerKind = cfg.env['BUTLER_PROVIDER'] ?? 'openai-compat';
   let provider: Provider;
   let providerConfigured = false;
+  // v0.6.0 model routing: registry (file/inline) takes precedence; falls back
+  // to the legacy single-model construction below untouched.
+  let router: ModelRouter | undefined;
+  let routeComplete: AgentContext['routeComplete'] = undefined;
+  const registryPath = cfg.env['BUTLER_MODELS_FILE'];
+  const inlineRegistry = cfg.env['BUTLER_MODELS'];
+  if (registryPath || inlineRegistry) {
+    const { provider: routed, router: r, route } = createModelRouter({
+      ...(registryPath ? { registryPath } : {}),
+      ...(inlineRegistry ? { inlineRegistry } : {}),
+      env: cfg.env,
+      claudeEnv: (m) => {
+        // claude-cli members get the same GLM/anthropic injection as the legacy path
+        if (m.kind !== 'claude-cli' || !baseUrl || !apiKey) return undefined;
+        return { ANTHROPIC_BASE_URL: baseUrl.includes('/api/anthropic') ? baseUrl : 'https://api.z.ai/api/anthropic', ANTHROPIC_AUTH_TOKEN: apiKey, API_TIMEOUT_MS: '3000000' };
+      },
+    });
+    router = r;
+    routeComplete = route;
+    provider = routed;
+    providerConfigured = true;
+  }
   if (providerKind === 'claude-cli') {
     // claude-cli middleware with a GLM backend: injects the Anthropic-protocol
     // endpoint vars into the SUBPROCESS only (host claude config untouched).
@@ -115,7 +143,7 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
   }
 
   registerStageRunTool(registry, { db, storage, sink, retriever, registry, provider, policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }), syncPresetsCalls: 0, attachments, embedder } as AgentContext, cfg.env);
-  const ctx: AgentContext = { db, storage, sink, retriever, registry, provider, policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }), syncPresetsCalls: 0, attachments, embedder };
+  const ctx: AgentContext = { db, storage, sink, retriever, registry, provider, ...(router ? { router } : {}), ...(routeComplete ? { routeComplete } : {}), policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }), syncPresetsCalls: 0, attachments, embedder };
 
   Object.defineProperty(ctx, 'syncPresetsCalls', { get: () => syncState.calls });
 
