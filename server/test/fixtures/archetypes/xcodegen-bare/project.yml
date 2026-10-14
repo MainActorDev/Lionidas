@@ -1,0 +1,4 @@
+name: DemoApp
+settings:
+  configs:
+    Debug: App/Config/Environments/DevelopmentConfig.xcconfig

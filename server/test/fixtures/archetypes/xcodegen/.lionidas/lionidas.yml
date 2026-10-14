@@ -1,0 +1,5 @@
+build:
+  scheme: DemoApp
+  configuration: Debug
+prepare:
+  - run: .lionidas/scripts/prepare-sim.sh

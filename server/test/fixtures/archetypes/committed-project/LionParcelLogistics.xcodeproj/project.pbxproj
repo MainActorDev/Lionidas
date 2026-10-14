@@ -1,0 +1,16 @@
+// !$*UTF8*$!
+{
+	objects = {
+/* Begin PBXNativeTarget section */
+		AA0000000000000000000001 /* AppTarget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = ...;
+			buildPhases = ...;
+			name = AppTarget;
+			productName = AppTarget;
+			productReference = ...;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+	};
+}
