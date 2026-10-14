@@ -60,12 +60,15 @@ CREATE TABLE recipes (
   generated INTEGER NOT NULL DEFAULT 0,
   provenance_json TEXT NOT NULL,   -- {by: 'user'|'ai+user'|'import', at, evidence: string[], source: string|null}
   superseded_by TEXT REFERENCES recipes(id),  -- revision chain
+  verify_state TEXT,                -- 'unverified' | 'green' | 'failed' (review R8)
+  verified_at INTEGER,
+  verify_log TEXT,
   created_at INTEGER NOT NULL
 );
 -- ACTIVE recipe per project = highest revision WHERE superseded_by IS NULL
 ```
 
-Migration M-next: create `recipes`; import intl `.lionidas/lionidas.yml` as revision 1 (`provenance.by: 'import'`); import `projects.build_scheme`/`build_configuration` for consumer → its first recipe (`by: 'user'`, prepare: `pod install`); drop the columns after both rows exist (keep values in recipes only).
+Migration M-next: create `recipes`; import intl `.lionidas/lionidas.yml` as revision 1 (`provenance.by: 'import'`); import `projects.build_scheme`/`build_configuration` for consumer → its first recipe (`by: 'user'`, prepare: `pod install`). The projects columns are DEPRECATED, NOT DROPPED (SQLite DROP breaks on referenced columns; the codebase's migration style is guarded ADD COLUMN only) — the engine reads `recipes` exclusively; a lazy one-time backfill converts any lingering column values into recipe rows on first read. (review R1)
 
 ### Module: `server/src/projects/recipe-detect.ts`
 
@@ -105,27 +108,27 @@ Secrets rule: any proposal naming a credential/xcconfig path it cannot read → 
 
 **S1 — detection (pure function + fixtures)**
 1. `recipe-detect.ts` with the archetype matrix; NO route changes yet
-2. Fixture repos under `server/test/fixtures/archetypes/` (D2): `committed-project` (from consumer shape: pbxproj + Podfile), `xcodegen` (from intl shape: project.yml + .lionidas), `workspace`, `tuist`, `spm-app`, `fastlane-lane`; each minimal (a handful of files, no real builds)
+2. Fixture repos under `server/test/fixtures/archetypes/` (D2, review R6 — nothing invented): ONLY archetypes we possess — `committed-project` (from consumer shape: pbxproj + Podfile), `xcodegen` (from intl shape: project.yml + .lionidas), `workspace`, `fastlane-lane`. Tuist and SPM-app are NOT green fixtures (no real repo to derive from): they are blocked-with-evidence cases — pattern found (`Project.swift`/`Package.swift`) + no generated project ⇒ `NEEDS_GENERATION` + AI-proposal trigger; a test asserts exactly that report
 3. Detector unit tests per fixture + live-repo tests (skipped under VITEST unless repos present — gated on `existsSync('repos/ios-consumer-intl')`)
 Deliverable: `detectRecipe()` tested, zero route/UI impact
 
 **S2 — recipes storage + engine resolution**
 1. Migration M-next (`recipes` table + imports + column drop)
 2. `projects/recipes.ts` store module (get-active, write-revision, list-revisions)
-3. Build engine: resolve order (root manifest > recipes row > legacy .lionidas > explicit-derive); `startBuild`/`compileWorktree` take the resolved recipe
-4. `server/recipes/ios-consumer-intl/prepare-sim.sh` — MOVED from the target repo (intl workspace keeps its `.lionidas/` untouched; ours wins by store precedence once imported — verify precedence test)
+3. Build engine: resolve order (root manifest > recipes row > legacy .lionidas > explicit-derive); `startBuild`/`compileWorktree` take the resolved recipe. RESOLUTION CONTRACT (review R4): every store-driven build records `resolution = {scheme: 'recipes', recipeId, revision}` on its builds row — the canary distinguishes store-green from discovery-green by this marker; add a resolution-contract test
+4. `server/recipes/ios-consumer-intl/prepare-sim.sh` — COPIED, not moved (review R2): the store copy is canonical for store-driven builds; the target repo's `.lionidas/` copy stays untouched because the identifier-flow overlay still reads it — deleted only in Rollout, after the store-recipe identifier-flow drill passes. Precedence test: store recipe wins for engine builds; overlay path untouched for legacy
 5. Store tests + engine resolution tests (fixture recipes)
 Deliverable: recipes as data, engine obeys them, worktree overlay path unused for managed projects
 
 **S3 — registration gate + canary + UI**
-1. Clone/registration flow calls `detectRecipe` post-clone; report persisted on the project row (`recipe_state`, `recipe_report_json`)
+1. Detection hooks (review R3): (a) the END of `POST /api/projects/:id/clone` on clone success — the only moment a workspace exists; (b) on demand via `POST /api/projects/:id/recipe/detect` (re-runs; serves projects registered before this change). Report persisted on the project row (`recipe_state`, `recipe_report_json`). Project-create without clone reports NOT_CLONED honestly
 2. `POST /api/projects/:id/recipe/derive` (admin) — writes the generated recipe for `derivable` projects (the only discovery path left)
 3. `/status` canary: per project — recipe source, generated flag, verified_at, last-build-used-recipe; degraded on MISSING/FALLBACK_LIED/unverified-generated
-4. Projects page: state chip (found/derived/generated-unverified/blocked+blockers), "derive recipe" and (S4) verify buttons
+4. Projects page: state chip (found/derived/generated-unverified/blocked+blockers), "derive recipe" and (S4) verify buttons — all admin-only actions on an already admin-gated page; the web test asserts the buttons render only for admin sessions (review R5)
 Deliverable: the honest gate visible end to end
 
 **S4 — verify build**
-1. `POST /api/projects/:id/verify` (admin): compile-only gate on the project workspace, verdict + `verified_at` on the recipe revision, log persisted
+1. `startVerify(db, projectId)` implemented INSIDE `builds.ts` (review R7 — shares the module-private `running` map and the per-project serial lock; mirror of `startBuild`); route `POST /api/projects/:id/verify` (admin) calls it. Compile-only gate on the project workspace, verdict + `verified_at` on the recipe revision, log persisted
 2. UI button + verdict chip; canary upgrade (verified-at / stale display, no auto-run)
 3. LIVE: verify intl (expect green, ~5 min) and consumer (first recipe: `pod install` prepare — expect green or honest blocker)
 Deliverable: verdicts exist and are enforced as trust (D3)
