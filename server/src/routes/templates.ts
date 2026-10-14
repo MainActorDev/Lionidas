@@ -4,6 +4,7 @@
 import type { FastifyInstance } from 'fastify';
 import { auditWrite } from '../auth/audit.ts';
 import type Database from 'better-sqlite3';
+import { lookupIdentifier } from '../agent/identifier-index.ts';
 import { randomUUID, createHash } from 'node:crypto';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -210,8 +211,59 @@ export function renderTemplateYaml(db: Database.Database, row: TemplateRow): str
  *  states must be declared. Shared by PUT /:id/yaml and the import route —
  *  one bar, no drift. Returns an error message naming the problem, or null
  *  when clean. MUTATES steps in place (runFlow name → id). */
+
+function stepLabel(s: Record<string, unknown>): string {
+  const idx = typeof s['idx'] === 'number' ? String(s['idx']) : typeof s['index'] === 'number' ? String(s['index']) : '?';
+  const act = typeof s['action'] === 'string' ? s['action'] : 'step';
+  return `${act} ${idx}`;
+}
+
 export function resolveCaseRefs(db: Database.Database, c: { name: string; app?: string | null; setup?: unknown[]; steps: unknown[]; variants?: unknown[]; swaps?: unknown[]; worlds?: unknown[]; entry?: { screen: string } | null }, fallbackApp: string | null): string | null {
   const allSteps = [...(c.setup ?? []), ...c.steps] as Array<Record<string, unknown>>;
+
+  // ── identifier existence gate (plan 20261014T132710Z Phase I) ──────────
+  // identifier: selectors are compile-time-verifiable — hard-block when the
+  // string does not exist in the app's code (labels/coords stay runtime-only).
+  // Dynamic call sites pass with a warning (review PR2(a): pure function —
+  // cannot enforce a later note.save; instructions + UI surface the warning).
+  const gateApp = (c.app ?? fallbackApp) ?? '';
+  const IDENT_RE = /^[a-z][a-z0-9_]*$/;
+  const where: Array<{ step: string; id: string }> = [];
+  for (const s of allSteps) {
+    // parsed YamlStep shape: the selector lives in step.selector (YamlSelector:
+    // identifier | label | labelContains) — NEVER step.on (that's the raw yaml view)
+    const sel = s['selector'] as Record<string, unknown> | undefined;
+    if (!sel) continue;
+    const id = sel['identifier'];
+    if (typeof id === 'string' && id && IDENT_RE.test(id)) where.push({ step: stepLabel(s), id });
+  }
+  // gate applicability: only apps KNOWN to the instance (app_catalog row or an
+  // existing index). Unregistered bundles (test fixtures, foreign apps) have no code
+  // to verify against — identifiers stay runtime-only there.
+  // known app = catalog row OR an existing identifier index. The catalog may carry a
+  // build-suffixed id (.int-dev) where cases/xcodegen use the base (.int) — so both
+  // exact and prefix matches count (the SAME app, two ids).
+  let knownApp = false;
+  if (gateApp) {
+    const probe = (col: string): boolean => {
+      try { return db.prepare(`SELECT 1 FROM app_catalog WHERE ${col} = ? OR ${col} LIKE ?`).get(gateApp, `${gateApp}-%`) != null; }
+      catch { return false; }
+    };
+    const idx = ((): boolean => {
+      try { return db.prepare('SELECT 1 FROM app_identifiers_meta WHERE bundle = ?').get(gateApp) != null; }
+      catch { return false; }
+    })();
+    knownApp = probe('bundle_id') || probe('bundle') || idx;
+  }
+  for (const w of where) {
+    if (!knownApp) break;
+    const g = lookupIdentifier(db, gateApp, w.id);
+    if (g.state === 'literal') continue;
+    if (g.state === 'dynamic') continue; // passes; /author instructions mandate the trust note
+    if (g.state === 'no-index') return `identifier gate: ${w.step} uses identifier "${w.id}" — ${g.detail}`;
+    return `identifier gate: ${w.step} uses identifier "${w.id}" which does not exist in the app code (${g.detail}). Use /implement-identifiers to add it, or switch to a label selector.`;
+  }
+
   for (const s of allSteps) {
     if (s['action'] !== 'runFlow') continue;
     const ref = s['templateId'] ?? '';

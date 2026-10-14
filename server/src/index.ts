@@ -150,6 +150,10 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   registerStatusRoutes(app, db.raw, `${cfg.dbPath}.agent.db`, env);
   const { registerModelRoutes } = await import('./agent/models-routes.ts');
   registerModelRoutes(app, agent, env['BUTLER_MODELS_FILE'], env);
+  const { registerIdentifierRoutes } = await import('./agent/models-routes.ts');
+  registerIdentifierRoutes(app, agent, env['CRUCIBLE_REPOS_ROOT'] ?? './repos', env);
+  const { registerImplementIdentifiersRoutes } = await import('./agent/models-routes.ts');
+  registerImplementIdentifiersRoutes(app, agent, env['CRUCIBLE_REPOS_ROOT'] ?? './repos');
   app.decorate('crucibleBus', bus);
 
   // stream relay needs sharp (native module) — register only in production,
