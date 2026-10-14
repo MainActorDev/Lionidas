@@ -101,3 +101,21 @@ describe('the gate (resolveCaseRefs)', () => {
     expect(resolveCaseRefs(db, { name: 't', app: 'com.never-registered', steps: [{ idx: 1, action: 'tap', selector: { identifier: 'btn_anything' } }] } as never, null)).toBeNull();
   });
 });
+
+describe('bundle alias resolution (the -dev dual-id case, sess_e157cc04)', () => {
+  // simulate production shape: index keyed on the BASE id (xcodegen), queries on the
+  // build-suffixed catalog id (installed ipa)
+  it('catalog id with build suffix resolves to the base bundle index (int-dev → int)', () => {
+    reindexBundle(db, 'com.x.app', 'app-repo', repoA); // base already indexed by fixture
+    const g = lookupIdentifier(db, 'com.x.app-dev', 'btn_pay_now');
+    expect(g.state).toBe('literal');
+  });
+  it('missing identifier under an aliased bundle reports missing (not no-index)', () => {
+    const g = lookupIdentifier(db, 'com.x.app-dev', 'nope_button');
+    expect(g.state).toBe('missing');
+  });
+  it('double suffix strips progressively (x-dev-sim → x)', () => {
+    const g = lookupIdentifier(db, 'com.x.app-dev-sim', 'btn_pay_now');
+    expect(g.state).toBe('literal');
+  });
+});

@@ -121,20 +121,40 @@ export function reindexBundle(db: Database.Database, bundle: string, repo: strin
 export interface GateLookup { state: 'literal' | 'dynamic' | 'missing' | 'no-index' | 'stale'; detail?: string }
 
 /** the gate oracle: one lookup per identifier */
+/** resolve the INDEX bundle for an app id: the same app ships under build-suffixed
+ *  ids (catalog registers `.int-dev` from the installed ipa; project.yml/xcodegen
+ *  builds `.int`) — strip `-<suffix>` steps until an index hits. Returns null when
+ *  no index exists under any alias (genuinely unregistered app). */
+export function resolveIndexBundle(db: Database.Database, bundle: string): string | null {
+  ensureIdentifierTables(db);
+  const probe = (b: string): boolean => db.prepare('SELECT 1 FROM app_identifiers_meta WHERE bundle = ?').get(b) != null;
+  if (probe(bundle)) return bundle;
+  // progressive suffix-strip: com.x.y-dev-sim → com.x.y-dev → com.x.y
+  let cur = bundle;
+  while (cur.includes('-')) {
+    cur = cur.slice(0, cur.lastIndexOf('-'));
+    if (probe(cur)) return cur;
+  }
+  return null;
+}
+
 export function lookupIdentifier(db: Database.Database, bundle: string, identifier: string): GateLookup {
   ensureIdentifierTables(db);
-  // UNREGISTERED app (no index, no repo ever synced): identifiers are unverifiable in
+  // UNREGISTERED app (no index under any alias): identifiers are unverifiable in
   // code — this app lives outside the gate's reach; selectors stay runtime-only.
   // (Registered-but-stale indexes still block honestly below.)
-  const metaRow = db.prepare('SELECT * FROM app_identifiers_meta WHERE bundle = ?').get(bundle) as { bundle: string; repo: string; head_sha: string; files: number; indexed_at: number } | undefined;
+  const indexBundle = resolveIndexBundle(db, bundle);
+  const metaRow = indexBundle
+    ? db.prepare('SELECT * FROM app_identifiers_meta WHERE bundle = ?').get(indexBundle) as { bundle: string; repo: string; head_sha: string; files: number; indexed_at: number }
+    : undefined;
   if (!metaRow) return { state: 'no-index', detail: `no identifier index for ${bundle} — reindex after sources ingest` };
-  const lit = db.prepare("SELECT file, line FROM app_identifiers WHERE bundle = ? AND identifier = ? AND kind = 'literal' LIMIT 1").get(bundle, identifier) as { file: string; line: number } | undefined;
+  const lit = db.prepare("SELECT file, line FROM app_identifiers WHERE bundle = ? AND identifier = ? AND kind = 'literal' LIMIT 1").get(indexBundle, identifier) as { file: string; line: number } | undefined;
   if (lit) return { state: 'literal', detail: `${lit.file}:${lit.line}` };
   // dynamic call sites cannot be TIED to a specific identifier string (that was the
   // review-PR2 debate): v1 keeps dynamic rows for visibility/context only — an unknown
   // identifier is 'missing' with the dynamic sites listed so /implement-identifiers can
   // check whether the app builds it at runtime.
-  const dyn = db.prepare("SELECT COUNT(*) AS n FROM app_identifiers WHERE bundle = ? AND kind = 'dynamic'").get(bundle) as { n: number };
+  const dyn = db.prepare("SELECT COUNT(*) AS n FROM app_identifiers WHERE bundle = ? AND kind = 'dynamic'").get(indexBundle) as { n: number };
   return { state: 'missing', detail: `${metaRow.files} files indexed at ${metaRow.head_sha.slice(0, 8)}${dyn.n ? ` (${dyn.n} dynamic call sites exist — a runtime-built identifier may be intended)` : ''}` };
 }
 
