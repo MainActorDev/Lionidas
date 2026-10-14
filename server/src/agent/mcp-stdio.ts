@@ -72,25 +72,56 @@ for (const tool of ctx.registry.providerTools(ctx.policy)) {
     { description: tool.function.description ?? '', inputSchema },
     async (input: Record<string, unknown>) => {
       const out = await ctx.registry.execute(tool.function.name, input ?? {}, { sessionId: 'mcp-stdio', signal: undefined }, ctx.policy);
+      // error fidelity (sess_e2e40228 lesson): an INVALID: verdict is the TOOL
+      // speaking — actionable, reshape-and-retry. Anything else throwing here
+      // is protocol-level; the SDK wraps it as -32602 and the model must NOT
+      // burn context retrying payload shapes against it.
       return { content: [{ type: 'text' as const, text: out }] };
     },
   );
 }
 
-/** minimal JSON-Schema subset → zod (object properties: string/number/enum) */
+/** JSON-Schema → zod for the subset the registry uses: string/number/boolean/
+ *  enum, arrays (of any supported item), and nested objects (recursive).
+ *
+ *  THE sess_e2e40228 BUG: this used to coerce every non-enum/number param to
+ *  z.string() — array/object/boolean args (screens lists, suite members, seq
+ *  rules, templateIds) died at the MCP boundary with -32602 "expected string,
+ *  received array" BEFORE the tool ran. The model then burned 298k tokens
+ *  retrying payload shapes against a protocol wall. Unknown shapes now fall
+ *  back to z.any() — a wrong-but-typed value reaches the tool's own verbatim
+ *  validation, which returns an actionable INVALID instead of a protocol kill. */
+function propToZod(p: Record<string, unknown>): z.ZodTypeAny {
+  if (Array.isArray(p['enum'])) return z.enum(p['enum'] as [string, ...string[]]);
+  const t = p['type'];
+  if (t === 'string') return z.string();
+  if (t === 'number') return z.number();
+  if (t === 'boolean') return z.boolean();
+  if (t === 'array') {
+    const items = p['items'] as Record<string, unknown> | undefined;
+    return items ? z.array(propToZod(items)) : z.array(z.any());
+  }
+  if (t === 'object') {
+    const props = (p['properties'] ?? {}) as Record<string, Record<string, unknown>>;
+    const req = new Set((p['required'] as string[] | undefined) ?? []);
+    const shape: Record<string, z.ZodTypeAny> = {};
+    for (const [name, sub] of Object.entries(props)) {
+      shape[name] = req.has(name) ? propToZod(sub) : propToZod(sub).optional();
+    }
+    return z.object(shape).passthrough();
+  }
+  return z.any(); // permissive: let the TOOL validate, not the protocol
+}
+
 function schemaToZod(schema: Record<string, unknown>): z.ZodType<Record<string, unknown>> {
   const props = (schema['properties'] ?? {}) as Record<string, Record<string, unknown>>;
   const required = new Set((schema['required'] as string[] | undefined) ?? []);
   const shape: Record<string, z.ZodTypeAny> = {};
   for (const [name, p] of Object.entries(props)) {
-    let field: z.ZodTypeAny;
-    if (Array.isArray(p['enum'])) field = z.enum(p['enum'] as [string, ...string[]]);
-    else if (p['type'] === 'number') field = z.number();
-    else field = z.string();
-    if (!required.has(name)) field = field.optional();
-    shape[name] = field;
+    const field = propToZod(p);
+    shape[name] = required.has(name) ? field : field.optional();
   }
-  return z.object(shape) as unknown as z.ZodType<Record<string, unknown>>;
+  return z.object(shape).passthrough() as unknown as z.ZodType<Record<string, unknown>>;
 }
 
 await server.connect(new StdioServerTransport());
