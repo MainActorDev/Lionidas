@@ -53,19 +53,20 @@ describe('app shell sidebar (025-A collapsible tree)', () => {
     const { wrapper } = await makeApp('/');
     const heads = wrapper.findAll('.nav-grp-head');
     // text() includes the caret glyph — compare normalized labels
-    expect(heads.map(h => h.text().replace('▾', '').trim())).toEqual(['testing', 'ci', 'agent', 'library', 'settings']);
+    expect(heads.map(h => h.text().replace('▾', '').trim())).toEqual(['testing', 'ci', 'agent', 'system', 'library', 'settings']);
     const items = wrapper.findAll('.nav-item');
-    expect(items).toHaveLength(14);
+    expect(items).toHaveLength(15);
     expect(items.map(i => i.text())).toEqual([
       'overview', 'suites', 'devices', 'runs',
       'projects', 'builds',
       'chat',
+      'status',
       'test cases', 'screens', 'env', 'network',
       'users', 'audit log', 'configs',
       // guide: hidden for now (2026-10-08) — link commented out in App.vue
     ]);
     // all groups expanded by default
-    expect(wrapper.findAll('.nav-grp-kids')).toHaveLength(5);
+    expect(wrapper.findAll('.nav-grp-kids')).toHaveLength(6);
     expect(wrapper.findAll('.nav-grp.closed')).toHaveLength(0);
     // guide is hidden for now — nothing named 'guide' renders
     expect(items.find(i => i.text() === 'guide')).toBeUndefined();
@@ -77,20 +78,21 @@ describe('app shell sidebar (025-A collapsible tree)', () => {
     expect(items).toEqual([
       'overview', 'suites', 'devices', 'runs',
       'chat',
+      'status',
       'test cases', 'screens', 'env', 'network',
     ]);
     // users is adminOnly too — no dead 403 link for operators
     expect(items).not.toContain('users');
     const heads = wrapper.findAll('.nav-grp-head').map(h => h.text().replace('▾', '').trim());
-    expect(heads).toEqual(['testing', 'agent', 'library']); // ci & settings groups emptied → hidden
+    expect(heads).toEqual(['testing', 'agent', 'system', 'library']); // ci & settings groups emptied → hidden
   });
 
   it('toggles a group closed and hides its children', async () => {
     const { wrapper } = await makeApp('/');
-    const head = wrapper.findAll('.nav-grp-head')[3]; // library (groups: testing, ci, agent, library, settings)
+    const head = wrapper.findAll('.nav-grp-head')[4]; // library (groups: testing, ci, agent, system, library, settings)
     expect(head.attributes('aria-expanded')).toBe('true');
     await head.trigger('click');
-    const grp = wrapper.findAll('.nav-grp')[3];
+    const grp = wrapper.findAll('.nav-grp')[4];
     expect(grp.classes()).toContain('closed');
     expect(head.attributes('aria-expanded')).toBe('false');
     // v-show keeps DOM; children hidden
@@ -110,12 +112,12 @@ describe('app shell sidebar (025-A collapsible tree)', () => {
 
   it('auto-expands a collapsed group when navigation lands inside it', async () => {
     const { wrapper, router } = await makeApp('/');
-    const head = wrapper.findAll('.nav-grp-head')[4]; // settings (groups: testing, ci, agent, library, settings)
+    const head = wrapper.findAll('.nav-grp-head')[5]; // settings (groups: testing, ci, agent, system, library, settings)
     await head.trigger('click');
-    expect(wrapper.findAll('.nav-grp')[4].classes()).toContain('closed');
+    expect(wrapper.findAll('.nav-grp')[5].classes()).toContain('closed');
     await router.push('/users');
     await flushPromises();
-    expect(wrapper.findAll('.nav-grp')[4].classes()).not.toContain('closed');
+    expect(wrapper.findAll('.nav-grp')[5].classes()).not.toContain('closed');
     const active = wrapper.findAll('.nav-item').find(i => i.classes().includes('active'));
     expect(active?.text()).toBe('users');
   });

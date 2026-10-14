@@ -62,6 +62,13 @@ const navGroups: NavGroup[] = [
       { to: '/agent', label: 'chat', names: ['agentChat'], operatorOnly: true }, // operator+ (the server gates /api/agent/*)
     ],
   },
+
+  {
+    id: 'system', label: 'system',
+    items: [
+      { to: '/status', label: 'status', names: ['status'], operatorOnly: true }, // subsystem health (plan 20261014T062902Z)
+    ],
+  },
   {
     id: 'library', label: 'library',
     items: [

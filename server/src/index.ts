@@ -146,6 +146,8 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   registerPresetFolderRoutes(app, db.raw);
   registerSuiteRoutes(app, db.raw);
   registerOverviewRoutes(app, db.raw); // clock injectable; default Date.now
+  const { registerStatusRoutes } = await import('./routes/status.ts');
+  registerStatusRoutes(app, db.raw, `${cfg.dbPath}.agent.db`, env);
   app.decorate('crucibleBus', bus);
 
   // stream relay needs sharp (native module) — register only in production,
