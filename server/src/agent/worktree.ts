@@ -61,7 +61,11 @@ export interface CommitEntry { identifier: string; screen?: string; caseId?: str
  *  carries the case linkage). When files outnumber entries, leftovers get a
  *  single trailing commit so nothing is silently dropped. */
 export function commitEach(wt: WorktreeHandle, entries: CommitEntry[]): string[] {
-  git(wt.path, 'add', '-A');
+  // ':!.lionidas' — the build-recipe overlay is git-INVISIBLE by machine config
+  // (info/exclude), but that config doesn't travel: on a clone lacking the rule,
+  // a blanket add -A would stage the overlay into a PR. Exclude it explicitly —
+  // safety must not depend on any machine's git config.
+  git(wt.path, 'add', '-A', '--', ':!.lionidas');
   const changed = git(wt.path, 'diff', '--cached', '--name-only').split('\n').filter(Boolean);
   const messages: string[] = [];
   const per = Math.max(1, Math.ceil(changed.length / Math.max(1, entries.length)));
@@ -76,9 +80,9 @@ export function commitEach(wt: WorktreeHandle, entries: CommitEntry[]): string[]
     messages.push(msg);
   });
   // any remaining changed files (rounding): one trailing commit
-  const rest = git(wt.path, 'status', '--porcelain').split('\n').filter(Boolean);
+  const rest = git(wt.path, 'status', '--porcelain', '--untracked-files=all', '--', ':!.lionidas').split('\n').filter(Boolean);
   if (rest.length) {
-    git(wt.path, 'add', '-A');
+    git(wt.path, 'add', '-A', '--', ':!.lionidas');
     git(wt.path, 'commit', '-m', 'feat(a11y): remaining identifier edits');
     messages.push('feat(a11y): remaining identifier edits');
   }

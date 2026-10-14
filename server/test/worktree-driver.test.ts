@@ -29,6 +29,41 @@ beforeAll(() => {
 });
 afterAll(() => { rmSync(tmp, { recursive: true, force: true }); });
 
+describe('overlay never commits (fresh-clone world: no info/exclude)', () => {
+  it('commitEach with .lionidas/ present stages ONLY the real edits', () => {
+    // repo WITHOUT any exclude rule — simulates a clone where the machine-config
+    // invisibility is absent (the hazard the pathspec exclusion guards)
+    const dir = join(reposRoot, 'noexcl');
+    mkdirSync(dir, { recursive: true });
+    sh(dir, 'git init -b develop');
+    sh(dir, 'git config user.email t@t');
+    sh(dir, 'git config user.name t');
+    writeFileSync(join(dir, 'A.swift'), 'let a = 1\n');
+    sh(dir, 'git add -A');
+    sh(dir, 'git commit -m init');
+    const origin = join(reposRoot, 'noexcl-origin.git');
+    sh(reposRoot, 'git clone --bare ' + JSON.stringify(dir) + ' ' + JSON.stringify(origin));
+    sh(dir, 'git remote add origin ' + JSON.stringify(origin));
+    sh(dir, 'git fetch origin');
+    sh(dir, 'git branch --set-upstream-to=origin/develop develop');
+    // worktree + overlay + a real edit
+    const wt = createWorktree(reposRoot, 'noexcl', 'ov1');
+    mkdirSync(join(wt.path, '.lionidas'), { recursive: true });
+    writeFileSync(join(wt.path, '.lionidas', 'lionidas.yml'), 'build: {}\n');
+    writeFileSync(join(wt.path, 'A.swift'), 'let a = 2\n');
+    // sanity: the overlay IS visible to git here (no exclude rule exists)
+    const st = sh(wt.path, 'git status --porcelain');
+    expect(st).toContain('.lionidas');
+    commitEach(wt, [{ identifier: 'x_button' }]);
+    // commits touch ONLY A.swift
+    const files = sh(wt.path, 'git show --name-only --pretty=format: HEAD').trim();
+    expect(files).toBe('A.swift');
+    const pushed = sh(origin, 'git for-each-ref --format="%(refname)" refs/heads/feat/identifiers-ov1');
+    expect(pushed).toBe('');
+    removeWorktree(reposRoot, wt);
+  });
+});
+
 describe('worktree driver', () => {
   it('creates a worktree branched from develop, never touching the main checkout', () => {
     const wt = createWorktree(reposRoot, 'app', 'slug1');
