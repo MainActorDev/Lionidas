@@ -5,6 +5,16 @@
 import { fileConnector, repoConnector, jiraConnector, ingest, type SqliteStorage, type StorageRetriever } from '@mainactordev/butler';
 import { join } from 'node:path';
 
+
+/** bundle ids provided by a registered repo — via the repo-refs detector
+ *  (project.yml/xcodegen conventions), the same source of truth repo.apps uses */
+async function appBundlesFor(repoDir: string): Promise<string[]> {
+  try {
+    const { detectBundles } = await import('./repo-refs.ts');
+    return await detectBundles(repoDir);
+  } catch { return []; }
+}
+
 export function fileSource(root: string): ReturnType<typeof fileConnector> {
   return fileConnector('lionidas-files', { root });
 }
@@ -58,6 +68,17 @@ export async function seedSources(deps: { storage: SqliteStorage; retriever: Sto
           documents += r2.documents.length;
           skipped += r2.skipped.length;
           for (const d of r2.documents) deps.retriever.registerChunks(await deps.storage.documentChunks(d.sha256));
+          // identifier index (plan 20261014T132710Z): rebuild for every app bundle this
+          // repo provides AFTER ingest — the gate needs fresh code truth per sync
+          try {
+            const db = (deps as { db?: import('better-sqlite3').Database }).db;
+            if (db) {
+              const { reindexBundle } = await import('./identifier-index.ts');
+              for (const b of await appBundlesFor(join(reposRoot, e.name))) {
+                reindexBundle(db, b, e.name, join(reposRoot, e.name));
+              }
+            }
+          } catch { /* index errors never block ingest */ }
         }
       } catch (err) {
         console.warn('[agent] registered-repo seed skipped:', (err as Error).message);

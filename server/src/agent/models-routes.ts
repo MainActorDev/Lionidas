@@ -4,7 +4,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { requireRole } from '../auth/roles.ts';
 import { parseRegistry, type ModelRouter, type Registry } from '@mainactordev/butler';
 import type { AgentContext } from './context.ts';
@@ -63,5 +63,74 @@ export function registerModelRoutes(app: FastifyInstance, ctx: AgentContext, mod
       defaultCombo: reg?.defaultCombo ?? null,
       combos: reg?.combos.map((c) => ({ id: c.id, members: c.members })) ?? [],
     };
+  });
+}
+
+/** identifier index admin: POST reindex (operator) — rebuild for one repo (or all) */
+export function registerIdentifierRoutes(app: import('fastify').FastifyInstance, ctx: AgentContext, reposRoot: string, env: Record<string, string | undefined>): void {
+  void env;
+  app.post('/api/agent/identifiers/reindex', { preHandler: requireRole('operator') }, async (req) => {
+    const { repo } = (req.body ?? {}) as { repo?: string };
+    const { readdirSync } = await import('node:fs');
+    const { join: pathJoin } = await import('node:path');
+    const { reindexBundle } = await import('./identifier-index.ts');
+    const { detectBundles } = await import('./repo-refs.ts');
+    const repos = readdirSync(reposRoot, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+      .map((e) => e.name)
+      .filter((n) => !repo || n === repo);
+    const out: Array<{ repo: string; bundles: Array<{ bundle: string; files: number; head: string }> }> = [];
+    for (const r of repos) {
+      const dir = pathJoin(reposRoot, r);
+      const bundles = await detectBundles(dir);
+      const rows: Array<{ bundle: string; files: number; head: string }> = [];
+      for (const b of bundles) {
+        const meta = reindexBundle(ctx.db, b, r, dir);
+        rows.push({ bundle: b, files: meta.files, head: meta.headSha.slice(0, 8) });
+      }
+      out.push({ repo: r, bundles: rows });
+    }
+    return { reindexed: out };
+  });
+}
+
+/** /implement-identifiers host flow: worktree lifecycle for the edit turns.
+ *  create → (CLI edits inside it during a chat turn) → finish (commit/push/PR) → cleanup.
+ *  All git host-owned; the model only ever edits files. */
+export function registerImplementIdentifiersRoutes(app: import('fastify').FastifyInstance, ctx: AgentContext, reposRoot: string): void {
+  void ctx;
+  app.post('/api/agent/identifiers/worktree', { preHandler: requireRole('operator') }, async (req, reply) => {
+    const { repo, slug } = (req.body ?? {}) as { repo?: string; slug?: string };
+    if (!repo || !slug) return reply.code(400).send({ error: 'repo and slug required' });
+    try {
+      const { createWorktree } = await import('./worktree.ts');
+      const wt = createWorktree(reposRoot, repo, slug);
+      return { worktree: { repo: wt.repo, branch: wt.branch, path: wt.path } };
+    } catch (err) {
+      return reply.code(409).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post('/api/agent/identifiers/worktree/finish', { preHandler: requireRole('operator') }, async (req, reply) => {
+    const { repo, slug, entries, title, body } = (req.body ?? {}) as { repo?: string; slug?: string; entries?: Array<{ identifier: string; screen?: string; caseId?: string }>; title?: string; body?: string };
+    if (!repo || !slug) return reply.code(400).send({ error: 'repo and slug required' });
+    try {
+      const { commitEach, pushAndPr, removeWorktree } = await import('./worktree.ts');
+      const wt = { repo, slug, path: join(reposRoot, '.wt', `${repo}-${slug}`), branch: `feat/identifiers-${slug}` };
+      const messages = commitEach(wt, entries ?? []);
+      const pr = pushAndPr(wt, { title: title ?? `feat(a11y): add ${entries?.length ?? 0} accessibility identifiers`, body: body ?? 'identifiers implemented via /implement-identifiers — CI compile check required before merge' });
+      removeWorktree(reposRoot, wt);
+      return { commits: messages, pr };
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post('/api/agent/identifiers/worktree/discard', { preHandler: requireRole('operator') }, async (req) => {
+    const { repo, slug } = (req.body ?? {}) as { repo?: string; slug?: string };
+    if (!repo || !slug) return { error: 'repo and slug required' };
+    const { removeWorktree } = await import('./worktree.ts');
+    removeWorktree(reposRoot, { repo, slug, path: join(reposRoot, '.wt', `${repo}-${slug}`), branch: `feat/identifiers-${slug}` });
+    return { ok: true };
   });
 }

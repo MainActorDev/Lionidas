@@ -113,15 +113,16 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
     provider = routed;
     providerConfigured = true;
   }
+  const baseClaudeEnv: Record<string, string> = {};
+  if (baseUrl && apiKey) {
+    baseClaudeEnv['ANTHROPIC_BASE_URL'] = baseUrl.includes('/api/anthropic') ? baseUrl : 'https://api.z.ai/api/anthropic';
+    baseClaudeEnv['ANTHROPIC_AUTH_TOKEN'] = apiKey;
+    baseClaudeEnv['API_TIMEOUT_MS'] = '3000000';
+  }
   if (!router && providerKind === 'claude-cli') {
     // claude-cli middleware with a GLM backend: injects the Anthropic-protocol
     // endpoint vars into the SUBPROCESS only (host claude config untouched).
-    const env: Record<string, string> = {};
-    if (baseUrl && apiKey) {
-      env['ANTHROPIC_BASE_URL'] = baseUrl.includes('/api/anthropic') ? baseUrl : 'https://api.z.ai/api/anthropic';
-      env['ANTHROPIC_AUTH_TOKEN'] = apiKey;
-      env['API_TIMEOUT_MS'] = '3000000';
-    }
+    const env = baseClaudeEnv;
     provider = claudeCliProvider({
       kind: 'claude-cli',
       baseUrl: env['ANTHROPIC_BASE_URL'] ?? '',
@@ -147,6 +148,22 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
   const ctx: AgentContext = { db, storage, sink, retriever, registry, provider: finalProvider, ...(router ? { router } : {}), ...(routeComplete ? { routeComplete } : {}), policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }), syncPresetsCalls: 0, attachments, embedder };
 
   Object.defineProperty(ctx, 'syncPresetsCalls', { get: () => syncState.calls });
+
+  /** /implement-identifiers edit turns (plan 20261014T132710Z Phase III): a
+   *  provider whose CLI child runs with cwd = the WORKTREE — the model edits
+   *  files there (Bash still denied; git unreachable from the child). The
+   *  host creates/finishes the worktree around the turn. */
+  (ctx as AgentContext & { makeEditorProvider?: (cwd: string) => Provider }).makeEditorProvider = (cwd: string): Provider =>
+    claudeCliProvider({
+      kind: 'claude-cli',
+      baseUrl: baseClaudeEnv['ANTHROPIC_BASE_URL'] ?? '',
+      apiKey: baseClaudeEnv['ANTHROPIC_AUTH_TOKEN'] ?? '',
+      model: model ?? 'glm-5.3-flash',
+      ...(cfg.env['BUTLER_CLAUDE_BIN'] ? { binPath: cfg.env['BUTLER_CLAUDE_BIN'] } : {}),
+      env: baseClaudeEnv,
+      mcpConfigPath: writeMcpConfig(cfg.env),
+      cwd,
+    });
 
   // boot-time source seed (idempotent, content-addressed; repo seed off under vitest for speed)
   const seed = import('./sources.ts').then((m) => m.seedSources(ctx, process.env['VITEST'] === 'true'

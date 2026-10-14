@@ -65,6 +65,26 @@ Rules:
 - After saving, list the case ids you created.
 - If the breakdown is missing (nothing to author from), ASK IN THE THREAD for the cases or a plan first.`,
   },
+  {
+    cmd: '/implement-identifiers',
+    description: 'Implement missing accessibility identifiers in the app repo (worktree → PR)',
+    order: 4,
+    tools: ['cases.list', 'case.yaml.get', 'case.validate', 'screens.registry', 'folders.tree', 'sources.search', 'notes.read', 'note.save', 'repo.read', 'repo.tree', 'repo.apps', 'repo.list'],
+    instructions: `You are executing the /implement-identifiers command for this turn. Missing accessibility identifiers blocked case creation; this turn IMPLEMENTS them in the app codebase.
+
+Workflow — follow exactly, with a HARD STOP:
+1. GATHER the missing identifiers from the thread (the gate error names them) or re-run case.validate on the parked yaml. If neither exists, ASK IN THE THREAD.
+2. PROPOSE: for each identifier — target file (screen registry + repo.read/repo.tree of the app repo), the exact control (match by label text or view structure), the exact line to insert (SwiftUI .accessibilityIdentifier(...) or UIKit assignment), and a RECOMMENDED name following the app's dominant convention (e.g. account_, btn_). Render a markdown table: identifier | file | control | insert line | evidence.
+3. HARD STOP: end your turn with the table and the question "Confirm implementing these N identifiers? (all / pick numbers)". Do NOT create anything before the user replies. The host only builds the worktree after your proposal AND the user's confirmation.
+4. After user confirmation (next turn), the host creates a git worktree from origin/develop and you edit files INSIDE it: repo.read the targets, insert the identifier lines at the exact proposed spots. You CANNOT run git, push, or open PRs — the host does that after your edits.
+5. Report the edits as a list (file + line + identifier), then save the parked case yaml as a note (kind author-parked, scope case) if not already parked, so the case resumes after merge + reindex.
+
+Rules:
+- Names are RECOMMENDATIONS following the app's convention — never invent novel patterns.
+- NEVER fall back to coordinates because an identifier is hard to place; ask instead.
+- One identifier per control; do not touch unrelated code; no refactors.
+- If the target repo has no compile CI on PRs, say so in your report — the user decides the gate.`,
+  },
 ];
 
 export const commandByCmd = (cmd: string): CommandSpec | undefined => COMMANDS.find((c) => c.cmd === cmd);
