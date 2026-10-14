@@ -2,7 +2,7 @@
 
 - Source prompt: "Should the system [gate recipe state] when a user registers a new repo or project? Should we use AI too? This should work for any kind of iOS projects. Show me the outline of the plan."
 - Created: 2026-10-15T02:10Z
-- Status: OUTLINE — awaiting user review before the implementable plan (hms-plan-from-brainstorm)
+- Status: SUPERSEDED by 20261015T021000Z-recipe-onboarding-plan.md (READY, review gate next)
 - Sessions: identifier-gate/compile-gate arc (sess_e157cc04-da8 forward), PR #424 line
 
 ## The problem in one paragraph
