@@ -821,3 +821,38 @@ export function migrateM1(db: Database.Database): void {
     } catch { /* leave untouched — playback fails closed with the honest message */ }
   }
 }
+
+
+/** Recipe onboarding (plan 20261015T021000Z S2, review R1/R8): recipes as
+ *  server-side DATA — separate table with a revision chain. The projects
+ *  columns (build_scheme/build_configuration) are DEPRECATED, NOT DROPPED
+ *  (SQLite DROP breaks on referenced columns; guarded-ADD is the house
+ *  style): the engine reads `recipes` exclusively; lazy backfill in the
+ *  store converts lingering column values on first read. */
+export function migrateRecipes(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_meta(
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS recipes(
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      revision INTEGER NOT NULL,
+      transport TEXT NOT NULL CHECK(transport IN ('repo-lane','generic')),
+      scheme TEXT,
+      configuration TEXT,
+      prepare_json TEXT NOT NULL DEFAULT '[]',
+      generated INTEGER NOT NULL DEFAULT 0,
+      provenance_json TEXT NOT NULL DEFAULT '{}',
+      superseded_by TEXT REFERENCES recipes(id),
+      verify_state TEXT CHECK(verify_state IS NULL OR verify_state IN ('unverified','green','failed')),
+      verified_at INTEGER,
+      verify_log TEXT,
+      created_at INTEGER NOT NULL,
+      UNIQUE(project_id, revision)
+    );
+    CREATE INDEX IF NOT EXISTS idx_recipes_project ON recipes(project_id, revision);
+  `);
+  db.prepare("INSERT OR IGNORE INTO schema_meta(key, value) VALUES ('recipes_migration', '1')").run();
+}

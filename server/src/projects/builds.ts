@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { getProject } from './store.ts';
 import { claimPackage, unclaimPackage } from './store.ts';
+import { activeRecipe } from './recipes.ts';
 import { readBuildManifest, prepareCommandPath, type BuildManifest, type PrepareStep } from './manifest.ts';
 import { smokeTestArtifact } from './smoke.ts';
 import { discoverAppInputs, type DiscoveredInputs } from './discovery.ts';
@@ -110,6 +111,49 @@ export type StartResult =
   | { ok: true; build: BuildRow }
   | { ok: false; code: 'PROJECT_NOT_FOUND' | 'CLONE_FIRST' | 'BUILD_RUNNING'; error: string };
 
+/** Recipe resolution (plan 20261015T021000Z S2, review R4). LAW:
+ *  1. repo-committed root lionidas.yml — the repo speaks for itself, WINS
+ *  2. active `recipes` row (server-side data) — records resolution {scheme:'recipes', recipeId, revision}
+ *  3. legacy .lionidas/lionidas.yml — still readable (import nag), recorded as manifest-legacy
+ *  4. discovery — NEVER silent; only reached via explicit derive (a generated recipe row)
+ *  Returns the manifest the engine runs plus the resolution provenance stamped on the build row. */
+export interface ResolvedRecipe {
+  manifest: BuildManifest | null;
+  resolution: { scheme: string | null; from: 'manifest' | 'manifest-legacy' | 'recipes' | 'registry' | 'discovered' | null };
+  recipeId?: string;
+  recipeRevision?: number;
+}
+
+export function resolveRecipe(db: Database.Database, projectId: string, ws: string): ResolvedRecipe {
+  // 1 — repo-committed root manifest
+  if (existsSync(join(ws, 'lionidas.yml'))) {
+    try {
+      const m = readBuildManifest(ws);
+      if (m) return { manifest: m, resolution: { scheme: m.scheme, from: 'manifest' } };
+    } catch { /* malformed root manifest falls through to the store */ }
+  }
+  // 2 — the recipes store
+  const row = activeRecipe(db, projectId);
+  if (row && row.transport === 'generic') {
+    return {
+      manifest: { scheme: row.scheme, configuration: row.configuration, prepare: row.prepare },
+      resolution: { scheme: row.scheme, from: 'recipes' },
+      recipeId: row.id,
+      recipeRevision: row.revision,
+    };
+  }
+  if (row && row.transport === 'repo-lane') {
+    return { manifest: null, resolution: { scheme: null, from: 'recipes' }, recipeId: row.id, recipeRevision: row.revision };
+  }
+  // 3 — legacy .lionidas manifest (import nag lives in detection/canary, not here)
+  try {
+    const m = readBuildManifest(ws);
+    if (m) return { manifest: m, resolution: { scheme: m.scheme, from: 'manifest-legacy' } };
+  } catch { /* none */ }
+  // 4 — discovery (caller decides; this function never guesses silently)
+  return { manifest: null, resolution: { scheme: null, from: null } };
+}
+
 export function startBuild(db: Database.Database, projectId: string): StartResult {
   const proj = getProject(db, projectId);
   if (!proj) return { ok: false, code: 'PROJECT_NOT_FOUND', error: 'project not found' };
@@ -125,10 +169,13 @@ export function startBuild(db: Database.Database, projectId: string): StartResul
   mkdirSync(artifactsDir(), { recursive: true });
   const logPath = join(artifactsDir(), `${id}.log`);
   const transport = pickTransport(ws);
-  // ── input resolution (plan T4): manifest > registry > discovery ──
+  // ── input resolution (plan 20261015T021000Z S2): root manifest > recipes store >
+  // legacy .lionidas > registry(discovery only via explicit derive) ──
   // manifest errors (strict schema) fail the build BEFORE any compile.
-  let manifest: BuildManifest | null = null;
-  if (transport === 'generic') {
+  const resolved = resolveRecipe(db, projectId, ws);
+  const recipeId = resolved.recipeId ?? null;
+  let manifest: BuildManifest | null = resolved.manifest;
+  if (transport === 'generic' && !manifest) {
     try {
       manifest = readBuildManifest(ws);
     } catch (e) {
@@ -172,7 +219,13 @@ export function startBuild(db: Database.Database, projectId: string): StartResul
   const scheme = schemeFrom.value;
   const configFrom = resolveInput(manifest?.configuration ?? null, regConfig, discr ? () => (discr.configurations.includes('Debug') ? 'Debug' : discr.configurations[0] ?? null) : null);
   const configuration = configFrom.value;
-  const resolution = JSON.stringify({ scheme: schemeFrom.from, configuration: configFrom.from });
+  const resolutionFrom = resolved.resolution.from ?? schemeFrom.from;
+  const resolution = JSON.stringify({
+    scheme: resolutionFrom === 'recipes' ? 'recipes' : schemeFrom.from,
+    configuration: configFrom.from,
+    ...(recipeId ? { recipeId, recipeRevision: resolved.recipeRevision } : {}),
+    ...(resolved.resolution.from === 'manifest-legacy' ? { legacy: true } : {}),
+  });
   db.prepare(`INSERT INTO builds(id, project_id, number, status, transport, scheme, configuration, resolution, started_at, log_path)
               VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?, ?)`)
     .run(id, projectId, number, transport, scheme, configuration, resolution, Date.now(), logPath);
