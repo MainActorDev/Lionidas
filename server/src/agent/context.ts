@@ -62,7 +62,9 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
   const storage = new SqliteStorage(join(cfg.dbPath + '.agent.db'));
   // R3-S5: the durable turn engine rides the SAME sqlite file (its own tables;
   // single-writer rule: butler_messages writes flow through the sink's commands)
-  const sink = new EventSink(storage.handle());
+  // v0.5.6: chat turns run INLINE via the conversation transport — the sink
+  // must not enqueue runTurn outbox effects nobody consumes (the 63-row backlog).
+  const sink = new EventSink(storage.handle(), { enqueueRunTurn: false });
   const retriever = new StorageRetriever(storage);
   // observability: preset-proxy sync count (tests + future metrics). The wrap
   // happens BEFORE the registry build so every tool closure shares the counter.
