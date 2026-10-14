@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>sketch 034 — status page variants</title>
+<style>
+  /* REAL house tokens (web/src/styles/tokens.css) — sketch is spec, 1:1 material */
+  :root {
+    --color-void:#000; --color-carbon:#111; --color-graphite:#191919; --color-iron:#202020;
+    --color-slate:#3a3a3a; --color-pewter:#505050; --color-steel:#606060; --color-ash:#7e7e7e;
+    --color-fog:#b4b4b4; --color-chalk:#d9d9d9; --color-paper:#eee;
+    --color-ember:#da5c2c; --color-ember-dim:#a04521;
+    --r:6px; --text-caption:11px; --text-label:12px; --font-mono:ui-monospace,"SF Mono",Menlo,monospace;
+    /* state colors: derived from house palette — ok=palette green absent; use fog/steel for ok?
+       House has no green. Status semantics NEED distinguishable hues:
+       ok → fog (calm light), degraded → ember, down → red-orange saturated (#e03e3e), unknown → steel */
+    --st-ok:#8fbf7f; --st-degraded:#da5c2c; --st-down:#e03e3e; --st-unknown:#606060;
+  }
+  body{background:var(--color-void);color:var(--color-paper);font:13px/1.5 ui-sans-serif,system-ui;margin:0;padding:28px;font-family:-apple-system,system-ui}
+  h1{font-size:15px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-fog);margin:0 0 6px}
+  .variant{border:1px solid var(--color-slate);border-radius:var(--r);padding:20px;margin-bottom:26px;background:var(--color-carbon)}
+  .vlabel{font:700 11px/1 var(--font-mono);color:var(--color-ember);letter-spacing:.14em;text-transform:uppercase;margin-bottom:14px}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:middle}
+  .mono{font-family:var(--font-mono)}
+
+  /* ─── VARIANT A: cards grid ─── */
+  .a-head{display:flex;align-items:center;gap:14px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--color-slate)}
+  .a-overall{font:700 22px/1 system-ui}
+  .a-meta{font:11px var(--font-mono);color:var(--color-ash)}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  .card{background:var(--color-graphite);border:1px solid var(--color-slate);border-radius:var(--r);padding:14px}
+  .card h3{margin:0 0 8px;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-fog);display:flex;justify-content:space-between}
+  .card .sum{font-size:12.5px;color:var(--color-paper)}
+  .card .sub{font:11px var(--font-mono);color:var(--color-ash);margin-top:8px}
+  .card.warn{border-color:var(--color-ember)}
+
+  /* ─── VARIANT B: ledger table ─── */
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{text-align:left;font:700 10.5px var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--color-steel);padding:8px 10px;border-bottom:1px solid var(--color-slate)}
+  td{padding:9px 10px;border-bottom:1px solid var(--color-graphite);vertical-align:top}
+  tr:hover td{background:var(--color-graphite)}
+  td.detail{font:11px var(--font-mono);color:var(--color-ash);max-width:420px}
+
+  /* ─── VARIANT C: split master-detail ─── */
+  .c-wrap{display:grid;grid-template-columns:230px 1fr;gap:0;border:1px solid var(--color-slate);border-radius:var(--r);overflow:hidden}
+  .c-list{background:var(--color-graphite);border-right:1px solid var(--color-slate)}
+  .c-item{padding:11px 14px;border-bottom:1px solid var(--color-slate);cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12.5px}
+  .c-item.on{background:var(--color-iron);box-shadow:inset 2px 0 0 var(--color-ember)}
+  .c-item .n{color:var(--color-fog);font:11px var(--font-mono);margin-left:auto}
+  .c-detail{padding:18px 20px}
+  .c-detail h4{margin:0 0 4px;font-size:13px}
+  .kv{display:grid;grid-template-columns:150px 1fr;gap:4px 12px;font:11.5px var(--font-mono);margin:12px 0}
+  .kv b{color:var(--color-fog);font-weight:400}
+  .thr{margin-top:14px;padding-top:10px;border-top:1px dashed var(--color-slate);font:10.5px var(--font-mono);color:var(--color-steel)}
+  .badge{font:700 10px var(--font-mono);letter-spacing:.1em;padding:2px 6px;border-radius:3px;text-transform:uppercase}
+  .b-ok{background:rgba(143,191,127,.15);color:var(--st-ok)} .b-deg{background:rgba(218,92,44,.18);color:var(--color-ember)}
+  .b-down{background:rgba(224,62,62,.18);color:var(--st-down)} .b-unk{background:rgba(96,96,96,.2);color:var(--color-steel)}
+</style>
+</head>
+<body>
+
+<h1>sketch 034 · system status — pick one variant</h1>
+
+<!-- ══════════ A ══════════ -->
+<section class="variant">
+  <div class="vlabel">A — cards grid (glance-first)</div>
+  <div class="a-head">
+    <span class="a-overall"><span class="dot" style="background:var(--st-degraded)"></span>degraded</span>
+    <span class="a-meta">checked 12:59:41 · 2s ago · cached 8s</span>
+  </div>
+  <div class="grid">
+    <div class="card"><h3><span>server</span><span class="dot" style="background:var(--st-ok)"></span></h3>
+      <div class="sum">up 4h 12m · v0.1.0</div><div class="sub">crucible.db 18MB wal · agent.db 4MB wal</div></div>
+    <div class="card"><h3><span>agent core</span><span class="dot" style="background:var(--st-degraded)"></span></h3>
+      <div class="sum">1 live turn · 24h: 41 ✓ / 3 ✕</div><div class="sub">zombie candidate t_aebb8b52 (idle 22m) · outbox 2</div></div>
+    <div class="card"><h3><span>provider · mcp</span><span class="dot" style="background:var(--st-ok)"></span></h3>
+      <div class="sum">claude-cli 2.1.220 · glm-5.3-flash</div><div class="sub">mcp retries 1h: 0 · last turn 12:44</div></div>
+    <div class="card"><h3><span>llm backend</span><span class="dot" style="background:var(--st-ok)"></span></h3>
+      <div class="sum">api.z.ai · last 8.4s</div><div class="sub">spend today 412k tok · burn 24h: 0</div></div>
+    <div class="card"><h3><span>engine</span><span class="dot" style="background:var(--st-ok)"></span></h3>
+      <div class="sum">3 sims seen · 1 run queued</div><div class="sub">alloy orphans 0 (tables, as of 12:40)</div></div>
+    <div class="card"><h3><span>data freshness</span><span class="dot" style="background:var(--st-unknown)"></span></h3>
+      <div class="sum">last run 2d ago · ingest 5d ago</div><div class="sub">run 7d ✗ · ingest 7d ✗ · diag 14d ✓</div></div>
+  </div>
+</section>
+
+<!-- ══════════ B ══════════ -->
+<section class="variant">
+  <div class="vlabel">B — ledger table (scan-first, dense)</div>
+  <div class="a-head" style="margin-bottom:10px">
+    <span class="a-overall" style="font-size:15px"><span class="dot" style="background:var(--st-degraded)"></span>degraded · 1 of 6</span>
+    <span class="a-meta">checked 12:59:41 · cached 8s · refresh 15s</span>
+  </div>
+  <table>
+    <tr><th></th><th>subsystem</th><th>state</th><th>summary</th><th>signals</th></tr>
+    <tr><td><span class="dot" style="background:var(--st-ok)"></span></td><td>server</td><td><span class="badge b-ok">ok</span></td><td>up 4h 12m · v0.1.0</td><td class="detail">db crucible 18MB wal ok · db agent 4MB wal ok</td></tr>
+    <tr><td><span class="dot" style="background:var(--st-degraded)"></span></td><td>agent core</td><td><span class="badge b-deg">degraded</span></td><td>1 live · 41✓/3✕ 24h</td><td class="detail">zombie t_aebb8b52 idle 22m (&gt;15m) · outbox backlog 2 (oldest 3m)</td></tr>
+    <tr><td><span class="dot" style="background:var(--st-ok)"></span></td><td>provider · mcp</td><td><span class="badge b-ok">ok</span></td><td>claude-cli 2.1.220</td><td class="detail">glm-5.3-flash · retries 1h: 0 · last turn 12:44</td></tr>
+    <tr><td><span class="dot" style="background:var(--st-ok)"></span></td><td>llm backend</td><td><span class="badge b-ok">ok</span></td><td>api.z.ai · 8.4s</td><td class="detail">spend 412k tok · burn 24h: 0</td></tr>
+    <tr><td><span class="dot" style="background:var(--st-ok)"></span></td><td>engine</td><td><span class="badge b-ok">ok</span></td><td>3 sims · 1 queued</td><td class="detail">alloy orphans 0 · read-from-tables (12:40)</td></tr>
+    <tr><td><span class="dot" style="background:var(--st-unknown)"></span></td><td>data freshness</td><td><span class="badge b-unk">unknown</span></td><td>run 2d · ingest 5d</td><td class="detail">thresholds: run 7d ✗ near · ingest 7d ✗ near · diag 14d ✓</td></tr>
+  </table>
+</section>
+
+<!-- ══════════ C ══════════ -->
+<section class="variant">
+  <div class="vlabel">C — split master-detail (drill-first)</div>
+  <div class="a-head" style="margin-bottom:10px">
+    <span class="a-overall" style="font-size:15px"><span class="dot" style="background:var(--st-degraded)"></span>degraded</span>
+    <span class="a-meta">checked 12:59:41 · cached 8s</span>
+  </div>
+  <div class="c-wrap">
+    <div class="c-list">
+      <div class="c-item"><span class="dot" style="background:var(--st-ok)"></span>server <span class="n">4h</span></div>
+      <div class="c-item on"><span class="dot" style="background:var(--st-degraded)"></span>agent core <span class="n">1 live</span></div>
+      <div class="c-item"><span class="dot" style="background:var(--st-ok)"></span>provider · mcp <span class="n">ok</span></div>
+      <div class="c-item"><span class="dot" style="background:var(--st-ok)"></span>llm backend <span class="n">8.4s</span></div>
+      <div class="c-item"><span class="dot" style="background:var(--st-ok)"></span>engine <span class="n">3 sims</span></div>
+      <div class="c-item"><span class="dot" style="background:var(--st-unknown)"></span>data freshness <span class="n">5d</span></div>
+    </div>
+    <div class="c-detail">
+      <h4><span class="dot" style="background:var(--st-degraded)"></span>agent core <span class="badge b-deg" style="margin-left:8px">degraded</span></h4>
+      <div class="kv">
+        <b>live turns</b><span>t_9f2c (12:51, streaming)</span>
+        <b>zombie candidates</b><span style="color:var(--color-ember)">t_aebb8b52 — idle 22m &gt; 15m threshold</span>
+        <b>outbox backlog</b><span>2 effects · oldest 3m</span>
+        <b>24h outcomes</b><span>41 completed · 3 failed · 0 aborted</span>
+        <b>context burn</b><span>0 empty-answer failures</span>
+      </div>
+      <div class="thr">thresholds — zombie 15m · outbox &gt;0 · mcp retries 1h &gt;0 · burn 24h &gt;0 · run 7d · ingest 7d · diag 14d</div>
+    </div>
+  </div>
+</section>
+
+<script>
+  document.querySelectorAll('.c-item').forEach(el => el.addEventListener('click', () => {
+    document.querySelectorAll('.c-item').forEach(x => x.classList.remove('on'));
+    el.classList.add('on');
+  }));
+</script>
+</body>
+</html>
