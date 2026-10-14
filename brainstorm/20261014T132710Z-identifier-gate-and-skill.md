@@ -76,6 +76,13 @@ Gate → skill → PR → merge → re-ingest → index → gate passes → case
 9. **Merge conflicts / upstream moved** — branch from fresh develop; if PR conflicts, re-run the skill step (idempotent: skips identifiers already in index).
 10. **Multi-repo apps** — bundle maps to one repo today; if that changes, the index keys by bundle and the skill edits whichever repo provides the bundle.
 
+## Decisions (user, this round)
+
+1. Repo write: **YES — agent may branch/edit/PR the app repo**, with "the best possible and safer workflow" (detailed walkthrough follows; hard confirmation stop before any write, per-identifier commits, compile gate, create-only PR).
+3. Skill home: **Lionidas slash command** (pipeline order 4).
+4. Naming convention: **recommend-only** (mined from the app's dominant pattern, shown in the proposal, never enforced by the gate).
+2. Dynamic identifiers: *explained to user this round — decision pending; default pass-with-note + mandatory selector-trust note.*
+
 ## Open questions
 
 1. **Repo write permission** — is the agent allowed to branch/edit/PR the ios-consumer repo directly (Option 1), or must it be ticket-mode first (Option 3) with write-mode later? This is an org-policy decision bigger than code.
