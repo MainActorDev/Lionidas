@@ -611,7 +611,8 @@ textarea { width: 100%; background: none; border: none; outline: none; color: va
 .slash-menu.palette .menu-rows { max-height: 300px; overflow-y: auto; padding: 0; }
 .pk { color: var(--color-steel); font-size: 10px; width: 34px; flex: none; }
 .pk.jira { color: #7fb3d5; } .pk.repo { color: #e8916d; } .pk.case { color: #a8c58a; } .pk.file { color: #b08ccf; } .pk.recent { color: var(--color-steel); }
-.slash-row .slash-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slash-row .slash-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slash-row .slash-desc { flex: 1; }
 .slash-row.state { color: var(--color-steel); cursor: default; }
 .p-foot { display: flex; justify-content: space-between; padding: 4px 8px 2px; color: var(--color-steel); opacity: .7; font-size: 9.5px; border-top: 1px solid var(--ag-line); margin-top: 4px; }
 
