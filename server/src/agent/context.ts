@@ -89,7 +89,7 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
   const apiKey = cfg.env['BUTLER_API_KEY'];
   const model = cfg.env['BUTLER_MODEL'];
   const providerKind = cfg.env['BUTLER_PROVIDER'] ?? 'openai-compat';
-  let provider: Provider;
+  let provider: Provider | undefined;
   let providerConfigured = false;
   // v0.6.0 model routing: registry (file/inline) takes precedence; falls back
   // to the legacy single-model construction below untouched.
@@ -113,7 +113,7 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
     provider = routed;
     providerConfigured = true;
   }
-  if (providerKind === 'claude-cli') {
+  if (!router && providerKind === 'claude-cli') {
     // claude-cli middleware with a GLM backend: injects the Anthropic-protocol
     // endpoint vars into the SUBPROCESS only (host claude config untouched).
     const env: Record<string, string> = {};
@@ -135,15 +135,16 @@ export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; 
       mcpConfigPath: writeMcpConfig(cfg.env),
     });
     providerConfigured = Boolean(baseUrl && apiKey);
-  } else if (baseUrl && apiKey && model) {
+  } else if (!router && baseUrl && apiKey && model) {
     provider = new OpenAICompatProvider({ baseUrl, apiKey, model });
     providerConfigured = true;
-  } else {
+  } else if (!router) {
     provider = new MockProvider([{ kind: 'assistant', content: 'agent provider not configured (set BUTLER_PROVIDER_BASE_URL / BUTLER_API_KEY / BUTLER_MODEL) — mock response' }]);
   }
 
-  registerStageRunTool(registry, { db, storage, sink, retriever, registry, provider, policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }), syncPresetsCalls: 0, attachments, embedder } as AgentContext, cfg.env);
-  const ctx: AgentContext = { db, storage, sink, retriever, registry, provider, ...(router ? { router } : {}), ...(routeComplete ? { routeComplete } : {}), policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }), syncPresetsCalls: 0, attachments, embedder };
+  const finalProvider: Provider = provider ?? router!;
+  registerStageRunTool(registry, { db, storage, sink, retriever, registry, provider: finalProvider, policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }), syncPresetsCalls: 0, attachments, embedder } as AgentContext, cfg.env);
+  const ctx: AgentContext = { db, storage, sink, retriever, registry, provider: finalProvider, ...(router ? { router } : {}), ...(routeComplete ? { routeComplete } : {}), policy: V1_POLICY, systemPrompt: LIONIDAS_SYSTEM_PROMPT, artifactsDir: cfg.artifactsDir, providerConfigured, seedPromise: Promise.resolve({ documents: 0, skipped: 0 }), syncPresetsCalls: 0, attachments, embedder };
 
   Object.defineProperty(ctx, 'syncPresetsCalls', { get: () => syncState.calls });
 

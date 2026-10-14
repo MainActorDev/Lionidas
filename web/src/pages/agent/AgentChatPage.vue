@@ -188,7 +188,28 @@ async function onDeleted(id: string): Promise<void> {
   }
 }
 
-async function send(text: string, refs: PipelineRef[], appBundle: string, commands: string[] = []): Promise<void> {
+/** model picker (sketch 035-B): options from /api/agent/models, selection rides sends */
+interface ModelOptionUi { id: string; kind: 'combo' | 'model'; label?: string; members?: string[]; healthy?: boolean }
+const modelOptions = ref<ModelOptionUi[]>([]);
+const modelSel = ref('');
+async function loadModels(): Promise<void> {
+  try {
+    const r = await fetch('/api/agent/models/health');
+    if (!r.ok) return;
+    const b = (await r.json()) as { combos: Array<{ id: string; members: string[] }>; models: Array<{ id: string; ok: number; failed: number }> };
+    const reg = await (await fetch('/api/agent/models')).json() as { registry?: { defaultCombo: string; models: Array<{ id: string; enabled: boolean; kind: string }> } | null };
+    if (!reg.registry) return;
+    const health = new Map(b.models.map((m) => [m.id, m.ok > 0 && m.failed === 0 ? true : m.failed > 0 && m.ok === 0 ? false : undefined]));
+    const opts: ModelOptionUi[] = [
+      ...b.combos.map((c) => ({ id: c.id, kind: 'combo' as const, members: c.members })),
+      ...reg.registry.models.filter((m) => m.enabled && m.kind !== 'mock').map((m) => { const h = health.get(m.id); return { id: m.id, kind: 'model' as const, ...(h !== undefined ? { healthy: h } : {}) }; }),
+    ];
+    modelOptions.value = opts;
+    if (!modelSel.value) modelSel.value = reg.registry.defaultCombo;
+  } catch { /* picker hidden on failure */ }
+}
+
+async function send(text: string, refs: PipelineRef[], appBundle: string, commands: string[] = [], model?: string): Promise<void> {
   const cmdNote = commands.length ? ` [cmds: ${commands.join(' ')}]` : '';
   const refNote = refs.length ? ` [refs: ${refs.map((r) => `${r.kind}:${r.locator}`).join(', ')}]` : '';
   if (sending.value) {
@@ -434,6 +455,7 @@ function startPolling(): void {
 }
 
 onMounted(() => {
+  void loadModels();
   void loadMe();
   const qRun = route.query['run'];
   if (typeof qRun === 'string' && qRun) { setTurn((t) => { t.runId = qRun; }); }
@@ -458,7 +480,7 @@ onBeforeUnmount(() => { ws?.close(); if (pollTimer) clearInterval(pollTimer); })
     <div class="mid">
       <Thread :messages="messages" :title="title" :live="panel?.live ?? false" :waiting="sending && !streaming" :streaming="streaming" :tool-stops="toolStops" :session-id="sessionId" @resend="resend" @queue-edit="(m) => { const it = queue.find((q) => q.bubble === m); if (it) queueEdit(it.id); }" @queue-delete="(m) => { const it = queue.find((q) => q.bubble === m); if (it) queueDelete(it.id); }">
         <div class="mid-inner" @paste="onPaste" @drop="onDrop" @dragover.prevent>
-          <Composer ref="composer" :busy="sending" @send="send" @abort="abortTurn" @open-attachment="openAttachmentPicker" />
+          <Composer ref="composer" :busy="sending" :model-options="modelOptions" :model="modelSel" @model-change="(m) => { modelSel = m; }" @send="send" @abort="abortTurn" @open-attachment="openAttachmentPicker" />
         </div>
       </Thread>
     </div>

@@ -18,7 +18,36 @@ const error = ref('');
 
 interface ReadinessRow { key: string; label: string; state: 'ok' | 'fail' | 'skip'; detail: string }
 
-const openSections = ref(new Set<string>(['cred', 'ready']));
+const openSections = ref(new Set<string>(['cred', 'ready', 'models']));
+
+/** models section (plan 20261014T084923Z step 5): registry editor — env names
+ *  only, presence dots, combos as chains. PUT hot-reloads the router. */
+interface ModelRow { id: string; kind: string; model: string; baseUrl: string | null; apiKeyEnv: string; keyPresent: boolean; priority: number; enabled: boolean }
+interface ComboRow { id: string; members: string[]; strategy: string }
+const modelRows = ref<ModelRow[]>([]);
+const comboRows = ref<ComboRow[]>([]);
+const defaultCombo = ref('');
+const modelsError = ref('');
+const modelsSource = ref('');
+async function loadModelsSection(): Promise<void> {
+  modelsError.value = '';
+  try {
+    const r = await fetch('/api/agent/models');
+    if (!r.ok) { modelsSource.value = 'unavailable'; return; }
+    const b = (await r.json()) as { registry: { models: ModelRow[]; combos: ComboRow[]; defaultCombo: string } | null; source: string };
+    modelsSource.value = b.source;
+    if (b.registry) { modelRows.value = b.registry.models; comboRows.value = b.registry.combos; defaultCombo.value = b.registry.defaultCombo; }
+  } catch { modelsSource.value = 'unavailable'; }
+}
+async function saveModels(): Promise<void> {
+  modelsError.value = '';
+  const registry = { version: 1, defaultCombo: defaultCombo.value, models: modelRows.value.map((m) => ({
+    id: m.id, kind: m.kind, ...(m.baseUrl ? { baseUrl: m.baseUrl } : {}), model: m.model, apiKeyEnv: m.apiKeyEnv, priority: m.priority, enabled: m.enabled,
+  })), combos: comboRows.value };
+  const r = await fetch('/api/agent/models', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ registry }) });
+  if (!r.ok) modelsError.value = ((await r.json()) as { error?: string }).error ?? `save failed (${r.status})`;
+  else await loadModelsSection();
+}
 function toggleSec(k: string): void {
   const s = new Set(openSections.value);
   if (s.has(k)) s.delete(k); else s.add(k);
@@ -33,6 +62,7 @@ async function recheck(): Promise<void> {
 }
 
 async function load(): Promise<void> {
+  void loadModelsSection();
   error.value = '';
   try {
     const r = await fetch('/api/settings/secrets');
@@ -107,6 +137,36 @@ onMounted(() => void load());
             <span class="st-meta">{{ secrets?.keys.jiraToken ?? 'JIRA_TOKEN' }} · set in env</span>
           </div>
           <div class="st-row empty">values never enter the database — set them where the server runs and restart</div>
+        </div>
+      </div>
+
+      <!-- models section (plan 20261014T084923Z): registry editor -->
+      <div class="scope-block" :class="{ open: openSections.has('models') }">
+        <div class="a2-group-head scope-head" @click="toggleSec('models')">
+          <span class="caret">{{ openSections.has('models') ? '▾' : '▸' }}</span>
+          <span class="tag">models</span>
+          <span class="owner">llm registry · routing & combos</span>
+          <span class="cnt">{{ modelRows.length }}<template v-if="modelsSource === 'none'"> · unconfigured</template></span>
+        </div>
+        <div class="scope-body">
+          <div v-if="modelsSource === 'none'" class="st-row empty">set BUTLER_MODELS_FILE to enable the registry — legacy single-model env is active</div>
+          <div v-else-if="modelsSource === 'unavailable'" class="st-row empty">models API unavailable</div>
+          <template v-else>
+            <div class="st-thead"><span>id</span><span>kind · model</span><span>key</span></div>
+            <div v-for="m in modelRows" :key="m.id" class="st-row">
+              <span class="st-key">{{ m.id }} <template v-if="!m.enabled">(off)</template></span>
+              <span class="st-val mono">{{ m.kind }} · {{ m.model }}</span>
+              <span class="st-meta mono">{{ m.apiKeyEnv }} {{ m.keyPresent ? '✓' : '✗' }} · prio {{ m.priority }}</span>
+            </div>
+            <div class="st-thead" style="margin-top:10px"><span>combo</span><span>chain</span><span></span></div>
+            <div v-for="c in comboRows" :key="c.id" class="st-row">
+              <span class="st-key">{{ c.id }}<template v-if="c.id === defaultCombo"> ★</template></span>
+              <span class="st-val mono">{{ c.members.join(' → ') }}</span>
+              <span class="st-meta">{{ c.id === defaultCombo ? 'default' : '' }}</span>
+            </div>
+            <div class="st-row empty">edits save to the registry file and hot-reload the router — no restart · values never leave env vars</div>
+            <div v-if="modelsError" class="st-row empty" style="color: var(--color-ember)">{{ modelsError }}</div>
+          </template>
         </div>
       </div>
 
