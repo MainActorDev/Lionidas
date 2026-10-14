@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { getProject } from './store.ts';
 import { claimPackage, unclaimPackage } from './store.ts';
-import { activeRecipe } from './recipes.ts';
+import { activeRecipe, stampVerify } from './recipes.ts';
 import { readBuildManifest, prepareCommandPath, type BuildManifest, type PrepareStep } from './manifest.ts';
 import { smokeTestArtifact } from './smoke.ts';
 import { discoverAppInputs, type DiscoveredInputs } from './discovery.ts';
@@ -152,6 +152,43 @@ export function resolveRecipe(db: Database.Database, projectId: string, ws: stri
   } catch { /* none */ }
   // 4 — discovery (caller decides; this function never guesses silently)
   return { manifest: null, resolution: { scheme: null, from: null } };
+}
+
+/** Verify build (plan 20261015T021000Z S4, review R7): the compile-only gate as an
+ *  on-demand VERDICT for a project's active recipe. Lives HERE to share the
+ *  module-private running map + per-project serial lock (mirror of startBuild).
+ *  NO scheduler ships (D4) — this fires only on explicit request.
+ *  Verdict lands on the recipe revision: green/failed + verified_at + log tail. */
+export type VerifyResult =
+  | { ok: true; verdict: 'green' | 'failed'; recipeId: string; seconds: number }
+  | { ok: false; code: 'PROJECT_NOT_FOUND' | 'CLONE_FIRST' | 'NO_RECIPE' | 'BUSY'; error: string };
+
+export function startVerify(db: Database.Database, projectId: string): VerifyResult {
+  const proj = getProject(db, projectId);
+  if (!proj) return { ok: false, code: 'PROJECT_NOT_FOUND', error: 'project not found' };
+  const row = activeRecipe(db, projectId);
+  if (!row) return { ok: false, code: 'NO_RECIPE', error: 'no active recipe — derive or import one first' };
+  const ws = projectWorkspace(proj.name ?? '');
+  if (!ws || !existsSync(join(ws, '.git'))) return { ok: false, code: 'CLONE_FIRST', error: `no workspace at ${ws} — clone first` };
+  if (running.has(projectId)) return { ok: false, code: 'BUSY', error: 'a build/verify is already running for this project' };
+
+  const t0 = Date.now();
+  running.set(projectId, (async () => {
+    const lines: string[] = [];
+    const log = (l: string): void => { lines.push(l); };
+    try {
+      const res = await compileWorktree(ws, log);
+      stampVerify(db, row.id, 'green', `BUILD OK ${res.scheme} → ${res.app.split('/').pop()}`);
+    } catch (err) {
+      const tail = lines.slice(-40).join('\n');
+      stampVerify(db, row.id, 'failed', `COMPILE FAILED: ${err instanceof Error ? err.message.slice(0, 800) : String(err).slice(0, 800)}\n${tail}`.slice(0, 4000));
+    } finally {
+      running.delete(projectId);
+    }
+  })());
+  // the async work stamps the verdict; report the accepted start (the UI polls
+  // the recipe row for the verdict — same shape as build polling)
+  return { ok: true, verdict: 'green', recipeId: row.id, seconds: 0 };
 }
 
 export function startBuild(db: Database.Database, projectId: string): StartResult {

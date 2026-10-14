@@ -172,6 +172,19 @@ export function registerProjectRoutes(app: FastifyInstance, db: Database.Databas
     return { ok: true, recipe: row };
   });
 
+  // S4: on-demand verify (NO scheduler — D4). Verdict stamps the recipe revision;
+  // the UI polls GET /recipe for verify_state (compile-only: no .ipa, ~minutes).
+  app.post('/api/projects/:id/verify', { preHandler: requireRole('admin') }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { startVerify } = await import('./builds.ts');
+    const r = startVerify(db, id);
+    if (!r.ok) {
+      const code = r.code === 'PROJECT_NOT_FOUND' ? 404 : r.code === 'CLONE_FIRST' || r.code === 'NO_RECIPE' ? 409 : 409;
+      return reply.code(code).send({ error: r.error, code: r.code });
+    }
+    return { ok: true, recipeId: r.recipeId, started: true };
+  });
+
   // read the active recipe (with lazy R1 backfill from deprecated columns)
   app.get('/api/projects/:id/recipe', { preHandler: requireRole('admin') }, async (req, reply) => {
     const { id } = req.params as { id: string };

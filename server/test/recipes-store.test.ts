@@ -81,3 +81,14 @@ describe('R4: resolution contract — store-driven builds are distinguishable', 
     expect(resolveRecipe(db, 'p4', ws3).resolution.from).toBeNull();
   });
 });
+
+describe('S4: verify flow shape (startVerify guards; compile stubbed at route level)', () => {
+  it('NO_RECIPE when the project has no recipe row', async () => {
+    const { startVerify } = await import('../src/projects/builds.ts');
+    db.prepare("INSERT INTO projects(id, name) VALUES ('p9', 'proj-nine')").run();
+    // projectWorkspace needs a name; no recipe row exists → NO_RECIPE before any fs touch
+    const r = startVerify(db, 'p9');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('NO_RECIPE');
+  });
+});
