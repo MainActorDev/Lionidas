@@ -6,6 +6,8 @@ import { requireRole } from '../auth/roles.ts';
 import { reposDir } from '../manual/packages.ts';
 import { listProjects, getProject, createProject, updateProject, deleteProject, claimPackage, unclaimPackage } from './store.ts';
 import { cloneProject, pullProject, workspaceStatus } from './workspace.ts';
+import { detectRecipe } from './recipe-detect.ts';
+import { activeRecipe, writeRecipeRevision, backfillFromColumns } from './recipes.ts';
 import { readBuildManifest } from './manifest.ts';
 import { discoverAppInputs, probeRepoShape } from './discovery.ts';
 import { existsSync } from 'node:fs';
@@ -120,7 +122,63 @@ export function registerProjectRoutes(app: FastifyInstance, db: Database.Databas
       const code = r.code === 'WORKSPACE_EXISTS' ? 409 : 502;
       return reply.code(code).send({ error: r.error, code: r.code });
     }
-    return { ok: true, kind: r.kind, path: r.path };
+    // recipe onboarding gate (plan 20261015T021000Z S3, review R3a): detection runs
+    // the MOMENT a workspace exists — the response carries the honest three-state
+    // report; state persisted on the project row for the Projects page + canary
+    const detection = detectRecipe(r.path);
+    const recipeState = detection.state === 'found' ? `found:${detection.source}${detection.legacy ? ':legacy' : ''}` : detection.state;
+    try {
+      db.prepare('UPDATE projects SET recipe_state = ?, recipe_report_json = ?, updated_at = ? WHERE id = ?')
+        .run(recipeState, JSON.stringify(detection), Date.now(), id);
+    } catch { /* columns absent on legacy fixtures — report still returned */ }
+    return { ok: true, kind: r.kind, path: r.path, recipe: detection };
+  });
+
+  // R3b: on-demand re-detection (projects registered before this change; post-pull)
+  app.post('/api/projects/:id/recipe/detect', { preHandler: requireRole('admin') }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const proj = getProject(db, id);
+    if (!proj) return reply.code(404).send({ error: 'project not found' });
+    const ws = projectWorkspace(proj.name);
+    const detection = detectRecipe(ws);
+    const recipeState = detection.state === 'found' ? `found:${detection.source}${detection.legacy ? ':legacy' : ''}` : detection.state;
+    try {
+      db.prepare('UPDATE projects SET recipe_state = ?, recipe_report_json = ?, updated_at = ? WHERE id = ?')
+        .run(recipeState, JSON.stringify(detection), Date.now(), id);
+    } catch { /* legacy fixtures */ }
+    return { recipe: detection };
+  });
+
+  // the ONLY sanctioned path from discovery to a recipe (never silent): user
+  // derives — writes a generated row flagged for review, verify-build proves it
+  app.post('/api/projects/:id/recipe/derive', { preHandler: requireRole('admin') }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const proj = getProject(db, id);
+    if (!proj) return reply.code(404).send({ error: 'project not found' });
+    const ws = projectWorkspace(proj.name);
+    const detection = detectRecipe(ws);
+    if (detection.state !== 'derivable') {
+      return reply.code(409).send({ error: `recipe not derivable (${detection.state})`, detection });
+    }
+    const row = writeRecipeRevision(db, {
+      projectId: id,
+      transport: detection.recipe.transport,
+      scheme: detection.recipe.scheme,
+      configuration: detection.recipe.configuration,
+      prepare: detection.recipe.prepare,
+      generated: true,
+      provenance: { by: 'derive', at: Date.now(), source: 'detectRecipe (derivable)', evidence: detection.notes },
+    });
+    return { ok: true, recipe: row };
+  });
+
+  // read the active recipe (with lazy R1 backfill from deprecated columns)
+  app.get('/api/projects/:id/recipe', { preHandler: requireRole('admin') }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const proj = getProject(db, id);
+    if (!proj) return reply.code(404).send({ error: 'project not found' });
+    const row = activeRecipe(db, id) ?? backfillFromColumns(db, { id, build_scheme: (proj as { buildScheme?: string | null }).buildScheme ?? null, build_configuration: (proj as { buildConfiguration?: string | null }).buildConfiguration ?? null });
+    return { recipe: row };
   });
 
   app.post('/api/projects/:id/pull', { preHandler: requireRole('admin') }, async (req, reply) => {

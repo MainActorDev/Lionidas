@@ -855,4 +855,11 @@ export function migrateRecipes(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_recipes_project ON recipes(project_id, revision);
   `);
   db.prepare("INSERT OR IGNORE INTO schema_meta(key, value) VALUES ('recipes_migration', '1')").run();
+  // S3: the persisted detection report on the project row (guarded — house style)
+  for (const col of [
+    'ALTER TABLE projects ADD COLUMN recipe_state TEXT',
+    'ALTER TABLE projects ADD COLUMN recipe_report_json TEXT',
+  ]) {
+    try { db.exec(col); } catch { /* column exists */ }
+  }
 }
