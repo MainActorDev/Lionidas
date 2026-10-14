@@ -92,3 +92,29 @@ describe('S4: verify flow shape (startVerify guards; compile stubbed at route le
     if (!r.ok) expect(r.code).toBe('NO_RECIPE');
   });
 });
+
+describe('S5: commands + apply-proposal (AI proposes, host disposes)', () => {
+  it('both recipe commands registered with HARD STOP + secrets law in instructions', async () => {
+    const { COMMANDS } = await import('../src/agent/commands.ts');
+    const propose = COMMANDS.find((c) => c.cmd === '/recipe-propose');
+    const diagnose = COMMANDS.find((c) => c.cmd === '/recipe-diagnose');
+    expect(propose?.order).toBe(5);
+    expect(diagnose?.order).toBe(6);
+    for (const c of [propose, diagnose]) {
+      expect(c?.instructions).toMatch(/HARD STOP/);
+      expect(c?.instructions).toMatch(/NEEDS_SECRETS|HUMAN gate/i);
+      expect(c?.instructions).toMatch(/never (write|decide)/i);
+    }
+  });
+
+  it('apply-proposal writes an ai+user revision with evidence provenance', async () => {
+    const row = writeRecipeRevision(db, {
+      projectId: 'p1', transport: 'generic', scheme: 'FromAI', configuration: 'Debug',
+      prepare: [{ run: 'pod install' }],
+      provenance: { by: 'ai+user', at: Date.now(), source: 'test', evidence: ['repo.read: project.yml:12'] },
+    });
+    expect(row.provenance.by).toBe('ai+user');
+    expect(row.provenance.evidence).toContain('repo.read: project.yml:12');
+    expect(activeRecipe(db, 'p1')?.scheme).toBe('FromAI');
+  });
+});

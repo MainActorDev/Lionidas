@@ -185,6 +185,24 @@ export function registerProjectRoutes(app: FastifyInstance, db: Database.Databas
     return { ok: true, recipeId: r.recipeId, started: true };
   });
 
+  // S5: apply a CONFIRMED AI proposal — the host writes the revision; the model never does
+  app.post('/api/projects/:id/recipe/apply-proposal', { preHandler: requireRole('admin') }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const b = (req.body ?? {}) as { transport?: 'repo-lane' | 'generic'; scheme?: string | null; configuration?: string | null; prepare?: Array<{ run: string }>; evidence?: string[] };
+    const proj = getProject(db, id);
+    if (!proj) return reply.code(404).send({ error: 'project not found' });
+    if (!b.transport || (b.transport !== 'repo-lane' && b.transport !== 'generic')) return reply.code(422).send({ error: 'transport required (repo-lane | generic)' });
+    const row = writeRecipeRevision(db, {
+      projectId: id,
+      transport: b.transport,
+      scheme: b.scheme ?? null,
+      configuration: b.configuration ?? null,
+      prepare: Array.isArray(b.prepare) ? b.prepare : [],
+      provenance: { by: 'ai+user', at: Date.now(), source: '/recipe-propose or /recipe-diagnose (confirmed)', evidence: Array.isArray(b.evidence) ? b.evidence : [] },
+    });
+    return { ok: true, recipe: row };
+  });
+
   // read the active recipe (with lazy R1 backfill from deprecated columns)
   app.get('/api/projects/:id/recipe', { preHandler: requireRole('admin') }, async (req, reply) => {
     const { id } = req.params as { id: string };

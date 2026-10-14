@@ -7,4 +7,6 @@ export const DEFAULT_COMMANDS: CommandLite[] = [
   { cmd: '/breakdown', description: 'Break a plan into concrete steps', order: 2 },
   { cmd: '/author', description: 'Author case YAML drafts', order: 3 },
   { cmd: '/implement-identifiers', description: 'Implement missing a11y identifiers in app code', order: 4 },
+  { cmd: '/recipe-propose', description: 'Propose a build recipe for a blocked repo', order: 5 },
+  { cmd: '/recipe-diagnose', description: 'Diagnose a failed verify build', order: 6 },
 ];
