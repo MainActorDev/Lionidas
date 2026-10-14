@@ -8,7 +8,7 @@
  *  checkout refuses (protect user WIP); failure discards the worktree. */
 
 import { execSync } from 'node:child_process';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, rmSync, cpSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 export interface WorktreeHandle { repo: string; slug: string; path: string; branch: string }
@@ -42,6 +42,16 @@ export function createWorktree(reposRootInput: string, repo: string, slug: strin
     ref = local;
   }
   git(repoDir, 'worktree', 'add', '-b', branch, path, ref);
+  // BUILD-OVERLAY carry (compile gate): the main checkout's build recipe
+  // (.lionidas/ — manifest, prepare scripts, automation xcconfigs) is typically
+  // LOCAL-ONLY (.git/info/exclude) — worktrees do NOT inherit info/exclude, so a
+  // worktree build would miss its recipe entirely (live drill: xcodegen failed on
+  // a missing DevelopmentConfig.xcconfig). Copy it in; removeWorktree wipes the
+  // worktree wholesale so the overlay never leaks into commits (it is untracked).
+  const overlay = join(repoDir, '.lionidas');
+  if (existsSync(overlay)) {
+    cpSync(overlay, join(path, '.lionidas'), { recursive: true });
+  }
   return { repo, slug, path, branch };
 }
 

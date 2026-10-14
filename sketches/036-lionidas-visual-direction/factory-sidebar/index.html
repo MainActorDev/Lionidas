@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lionidas — Factory-based concept</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500&family=Geist+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+/* ═══ Factory reference tokens (from FACTORY.md attachment, user-supplied) ═══ */
+:root{
+  --color-obsidian-canvas:#101010;--color-carbon-lift:#1d1a18;--color-ash-stroke:#3d3a39;--color-graphite-mid:#4d4947;
+  --color-warm-granite:#8a8380;--color-pale-stone:#b8b3b0;--color-bone:#eeeeee;--color-chalk:#fafafa;
+  --color-signal-orange:#ee6018;--color-metric-green:#a0ca92;
+  --font-geist:'Geist',ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --font-geist-mono:'Geist Mono','JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  --font-weight-regular:400;--font-weight-medium:500;
+  --radius-buttons:3px;--radius-cards:10px;
+  --t:0.18s cubic-bezier(0.4,0,0.2,1);
+  --sidebar-w:224px;
+}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%}
+body{font-family:var(--font-geist);font-weight:var(--font-weight-regular);background:var(--color-obsidian-canvas);color:var(--color-bone);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button,select{font:inherit;color:inherit}button{cursor:pointer;background:none;border:0}
+button:focus-visible,a:focus-visible,select:focus-visible,[role=button]:focus-visible{outline:2px solid var(--color-pale-stone);outline-offset:2px}
+a{color:inherit;text-decoration:none}[hidden]{display:none!important}
+.mono{font-family:var(--font-geist-mono);font-size:12px;letter-spacing:-0.24px;text-transform:uppercase;line-height:1.2}
+.skip{position:absolute;left:-9999px;top:0;z-index:90;background:var(--color-carbon-lift);color:var(--color-bone);padding:8px 12px;border-radius:var(--radius-buttons)}
+.skip:focus{left:8px}
+/* ═══ Shell: sidebar (user-preferred) + content ═══ */
+.shell{display:grid;grid-template-columns:var(--sidebar-w) minmax(0,1fr);min-height:100dvh}
+.sidebar{background:var(--color-obsidian-canvas);border-right:1px solid var(--color-ash-stroke);display:flex;flex-direction:column;padding:20px 12px;position:sticky;top:0;height:100dvh;overflow-y:auto;z-index:30}
+.brand{display:flex;align-items:center;gap:8px;padding:0 8px 22px;font-family:var(--font-geist-mono);font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:var(--color-bone)}
+.pulse{width:6px;height:6px;border-radius:50%;background:var(--color-signal-orange);flex:none}
+.sidebar .closeNav{display:none;margin-left:auto;color:var(--color-warm-granite)}
+.navgroup{margin-bottom:18px}
+.navlabel{font-family:var(--font-geist-mono);font-size:12px;letter-spacing:-0.24px;text-transform:uppercase;color:var(--color-pale-stone);padding:0 8px 6px}
+.navlink{display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:6px 8px;border-radius:var(--radius-buttons);color:var(--color-warm-granite);font-size:14px;min-height:32px}
+.navlink:hover{color:var(--color-bone)}
+.navlink.active{color:var(--color-bone);background:var(--color-carbon-lift)}
+.railfoot{margin-top:auto;padding:12px 8px 0;border-top:1px solid var(--color-carbon-lift);font-family:var(--font-geist-mono);font-size:12px;letter-spacing:-0.24px;text-transform:uppercase;color:var(--color-graphite-mid)}
+.content{min-width:0;display:flex;flex-direction:column}
+/* ═══ Top bar ═══ */
+.topbar{height:56px;display:flex;align-items:center;gap:12px;padding:0 24px;border-bottom:1px solid var(--color-carbon-lift);background:var(--color-obsidian-canvas);position:sticky;top:0;z-index:20}
+.topbar .openNav{display:none;color:var(--color-warm-granite)}
+.breadcrumb{font-size:14px;color:var(--color-warm-granite)}
+.breadcrumb b{color:var(--color-bone);font-weight:var(--font-weight-regular)}
+.barspacer{flex:1}
+.sample{font-family:var(--font-geist-mono);font-size:12px;letter-spacing:-0.24px;text-transform:uppercase;color:var(--color-graphite-mid);border:1px solid var(--color-carbon-lift);border-radius:var(--radius-buttons);padding:2px 8px;white-space:nowrap}
+.identity{font-size:14px;color:var(--color-warm-granite);white-space:nowrap}
+/* ═══ Page ═══ */
+.main{padding:24px 24px 64px;min-width:0;width:100%}
+.pagehead{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:24px}
+.pagehead h1{font-size:36px;font-weight:var(--font-weight-regular);letter-spacing:-1.12px;line-height:1.1;color:var(--color-bone);margin:0}
+.pagehead .sub{font-size:14px;color:var(--color-warm-granite);margin:6px 0 0}
+.headact{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.ctl{display:flex;align-items:center;gap:8px;font-family:var(--font-geist-mono);font-size:12px;letter-spacing:-0.24px;text-transform:uppercase;color:var(--color-pale-stone)}
+.ctl select{background:var(--color-obsidian-canvas);border:1px solid var(--color-ash-stroke);color:var(--color-bone);border-radius:var(--radius-buttons);padding:7px 10px;font-family:var(--font-geist);font-size:14px;text-transform:none;letter-spacing:0}
+/* Buttons: neutral dark fills only — Factory bans chromatic CTAs; chalk CTA rejected by user (too bright) */
+.btn-primary{background:var(--color-carbon-lift);color:var(--color-bone);border:1px solid var(--color-ash-stroke);border-radius:var(--radius-buttons);padding:0 14px;height:36px;font-size:14px;font-weight:var(--font-weight-regular);transition:background var(--t),border-color var(--t),color var(--t)}
+.btn-primary:hover{background:#262220;border-color:var(--color-pale-stone);color:var(--color-chalk)}
+.btn-ghost{background:transparent;border:1px solid var(--color-ash-stroke);color:var(--color-bone);border-radius:var(--radius-buttons);padding:0 14px;height:36px;font-size:14px;transition:border-color var(--t),color var(--t)}
+.btn-ghost:hover{border-color:var(--color-pale-stone);color:var(--color-chalk)}
+/* ═══ Verdict — carbon panel; "figure" carried by the status pulse + verdict word, not brightness ═══ */
+.verdictcard{background:var(--color-carbon-lift);border:1px solid var(--color-ash-stroke);border-radius:var(--radius-cards);padding:24px;margin-bottom:24px}
+.verdictcard .label{font-family:var(--font-geist-mono);font-size:12px;letter-spacing:-0.24px;text-transform:uppercase;color:var(--color-pale-stone);display:flex;align-items:center;gap:8px}
+.verdictcard .label .pulse{background:var(--color-signal-orange)}
+.verdictcard strong{display:block;font-size:36px;font-weight:var(--font-weight-regular);letter-spacing:-1.12px;line-height:1.1;margin-top:8px;color:var(--color-bone)}
+.verdictcard small{display:block;font-size:14px;color:var(--color-warm-granite);margin-top:6px}
+/* ═══ Metric tiles — hairline dividers, no background ═══ */
+.tiles{border-top:1px solid var(--color-carbon-lift);display:grid;grid-template-columns:repeat(6,minmax(0,1fr));margin-bottom:24px}
+.tile{padding:20px 16px;border-bottom:1px solid var(--color-carbon-lift);border-right:1px solid var(--color-carbon-lift);min-width:0}
+.tile:nth-child(6){border-right:0}
+.tile .k{font-family:var(--font-geist-mono);font-size:12px;letter-spacing:-0.24px;text-transform:uppercase;color:var(--color-pale-stone)}
+.tile .v{font-size:32px;font-weight:var(--font-weight-regular);letter-spacing:-0.8px;line-height:1.1;color:var(--color-bone);margin-top:8px;font-variant-numeric:tabular-nums}
+.tile.bad .v{color:var(--color-signal-orange)}
+/* ═══ Panels — card implied by border, not surface ═══ */
+.below{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(300px,.9fr);gap:24px}
+.panel{border:1px solid var(--color-carbon-lift);border-radius:var(--radius-cards);overflow:hidden;min-width:0;background:transparent}
+.panelhead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 20px;border-bottom:1px solid var(--color-carbon-lift)}
+.panelhead h2{font-family:var(--font-geist-mono);font-size:12px;letter-spacing:-0.24px;text-transform:uppercase;color:var(--color-bone);margin:0;font-weight:var(--font-weight-regular)}
+.panelhead span{font-size:14px;color:var(--color-graphite-mid)}
+.rowitem{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--color-carbon-lift);min-width:0}
+.rowitem:last-child{border-bottom:0}
+.rowitem.clickable{cursor:pointer;transition:background var(--t)}
+.rowitem.clickable:hover{background:var(--color-carbon-lift)}
+.statdot{width:6px;height:6px;border-radius:50%;background:var(--color-signal-orange);flex:none}
+.statdot.pass{background:var(--color-metric-green)}
+.statdot.blocked{background:var(--color-graphite-mid)}
+.rowtext{min-width:0;flex:1}
+.rowtext strong{display:block;font-size:14px;font-weight:var(--font-weight-regular);color:var(--color-bone);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rowtext small{display:block;font-size:14px;color:var(--color-warm-granite);margin-top:1px}
+.tag{font-family:var(--font-geist-mono);font-size:12px;letter-spacing:-0.24px;text-transform:uppercase;color:var(--color-signal-orange);white-space:nowrap}
+.tag.pass{color:var(--color-metric-green)}
+.tag.blocked{color:var(--color-warm-granite)}
+.rowtime{font-size:14px;color:var(--color-graphite-mid);white-space:nowrap}
+.links{margin-top:20px;display:flex;gap:12px;flex-wrap:wrap}
+/* ═══ States / dialog / toast ═══ */
+.state{padding:24px;color:var(--color-warm-granite);font-size:14px}
+.state strong{display:block;font-size:16px;color:var(--color-bone);margin-bottom:4px;font-weight:var(--font-weight-regular)}
+.state .btn-primary{margin-top:14px}
+.scrim{position:fixed;inset:0;background:rgba(16,16,16,.72);z-index:40}
+.dialog{position:fixed;z-index:50;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92vw,380px);background:var(--color-obsidian-canvas);border:1px solid var(--color-ash-stroke);border-radius:var(--radius-cards);padding:24px}
+.dialog h2{font-size:20px;font-weight:var(--font-weight-regular);letter-spacing:-0.5px;color:var(--color-bone);margin:0 0 6px}
+.dialog p{font-size:14px;color:var(--color-warm-granite);margin:0 0 20px}
+.dialogactions{display:flex;justify-content:flex-end;gap:12px}
+.dialog .btn-primary{background:var(--color-carbon-lift);color:var(--color-bone);border-color:var(--color-pale-stone)}
+.toast{position:fixed;bottom:20px;right:20px;z-index:60;background:var(--color-carbon-lift);color:var(--color-bone);border:1px solid var(--color-ash-stroke);border-radius:var(--radius-buttons);padding:10px 14px;font-size:14px;max-width:min(90vw,320px)}
+/* ═══ Responsive ═══ */
+@media(max-width:1100px){.tiles{grid-template-columns:repeat(3,minmax(0,1fr))}.tile:nth-child(3){border-right:0}.below{grid-template-columns:1fr}}
+@media(max-width:760px){
+  .shell{display:block}
+  .sidebar{position:fixed;inset:0 auto 0 0;width:min(84vw,280px);transform:translateX(-110%);transition:transform var(--t)}
+  .sidebar.open{transform:translateX(0);box-shadow:0 0 0 100vw rgba(16,16,16,.72)}
+  .sidebar .closeNav{display:block}
+  .topbar{padding:0 14px}
+  .topbar .openNav{display:block}
+  .breadcrumb,.identity,.sample{display:none}
+  .main{padding:20px 14px 48px}
+  .pagehead{flex-wrap:wrap}
+  .headact{width:100%}
+  .verdictcard{padding:20px}
+  .verdictcard strong{font-size:28px;letter-spacing:-0.7px}
+  .below{grid-template-columns:1fr}
+}
+@media(max-width:430px){
+  .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .tile:nth-child(3){border-right:1px solid var(--color-carbon-lift)}
+  .tile:nth-child(2n){border-right:0}
+  .pagehead h1{font-size:28px;letter-spacing:-0.7px}
+  .tile .v{font-size:24px}
+}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="shell">
+  <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
+    <div class="brand"><span class="pulse" aria-hidden="true"></span><span>lionidas</span><button class="closeNav" id="closeNav" aria-label="Close menu">✕</button></div>
+    <nav aria-label="Primary">
+      <div class="navgroup"><div class="navlabel">Testing</div>
+        <button class="navlink active" data-nav="Overview" aria-current="page">Overview</button>
+        <button class="navlink" data-nav="Suites">Suites</button>
+        <button class="navlink" data-nav="Devices">Devices</button>
+        <button class="navlink" data-nav="Runs">Runs</button>
+      </div>
+      <div class="navgroup"><div class="navlabel">Workspaces</div>
+        <button class="navlink" data-nav="Projects">Projects</button>
+        <button class="navlink" data-nav="Builds">Builds</button>
+        <button class="navlink" data-nav="Agent">Agent</button>
+        <button class="navlink" data-nav="Status">Status</button>
+      </div>
+      <div class="navgroup"><div class="navlabel">Library &amp; system</div>
+        <button class="navlink" data-nav="Test cases">Test cases</button>
+        <button class="navlink" data-nav="Screens">Screens</button>
+        <button class="navlink" data-nav="Environment">Environment</button>
+        <button class="navlink" data-nav="Network">Network</button>
+        <button class="navlink" data-nav="Users">Users</button>
+        <button class="navlink" data-nav="Audit log">Audit log</button>
+        <button class="navlink" data-nav="Settings">Settings</button>
+      </div>
+    </nav>
+    <div class="railfoot">Preview · admin nav</div>
+  </aside>
+  <div class="content">
+    <header class="topbar">
+      <button class="openNav" id="openNav" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">☰</button>
+      <span class="breadcrumb">Testing / <b>Overview</b></span>
+      <span class="barspacer"></span>
+      <span class="sample">Illustrative data</span>
+      <span class="identity">Alex · admin</span>
+    </header>
+    <main class="main" id="main" tabindex="-1">
+      <div class="pagehead">
+        <div><h1>Overview</h1><p class="sub">iOS · 5.18.0 (382) · latest batch · last 7 days</p></div>
+        <div class="headact">
+          <label class="ctl">Preview state <select id="stateSelect" aria-label="Preview state"><option value="normal">Populated</option><option value="empty">Empty</option><option value="error">Error</option></select></label>
+          <button class="btn-primary" id="runAll">Run all cases</button>
+        </div>
+      </div>
+      <div id="content">
+        <section class="verdictcard" aria-label="Build verdict">
+          <div class="label"><span class="pulse" aria-hidden="true"></span>Current verdict</div>
+          <strong id="verdict">Needs attention</strong>
+          <small id="verdictDesc">2 failures and 1 blocked run · 86% pass rate · +4% vs previous batch</small>
+        </section>
+        <section class="tiles" aria-label="Coverage">
+          <div class="tile"><div class="k">Passed</div><div class="v">18</div></div>
+          <div class="tile bad"><div class="k">Failed</div><div class="v">2</div></div>
+          <div class="tile"><div class="k">Blocked</div><div class="v">1</div></div>
+          <div class="tile"><div class="k">Running</div><div class="v">3</div></div>
+          <div class="tile"><div class="k">Active cases</div><div class="v">28</div></div>
+          <div class="tile"><div class="k">Not run 7d</div><div class="v">4</div></div>
+        </section>
+        <div class="below">
+          <section class="panel" aria-labelledby="att1">
+            <div class="panelhead"><h2 id="att1">Requires attention</h2><span>3 items</span></div>
+            <div class="rowitem clickable" data-item="Address validation" role="button" tabindex="0" aria-label="Open Address validation"><span class="statdot"></span><span class="rowtext"><strong>Address validation</strong><small>New failure · build 382</small></span><span class="tag">Failed</span></div>
+            <div class="rowitem clickable" data-item="OTP retry" role="button" tabindex="0" aria-label="Open OTP retry"><span class="statdot"></span><span class="rowtext"><strong>OTP retry</strong><small>Recurring failure · 2 runs</small></span><span class="tag">Failed</span></div>
+            <div class="rowitem clickable" data-item="Offline checkout" role="button" tabindex="0" aria-label="Open Offline checkout"><span class="statdot blocked"></span><span class="rowtext"><strong>Offline checkout</strong><small>Device unavailable</small></span><span class="tag blocked">Blocked</span></div>
+          </section>
+          <section class="panel" aria-labelledby="lat1">
+            <div class="panelhead"><h2 id="lat1">Latest runs</h2><span>View all →</span></div>
+            <div class="rowitem"><span class="statdot"></span><span class="rowtext"><strong>Address validation</strong><small>iPhone 16 · build 382</small></span><span class="rowtime">4m</span><span class="tag">Failed</span></div>
+            <div class="rowitem"><span class="statdot pass"></span><span class="rowtext"><strong>Login flow</strong><small>iPhone 16 · build 382</small></span><span class="rowtime">12m</span><span class="tag pass">Passed</span></div>
+            <div class="rowitem"><span class="statdot blocked"></span><span class="rowtext"><strong>Offline checkout</strong><small>iPhone 15 · build 382</small></span><span class="rowtime">19m</span><span class="tag blocked">Blocked</span></div>
+          </section>
+        </div>
+        <div class="links"><button class="btn-ghost" data-nav="Test cases">All cases →</button><button class="btn-ghost" data-nav="Runs">Run history →</button></div>
+      </div>
+      <div id="emptyState" class="panel state" hidden><strong>No runs for this build</strong>Start a batch to see a verdict, coverage and run history here.<br><button class="btn-primary" data-run="true">Run all cases</button></div>
+      <div id="errorState" class="panel state" hidden role="alert"><strong>Overview could not load</strong>We couldn't reach the server. Your run history is unchanged.<br><button class="btn-ghost" id="retry">Retry preview</button></div>
+    </main>
+  </div>
+</div>
+<div class="scrim" id="scrim" hidden></div>
+<div class="dialog" id="dialog" role="dialog" aria-modal="true" aria-labelledby="dlgTitle" hidden>
+  <h2 id="dlgTitle">Run all active cases?</h2><p>This preview only simulates a batch. No tests will be started.</p>
+  <div class="dialogactions"><button class="btn-ghost" id="cancel">Cancel</button><button class="btn-primary" id="confirm">Start preview</button></div>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<script>
+const $=id=>document.getElementById(id);let lastFocus=null,toastTimer;
+function toast(t){const el=$('toast');el.textContent=t;el.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.hidden=true,3000)}
+function menu(open){$('sidebar').classList.toggle('open',open);$('openNav').setAttribute('aria-expanded',String(open));if(open)$('closeNav').focus();else $('openNav').focus()}
+$('openNav').onclick=()=>menu(true);$('closeNav').onclick=()=>menu(false);
+function dialog(open){if(open){lastFocus=document.activeElement;$('scrim').hidden=false;$('dialog').hidden=false;$('cancel').focus()}else{$('scrim').hidden=true;$('dialog').hidden=true;lastFocus?.focus()}}
+$('runAll').onclick=()=>dialog(true);document.querySelector('[data-run]').onclick=()=>dialog(true);$('cancel').onclick=()=>dialog(false);
+$('scrim').onclick=()=>{dialog(false);if($('sidebar').classList.contains('open'))menu(false)};
+$('confirm').onclick=()=>{dialog(false);$('verdict').textContent='Running';$('verdictDesc').textContent='The sample batch is in progress. No real device is connected.';toast('Preview batch queued · no tests were started')};
+$('stateSelect').onchange=e=>{const v=e.target.value;$('content').hidden=v!=='normal';$('emptyState').hidden=v!=='empty';$('errorState').hidden=v!=='error'};
+$('retry').onclick=()=>{$('stateSelect').value='normal';$('stateSelect').dispatchEvent(new Event('change'));toast('Preview loaded')};
+document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=>{document.querySelectorAll('.navlink').forEach(n=>{n.classList.toggle('active',n===b);n.removeAttribute('aria-current')});if(b.classList.contains('navlink'))b.setAttribute('aria-current','page');toast(`${b.dataset.nav} · navigation preview only`);if($('sidebar').classList.contains('open'))menu(false)});
+document.querySelectorAll('[data-item]').forEach(b=>{b.onclick=()=>toast(`${b.dataset.item} · detail preview only`);b.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();b.click()}}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!$('dialog').hidden)dialog(false);else if($('sidebar').classList.contains('open'))menu(false)}if(!$('dialog').hidden&&e.key==='Tab'){const f=$('cancel'),l=$('confirm');if(e.shiftKey&&document.activeElement===f){e.preventDefault();l.focus()}else if(!e.shiftKey&&document.activeElement===l){e.preventDefault();f.focus()}}});
+</script>
+</body></html>

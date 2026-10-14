@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lionidas — Linear-based concept</title>
+<style>
+/* ═══ Linear reference tokens (from LINEAR.md attachment, user-supplied) ═══ */
+:root{
+  --color-void:#08090a;--color-carbon:#0f1011;--color-obsidian:#161718;--color-graphite:#23252a;--color-smoke:#383b3f;
+  --color-ash:#62666d;--color-fog:#8a8f98;--color-mist:#d0d6e0;--color-bone:#e5e5e6;--color-paper:#ffffff;
+  --color-acid-lime:#e4f222;--color-pulse-green:#27a644;--color-coral-red:#eb5757;--color-signal-teal:#02b8cc;--color-iris-violet:#6366f1;--color-lavender:#8b5cf6;
+  --font-inter:'Inter Variable',Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --font-mono:'Berkeley Mono','JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  --font-weight-light:300;--font-weight-regular:400;--font-weight-w510:510;--font-weight-w590:590;
+  --radius-cards:12px;--radius-buttons:6px;--radius-badges:4px;--radius-pills:9999px;
+  --shadow-subtle:rgb(35,37,42) 0 0 0 1px inset;--shadow-sm:rgba(0,0,0,.4) 0 2px 4px 0;
+  --sidebar-w:232px;
+}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%}
+body{font-family:var(--font-inter);font-feature-settings:'cv01' on,'ss03' on,'zero' on;background:var(--color-void);color:var(--color-mist);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button,select{font:inherit;color:inherit}button{cursor:pointer;background:none;border:0}
+button:focus-visible,a:focus-visible,select:focus-visible,[role=button]:focus-visible{outline:2px solid var(--color-acid-lime);outline-offset:2px}
+a{color:inherit;text-decoration:none}[hidden]{display:none!important}
+.mono{font-family:var(--font-mono);letter-spacing:-0.013em}
+.skip{position:absolute;left:-9999px;top:0;z-index:90;background:var(--color-carbon);padding:8px 12px;border-radius:var(--radius-buttons)}
+.skip:focus{left:8px;color:var(--color-paper)}
+/* ═══ Shell: sidebar (user-preferred) + content ═══ */
+.shell{display:grid;grid-template-columns:var(--sidebar-w) minmax(0,1fr);min-height:100dvh}
+.sidebar{background:var(--color-void);border-right:1px solid var(--color-graphite);display:flex;flex-direction:column;padding:12px 8px;position:sticky;top:0;height:100dvh;overflow-y:auto;z-index:30}
+.brand{display:flex;align-items:center;gap:10px;padding:6px 10px 14px;font-size:15px;font-weight:var(--font-weight-w510);color:var(--color-paper);letter-spacing:-0.011em}
+.brandglyph{width:22px;height:22px;border-radius:6px;background:var(--color-acid-lime);color:var(--color-void);display:grid;place-items:center;font-weight:var(--font-weight-w590);font-size:13px}
+.sidebar .closeNav{display:none;margin-left:auto;color:var(--color-fog)}
+.navgroup{margin-bottom:14px}
+.navlabel{font-size:11px;font-weight:var(--font-weight-w510);color:var(--color-fog);padding:4px 10px;letter-spacing:0}
+.navlink{display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:5px 10px;border-radius:var(--radius-buttons);color:var(--color-fog);font-size:13px;font-weight:var(--font-weight-regular);min-height:30px}
+.navlink:hover{background:var(--color-carbon);color:var(--color-mist)}
+.navlink.active{background:var(--color-carbon);color:var(--color-paper);box-shadow:2px 0 0 var(--color-acid-lime) inset}
+.navlink .glyph{width:15px;text-align:center;opacity:.75;font-size:13px}
+.railfoot{margin-top:auto;padding:10px;border-top:1px solid var(--color-graphite);font-size:11px;color:var(--color-ash)}
+.content{min-width:0;display:flex;flex-direction:column}
+/* ═══ Top bar ═══ */
+.topbar{height:48px;display:flex;align-items:center;gap:10px;padding:0 20px;border-bottom:1px solid var(--color-graphite);background:var(--color-void);position:sticky;top:0;z-index:20}
+.topbar .openNav{display:none;color:var(--color-fog)}
+.breadcrumb{font-size:13px;color:var(--color-fog)}
+.breadcrumb b{color:var(--color-mist);font-weight:var(--font-weight-regular)}
+.barspacer{flex:1}
+.sample{font-size:11px;color:var(--color-ash);border:1px solid var(--color-graphite);border-radius:var(--radius-badges);padding:1px 7px;white-space:nowrap}
+.identity{font-size:13px;color:var(--color-fog);white-space:nowrap}
+/* ═══ Page ═══ */
+.main{padding:24px 24px 56px;min-width:0;width:100%}
+.pagehead{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:20px}
+.pagehead h1{font-size:24px;font-weight:var(--font-weight-regular);color:var(--color-paper);letter-spacing:-0.288px;line-height:1.33;margin:0}
+.pagehead .sub{font-size:13px;color:var(--color-fog);margin:2px 0 0}
+.headact{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ctl{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-ash)}
+.ctl select{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.08);color:var(--color-mist);border-radius:var(--radius-buttons);padding:7px 10px;font-size:13px}
+.btn-primary{background:var(--color-acid-lime);color:var(--color-void);border-radius:var(--radius-buttons);padding:0 16px;height:34px;font-size:14px;font-weight:var(--font-weight-w510);letter-spacing:-0.011em;box-shadow:rgba(0,0,0,.01) 0 5px 2px 0,rgba(0,0,0,.04) 0 3px 2px 0,rgba(0,0,0,.07) 0 1px 1px 0,rgba(0,0,0,.08) 0 0 1px 0}
+.btn-primary:hover{filter:brightness(1.05)}
+.btn-ghost{background:transparent;border:1px solid var(--color-graphite);color:var(--color-mist);border-radius:var(--radius-buttons);padding:0 12px;height:34px;font-size:13px;font-weight:var(--font-weight-regular)}
+.btn-ghost:hover{background:var(--color-carbon)}
+/* ═══ Verdict + coverage strip ═══ */
+.strip{background:var(--color-carbon);border-radius:var(--radius-cards);box-shadow:var(--shadow-subtle);display:flex;align-items:stretch;margin-bottom:16px;overflow:hidden}
+.verdict{padding:18px 20px;flex:1.35;min-width:0;border-right:1px solid var(--color-graphite)}
+.verdict .label{font-size:11px;color:var(--color-fog);letter-spacing:0}
+.verdict strong{display:block;font-size:24px;font-weight:var(--font-weight-w510);color:var(--color-paper);letter-spacing:-0.288px;margin-top:6px;line-height:1.2}
+.verdict small{display:block;font-size:12px;color:var(--color-ash);margin-top:4px}
+.coverage{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));flex:2.6;min-width:0}
+.cell{padding:16px 14px;border-right:1px solid var(--color-graphite);min-width:0}
+.cell:last-child{border:0}
+.cell b{display:block;font-size:20px;font-weight:var(--font-weight-regular);color:var(--color-paper);font-variant-numeric:tabular-nums;line-height:1.2}
+.cell span{display:block;font-size:11px;color:var(--color-fog);margin-top:3px}
+.cell.bad b{color:var(--color-coral-red)}
+/* ═══ Two panels ═══ */
+.below{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(300px,.9fr);gap:12px}
+.panel{background:var(--color-carbon);border-radius:var(--radius-cards);box-shadow:var(--shadow-subtle);overflow:hidden;min-width:0}
+.panelhead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 16px;border-bottom:1px solid var(--color-graphite)}
+.panelhead h2{font-size:13px;font-weight:var(--font-weight-w510);color:var(--color-paper);margin:0;letter-spacing:0}
+.panelhead span{font-size:12px;color:var(--color-ash)}
+.rowitem{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--color-graphite);min-width:0}
+.rowitem:last-child{border:0}
+.rowitem.clickable{cursor:pointer}
+.rowitem.clickable:hover{background:var(--color-obsidian)}
+.symdot{width:8px;height:8px;border-radius:2px;flex:none;background:var(--color-coral-red)}
+.symdot.blocked{background:var(--color-fog)}
+.symdot.pass{background:var(--color-pulse-green)}
+.rowtext{min-width:0;flex:1}
+.rowtext strong{display:block;font-size:13px;font-weight:var(--font-weight-regular);color:var(--color-mist);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rowtext small{display:block;font-size:11px;color:var(--color-ash);margin-top:1px}
+.pill{font-size:12px;font-weight:var(--font-weight-regular);color:var(--color-fog);background:rgba(255,255,255,0.05);border-radius:var(--radius-badges);padding:0 6px;white-space:nowrap}
+.pill.fail{color:var(--color-coral-red)}
+.pill.blocked{color:var(--color-fog)}
+.pill.pass{color:var(--color-pulse-green)}
+.rowtime{font-size:12px;color:var(--color-ash);white-space:nowrap}
+.links{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+/* ═══ States / dialog / toast ═══ */
+.state{padding:24px;color:var(--color-fog);font-size:13px}
+.state strong{display:block;font-size:15px;color:var(--color-paper);margin-bottom:4px;font-weight:var(--font-weight-w510)}
+.state .btn-primary{margin-top:12px}
+.scrim{position:fixed;inset:0;background:rgba(8,9,10,.6);z-index:40}
+.dialog{position:fixed;z-index:50;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92vw,380px);background:var(--color-carbon);border-radius:var(--radius-cards);box-shadow:var(--shadow-subtle),rgba(8,9,10,.6) 0 4px 32px 0;padding:20px}
+.dialog h2{font-size:15px;font-weight:var(--font-weight-w510);color:var(--color-paper);margin:0 0 6px}
+.dialog p{font-size:13px;color:var(--color-fog);margin:0 0 16px}
+.dialogactions{display:flex;justify-content:flex-end;gap:8px}
+.toast{position:fixed;bottom:20px;right:20px;z-index:60;background:var(--color-obsidian);color:var(--color-mist);border:1px solid var(--color-smoke);border-radius:var(--radius-buttons);padding:10px 14px;font-size:13px;max-width:min(90vw,320px)}
+/* ═══ Responsive ═══ */
+@media(max-width:1100px){.coverage{grid-template-columns:repeat(3,minmax(0,1fr))}.cell:nth-child(3){border-right:0}.cell:nth-child(-n+3){border-bottom:1px solid var(--color-graphite)}.below{grid-template-columns:1fr}}
+@media(max-width:760px){
+  .shell{display:block}
+  .sidebar{position:fixed;inset:0 auto 0 0;width:min(84vw,280px);transform:translateX(-110%);transition:transform .2s ease;background:var(--color-void)}
+  .sidebar.open{transform:translateX(0);box-shadow:0 0 0 100vw rgba(8,9,10,.6)}
+  .sidebar .closeNav{display:block}
+  .topbar{padding:0 14px}
+  .topbar .openNav{display:block}
+  .breadcrumb,.identity,.sample{display:none}
+  .main{padding:18px 14px 44px}
+  .pagehead{flex-wrap:wrap}
+  .headact{width:100%}
+  .strip{flex-direction:column}
+  .verdict{border-right:0;border-bottom:1px solid var(--color-graphite)}
+  .coverage{grid-template-columns:repeat(3,minmax(0,1fr));display:grid}
+  .below{grid-template-columns:1fr}
+}
+@media(max-width:430px){
+  .coverage{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cell:nth-child(3){border-right:1px solid var(--color-graphite)}
+  .cell:nth-child(2n){border-right:0}
+  .cell:nth-child(-n+4){border-bottom:1px solid var(--color-graphite)}
+  .pagehead h1{font-size:20px}
+}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="shell">
+  <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
+    <div class="brand"><span class="brandglyph" aria-hidden="true">L</span><span>lionidas</span><button class="closeNav" id="closeNav" aria-label="Close menu">✕</button></div>
+    <nav aria-label="Primary">
+      <div class="navgroup"><div class="navlabel">Testing</div>
+        <button class="navlink active" data-nav="Overview" aria-current="page"><span class="glyph" aria-hidden="true">◫</span>Overview</button>
+        <button class="navlink" data-nav="Suites"><span class="glyph" aria-hidden="true">▤</span>Suites</button>
+        <button class="navlink" data-nav="Devices"><span class="glyph" aria-hidden="true">▣</span>Devices</button>
+        <button class="navlink" data-nav="Runs"><span class="glyph" aria-hidden="true">◷</span>Runs</button>
+      </div>
+      <div class="navgroup"><div class="navlabel">Workspaces</div>
+        <button class="navlink" data-nav="Projects"><span class="glyph" aria-hidden="true">▦</span>Projects</button>
+        <button class="navlink" data-nav="Builds"><span class="glyph" aria-hidden="true">⌁</span>Builds</button>
+        <button class="navlink" data-nav="Agent"><span class="glyph" aria-hidden="true">✦</span>Agent</button>
+        <button class="navlink" data-nav="Status"><span class="glyph" aria-hidden="true">◎</span>Status</button>
+      </div>
+      <div class="navgroup"><div class="navlabel">Library &amp; system</div>
+        <button class="navlink" data-nav="Test cases">Test cases</button>
+        <button class="navlink" data-nav="Screens">Screens</button>
+        <button class="navlink" data-nav="Environment">Environment</button>
+        <button class="navlink" data-nav="Network">Network</button>
+        <button class="navlink" data-nav="Users">Users</button>
+        <button class="navlink" data-nav="Audit log">Audit log</button>
+        <button class="navlink" data-nav="Settings">Settings</button>
+      </div>
+    </nav>
+    <div class="railfoot">Preview · administrator navigation</div>
+  </aside>
+  <div class="content">
+    <header class="topbar">
+      <button class="openNav" id="openNav" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">☰</button>
+      <span class="breadcrumb">Testing / <b>Overview</b></span>
+      <span class="barspacer"></span>
+      <span class="sample">Illustrative data</span>
+      <span class="identity">Alex · admin</span>
+    </header>
+    <main class="main" id="main" tabindex="-1">
+      <div class="pagehead">
+        <div><h1>Overview</h1><p class="sub">iOS · 5.18.0 (382) · latest batch · last 7 days</p></div>
+        <div class="headact">
+          <label class="ctl">Preview state <select id="stateSelect" aria-label="Preview state"><option value="normal">Populated</option><option value="empty">Empty</option><option value="error">Error</option></select></label>
+          <button class="btn-primary" id="runAll">Run all cases</button>
+        </div>
+      </div>
+      <div id="content">
+        <section class="strip" aria-label="Build verdict and coverage">
+          <div class="verdict">
+            <div class="label">Current verdict</div>
+            <strong id="verdict">Needs attention</strong>
+            <small id="verdictDesc">2 failures and 1 blocked run · 86% pass rate · +4% vs previous batch</small>
+          </div>
+          <div class="coverage">
+            <div class="cell"><b>18</b><span>Passed</span></div>
+            <div class="cell bad"><b>2</b><span>Failed</span></div>
+            <div class="cell"><b>1</b><span>Blocked</span></div>
+            <div class="cell"><b>3</b><span>Running</span></div>
+            <div class="cell"><b>28</b><span>Active cases</span></div>
+            <div class="cell"><b>4</b><span>Not run 7d</span></div>
+          </div>
+        </section>
+        <div class="below">
+          <section class="panel" aria-labelledby="att1">
+            <div class="panelhead"><h2 id="att1">Requires attention</h2><span>3 items</span></div>
+            <div class="rowitem clickable" data-item="Address validation" role="button" tabindex="0" aria-label="Open Address validation"><span class="symdot"></span><span class="rowtext"><strong>Address validation</strong><small>New failure · build 382</small></span><span class="pill fail">Failed</span></div>
+            <div class="rowitem clickable" data-item="OTP retry" role="button" tabindex="0" aria-label="Open OTP retry"><span class="symdot"></span><span class="rowtext"><strong>OTP retry</strong><small>Recurring failure · 2 runs</small></span><span class="pill fail">Failed</span></div>
+            <div class="rowitem clickable" data-item="Offline checkout" role="button" tabindex="0" aria-label="Open Offline checkout"><span class="symdot blocked"></span><span class="rowtext"><strong>Offline checkout</strong><small>Device unavailable</small></span><span class="pill blocked">Blocked</span></div>
+          </section>
+          <section class="panel" aria-labelledby="lat1">
+            <div class="panelhead"><h2 id="lat1">Latest runs</h2><span>View all →</span></div>
+            <div class="rowitem"><span class="symdot"></span><span class="rowtext"><strong>Address validation</strong><small>iPhone 16 · build 382</small></span><span class="rowtime">4m</span><span class="pill fail">Failed</span></div>
+            <div class="rowitem"><span class="symdot pass"></span><span class="rowtext"><strong>Login flow</strong><small>iPhone 16 · build 382</small></span><span class="rowtime">12m</span><span class="pill pass">Passed</span></div>
+            <div class="rowitem"><span class="symdot blocked"></span><span class="rowtext"><strong>Offline checkout</strong><small>iPhone 15 · build 382</small></span><span class="rowtime">19m</span><span class="pill blocked">Blocked</span></div>
+          </section>
+        </div>
+        <div class="links"><button class="btn-ghost" data-nav="Test cases">All cases →</button><button class="btn-ghost" data-nav="Runs">Run history →</button></div>
+      </div>
+      <div id="emptyState" class="panel state" hidden><strong>No runs for this build</strong>Start a batch to see a verdict, coverage and run history here.<br><button class="btn-primary" data-run="true">Run all cases</button></div>
+      <div id="errorState" class="panel state" hidden role="alert"><strong>Overview could not load</strong>We couldn't reach the server. Your run history is unchanged.<br><button class="btn-ghost" id="retry">Retry preview</button></div>
+    </main>
+  </div>
+</div>
+<div class="scrim" id="scrim" hidden></div>
+<div class="dialog" id="dialog" role="dialog" aria-modal="true" aria-labelledby="dlgTitle" hidden>
+  <h2 id="dlgTitle">Run all active cases?</h2><p>This preview only simulates a batch. No tests will be started.</p>
+  <div class="dialogactions"><button class="btn-ghost" id="cancel">Cancel</button><button class="btn-primary" id="confirm">Start preview</button></div>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<script>
+const $=id=>document.getElementById(id);let lastFocus=null,toastTimer;
+function toast(t){const el=$('toast');el.textContent=t;el.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.hidden=true,3000)}
+function menu(open){$('sidebar').classList.toggle('open',open);$('openNav').setAttribute('aria-expanded',String(open));if(open)$('closeNav').focus();else $('openNav').focus()}
+$('openNav').onclick=()=>menu(true);$('closeNav').onclick=()=>menu(false);
+function dialog(open){if(open){lastFocus=document.activeElement;$('scrim').hidden=false;$('dialog').hidden=false;$('cancel').focus()}else{$('scrim').hidden=true;$('dialog').hidden=true;lastFocus?.focus()}}
+$('runAll').onclick=()=>dialog(true);document.querySelector('[data-run]').onclick=()=>dialog(true);$('cancel').onclick=()=>dialog(false);
+$('scrim').onclick=()=>{dialog(false);if($('sidebar').classList.contains('open'))menu(false)};
+$('confirm').onclick=()=>{dialog(false);$('verdict').textContent='Running';$('verdictDesc').textContent='The sample batch is in progress. No real device is connected.';toast('Preview batch queued · no tests were started')};
+$('stateSelect').onchange=e=>{const v=e.target.value;$('content').hidden=v!=='normal';$('emptyState').hidden=v!=='empty';$('errorState').hidden=v!=='error'};
+$('retry').onclick=()=>{$('stateSelect').value='normal';$('stateSelect').dispatchEvent(new Event('change'));toast('Preview loaded')};
+document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=>{document.querySelectorAll('.navlink').forEach(n=>{n.classList.toggle('active',n===b);n.removeAttribute('aria-current')});if(b.classList.contains('navlink'))b.setAttribute('aria-current','page');toast(`${b.dataset.nav} · navigation preview only`);if($('sidebar').classList.contains('open'))menu(false)});
+document.querySelectorAll('[data-item]').forEach(b=>{b.onclick=()=>toast(`${b.dataset.item} · detail preview only`);b.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();b.click()}}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!$('dialog').hidden)dialog(false);else if($('sidebar').classList.contains('open'))menu(false)}if(!$('dialog').hidden&&e.key==='Tab'){const f=$('cancel'),l=$('confirm');if(e.shiftKey&&document.activeElement===f){e.preventDefault();l.focus()}else if(!e.shiftKey&&document.activeElement===l){e.preventDefault();f.focus()}}});
+</script>
+</body></html>

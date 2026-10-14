@@ -77,7 +77,9 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AgentContext, bus
       ...(decorator ? {
         prepareTurn: decorator.prepareTurn,
         afterTurn: (sessionId: string, outcome: { ok: boolean; turnId: string; answer: string }) => {
-          try { decorator.afterTurn(sessionId, outcome); } catch (err) { app.log.warn({ err: String(err) }, 'afterTurn hook failed'); }
+          // fire-and-forget BY DESIGN: the compile gate runs for minutes — the chat
+          // turn must not block on xcodebuild. Progress lands via the server log.
+          void Promise.resolve(decorator.afterTurn(sessionId, outcome)).catch((err) => { app.log.warn({ err: String(err) }, 'afterTurn hook failed'); });
         },
       } : {}),
     });

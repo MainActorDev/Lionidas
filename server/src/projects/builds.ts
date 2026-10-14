@@ -314,7 +314,28 @@ function hasXcodeproj(ws: string): boolean {
   try { return readdirSync(ws).some((f) => f.endsWith('.xcodeproj')); } catch { return false; }
 }
 
-async function runGeneric(ws: string, scheme: string | null, configuration: string | null, log: (l: string) => void, onScheme?: (s: string) => void, prepare: PrepareStep[] = [], benv: Record<string, string> = {}): Promise<string> {
+/** compile-only gate (the /implement-identifiers flow): runs the SAME proven
+ *  path as a full build — transport pick, manifest prepare steps, preflight,
+ *  SPM resolve, xcbuddy/xcodebuild — but stops at the .app: no Payload zip,
+ *  no .ipa, no smoke, no package claim. Purpose: prove the edits COMPILE on
+ *  the simulator slice before the host pushes them. */
+export async function compileWorktree(ws: string, log: (l: string) => void): Promise<{ scheme: string; app: string }> {
+  const transport = pickTransport(ws);
+  let manifest: BuildManifest | null = null;
+  if (transport === 'generic') manifest = readBuildManifest(ws); // strict schema — a typo fails here, before any compile
+  let scheme: string | null = manifest?.scheme ?? null;
+  const configuration = manifest?.configuration ?? 'Debug';
+  if (!scheme) {
+    const d = discoverAppInputs(ws);
+    scheme = d.appSchemes.length === 1 ? d.appSchemes[0]! : null;
+  }
+  // runGeneric handles prepare (prepare-sim.sh: config wiring + xcodegen + scipio
+  // + SPM resolve) then preflight + build. With skipPackaging it returns the .app.
+  const app = await runGeneric(ws, scheme, configuration, log, undefined, manifest?.prepare ?? [], {}, true);
+  return { scheme: scheme ?? 'discovered', app };
+}
+
+async function runGeneric(ws: string, scheme: string | null, configuration: string | null, log: (l: string) => void, onScheme?: (s: string) => void, prepare: PrepareStep[] = [], benv: Record<string, string> = {}, skipPackaging = false): Promise<string> {
   const conf = configuration ?? 'Debug';
   // PREPARE (manifest v2): the repo declares its own setup steps (spec
   // surgery, scipio, bundler …). The repo owns setup knowledge — Lionidas
@@ -405,6 +426,7 @@ async function runGeneric(ws: string, scheme: string | null, configuration: stri
     appDir = readdirSync(products).map((f) => join(products, f)).find((p) => p.endsWith('.app')) ?? null;
   } catch { /* not found below */ }
   if (!appDir) throw new Error(`no .app found under ${products}`);
+  if (skipPackaging) return appDir; // compile-only: the .app IS the verdict
   // stage + zip Payload/
   const stage = mkdtempSync(join(tmpdir(), 'bld-'));
   try {

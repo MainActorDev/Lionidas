@@ -54,11 +54,13 @@ export function prepareCommandPath(cmd: string): string {
 /** Read + validate the manifest from a workspace clone. Absent → null. */
 export function readBuildManifest(ws: string): BuildManifest | null {
   let raw: string;
-  try {
-    raw = readFileSync(join(ws, MANIFEST_FILENAME), 'utf8');
-  } catch {
-    return null; // absent — normal resolution path
-  }
+  // two homes: repo ROOT (classic) and .lionidas/ (the local-only layout — root
+  // lionidas.yml was moved there; *.xcconfig/.lionidas/ are repo-ignored so the
+  // whole build recipe travels as a local overlay, carried into worktrees)
+  const candidates = [join(ws, MANIFEST_FILENAME), join(ws, '.lionidas', MANIFEST_FILENAME)];
+  const found = candidates.find((c) => { try { readFileSync(c, 'utf8'); return true; } catch { return false; } });
+  if (!found) return null; // absent — normal resolution path
+  raw = readFileSync(found, 'utf8');
   let doc: unknown;
   try {
     doc = parseYaml(raw);

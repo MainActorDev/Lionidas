@@ -74,6 +74,15 @@ export interface DecoratorDeps {
   /** the last assistant message on the session before this turn (for proposal detection) */
   lastAssistant: (sessionId: string) => string;
   onAuto?: (msg: string) => void; // observability (server log)
+  /** compile gate override (tests). Production path: ../projects/builds.ts compileWorktree */
+  compileWorktree?: (ws: string, log: (l: string) => void) => Promise<{ scheme: string; app: string }>;
+}
+
+/** last meaningful line of a compile failure for the log/notification */
+function logTail(_wtPath: string, err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  const last = msg.trim().split('\n').pop() ?? msg;
+  return last.slice(0, 300);
 }
 
 export function makeTurnDecorator(deps: DecoratorDeps) {
@@ -114,9 +123,13 @@ Apply the EXACT edit set from your proposal (same files, same lines, same identi
     },
 
     /** the turn that ENDS as a proposal parks it; the edit turn commits/pushes/PRs */
-    afterTurn: (sessionId: string, outcome: { ok: boolean; turnId: string; answer: string }): void => {
+    afterTurn: async (sessionId: string, outcome: { ok: boolean; turnId: string; answer: string }): Promise<void> => {
       const p = getProposal(deps.db, sessionId);
       if (p && p.state === 'confirmed') {
+        // claim the state synchronously — afterTurn is fire-and-forget at the
+        // transport seam, and the compile gate runs for minutes; a second turn
+        // must never re-enter the confirm path while it runs
+        deps.db.prepare("UPDATE identifier_proposals SET state = 'compiling' WHERE session_id = ?").run(sessionId);
         if (!outcome.ok) {
           // the EDIT turn itself failed (provider error, context exhaustion) —
           // committing half-edits and pushing them is worse than parking: keep
@@ -128,6 +141,24 @@ Apply the EXACT edit set from your proposal (same files, same lines, same identi
         // the edit turn just settled → commit, push, PR, cleanup (host owns git)
         try {
           const wt = { repo: p.repo, slug: p.slug, path: join(deps.reposRoot, '.wt', `${p.repo}-${p.slug}`), branch: `feat/identifiers-${p.slug}` };
+          // COMPILE GATE (user decision, lionidas CI semantics): before anything is
+          // committed or pushed, the edited worktree must build through the SAME
+          // proven path as /builds — transport, manifest prepare steps (config
+          // wiring, xcodegen, scipio, SPM resolve), preflight, xcodebuild — but
+          // compile-only: no .ipa packaging, no smoke, no package claim. A red
+          // compile parks the worktree instead of pushing broken code.
+          try {
+            const compile = deps.compileWorktree ?? (await import('../projects/builds.ts')).compileWorktree;
+            const t0 = Date.now();
+            const logLines: string[] = [];
+            const res = await compile(wt.path, (l) => { logLines.push(l); });
+            deps.onAuto?.(`[implement-identifiers] ${sessionId}: compile OK (${res.scheme}, ${Math.round((Date.now() - t0) / 1000)}s) — ${res.app.split('/').pop()}`);
+          } catch (cerr) {
+            const tail = logTail(wt.path, cerr);
+            deps.db.prepare("UPDATE identifier_proposals SET state = 'compile-failed' WHERE session_id = ?").run(sessionId);
+            deps.onAuto?.(`[implement-identifiers] ${sessionId}: COMPILE FAILED — nothing committed/pushed; worktree kept at .wt/${p.repo}-${p.slug}. ${tail}`);
+            return;
+          }
           const messages = commitEach(wt, p.entries);
           // push lands even without gh/network: branch on origin is reviewable;
           // PR creation degrades to a log line when gh is absent (offline dev boxes)

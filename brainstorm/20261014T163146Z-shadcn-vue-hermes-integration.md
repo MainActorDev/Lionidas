@@ -4,6 +4,10 @@
 - Follow-up prompt: “@url:`https://www.shadcn-vue.com/docs/directory` Can you also install the ai-element from this directory”
 - Revamp prompt: “I want to fully revamp Lionidas UI” for less UI/UX hassle or bugs, faster development, responsiveness; prioritize pages easiest to hardest and report the list.
 - Visual-direction decision: “Intentionally replace that visual language.”
+- Design-reference decision (2026-10-14): user supplied a Linear style reference (`LINEAR.md` attachment — midnight dark, near-black surfaces, Inter Variable, single acid-lime action accent, hairline borders, compact density) and stated “I still prefer the sidebar menu.” Round 036's three invented concepts are superseded: the new visual language is **Linear-based**, and navigation keeps a **sidebar**.
+- Phase-1 approval (2026-10-14): user approved **Phase 1 (Factory Design System Foundation, CSS-only)** — Option A. shadcn-vue integration is deferred to the Phase 2 opener ("shadcn foundation" task: Tailwind v4 + components.json + Factory-mapped theme vars), so the two verification surfaces stay separated.
+- Standing workflow directive (user, 2026-10-14): **every phase from Phase 2 onward must run brainstorm → plan → review → implement.** No phase may skip straight to implementation.
+- Fourth-round correction (2026-10-14): the brightness rejection **includes the white hero verdict card**. The verdict card is now a carbon panel (`#1d1a18`, ash border, bone word, orange pulse); the dialog confirm was also darkened. Verified: zero bright-background elements remain anywhere in the mockup. **factory-sidebar is the approved visual language — all-dark chrome, Geist/Giest Mono type, status-only orange/green accents.**
 - Created: 2026-10-14T16:31:46Z
 - Status: Questions open
 

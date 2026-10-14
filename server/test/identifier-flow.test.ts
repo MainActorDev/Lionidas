@@ -53,6 +53,9 @@ beforeAll(() => {
 
 afterAll(() => { rmSync(root, { recursive: true, force: true }); });
 
+const compileCalls: string[] = [];
+let compileResult: () => Promise<{ scheme: string; app: string }> = async () => ({ scheme: 'stub', app: '/tmp/stub.app' });
+
 function decorator() {
   editorCwds = [];
   return makeTurnDecorator({
@@ -60,8 +63,11 @@ function decorator() {
     makeEditorProvider: (cwd) => { editorCwds.push(cwd); return EDITOR; },
     lastAssistant: () => '',
     onAuto: () => {},
+    compileWorktree: (ws) => { compileCalls.push(ws); return compileResult(); },
   });
 }
+
+function clearProposalRow(d: Database.Database, sid: string): void { d.prepare('DELETE FROM identifier_proposals WHERE session_id = ?').run(sid); }
 
 describe('answerIsProposal (the parking detector)', () => {
   it('recognizes the hard-stop proposal shape', () => {
@@ -112,13 +118,32 @@ describe('the state machine', () => {
     expect(out?.provider).toBe(EDITOR);
   });
 
-  it('afterTurn on the edit turn: commits per identifier, pushes, cleans up', () => {
+  it('compile gate FAILS → nothing committed/pushed, worktree kept, state compile-failed', async () => {
+    setPending(db, { session_id: 's5', repo: 'app', slug: 'w5', entries: [{ identifier: 'a_button' }], created_at: Date.now() });
+    const d = decorator();
+    compileResult = () => Promise.reject(new Error("xcodebuild build exited 65: error: cannot find 'AccessibilityIdentifiers.TabBar' in scope"));
+    d.prepareTurn('s5', { content: 'yes' });
+    await d.afterTurn('s5', { ok: true, turnId: 't5', answer: 'edited' });
+    expect(getProposal(db, 's5')?.state).toBe('compile-failed');
+    const originDir = join(reposRoot, 'app-origin.git');
+    const refs = git(originDir, 'for-each-ref', '--format=%(refname)', 'refs/heads/feat/identifiers-w5');
+    expect(refs).toBe(''); // nothing pushed
+    let wtExists = true;
+    try { readFileSync(join(reposRoot, '.wt', 'app-w5', 'Modules', 'A.swift')); } catch { wtExists = false; }
+    expect(wtExists).toBe(true); // kept for inspection
+    const { removeWorktree } = await import('../src/agent/worktree.ts');
+    removeWorktree(reposRoot, { repo: 'app', slug: 'w5', path: join(reposRoot, '.wt', 'app-w5'), branch: 'feat/identifiers-w5' });
+    clearProposalRow(db, 's5');
+  });
+
+  it('afterTurn on the edit turn: compile OK → commits per identifier, pushes, cleans up', async () => {
     // s3 is confirmed now; write an edit into its worktree manually
     const p = getProposal(db, 's3')!;
     const wtPath = join(reposRoot, '.wt', `app-${p.slug}`);
     writeFileSync(join(wtPath, 'Modules/A.swift'), 'let x = 2\n');
+    compileResult = async () => ({ scheme: 'stub', app: '/tmp/stub.app' }); // the gate passes
     const d = decorator();
-    d.afterTurn('s3', { ok: true, turnId: 't1', answer: 'edited 1 file' });
+    await d.afterTurn('s3', { ok: true, turnId: 't1', answer: 'edited 1 file' });
     // proposal cleared, worktree gone
     expect(getProposal(db, 's3')).toBeNull();
     let exists = true;
