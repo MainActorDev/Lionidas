@@ -9,8 +9,12 @@ import { DEFAULT_COMMANDS } from '../commandRegistry.ts';
 export interface Ref { kind: 'jira' | 'github-pr' | 'github-commit' | 'doc' | 'repo' | 'attachment' | 'case'; locator: string; label?: string }
 /** a /command token rides the same range machinery (kind 'cmd' is Composer-internal; never sent as a Ref) */
 
-const props = defineProps<{ busy?: boolean }>();
-const emit = defineEmits<{ send: [text: string, refs: Ref[], appBundle: string, commands: string[]]; abort: []; 'open-attachment': [] }>();
+const props = defineProps<{ busy?: boolean; modelOptions?: ModelOption[]; model?: string }>();
+const emit = defineEmits<{ send: [text: string, refs: Ref[], appBundle: string, commands: string[], model?: string]; abort: []; 'open-attachment': []; 'model-change': [model: string] }>();
+
+/** model picker (sketch 035-B): segmented chips above the input. Combos tinted
+ *  ember with their fallback chain subtitle; direct models gray. */
+interface ModelOption { id: string; kind: 'combo' | 'model'; label?: string; members?: string[]; healthy?: boolean }
 
 const text = ref('');
 /** command tokens now ride the range machinery (kind 'cmd'); activeCmd is a
@@ -477,7 +481,7 @@ function submit(): void {
   for (const ct of [...cmdTokens].reverse()) stripped = stripped.slice(0, ct.start) + stripped.slice(ct.end);
   const ask = stripped.replace(/\s+/g, ' ').trim() || (cmdTokens.length ? text.value.trim() : '');
   const cmds = cmdTokens.map((x) => x.label);
-  emit('send', ask, refs.value.map((r) => ({ ...r })), (appBundle.value ?? '').trim(), cmds);
+  emit('send', ask, refs.value.map((r) => ({ ...r })), (appBundle.value ?? '').trim(), cmds, props.model);
   text.value = ''; refs.value = []; tokens.value = [];
   closePalette(); closeSlash();
 }
@@ -510,6 +514,17 @@ function submit(): void {
           </div>
         </div>
         <div class="p-foot"><span>/ command</span><span>↑↓ ↵ esc</span></div>
+      </div>
+
+      <!-- model picker (sketch 035-B): segmented chips — combos ember, models gray -->
+      <div v-if="modelOptions && modelOptions.length" class="model-row">
+        <button
+          v-for="opt in modelOptions" :key="opt.id" type="button"
+          class="mchip" :class="{ on: opt.id === model, combo: opt.kind === 'combo', dead: opt.healthy === false }"
+          :title="opt.kind === 'combo' ? (opt.members ?? []).join(' → ') : opt.id"
+          @click="emit('model-change', opt.id)"
+        >{{ opt.kind === 'combo' ? '◆' : '●' }} {{ opt.label ?? opt.id }}<i v-if="opt.healthy === false" class="d dot-off" /></button>
+        <router-link to="/settings" class="mchip add" title="manage models">＋</router-link>
       </div>
 
       <div class="input-line">
@@ -560,6 +575,17 @@ function submit(): void {
 .branch-label { font-size: 10px; color: var(--color-steel); }
 .seg.branch { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .branch-search { background: var(--ag-panel); border: 1px solid var(--ag-line); border-radius: 6px; outline: none; color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 4px 10px; width: 260px; margin-left: auto; }
+/* model chips (sketch 035-B) */
+.model-row { display: flex; gap: 8px; align-items: center; margin: 0 2px 8px; flex-wrap: wrap; }
+.mchip { display: inline-flex; align-items: center; gap: 6px; background: var(--ag-surface, #1f1f1f); border: 1px solid var(--ag-line-2, #3a3a3a); border-radius: 20px; padding: 3px 11px; font: 12px/1.4 inherit; color: var(--color-fog, #b4b4b4); cursor: pointer; text-decoration: none; }
+.mchip:hover { color: var(--color-paper, #eee); }
+.mchip.combo { border-color: rgba(218, 92, 44, .45); }
+.mchip.combo.on { border-color: var(--color-ember, #da5c2c); color: var(--color-paper, #eee); }
+.mchip.on { color: var(--color-paper, #eee); box-shadow: inset 0 0 0 1px var(--ag-line-2, #3a3a3a); }
+.mchip.dead { opacity: .55; }
+.mchip.add { border-style: dashed; }
+.mchip .dot-off { background: var(--color-steel, #606060); }
+
 .composer { position: relative; pointer-events: auto; width: calc(100% - 2 * var(--s-4)); max-width: 720px; margin: 0 auto; border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); padding: var(--s-2) var(--s-3); background: var(--ag-surface); }
 .composer:focus-within { border-color: var(--color-ember-dim); }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: var(--s-2); align-items: center; }

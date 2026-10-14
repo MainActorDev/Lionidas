@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>sketch 035 — model picker + models settings</title>
+<style>
+  :root {
+    --color-void:#000; --color-carbon:#111; --color-graphite:#191919; --color-iron:#202020;
+    --color-slate:#3a3a3a; --color-pewter:#505050; --color-steel:#606060; --color-ash:#7e7e7e;
+    --color-fog:#b4b4b4; --color-chalk:#d9d9d9; --color-paper:#eee;
+    --color-ember:#da5c2c; --r:6px; --font-mono:ui-monospace,"SF Mono",Menlo,monospace;
+    --st-ok:#8fbf7f; --st-off:#606060;
+  }
+  body{background:var(--color-void);color:var(--color-paper);font:13px/1.5 -apple-system,system-ui;margin:0;padding:28px}
+  h1{font-size:15px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-fog);margin:0 0 6px}
+  .variant{border:1px solid var(--color-slate);border-radius:var(--r);padding:20px;margin-bottom:26px;background:var(--color-carbon)}
+  .vlabel{font:700 11px var(--font-mono);color:var(--color-ember);letter-spacing:.14em;text-transform:uppercase;margin-bottom:14px}
+  .mono{font-family:var(--font-mono)}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px}
+  .composer{background:var(--color-graphite);border:1px solid var(--color-slate);border-radius:var(--r);padding:12px;display:flex;gap:10px;align-items:center}
+  .fake-input{flex:1;background:var(--color-iron);border:1px solid var(--color-slate);border-radius:4px;padding:8px 10px;color:var(--color-ash)}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{text-align:left;font:700 10.5px var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--color-steel);padding:8px 10px;border-bottom:1px solid var(--color-slate)}
+  td{padding:9px 10px;border-bottom:1px solid var(--color-graphite)}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:var(--color-iron);border:1px solid var(--color-slate);border-radius:20px;padding:4px 12px;font-size:12px;cursor:pointer}
+  .chip.on{border-color:var(--color-ember);color:var(--color-paper)}
+  .pill{font:700 10px var(--font-mono);padding:2px 7px;border-radius:3px;letter-spacing:.06em}
+  .p-combo{background:rgba(218,92,44,.15);color:var(--color-ember)}
+  .p-model{background:rgba(96,96,96,.25);color:var(--color-fog)}
+  .menu{position:relative;background:var(--color-iron);border:1px solid var(--color-slate);border-radius:var(--r);width:230px;padding:6px;font-size:12.5px}
+  .menu .hdr{font:700 10px var(--font-mono);color:var(--color-steel);letter-spacing:.12em;text-transform:uppercase;padding:6px 8px 4px}
+  .menu .row{display:flex;justify-content:space-between;padding:6px 8px;border-radius:4px;cursor:pointer}
+  .menu .row:hover{background:var(--color-graphite)}
+  .menu .row.on{background:var(--color-graphite);box-shadow:inset 2px 0 0 var(--color-ember)}
+  .menu .sub{color:var(--color-ash);font:10.5px var(--font-mono)}
+</style>
+</head>
+<body>
+<h1>sketch 035 · model picker + models settings — pick a variant</h1>
+
+<!-- ══════════ A: composer chip + dropdown ══════════ -->
+<section class="variant">
+  <div class="vlabel">A — composer: model chip with dropdown (Slack-mention style)</div>
+  <div class="composer" style="max-width:640px">
+    <div class="menu" style="display:inline-block">
+      <div class="hdr">model</div>
+      <div class="row on"><span>⚡ auto</span><span class="sub">glm → mini</span></div>
+      <div class="row"><span>🎯 smart</span><span class="sub">glm-5.3</span></div>
+      <div class="row"><span>🪶 cheap</span><span class="sub">flash</span></div>
+      <div class="hdr" style="margin-top:6px">direct models</div>
+      <div class="row"><span>glm-5.3-flash</span><span class="sub dot" style="background:var(--st-ok)"></span></div>
+      <div class="row"><span>glm-5.3-air</span><span class="sub dot" style="background:var(--st-ok)"></span></div>
+      <div class="row" style="color:var(--color-ash)"><span>gemini-pro</span><span class="sub dot" style="background:var(--st-off)"></span></div>
+    </div>
+    <div class="fake-input">Ask about test cases…</div>
+  </div>
+  <p style="color:var(--color-ash);font-size:12px;margin:10px 0 0">Dropdown opens from the chip; combo rows show their fallback chain as subtitle; direct models show a health dot. Selection persists per chat.</p>
+</section>
+
+<!-- ══════════ B: segmented selector ══════════ -->
+<section class="variant">
+  <div class="vlabel">B — composer: inline segmented selector (compact)</div>
+  <div style="max-width:640px">
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <span class="chip on"><span class="pill p-combo">combo</span> auto</span>
+      <span class="chip"><span class="pill p-combo">combo</span> cheap</span>
+      <span class="chip"><span class="pill p-model">model</span> glm-5.3</span>
+      <span class="chip" style="color:var(--color-ash)"><span class="pill p-model">model</span> gemini</span>
+      <span class="chip" style="border-style:dashed;color:var(--color-ash)">＋</span>
+    </div>
+    <div class="composer"><div class="fake-input">Ask about test cases…</div></div>
+  </div>
+  <p style="color:var(--color-ash);font-size:12px;margin:10px 0 0">All options visible as chips above the input — one click, no dropdown. Combos tinted ember, direct models gray; ＋ opens settings.</p>
+</section>
+
+<!-- ══════════ settings section (shared) ══════════ -->
+<section class="variant">
+  <div class="vlabel">Settings → models section (both variants share this)</div>
+  <table>
+    <tr><th></th><th>id</th><th>kind</th><th>model</th><th>key</th><th>prio</th><th>enabled</th></tr>
+    <tr><td><span class="dot" style="background:var(--st-ok)"></span></td><td>glm</td><td class="mono">openai</td><td class="mono">glm-5.3-flash</td><td class="mono">BUTLER_API_KEY ✓</td><td>1</td><td>on</td></tr>
+    <tr><td><span class="dot" style="background:var(--st-ok)"></span></td><td>mini</td><td class="mono">anthropic</td><td class="mono">claude-haiku</td><td class="mono">CLAUDE_KEY ✓</td><td>2</td><td>on</td></tr>
+    <tr><td><span class="dot" style="background:var(--st-off)"></span></td><td>gemini</td><td class="mono">openai</td><td class="mono">gemini-pro</td><td class="mono">GEMINI_KEY ✗</td><td>3</td><td>off</td></tr>
+  </table>
+  <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+    <span class="chip"><span class="pill p-combo">combo</span> auto = glm → mini</span>
+    <span class="chip" style="border-style:dashed;color:var(--color-ash)">＋ model / combo</span>
+    <span style="color:var(--color-ash);font-size:11.5px;margin-left:auto" class="mono">edits save → router reloads, no restart</span>
+  </div>
+</section>
+
+</body>
+</html>

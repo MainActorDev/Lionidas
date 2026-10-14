@@ -126,6 +126,8 @@ export function computeStatus(db: Database.Database, agentDb: Database.Database,
       if (lastFail) {
         try { detail['last error'] = `${(JSON.parse(lastFail.detail_json) as { error?: string }).error ?? 'unknown'} (${fmtAge(now - lastFail.at)} ago)`; } catch { /* unparseable detail */ }
       }
+      // v0.6.0: per-model routing health lives at /api/agent/models/health
+      // (router in-memory rollup); this card stays table-driven per plan.
       systems.push({ id: 'provider-mcp', name: 'provider · mcp', state, summary: `${detail['provider']} · ${detail['model'] ?? 'default model'}`, detail });
     } catch (e) {
       systems.push({ id: 'provider-mcp', name: 'provider · mcp', state: 'down', summary: 'unreadable', detail: { error: e instanceof Error ? e.message : String(e) } });

@@ -35,6 +35,11 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AgentContext, bus
       // onEvent(turn.delta) which both emits to the bus AND lands durable
       // chunks in the sink (conversation.ts:219).
       onDelta: () => () => {},
+      // model routing (v0.6.0): the chat body's model rides the router when one exists
+      ...(ctx.routeComplete ? {
+        resolveModel: (b: { model?: string }) => b.model,
+        routeComplete: ctx.routeComplete,
+      } : {}),
       commandOverlay: (cmds) => {
         const specs = orderCommands(cmds);
         if (!specs.length) return null;

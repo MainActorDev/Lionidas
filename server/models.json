@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "defaultCombo": "auto",
+  "models": [
+    {
+      "id": "glm-flash",
+      "kind": "openai",
+      "baseUrl": "https://api.z.ai/api/coding/paas/v4",
+      "model": "glm-5.3-flash",
+      "apiKeyEnv": "BUTLER_API_KEY",
+      "priority": 1,
+      "enabled": true
+    },
+    {
+      "id": "glm-air",
+      "kind": "openai",
+      "baseUrl": "https://api.z.ai/api/coding/paas/v4",
+      "model": "glm-5.3",
+      "apiKeyEnv": "BUTLER_API_KEY",
+      "priority": 2,
+      "enabled": true
+    }
+  ],
+  "combos": [
+    {
+      "id": "auto",
+      "members": [
+        "glm-flash",
+        "glm-air"
+      ],
+      "strategy": "fallback"
+    },
+    {
+      "id": "air",
+      "members": [
+        "glm-air"
+      ],
+      "strategy": "fallback"
+    }
+  ]
+}
