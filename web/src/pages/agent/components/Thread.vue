@@ -2,7 +2,7 @@
 /** P3 agent chat — thread: user bubbles + agent prose, refs rows, tool
  *  traces, status line (sketch b1-warm anatomy). Read-only rendering. */
 interface Ref { kind: string; name: string }
-interface Msg { role: 'user' | 'assistant' | 'system'; text: string; refs?: Ref[]; toolTrace?: string; status?: string; aborted?: boolean; displaced?: boolean }
+interface Msg { role: 'user' | 'assistant' | 'system'; text: string; refs?: Ref[]; toolTrace?: string; status?: string; aborted?: boolean; displaced?: boolean; triesLabel?: string }
 
 import { ref, watch, nextTick } from 'vue';
 import { renderMarkdown } from '../markdown.ts';
@@ -72,7 +72,7 @@ function copySessionId(): void {
     setTimeout(() => { copied.value = false; }, 1200);
   });
 }
-const emit = defineEmits<{ resend: [msg: Msg] }>();
+const emit = defineEmits<{ resend: [msg: Msg], 'queue-edit': [msg: Msg], 'queue-delete': [msg: Msg] }>();
 const scrollEl = ref<HTMLElement | null>(null);
 
 /** rev7: keep the newest message in view — on send, while the indicator
@@ -109,9 +109,19 @@ watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom
             <div class="body" :class="{ aborted: m.aborted, displaced: m.displaced }">
               <span v-for="c in userCommands(m.text)" :key="c" class="cmd-tag">{{ c }}</span>
               <div class="txt" v-html="renderUserText(m)"></div>
+              <div v-if="m.triesLabel" class="tries-tag">{{ m.triesLabel }}</div>
               <div v-if="m.aborted" class="ab-actions" @click.stop>
                 <span class="ab-tag">aborted</span>
                 <button v-if="!(waiting || streaming !== null)" class="ab-btn" @click="emit('resend', m)">resend</button>
+              </div>
+              <div v-else-if="m.status === 'unsent'" class="ab-actions" @click.stop>
+                <span class="ab-tag unsent">unsent</span>
+                <button v-if="!(waiting || streaming !== null)" class="ab-btn" @click="emit('resend', m)">send</button>
+              </div>
+              <div v-else-if="m.status === 'queued'" class="ab-actions" @click.stop>
+                <span class="ab-tag queued">queued</span>
+                <button class="ab-btn" @click="emit('queue-edit', m)">edit</button>
+                <button class="ab-btn" @click="emit('queue-delete', m)">delete</button>
               </div>
             </div>
           </template>
@@ -179,6 +189,9 @@ watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom
 .msg.user .body.displaced .txt { text-decoration: line-through; text-decoration-color: var(--color-steel); }
 .body.aborted .txt { color: var(--color-fog); }
 .ab-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.ab-tag.queued { color: var(--color-ember); border-color: var(--ag-line); }
+.ab-tag.unsent { color: var(--color-steel); border-color: var(--ag-line-2); }
+.tries-tag { display: inline-block; margin-top: 3px; font-size: 11px; letter-spacing: .02em; color: var(--color-steel, #8a8f98); }
 .ab-tag { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-ember); }
 .ab-btn { border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); background: var(--ag-panel); color: var(--color-fog); font-family: var(--font-mono); font-size: var(--text-caption); padding: 2px 10px; cursor: pointer; }
 .ab-btn:hover { color: var(--color-paper); border-color: var(--color-ember-dim); }

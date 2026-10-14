@@ -28,6 +28,13 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AgentContext, bus
       systemPrompt: ctx.systemPrompt,
       embedder: ctx.embedder, // R2-F3: ranked note injection
       emit: (e) => { bus.emit('agent.turn', { sessionId: e.sessionId, type: e.type, hop: e.hop, ...(e.detail !== undefined ? { detail: e.detail } : {}) }); },
+      // live chunk streaming (the forever-loading fix): without onDelta the
+      // provider runs NON-streaming (openai-compat only sets stream:true when
+      // a delta sink exists) — zero turn.delta events, UI dots for the whole
+      // turn. A no-op consumer is enough: loop.ts forwards deltas via
+      // onEvent(turn.delta) which both emits to the bus AND lands durable
+      // chunks in the sink (conversation.ts:219).
+      onDelta: () => () => {},
       commandOverlay: (cmds) => {
         const specs = orderCommands(cmds);
         if (!specs.length) return null;

@@ -13,7 +13,7 @@ import type { Ref as PipelineRef } from './components/Composer.vue';
 import './agent-theme.css';
 
 interface Me { id: string; name: string; email: string; role: string }
-interface Msg { role: 'user' | 'assistant' | 'system'; text: string; refs?: Array<{ kind: string; name: string }>; toolTrace?: string; status?: string; aborted?: boolean; displaced?: boolean }
+interface Msg { role: 'user' | 'assistant' | 'system'; text: string; refs?: Array<{ kind: string; name: string }>; toolTrace?: string; status?: string; aborted?: boolean; displaced?: boolean; triesLabel?: string }
 
 const route = useRoute();
 const me = ref<Me | null>(null);
@@ -44,7 +44,12 @@ const setTurn = (mut: (t: TurnState) => void): void => {
 };
 // rev8 #2: single-slot queue — one pending send waits for the live turn
 // (the server 409s concurrent turns anyway; this makes the wait invisible)
-const queued = ref<{ text: string; refs: PipelineRef[]; appBundle: string; commands?: string[]; bubble?: Msg } | null>(null);
+/** VISIBLE multi-slot queue (open-webui pattern, predictability plan Stage B):
+ *  every waiting message is a first-class item with Send-now / Edit / Delete;
+ *  displacement is impossible — items only leave by explicit action or send. */
+interface QueuedItem { id: number; text: string; refs: PipelineRef[]; appBundle: string; commands: string[]; bubble: Msg }
+const queue = ref<QueuedItem[]>([]);
+let queueSeq = 0;
 const sidebar = ref<InstanceType<typeof ChatSidebar> | null>(null);
 const panel = ref<InstanceType<typeof RunPanel> | null>(null);
 const composer = ref<InstanceType<typeof Composer> | null>(null);
@@ -77,24 +82,45 @@ async function openSession(id: string): Promise<void> {
   if (!r.ok) return;
   const b = (await r.json()) as { session: { title: string | null }; messages: Array<{ role: string; content: string | null }>; liveTurn?: { turnId: string; startedAt: number } | null };
   title.value = b.session.title ?? (title.value === 'new chat' ? id : title.value);
-  // rev9 + sess_e2e40228: a trailing unanswered user message is IN FLIGHT when the
-  // durable log has an active turn (streaming here or in a sibling process) —
-  // render 'in flight…', not a false ABORTED; only genuinely dead turns abort.
+  // status model (predictability plan Stage A — the rev9 adjacency GUESS is dead):
+  // every trailing-unanswered user message gets an EXPLICIT status from facts:
+  //   in_flight  — durable log has an active turn (liveTurn)
+  //   unsent     — nothing live, nothing failed: it never sent (queue lost to reload, PR2)
+  //   aborted    — an earlier gap (mid-history unanswered): the turn ran and died
+  // RETRY COLLAPSE (the triple-bubble round): consecutive user messages with
+  // IDENTICAL text are resends of the same ask — one bubble, attempt count.
+  // Each attempt's outcome lives on the bubble: last failed → 'failed · N tries',
+  // still unanswered → status as derived. The collapse is purely presentational;
+  // every underlying message row stays intact in storage.
   const inFlight = Boolean(b.liveTurn);
   const rows = b.messages.filter((m) => (m.role === 'user' || m.role === 'assistant') && (m.content ?? '').trim());
   const out: Msg[] = [];
-  for (const m of rows) {
+  const streakLen = (idx: number): number => {
+    // consecutive identical user texts starting at idx = the attempt streak
+    let count = 1;
+    let j = idx + 1;
+    while (j < rows.length && rows[j]!.role === 'user' && (rows[j]!.content ?? '') === (rows[idx]!.content ?? '')) { count++; j++; }
+    return count;
+  };
+  rows.forEach((m, idx) => {
     if (m.role === 'user') {
-      const next = rows[rows.indexOf(m) + 1];
-      const isLast = rows.indexOf(m) === rows.length - 1;
+      const prev = rows[idx - 1];
+      // skip if the PREVIOUS row was an identical user message — this row is
+      // already accounted for by its streak leader
+      if (prev && prev.role === 'user' && (prev.content ?? '') === (m.content ?? '')) return;
+      const count = streakLen(idx);
+      const streakEnd = idx + count - 1; // the LAST attempt in this streak
+      const next = rows[streakEnd + 1];
       const unanswered = !next || next.role === 'user';
-      // only the TRAILING message can be in flight; earlier gaps are real aborts
-      const status: Msg['status'] = unanswered && isLast && inFlight ? 'in flight…' : undefined;
-      out.push({ role: 'user', text: m.content ?? '', aborted: unanswered && !status, ...(status ? { status } : {}) });
+      const isLast = streakEnd === rows.length - 1;
+      if (!unanswered) { out.push({ role: 'user', text: m.content ?? '', ...(count > 1 ? { triesLabel: `sent ${count}×` } : {}) }); return; }
+      if (isLast && inFlight) out.push({ role: 'user', text: m.content ?? '', status: 'in_flight', ...(count > 1 ? { triesLabel: `attempt ${count} in flight` } : {}) });
+      else if (isLast) out.push({ role: 'user', text: m.content ?? '', status: 'unsent', ...(count > 1 ? { triesLabel: `never sent · ${count} tries` } : {}) });
+      else out.push({ role: 'user', text: m.content ?? '', aborted: true, ...(count > 1 ? { triesLabel: `failed · ${count} tries` } : {}) }); // mid-history gap: real abort
     } else {
       out.push({ role: 'assistant', text: m.content ?? '' });
     }
-  }
+  });
   messages.value = out;
   if (inFlight) setTurn((t) => { t.sending = true; t.streaming = null; }); // show the waiting dots
   setTurn((t) => { t.runId = boundRun(id); });
@@ -166,14 +192,9 @@ async function send(text: string, refs: PipelineRef[], appBundle: string, comman
   const cmdNote = commands.length ? ` [cmds: ${commands.join(' ')}]` : '';
   const refNote = refs.length ? ` [refs: ${refs.map((r) => `${r.kind}:${r.locator}`).join(', ')}]` : '';
   if (sending.value) {
-    // max one queued: a newer send DISPLACES the older queued one — visibly
-    // (struck-through stays in the thread; nothing silently vanishes)
-    if (queued.value) {
-      messages.value = messages.value.map((m) => (m === queued.value?.bubble ? { ...m, displaced: true } : m));
-      queued.value = null;
-    }
-    const bubble: Msg = { role: 'user', text: `${text}${cmdNote}${refNote}`, refs: refs.map((r) => ({ kind: r.kind, name: r.locator })) };
-    queued.value = { text, refs, appBundle, ...(commands.length ? { commands } : {}), bubble };
+    // multi-slot: append as a visible queued item — nothing is ever displaced
+    const bubble: Msg = { role: 'user', text: `${text}${cmdNote}${refNote}`, refs: refs.map((r) => ({ kind: r.kind, name: r.locator })), status: 'queued' };
+    queue.value = [...queue.value, { id: ++queueSeq, text, refs, appBundle, commands, bubble }];
     messages.value = [...messages.value, bubble];
     return;
   }
@@ -220,12 +241,17 @@ async function send(text: string, refs: PipelineRef[], appBundle: string, comman
     setTurn((t) => { t.streaming = null; }); // rev12: never leave a frozen stream bubble
     settleAiTitle(); // rev14: AI title after the turn — no more 400 race
     void sidebar.value?.load();
-    const q = queued.value;
-    if (q) {
-      queued.value = null;
-      void send(q.text, q.refs, q.appBundle, q.commands ?? []); // single-slot: fire the waiting message
-    }
+    drainQueue();
   }
+}
+
+/** fire the queue head (if any) now that the session is idle */
+function drainQueue(): void {
+  const head = queue.value[0];
+  if (!head) return;
+  queue.value = queue.value.slice(1);
+  messages.value = messages.value.filter((m) => m !== head.bubble); // queued shell replaced by the real send
+  void send(head.text, head.refs, head.appBundle, head.commands);
 }
 
 /** rev9: mark the user bubble whose turn was aborted (distinct style + resend). */
@@ -247,12 +273,32 @@ function decomposeStored(text: string): { ask: string; commands: string[] } {
 }
 
 function resend(msg: Msg): void {
-  // resend only makes sense when nothing is streaming — otherwise it would
-  // silently displace the queued message (the exact screenshot scenario)
-  if (sending.value || queued.value) return;
+  // resend only when idle (a live turn would race; queue items have their own ops)
+  if (sending.value) return;
   messages.value = messages.value.filter((x) => x !== msg);
   const { ask, commands } = decomposeStored(msg.text);
   void send(ask, (msg.refs ?? []).map((r) => ({ kind: r.kind as PipelineRef['kind'], locator: r.name })), '', commands);
+}
+
+/** queue item ops (visible queue): send-now, edit (back to composer), delete */
+function queueSendNow(id: number): void {
+  const item = queue.value.find((q) => q.id === id);
+  if (!item || sending.value) return; // no-op twin: only when idle
+  queue.value = queue.value.filter((q) => q.id !== id);
+  messages.value = messages.value.filter((m) => m !== item.bubble);
+  void send(item.text, item.refs, item.appBundle, item.commands);
+}
+function queueEdit(id: number): void {
+  const item = queue.value.find((q) => q.id === id);
+  if (!item) return; // no-op twin
+  queueDelete(id);
+  composer.value?.loadDraft?.(item.text, item.refs, item.commands);
+}
+function queueDelete(id: number): void {
+  const item = queue.value.find((q) => q.id === id);
+  if (!item) return; // no-op twin
+  queue.value = queue.value.filter((q) => q.id !== id);
+  messages.value = messages.value.filter((m) => m !== item.bubble);
 }
 
 /** rev20b: panel errors surface as system messages. */
@@ -410,7 +456,7 @@ onBeforeUnmount(() => { ws?.close(); if (pollTimer) clearInterval(pollTimer); })
   <div v-else class="ag-root">
     <ChatSidebar ref="sidebar" :me="me" :active-id="sessionId" @select="openSession" @new-chat="newChat" @renamed="onRenamed" @deleted="onDeleted" />
     <div class="mid">
-      <Thread :messages="messages" :title="title" :live="panel?.live ?? false" :waiting="sending && !streaming" :streaming="streaming" :tool-stops="toolStops" :session-id="sessionId" @resend="resend">
+      <Thread :messages="messages" :title="title" :live="panel?.live ?? false" :waiting="sending && !streaming" :streaming="streaming" :tool-stops="toolStops" :session-id="sessionId" @resend="resend" @queue-edit="(m) => { const it = queue.find((q) => q.bubble === m); if (it) queueEdit(it.id); }" @queue-delete="(m) => { const it = queue.find((q) => q.bubble === m); if (it) queueDelete(it.id); }">
         <div class="mid-inner" @paste="onPaste" @drop="onDrop" @dragover.prevent>
           <Composer ref="composer" :busy="sending" @send="send" @abort="abortTurn" @open-attachment="openAttachmentPicker" />
         </div>
