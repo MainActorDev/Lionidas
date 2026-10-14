@@ -13,7 +13,7 @@ import {
   type ModelRouter,
 } from '@mainactordev/butler';
 import type Database from 'better-sqlite3';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { buildToolRegistry } from './tools.ts';
 import { AttachmentStore } from './attachments.ts';
@@ -55,13 +55,20 @@ export interface AgentContext {
 /** claude --mcp-config JSON: one stdio server = the Lionidas registry. */
 function writeMcpConfig(env: Record<string, string | undefined>): string {
   const script = new URL('./mcp-stdio.sh', import.meta.url).pathname;
-  const cfg = { mcpServers: { lionidas: { command: '/bin/bash', args: [script], env: { ...(env['CRUCIBLE_DB_PATH'] ? { CRUCIBLE_DB_PATH: env['CRUCIBLE_DB_PATH'] } : {}) } } } };
+  // dbPath must be ABSOLUTE: the editor child's MCP server resolves relative
+  // paths against ITS cwd (the worktree) — an unqualified './crucible.db' would
+  // silently open an EMPTY db inside the worktree
+  const dbPath = resolve(env['CRUCIBLE_DB_PATH'] ?? 'crucible.db');
+  const cfg = { mcpServers: { lionidas: { command: '/bin/bash', args: [script], env: { CRUCIBLE_DB_PATH: dbPath } } } };
   const path = join(cfg_artifactsDir(env), 'claude-mcp.json');
   writeFileSync(path, JSON.stringify(cfg, null, 2));
   return path;
 }
 function cfg_artifactsDir(env: Record<string, string | undefined>): string {
-  return env['CRUCIBLE_ARTIFACTS_DIR'] ?? './artifacts';
+  // ABSOLUTE — the claude CLI resolves --mcp-config against ITS cwd; an editor
+  // child runs with cwd=worktree, so a relative path lands inside the worktree
+  // (live drill: 'MCP config file not found: …/.wt/…/artifacts/claude-mcp.json')
+  return resolve(env['CRUCIBLE_ARTIFACTS_DIR'] ?? './artifacts');
 }
 
 export function buildAgentContext(db: Database.Database, cfg: { dbPath: string; artifactsDir: string; env: Record<string, string | undefined>; syncPresets?: () => void }): AgentContext {

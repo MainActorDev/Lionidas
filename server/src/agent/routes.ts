@@ -4,12 +4,27 @@
 import type { FastifyInstance } from 'fastify';
 import { registerConversationApi, mountMcp } from '@mainactordev/butler';
 import { registerMentionRoutes } from './mention-search.ts';
+import { makeTurnDecorator } from './identifier-flow.ts';
+import { join, resolve } from 'node:path';
 import { orderCommands, overlayBlock, toolsFor, registerCommandRoutes } from './commands.ts';
 import { requireRole } from '../auth/roles.ts';
 import type { AgentContext } from './context.ts';
 import type { AppEvents, TypedEventBus } from '../ws/bus.ts';
 
 export function registerAgentRoutes(app: FastifyInstance, ctx: AgentContext, bus: TypedEventBus<AppEvents>): void {
+  // /implement-identifiers auto flow (butler v0.6.2 seams): the proposal turn parks
+  // state; the user's confirmation turn runs INSIDE the host worktree (editor
+  // provider); afterTurn commits/pushes/PRs. The human stays in the loop.
+    const reposRoot = resolve(process.env['CRUCIBLE_REPOS_ROOT'] ?? join(process.cwd(), 'repos'));
+  type EditorSeam = { makeEditorProvider?: (cwd: string) => import('@mainactordev/butler').Provider };
+  const editorFactory = (ctx as AgentContext & EditorSeam).makeEditorProvider?.bind(ctx);
+  const decorator = editorFactory ? makeTurnDecorator({
+    db: (ctx as AgentContext & { db: import('better-sqlite3').Database }).db,
+    reposRoot,
+    makeEditorProvider: (cwd) => editorFactory(cwd),
+    lastAssistant: () => '',
+    onAuto: (msg) => { app.log.info(msg); },
+  }) : null;
   void app.register(async (scope) => {
     // operator gate FIRST — applies to every route registered in this scope
     // (butler's conversation routes + the MCP mount), cookies and PATs alike.
@@ -59,6 +74,12 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AgentContext, bus
       },
       sink: ctx.sink, // R3-S5: durable turns — event log rides the storage DB
       contextWindow: 200_000,
+      ...(decorator ? {
+        prepareTurn: decorator.prepareTurn,
+        afterTurn: (sessionId: string, outcome: { ok: boolean; turnId: string; answer: string }) => {
+          try { decorator.afterTurn(sessionId, outcome); } catch (err) { app.log.warn({ err: String(err) }, 'afterTurn hook failed'); }
+        },
+      } : {}),
     });
 
     registerMentionRoutes(scope, ctx);
