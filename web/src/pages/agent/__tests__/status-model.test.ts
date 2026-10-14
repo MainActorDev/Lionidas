@@ -34,6 +34,46 @@ async function opened(): Promise<{ vm: { messages: Array<{ text: string; status?
   return { vm: w.vm as never } as never;
 }
 
+describe('retry collapse (the triple-bubble round, sess_e2e40228)', () => {
+  it('three identical asks + one answer → ONE user bubble, attempt count, no dupes', async () => {
+    sessionPayload = { session: { title: 't' }, messages: [
+      { role: 'assistant', content: 'prior answer' },
+      { role: 'user', content: 'do the thing [cmds: /author]' },
+      { role: 'user', content: 'do the thing [cmds: /author]' },
+      { role: 'user', content: 'do the thing [cmds: /author]' },
+      { role: 'assistant', content: '## Blocker first — no tools' },
+    ] };
+    const { vm } = await opened();
+    const users = vm.messages.filter((m) => m.role === 'user');
+    expect(users.length).toBe(1); // collapsed
+    expect(users[0]?.text).toContain('do the thing');
+    expect(vm.messages.length).toBe(3); // prior assistant + 1 user + final assistant
+  });
+
+  it('identical trailing unanswered asks → one bubble, never-sent tries label', async () => {
+    sessionPayload = { session: { title: 't' }, messages: [
+      { role: 'user', content: 'again [cmds: /author]' },
+      { role: 'user', content: 'again [cmds: /author]' },
+    ] };
+    const { vm } = await opened();
+    const users = vm.messages.filter((m) => m.role === 'user');
+    expect(users.length).toBe(1);
+    expect(users[0]?.status).toBe('unsent');
+  });
+
+  it('no-op twin: DISTINCT consecutive asks never collapse', async () => {
+    sessionPayload = { session: { title: 't' }, messages: [
+      { role: 'user', content: 'question A' },
+      { role: 'user', content: 'question B' },
+      { role: 'assistant', content: 'answering B' },
+    ] };
+    const { vm } = await opened();
+    const users = vm.messages.filter((m) => m.role === 'user');
+    expect(users.length).toBe(2);
+    expect(users[0]?.aborted).toBe(true); // A died mid-history — still honest
+  });
+});
+
 describe('status derivation (reload)', () => {
   it('answered pair → NO status flags (the no-op twin)', async () => {
     sessionPayload = { session: { title: 't' }, messages: [

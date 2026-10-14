@@ -13,7 +13,7 @@ import type { Ref as PipelineRef } from './components/Composer.vue';
 import './agent-theme.css';
 
 interface Me { id: string; name: string; email: string; role: string }
-interface Msg { role: 'user' | 'assistant' | 'system'; text: string; refs?: Array<{ kind: string; name: string }>; toolTrace?: string; status?: string; aborted?: boolean; displaced?: boolean }
+interface Msg { role: 'user' | 'assistant' | 'system'; text: string; refs?: Array<{ kind: string; name: string }>; toolTrace?: string; status?: string; aborted?: boolean; displaced?: boolean; triesLabel?: string }
 
 const route = useRoute();
 const me = ref<Me | null>(null);
@@ -87,18 +87,36 @@ async function openSession(id: string): Promise<void> {
   //   in_flight  — durable log has an active turn (liveTurn)
   //   unsent     — nothing live, nothing failed: it never sent (queue lost to reload, PR2)
   //   aborted    — an earlier gap (mid-history unanswered): the turn ran and died
+  // RETRY COLLAPSE (the triple-bubble round): consecutive user messages with
+  // IDENTICAL text are resends of the same ask — one bubble, attempt count.
+  // Each attempt's outcome lives on the bubble: last failed → 'failed · N tries',
+  // still unanswered → status as derived. The collapse is purely presentational;
+  // every underlying message row stays intact in storage.
   const inFlight = Boolean(b.liveTurn);
   const rows = b.messages.filter((m) => (m.role === 'user' || m.role === 'assistant') && (m.content ?? '').trim());
   const out: Msg[] = [];
+  const streakLen = (idx: number): number => {
+    // consecutive identical user texts starting at idx = the attempt streak
+    let count = 1;
+    let j = idx + 1;
+    while (j < rows.length && rows[j]!.role === 'user' && (rows[j]!.content ?? '') === (rows[idx]!.content ?? '')) { count++; j++; }
+    return count;
+  };
   rows.forEach((m, idx) => {
     if (m.role === 'user') {
-      const next = rows[idx + 1];
+      const prev = rows[idx - 1];
+      // skip if the PREVIOUS row was an identical user message — this row is
+      // already accounted for by its streak leader
+      if (prev && prev.role === 'user' && (prev.content ?? '') === (m.content ?? '')) return;
+      const count = streakLen(idx);
+      const streakEnd = idx + count - 1; // the LAST attempt in this streak
+      const next = rows[streakEnd + 1];
       const unanswered = !next || next.role === 'user';
-      const isLast = idx === rows.length - 1;
-      if (!unanswered) { out.push({ role: 'user', text: m.content ?? '' }); return; }
-      if (isLast && inFlight) out.push({ role: 'user', text: m.content ?? '', status: 'in_flight' });
-      else if (isLast) out.push({ role: 'user', text: m.content ?? '', status: 'unsent' });
-      else out.push({ role: 'user', text: m.content ?? '', aborted: true }); // mid-history gap: real abort
+      const isLast = streakEnd === rows.length - 1;
+      if (!unanswered) { out.push({ role: 'user', text: m.content ?? '', ...(count > 1 ? { triesLabel: `sent ${count}×` } : {}) }); return; }
+      if (isLast && inFlight) out.push({ role: 'user', text: m.content ?? '', status: 'in_flight', ...(count > 1 ? { triesLabel: `attempt ${count} in flight` } : {}) });
+      else if (isLast) out.push({ role: 'user', text: m.content ?? '', status: 'unsent', ...(count > 1 ? { triesLabel: `never sent · ${count} tries` } : {}) });
+      else out.push({ role: 'user', text: m.content ?? '', aborted: true, ...(count > 1 ? { triesLabel: `failed · ${count} tries` } : {}) }); // mid-history gap: real abort
     } else {
       out.push({ role: 'assistant', text: m.content ?? '' });
     }
