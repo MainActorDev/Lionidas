@@ -11,6 +11,8 @@
  *    engine/data-freshness per-age thresholds (7d run/ingest, 14d diag)
  *  Secrets NEVER serialized (PR: key-present booleans only). */
 import type { FastifyInstance } from 'fastify';
+import { existsSync } from 'node:fs';
+import { projectWorkspace } from '../manual/packages.ts';
 import type Database from 'better-sqlite3';
 import { requireRole } from '../auth/roles.ts';
 import { VERSION } from './health.ts';
@@ -215,6 +217,39 @@ export function computeStatus(db: Database.Database, agentDb: Database.Database,
       systems.push({ id: 'data-freshness', name: 'data freshness', state: 'down', summary: 'unreadable', detail: { error: e instanceof Error ? e.message : String(e) } });
     }
   }
+
+  // build-recipe canary (the silent-fallback class: builds ran discovery-based for
+  // days after the manifest moved to .lionidas/ and nobody noticed — status page
+  // must say when a project's recipe is missing or its prepare script is stale-broken)
+  try {
+    const projects = db.prepare('SELECT id, name FROM projects').all() as Array<{ id: string; name: string }>;
+    const recipeRows: Record<string, string | number | boolean | null> = {};
+    let degraded = false;
+    for (const proj of projects) {
+      try {
+        const ws = projectWorkspace(proj.name);
+        const hasRoot = existsSync(`${ws}/lionidas.yml`);
+        const hasDot = existsSync(`${ws}/.lionidas/lionidas.yml`);
+        const lastBuild = db.prepare('SELECT status, started_at, resolution FROM builds WHERE project_id = ? ORDER BY number DESC LIMIT 1').get(proj.id) as { status: string; started_at: number; resolution: string | null } | undefined;
+        const usedManifest = lastBuild ? /manifest/.test(lastBuild.resolution ?? '') : null;
+        const recipeMissing = !hasRoot && !hasDot;
+        const fallbackLied = Boolean(lastBuild && lastBuild.status === 'passed' && !usedManifest && (hasRoot || hasDot));
+        if (recipeMissing || fallbackLied) degraded = true;
+        recipeRows[`${proj.name} recipe`] = hasRoot ? 'root' : hasDot ? '.lionidas/' : 'MISSING';
+        recipeRows[`${proj.name} lastBuild`] = lastBuild?.status ?? 'none';
+        recipeRows[`${proj.name} manifestUsed`] = usedManifest ?? false;
+        if (fallbackLied) recipeRows[`${proj.name} FALLBACK_LIED`] = true;
+      } catch (e) {
+        recipeRows[`${proj.name} error`] = e instanceof Error ? e.message.slice(0, 120) : String(e).slice(0, 120);
+      }
+    }
+    systems.push({
+      id: 'build-recipe', name: 'build recipes',
+      state: degraded ? 'degraded' : 'ok',
+      summary: degraded ? 'a project builds WITHOUT its recipe (discovery fallback)' : `${projects.length} project(s) · recipe present`,
+      detail: recipeRows,
+    });
+  } catch { /* projects table absent on minimal installs */ }
 
   return { checkedAt: now, systems };
 }

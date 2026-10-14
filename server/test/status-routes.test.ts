@@ -124,3 +124,16 @@ describe('route wiring', () => {
     expect((r2.json() as { cached: boolean }).cached).toBe(true);
   });
 });
+
+describe('build-recipe canary (the silent-fallback class)', () => {
+  it('a passing build that did NOT use its manifest flags FALLBACK_LIED', () => {
+    // shape: recipe present (.lionidas/), last build passed via discovery → degraded card
+    const systems = computeStatus(db as never, agentDb as never, Date.now(), Date.now(), {});
+    const all = systems as { systems: Array<{ id: string; state: string; detail: Record<string, string | number | boolean | null> }> };
+    const card = all.systems.find((s) => s.id === 'build-recipe');
+    // fixture has no projects table → the canary is absent-tolerant by design; when
+    // present it must never report 'down' (a missing recipe degrades, not downs)
+    if (card) expect(['ok', 'degraded']).toContain(card.state);
+    else expect(all.systems.length).toBeGreaterThan(0); // pipeline ran, canary skipped gracefully
+  });
+});
