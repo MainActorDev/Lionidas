@@ -94,7 +94,7 @@ const ageLabel = computed(() => {
 </template>
 
 <style scoped>
-.pg { padding: 20px 24px; max-width: 980px; }
+.pg { padding: 20px 24px; width: 100%; }
 .err { color: var(--color-ember); font: 12px var(--font-mono); padding: 12px 0; }
 .mono { font-family: var(--font-mono); }
 .head { display: flex; align-items: baseline; gap: 14px; margin: 4px 0 14px; padding-bottom: 12px; border-bottom: 1px solid var(--color-slate); }
@@ -106,7 +106,7 @@ const ageLabel = computed(() => {
 .dot.down { background: #e03e3e; }
 .dot.unknown { background: var(--color-steel); }
 
-.wrap { display: grid; grid-template-columns: 230px 1fr; border: 1px solid var(--color-slate); border-radius: var(--r); overflow: hidden; }
+.wrap { display: grid; grid-template-columns: 260px 1fr; border: 1px solid var(--color-slate); border-radius: var(--r); overflow: hidden; }
 .list { background: var(--color-graphite); border-right: 1px solid var(--color-slate); display: flex; flex-direction: column; }
 .item { display: flex; align-items: center; gap: 8px; padding: 11px 14px; background: none; border: 0; border-bottom: 1px solid var(--color-slate); color: var(--color-paper); font: 12.5px/1.2 inherit; text-align: left; cursor: pointer; }
 .item:hover { background: var(--color-iron); }
