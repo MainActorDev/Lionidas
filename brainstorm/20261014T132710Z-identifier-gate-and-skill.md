@@ -83,6 +83,28 @@ Gate → skill → PR → merge → re-ingest → index → gate passes → case
 4. Naming convention: **recommend-only** (mined from the app's dominant pattern, shown in the proposal, never enforced by the gate).
 2. Dynamic identifiers: *explained to user this round — decision pending; default pass-with-note + mandatory selector-trust note.*
 
+## Design pivot (user, this round): no repo.edit tool — the claude CLI edits, host does git
+
+"I still don't trust your repo.edit tool. Why not let claude do it?" — correct call.
+The claude-cli harness already runs under `--permission-mode acceptEdits` with
+Read/Grep/Glob allowed and Bash hard-denied: it IS a code editor, natively.
+Rebuilding edit-through-MCP would be a worse copy of a battle-tested tool.
+
+REVISED division of labor for /implement-identifiers:
+- HOST (lionidas, no model access to these): git worktree add -b feat/identifiers-<slug>
+  from origin/develop; after the turn: per-identifier commits, xcodebuild compile gate,
+  push, gh PR create (create-only), worktree cleanup. The model NEVER touches git.
+- CLI (claude, spawned with cwd = the worktree): native Read/Grep/Glob to find the right
+  views, native Edit to insert .accessibilityIdentifier(...) lines, MCP lionidas tools
+  still mounted for case/screen context. Its only new capability is editing files inside
+  a throwaway worktree — no shell, no push, no main-checkout access (different path).
+- Worktrees (user suggestion, adopted): isolation per turn, parallel turns per repo,
+  cleanup = git worktree remove; failure = discard worktree, nothing ever happened.
+
+Requires: claude-cli provider gains a per-spawn `cwd` option (small butler change —
+spawn opts only). Phase II shrinks from "4 custom write tools" to "provider cwd seam +
+host worktree/git driver + command spec".
+
 ## Open questions
 
 1. **Repo write permission** — is the agent allowed to branch/edit/PR the ios-consumer repo directly (Option 1), or must it be ticket-mode first (Option 3) with write-mode later? This is an org-policy decision bigger than code.
