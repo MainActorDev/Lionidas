@@ -1,4 +1,6 @@
-/* ═══ Axiom Components (Crucible) ═══ */
+/* ═══ Lionidas Components — Factory system (round 036) ═══
+   Values remapped to Factory; class names unchanged.
+   Rules: no bright fills, no bold >500, status accents only on data. */
 
 /* ─── Page header (B-variant — the ONE header system, sketch 015-B) ───
    Structure lives in components/PageHeader.vue; these classes style the
@@ -42,11 +44,11 @@
 }
 .section-label:first-child { margin-top: 0; }
 
-/* ─── Cards ─── */
+/* ─── Cards — Factory: carbon surface, ash hairline, 10px radius, no shadow ─── */
 .card {
   background: var(--color-carbon);
   border: 1px solid var(--color-iron);
-  border-radius: var(--r-sm);
+  border-radius: var(--r-card);
   padding: var(--s-4);
   margin-bottom: var(--s-4);
 }
@@ -61,7 +63,7 @@
 }
 .card-accent { border-left: 2px solid var(--color-ember); }
 
-/* ─── Buttons ─── */
+/* ─── Buttons — Factory: dark filled button is the primary; NO chromatic/bright fills ─── */
 .btn {
   display: inline-flex; align-items: center; gap: var(--s-2);
   padding: 6px var(--s-3);
@@ -69,23 +71,24 @@
   border: 1px solid var(--color-iron);
   border-radius: var(--r-sm);
   color: var(--color-paper);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: var(--text-body);
   font-weight: var(--weight-regular);
   cursor: pointer;
-  transition: all var(--t);
+  transition: background var(--t), border-color var(--t), color var(--t);
   min-height: 30px;
   user-select: none;
   text-decoration: none;
 }
-.btn:hover { background: var(--color-graphite); border-color: var(--color-slate); }
+.btn:hover { background: #262220; border-color: var(--color-ash); color: var(--color-chalk); }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn-primary { background: var(--color-ember); border-color: var(--color-ember); color: var(--color-paper); font-weight: var(--weight-bold); }
-.btn-primary:hover { background: var(--color-ember-dim); border-color: var(--color-ember-dim); }
+/* primary = the SAME dark fill, emphasized by border, not brightness (round 036 v2: white rejected) */
+.btn-primary { border-color: var(--color-ash); color: var(--color-chalk); font-weight: var(--weight-bold); }
+.btn-primary:hover { border-color: var(--color-chalk); }
 .btn-ghost { background: transparent; border-color: transparent; color: var(--color-fog); }
 .btn-ghost:hover { color: var(--color-paper); background: var(--color-carbon); }
-.btn-danger { border-color: var(--color-slate); color: var(--color-paper); }
-.btn-danger:hover { border-color: var(--color-paper); }
+.btn-danger { border-color: var(--color-ember); color: var(--color-ember); }
+.btn-danger:hover { border-color: var(--color-ember); color: var(--color-chalk); }
 .btn-sm { min-height: 24px; padding: 2px var(--s-2); font-size: var(--text-caption); }
 
 /* ─── Inputs ─── */
@@ -132,7 +135,7 @@ th {
 tbody tr { transition: background var(--t); cursor: pointer; }
 tbody tr:hover { background: var(--color-carbon); }
 
-/* ─── Status (symbol-based, no color fills) ─── */
+/* ─── Status — Factory: status IS the one place accents live ─── */
 .status {
   display: inline-block;
   padding: 1px var(--s-2);
@@ -146,19 +149,19 @@ tbody tr:hover { background: var(--color-carbon); }
   white-space: nowrap;
 }
 .status::before { margin-right: 4px; }
-.status-pass, .status-passed, .status-done { color: var(--color-paper); border-color: var(--color-slate); }
+.status-pass, .status-passed, .status-done { color: var(--color-ok); border-color: var(--color-ok); }
 .status-pass::before, .status-passed::before, .status-done::before { content: '✓'; }
-.status-fail, .status-failed, .status-error { color: var(--color-paper); border-color: var(--color-slate); }
+.status-fail, .status-failed, .status-error { color: var(--color-ember); border-color: var(--color-ember); }
 .status-fail::before, .status-failed::before, .status-error::before { content: '✕'; }
-.status-running { color: var(--color-paper); border-color: var(--color-slate); }
+.status-running { color: var(--color-ember); border-color: var(--color-ember); }
 .status-running::before { content: '▸'; }
 .status-skip { color: var(--color-fog); }
 .status-skip::before { content: '·'; }
 .status-queued { color: var(--color-fog); }
 .status-queued::before { content: '·'; }
-.status-changes-pending { color: var(--color-paper); border-color: var(--color-ember); }
+.status-changes-pending { color: var(--color-ember); border-color: var(--color-ember); }
 .status-changes-pending::before { content: '◆'; }
-.status-blocked { color: var(--color-paper); border-color: var(--color-slate); border-style: dashed; }
+.status-blocked { color: var(--color-ash); border-color: var(--color-slate); border-style: dashed; }
 .status-blocked::before { content: '◆'; }
 .status-quarantined { color: var(--color-steel); }
 .status-quarantined::before { content: '◌'; }

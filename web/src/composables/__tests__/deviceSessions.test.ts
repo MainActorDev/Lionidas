@@ -36,7 +36,7 @@ describe('useDeviceSessions (per-device control map)', () => {
   });
 
   it('set() writes/removes; heartbeat pings every entry on the 30s loop', async () => {
-    const fn = vi.fn(async (url: string) => ({ ok: true, json: async () => ({ sessions: [{ id: 'ms_a', udid: 'A', startedAt: 1 }, { id: 'ms_b', udid: 'B', startedAt: 2 }] }) }));
+    const fn = vi.fn(async (_url: string) => ({ ok: true, json: async () => ({ sessions: [{ id: 'ms_a', udid: 'A', startedAt: 1 }, { id: 'ms_b', udid: 'B', startedAt: 2 }] }) }));
     vi.stubGlobal('fetch', fn as never);
     const s = useDeviceSessions();
     s.set('A', { sessionId: 'ms_a', startedAt: 1, dims: { w: null, h: null } });

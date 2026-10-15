@@ -16,7 +16,7 @@ describe.skipIf(!hasButler)('config tools (read + write, route-faithful)', () =>
   let app: Awaited<ReturnType<typeof buildApp>>;
   let db: import('better-sqlite3').Database;
   let dir: string;
-  let syncSpy: { calls: number };
+  let _syncSpy: { calls: number };
   const CTX = { sessionId: 'cfg', signal: undefined };
   const READ = { name: 'read', allows: 'read' as const };
   const DRAFT = { name: 'draft', allows: 'draft' as const };
@@ -32,7 +32,7 @@ describe.skipIf(!hasButler)('config tools (read + write, route-faithful)', () =>
     process.env['CRUCIBLE_PIN'] = 'cli-test-pin-1';
     app = await buildApp(process.env);
     db = (app as unknown as { db: { raw: import('better-sqlite3').Database } }).db.raw;
-    syncSpy = { calls: 0 };
+    _syncSpy = { calls: 0 };
     const now = Date.now();
 
     // ── seed: two cases (same bundle), one suite with both, one scenario with

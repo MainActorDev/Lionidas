@@ -187,7 +187,7 @@ export function buildToolRegistry(deps: ToolDeps): ToolRegistry {
       } catch { lastIngestAt.delete(key); } // allow retry on next search
     })();
   };
-  const markIngestFresh = (root: string): void => { lastIngestAt.set(`repo:${root}`, Date.now()); };
+  const _markIngestFresh = (root: string): void => { lastIngestAt.set(`repo:${root}`, Date.now()); };
   const repoSnapshotAgeMs = (root: string): number | null => {
     const t = lastIngestAt.get(`repo:${root}`);
     return typeof t === 'number' && t > 0 ? Date.now() - t : null;
@@ -203,7 +203,7 @@ export function buildToolRegistry(deps: ToolDeps): ToolRegistry {
       // staleness: if a registered repo backs recent hits and is stale, kick refresh
       let staleNote = '';
       const reposRoot = deps.reposRoot ?? './repos';
-      const seenRoots = new Set<string>();
+      const _seenRoots = new Set<string>();
       for (const h of hits) {
         const m = /repo:\/\/([^/]+)\/(.+)$/.exec(h.ref);
         void m;
@@ -238,7 +238,7 @@ export function buildToolRegistry(deps: ToolDeps): ToolRegistry {
     },
   });
 
-  registerConfigTools({ db, registry, ...(syncPresets ? { syncPresets } : {}) });
+  registerConfigTools({ db, registry, ...(syncPresets ? { syncPresets } : {}), ...(storage ? { storage } : {}) });
 
   return registry;
 }

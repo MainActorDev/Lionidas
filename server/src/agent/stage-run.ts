@@ -24,7 +24,7 @@ function stageProvider(ctx: AgentContext, cmd: string): Provider {
   return resolved instanceof Object && 'complete' in (resolved as object) ? (resolved as Provider) : ctx.provider;
 }
 
-export function registerStageRunTool(registry: ToolRegistry, ctx: AgentContext, env: Record<string, string | undefined> = process.env as Record<string, string | undefined>): void {
+export function registerStageRunTool(registry: ToolRegistry, ctx: AgentContext, _env: Record<string, string | undefined> = process.env as Record<string, string | undefined>): void {
   registry.register({
     name: 'stage.run',
     description: 'Execute one test-authoring stage (/planning, /breakdown, /author) as an isolated run: its own instructions, tools, and model. Pass the input the stage needs (a user ask for planning; the SCOPE for breakdown; the breakdown table for author). Returns the stage output.',

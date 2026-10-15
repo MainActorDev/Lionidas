@@ -1,6 +1,5 @@
 import { describe, expect, it, beforeAll } from 'vitest';
-import { execSync } from 'node:child_process';
-import { mkdtempSync, cpSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildApp } from '../src/index.ts';

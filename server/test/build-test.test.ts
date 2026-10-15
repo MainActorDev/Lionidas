@@ -185,6 +185,6 @@ describe('POST /api/builds/:id/test', () => {
     const rows = listBuilds(db);
     const b = rows.find((x) => x.id === buildId);
     expect(b?.suite).toEqual(expect.objectContaining({ passed: 2, failed: 1, running: 1, total: 4 }));
-    expect((b?.suite as { failedNames?: string[] }).failedNames).toEqual([expect.stringContaining('case-aggr')]);
+    expect(((b?.suite ?? {}) as { failedNames?: string[] }).failedNames).toEqual([expect.stringContaining('case-aggr')]);
   });
 });

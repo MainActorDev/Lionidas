@@ -1,55 +1,61 @@
-/* ═══ Crucible Design Tokens — Axiom system (per user directive: follow hermes-colony UI) ═══
-   Terminal-grade dark interface. Pure black canvas, monospaced typography,
-   one Ember accent. No gradients, no shadows beyond hairlines, 2px corners. */
+/* ═══ Lionidas Design Tokens — Factory system (round 036, user-approved 2026-10-14) ═══
+   Terminal war room: #101010 canvas, carbon-lift surfaces, ash hairlines,
+   Geist 400 voice, status-only orange/green. NO bright fills, NO bold >500,
+   NO shadows. Reference: sketches/036-lionidas-visual-direction/factory-sidebar/
+   Token NAMES keep their Axiom-era identity so all ~2,670 var() references
+   across the app resolve unchanged; only VALUES were remapped. */
 
 :root {
-  /* ─── Surfaces (layered dark neutrals) ─── */
-  --color-void:     #000000;   /* Page background, nav, terminal canvas */
-  --color-carbon:   #111111;   /* Primary surface, cards, hero */
-  --color-graphite: #191919;   /* Elevated cards, modals, inset blocks */
-  --color-iron:     #202020;   /* Hairline borders, dividers */
-  --color-slate:    #3a3a3a;   /* Muted borders, icon strokes */
-  --color-pewter:   #505050;   /* Subtle dividers, decorative rules */
+  /* ─── Surfaces — themed: values resolve through theme.css (light registered
+     there too), so the legacy names flip with .dark exactly like shadcn vars.
+     NAMES keep their Axiom-era identity so all ~2,670 var() references
+     across the app resolve unchanged. ─── */
+  --color-void:     var(--background);  /* Obsidian canvas — page background, nav */
+  --color-carbon:   var(--card);        /* Carbon lift — raised surfaces, buttons, hover rows */
+  --color-graphite: var(--card);        /* Inner tile dividers (carbon) */
+  --color-iron:     var(--border);      /* Ash stroke — hairline borders, dividers */
+  --color-slate:    var(--secondary);   /* Graphite mid — mid-tone fills, muted borders */
+  --color-pewter:   var(--border);      /* (alias of ash) */
 
-  /* ─── Text ─── */
-  --color-steel:    #606060;   /* Tertiary text, inactive labels */
-  --color-ash:      #7e7e7e;   /* Muted helper text */
-  --color-fog:      #b4b4b4;   /* Secondary text, labels */
-  --color-chalk:    #d9d9d9;   /* Light borders, icon detail */
-  --color-paper:    #eeeeee;   /* Primary text, headings, button text */
+  /* ─── Text (bone ramp / themed) ─── */
+  --color-steel:    var(--muted-foreground); /* Warm granite — muted text, inactive labels */
+  --color-ash:      var(--muted-foreground); /* Pale stone — tertiary text, eyebrows (themed; dark value identical to legacy #b8b3b0) */
+  --color-fog:      var(--muted-foreground); /* (alias) */
+  --color-chalk:    var(--foreground); /* Bone — primary text (themed) */
+  --color-paper:    var(--foreground); /* (alias of bone) */
 
-  /* ─── Accent (Ember — used SPARINGLY) ─── */
-  --color-ember:    #da5c2c;   /* Primary CTA fill, active marks, left borders */
-  --color-ember-dim: #a04521;  /* Hover/active states on ember */
+  /* ─── Status accents — DATA/STATUS ONLY, never fills ───
+     Values are themed (theme.css flips --status-* per light/dark) so the
+     legacy token names and the shadcn variables stay in lockstep. */
+  --color-ember:    var(--status-orange);  /* Signal orange — live status, failures, active marks */
+  --color-ember-dim: var(--status-orange-dim, #c24f13);  /* Hover/active on signal orange */
 
-  /* Status is communicated through symbols + borders, NOT color fills.
-     Chart/evidence semantics may use restrained fills where data needs it. */
-  --color-ok:      #da5c2c;
-  --color-warn:    #b4b4b4;
-  --color-err:     #eeeeee;
+  --color-ok:       var(--status-green);   /* Metric green */
+  --color-warn:     #b8b3b0;   /* Warn reads as pale stone (neutral) */
+  --color-err:      var(--status-orange);  /* Errors read as signal orange */
 
   /* ─── Typography ─── */
-  --font-mono: 'JetBrains Mono', 'BerkeleyMono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: 'Geist Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-sans: 'Geist', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
-  /* Type scale */
+  /* Type scale (Factory: 12 / 14 / 16 / 36 …) */
   --text-caption:  12px;
   --text-body:     14px;
   --text-label:    13px;
-  --text-heading-sm: 18px;
-  --text-heading:  20px;
-  --text-heading-lg: 24px;
-  --text-display:  32px;
-  --text-kpi:      40px;
+  --text-heading-sm: 24px;
+  --text-heading:  36px;
+  --text-heading-lg: 44px;
+  --text-display:  72px;
+  --text-kpi:      32px;
 
-  /* Line heights */
-  --leading-tight:  1.2;
+  /* Line heights (Factory caps body at 1.5; display at 1.1) */
+  --leading-tight:  1.1;
   --leading-normal: 1.5;
   --leading-relaxed: 1.71;
 
-  /* Weights */
+  /* Weights — Factory voice: 400 everywhere, 500 the MAXIMUM "bold" */
   --weight-regular: 400;
-  --weight-bold:    700;
+  --weight-bold:    500;
 
   /* ─── Spacing (8px base) ─── */
   --s-1: 4px;
@@ -61,18 +67,19 @@
   --s-7: 48px;
   --s-8: 64px;
 
-  /* ─── Radius (sharp geometry) ─── */
-  --r-sm: 2px;
-  --r:    2px;
+  /* ─── Radius (sharp, instrument-like) ─── */
+  --r-sm: 3px;
+  --r:    3px;
+  --r-card: 10px;
   --r-full: 9999px;
 
-  /* ─── Transitions ─── */
-  --t: 120ms cubic-bezier(0.4, 0, 0.2, 1);
+  /* ─── Transitions — short, mechanical, CLI-feel ─── */
+  --t: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 
   /* ─── Layout ─── */
   --page-max: 1200px;
-  --sidebar-w: 220px;
-  --topbar-h: 48px;
+  --sidebar-w: 224px;
+  --topbar-h: 56px;
 }
 
 /* ─── Reset ─── */
@@ -80,7 +87,8 @@
 button { background: none; border: none; color: inherit; font: inherit; cursor: pointer; }
 html { font-size: var(--text-body); }
 body {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
+  font-weight: var(--weight-regular);
   background: var(--color-void);
   color: var(--color-paper);
   -webkit-font-smoothing: antialiased;
@@ -88,14 +96,15 @@ body {
   font-size: var(--text-body);
 }
 
-/* ─── Scrollbar (terminal-style) ─── */
+/* ─── Scrollbar (themed, unobtrusive) ─── */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: var(--color-void); }
-::-webkit-scrollbar-thumb { background: var(--color-iron); border-radius: 0; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-carbon); border-radius: 0; }
 ::-webkit-scrollbar-thumb:hover { background: var(--color-slate); }
 
-/* ─── Selection ─── */
-::selection { background: var(--color-ember); color: var(--color-paper); }
+/* ─── Selection — status accent, never chrome ─── */
+::selection { background: var(--color-ember); color: var(--color-chalk); }
+.dark ::selection { color: #101010; }
 
 /* ─── Code ─── */
 code, .mono { font-family: var(--font-mono); }

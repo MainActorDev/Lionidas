@@ -799,7 +799,7 @@ export function migrateM1(db: Database.Database): void {
           try {
             for (const st of JSON.parse(c.setup_json || '[]') as Array<{ ensureLogin?: { phone?: string; password?: string } }>) {
               const v = st.ensureLogin?.[slot];
-              if (typeof v === 'string' && v.startsWith('\${env.')) {
+              if (typeof v === 'string' && v.startsWith('$' + '{env.')) {
                 counts.set(v, (counts.get(v) ?? 0) + 1);
               }
             }
@@ -809,8 +809,8 @@ export function migrateM1(db: Database.Database): void {
         for (const [k, n] of counts) if (n > bestN) { best = k; bestN = n; }
         return best;
       };
-      const phoneRef = countRef('phone') || '\${env.LOGIN_PHONE}';
-      const pwRef = countRef('password') || '\${env.LOGIN_PASSWORD}';
+      const phoneRef = countRef('phone') || '$' + '{env.LOGIN_PHONE}';
+      const pwRef = countRef('password') || '$' + '{env.LOGIN_PASSWORD}';
       const steps = [
         { type: { on: old.phone, text: phoneRef } },
         { type: { on: old.password, text: pwRef } },
@@ -862,4 +862,18 @@ export function migrateBuildConfigs(db: Database.Database): void {
   ]) {
     try { db.exec(col); } catch { /* column exists */ }
   }
+  // apply-bridge (plan 20261015T121500Z B1, review R4/R5): parked proposals for the
+  // /build-config-propose confirm loop. The pending→applied flip is the TURN
+  // DECORATION's job (user's actual message via prepareTurn) — never a tool's.
+  // Per-project keys: a session may propose for several projects (R5).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS build_config_proposals(
+      session_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      proposal_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','applied','declined')),
+      PRIMARY KEY (session_id, project_id)
+    );
+  `);
 }

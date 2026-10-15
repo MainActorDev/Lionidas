@@ -95,9 +95,9 @@ Rules:
 Workflow — follow exactly, with a HARD STOP:
 1. READ the project workspace via repo tools (repo.tree / repo.read): build files (project.yml, Package.swift, Project.swift, Podfile, *.xcodeproj/workspace, fastlane/Fastfile), config wiring (xcconfig paths and whether they exist), scripts, CI workflows. Use sources.search when the repo is large.
 2. CLASSIFY the archetype and DIAGNOSE each blocker from the detection report (it names codes with evidence).
-3. PROPOSE a markdown table: transport (repo-lane|generic) | scheme | configuration | prepare steps (ordered, exact commands) — and for EVERY row a file:line evidence citation. If a blocker is a MISSING SECRET or credential you cannot read (gitignored xcconfig, private spec repo, signing), that row is the blocker NEEDS_SECRETS — the HUMAN supplies it; never propose synthesizing or bypassing a secret.
-4. HARD STOP: end your turn with the table and "Confirm applying this recipe? The host writes it (provenance: ai+user) and offers verify." Do NOT write anything before the user replies.
-5. After confirmation (next turn), the HOST applies the recipe via POST /api/projects/:id/build-config/apply-proposal — say so and stop. Park the proposal as a note (kind recipe-proposal, scope project) if the user defers.
+3. PROPOSE via the build_config.propose tool (projectId, transport, scheme, configuration, prepare[], evidence[]) — it parks the proposal structurally and returns the table to render. Every row needs a file:line evidence citation. If a blocker is a MISSING SECRET or credential you cannot read (gitignored xcconfig, private spec repo, signing), that row is the blocker NEEDS_SECRETS — the HUMAN supplies it; never propose synthesizing or bypassing a secret.
+4. HARD STOP: end your turn with the table and "Confirm applying this build config? The host writes it (provenance: ai+user) and verify-build runs." Do NOT write anything before the user replies.
+5. After the user confirms (their message flips the parked row — the turn overlay says so), call build_config.apply {projectId}: it writes the revision (provenance ai+user) and FIRES verify-build. Report the revision number and that verify is running; the verdict lands as a note minutes later. NEVER call build_config.apply before the user's confirmation — it is refused structurally, and retrying is a contract violation.
 
 Rules:
 - Every claim cites file:line. No evidence, no row.
@@ -114,9 +114,9 @@ Rules:
 Workflow — follow exactly, with a HARD STOP:
 1. READ the failure: the recipe's verify log (the user pastes it or it rides the thread) — find the FIRST hard error (xcodebuild, xcodegen, prepare step, resolution).
 2. CORROBORATE against the repo via repo.read at the exact file:line the error names — a diagnosis without code corroboration is a guess.
-3. PROPOSE the minimal revision as a table: what changes (scheme | configuration | prepare step added/edited/removed) | why (the error it fixes) | evidence (file:line from BOTH the log and the repo).
-4. HARD STOP: end with the table and "Confirm applying this revision? The host writes it (revision N+1, provenance: ai+user); then re-run verify." Do NOT write anything before the user replies.
-5. After confirmation, the HOST applies the revision and the user re-runs verify — say so and stop. One revision per confirmation; no retry loops.
+3. PROPOSE the minimal revision via the build_config.propose tool (the REVISED fields + evidence: file:line from BOTH the log and the repo): what changes (scheme | configuration | prepare step added/edited/removed) | why (the error it fixes).
+4. HARD STOP: end with the rendered table and "Confirm applying this revision? It writes revision N+1 (provenance: ai+user) and re-fires verify." Do NOT write anything before the user replies.
+5. After the user confirms (the turn overlay tells you the row flipped), call build_config.apply {projectId} — it writes revision N+1 and fires verify. Report the revision number. One revision per confirmation; no retry loops. If the row's gate is NEEDS_SECRETS-unmet, say so and STOP — apply cannot and must not work around secrets; verify fails honestly until the human supplies them.
 
 Rules:
 - Root cause, not symptom: if the log's error is downstream (missing generated project), the revision fixes the UPSTREAM prepare step.

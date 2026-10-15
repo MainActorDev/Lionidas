@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>037 audit — B · master-detail</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --void:#101010; --carbon:#1d1a18; --carbon-lift:#232020; --iron:#3d3a39;
+  --steel:#8a8380; --ash:#b8b3b0; --chalk:#eeeeee;
+  --ember:#ee6018; --ok:#a0ca92;
+  --font:'Geist',ui-sans-serif,system-ui,sans-serif;
+  --mono:'Geist Mono','JetBrains Mono',ui-monospace,Menlo,monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:14px}
+body{font-family:var(--font);background:var(--void);color:var(--chalk);-webkit-font-smoothing:antialiased;line-height:1.5}
+button{background:none;border:none;color:inherit;font:inherit;cursor:pointer}
+
+.app{display:flex;height:100vh;overflow:hidden}
+
+/* ── list column ── */
+.list{flex:1;display:flex;flex-direction:column;min-width:0}
+.head{display:flex;align-items:baseline;gap:12px;padding:22px 28px 14px;border-bottom:1px solid var(--iron)}
+h1{font-family:var(--mono);font-size:18px;font-weight:500;letter-spacing:-.01em}
+.count{font-family:var(--mono);font-size:12px;color:var(--steel)}
+.toolbar{display:flex;gap:8px;padding:12px 28px;border-bottom:1px solid var(--iron);align-items:center}
+.q{flex:1;display:flex;align-items:center;gap:8px;border:1px solid var(--iron);border-radius:3px;padding:7px 10px;background:var(--carbon)}
+.q:focus-within{border-color:var(--ash)}
+.q input{background:none;border:none;color:var(--chalk);font-family:var(--mono);font-size:12px;outline:none;flex:1}
+.chip{font-family:var(--mono);font-size:11px;border:1px solid var(--iron);border-radius:3px;padding:6px 10px;color:var(--ash)}
+.chip:hover{border-color:var(--ash);color:var(--chalk)}
+.chip.on{background:var(--carbon);border-color:var(--ash);color:var(--chalk)}
+
+.rows{flex:1;overflow-y:auto;padding:0 28px}
+.row{display:grid;grid-template-columns:110px 1fr 90px;gap:12px;padding:9px 8px;border-bottom:1px solid rgba(61,58,57,.4);align-items:baseline;border-radius:3px}
+.row:hover{background:var(--carbon)}
+.row.sel{background:var(--carbon);outline:1px solid var(--iron)}
+.row .t{font-family:var(--mono);font-size:11px;color:var(--steel)}
+.row .main{min-width:0}
+.row .l1{display:flex;gap:8px;align-items:baseline}
+.ev{font-family:var(--mono);font-size:12px;color:var(--chalk)}
+.ev.auth{color:var(--ash)}.ev.runs{color:var(--ok)}.ev.rbac{color:var(--ember)}
+.row .l2{font-size:12px;color:var(--steel);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}
+.row .l2 b{color:var(--ash);font-weight:400}
+.row .side{font-family:var(--mono);font-size:11px;color:var(--steel);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── detail pane ── */
+.detail{width:380px;border-left:1px solid var(--iron);display:flex;flex-direction:column;background:var(--carbon);overflow-y:auto}
+.detail .inner{padding:22px 24px;display:flex;flex-direction:column;gap:0}
+.d-ev{font-family:var(--mono);font-size:16px;font-weight:500;margin-bottom:2px}
+.d-ev.auth{color:var(--ash)}.d-ev.runs{color:var(--ok)}.d-ev.rbac{color:var(--ember)}
+.d-time{font-family:var(--mono);font-size:11px;color:var(--steel);margin-bottom:18px}
+.d-h{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--steel);padding:10px 0 6px;border-top:1px solid var(--iron)}
+.kv{display:grid;grid-template-columns:88px 1fr;gap:10px;padding:3px 0;font-size:12px}
+.kv .k{font-family:var(--mono);color:var(--steel)}
+.kv .v{font-family:var(--mono);color:var(--chalk);word-break:break-all}
+.d-note{font-size:13px;color:var(--ash);padding:8px 0 4px}
+.raw{margin-top:8px;border:1px solid var(--iron);border-radius:3px;background:var(--void);padding:10px;font-family:var(--mono);font-size:11px;color:var(--ash);white-space:pre-wrap;word-break:break-all}
+.d-rel{display:flex;gap:8px;margin-top:16px}
+.d-rel button{font-family:var(--mono);font-size:11px;border:1px solid var(--iron);border-radius:3px;padding:6px 10px;color:var(--ash)}
+.d-rel button:hover{border-color:var(--ash);color:var(--chalk)}
+
+@media (max-width:900px){
+  .detail{display:none}
+  .row{grid-template-columns:80px 1fr}
+  .row .side{display:none}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <main class="list">
+    <div class="head">
+      <h1>audit log</h1>
+      <span class="count" id="count">128 events</span>
+    </div>
+    <div class="toolbar">
+      <label class="q">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--steel)"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="q" placeholder="search actor, event, detail…" aria-label="search audit log">
+      </label>
+      <button class="chip" id="fchip">class: all ▾</button>
+      <button class="chip" id="rchip">14d ▾</button>
+    </div>
+    <div class="rows" id="rows"></div>
+  </main>
+
+  <aside class="detail" id="detail" aria-label="event detail">
+    <div class="inner" id="dinner"></div>
+  </aside>
+</div>
+
+<script>
+const CLASSES={login:'auth',login_failed:'auth',logout:'auth',session_killed:'auth',approved:'accounts',unapproved:'accounts',role_changed:'accounts',active_changed:'accounts',password_changed:'accounts',bot_token_rotated:'accounts',run_play:'runs',run_abort:'runs',case_create:'cases',case_edit:'cases',case_delete:'cases',manual_take_control:'devices',manual_release:'devices',device_action:'devices',build_trigger:'devices',rbac_denied:'rbac'};
+const ACTORS=[['a.pratama@lionparcel.com','A. Pratama','supervisor'],['n.wijaya@lionparcel.com','N. Wijaya','operator'],['ci-bot','ci-bot','bot'],['system','system','—']];
+const DETAILS={login:'session opened · web · 10.14.88.2',login_failed:'bad password · web · 10.14.88.2',logout:'session closed',session_killed:'killed by supervisor (stale)',approved:'approved operator account',role_changed:'operator → supervisor',active_changed:'account disabled',password_changed:'self password change',bot_token_rotated:'bot token rotated',run_play:'login-flow on iPhone 16',run_abort:'aborted after 34s',case_create:'login-flow-v3',case_edit:'steps 4→7',case_delete:'stale-probe',manual_take_control:'iPhone 16 · 90s',manual_release:'iPhone 16',device_action:'screenshot batch (12)',build_trigger:'build 382 · develop',rbac_denied:'users: list — denied'};
+const IP='10.14.88.'+(2+Math.floor(Math.random()*40));
+const now=Date.now(),D=864e5;
+let seed=11;const rnd=()=>{seed=(seed*16807)%2147483647;return seed/2147483647};
+const EVS=Object.keys(CLASSES);
+let rows=[];
+for(let i=0;i<128;i++){
+  const ev=EVS[Math.floor(rnd()*EVS.length)];
+  const a=ACTORS[Math.floor(rnd()*(ev==='rbac_denied'?2:4))];
+  rows.push({id:i+1,at:now-Math.floor(rnd()*14*D)-i*36e5,ev,email:a[0],name:a[1],role:a[2],ip:'10.14.88.'+(2+Math.floor(rnd()*40)),detail:DETAILS[ev]});
+}
+rows.sort((a,b)=>b.at-a.at);
+let sel=rows.find(r=>r.ev==='rbac_denied')||rows[0];
+const $=s=>document.querySelector(s);
+function fmt(t){return new Date(t).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+function rel(t){const s=(Date.now()-t)/1e3;if(s<60)return`${s|0}s ago`;if(s<3600)return`${s/60|0}m ago`;if(s<86400)return`${s/3600|0}h ago`;return`${s/86400|0}d ago`}
+function renderList(){
+  const f=rows.filter(r=>!q||(r.email+' '+r.ev+' '+r.detail).toLowerCase().includes(q));
+  $('#count').textContent=`${f.length} events`;
+  $('#rows').innerHTML=f.slice(0,80).map(r=>`
+    <div class="row ${r===sel?'sel':''}" data-id="${r.id}" tabindex="0">
+      <span class="t">${rel(r.at)}</span>
+      <div class="main">
+        <div class="l1"><span class="ev ${CLASSES[r.ev]}">${r.ev}</span></div>
+        <div class="l2">${r.detail}</div>
+      </div>
+      <span class="side">${r.name}</span>
+    </div>`).join('');
+  document.querySelectorAll('.row').forEach(el=>el.addEventListener('click',()=>{sel=rows.find(r=>r.id==el.dataset.id);renderList();renderDetail()}));
+}
+function renderDetail(){
+  const r=sel;
+  $('#dinner').innerHTML=`
+    <div class="d-ev ${CLASSES[r.ev]}">${r.ev}</div>
+    <div class="d-time">${fmt(r.at)} · ${rel(r.at)}</div>
+    <div class="d-h">actor</div>
+    <div class="kv"><span class="k">name</span><span class="v">${r.name}</span></div>
+    <div class="kv"><span class="k">email</span><span class="v">${r.email}</span></div>
+    <div class="kv"><span class="k">role</span><span class="v">${r.role}</span></div>
+    <div class="d-h">context</div>
+    <div class="kv"><span class="k">detail</span><span class="v">${r.detail}</span></div>
+    <div class="kv"><span class="k">source ip</span><span class="v">${r.ip}</span></div>
+    <div class="kv"><span class="k">class</span><span class="v">${CLASSES[r.ev]}</span></div>
+    <div class="d-h">raw record</div>
+    <pre class="raw">{ "id": ${r.id}, "at": ${r.at}, "event": "${r.ev}",\n  "email": "${r.email}", "detail": "${r.detail}" }</pre>
+    <div class="d-rel">
+      <button>filter by this actor</button>
+      <button>copy record id</button>
+    </div>`;
+}
+let q='';
+$('#q').addEventListener('input',e=>{q=e.target.value.trim().toLowerCase();renderList()});
+$('#fchip').addEventListener('click',()=>{$('#fchip').classList.toggle('on')});
+$('#rchip').addEventListener('click',()=>{$('#rchip').classList.toggle('on')});
+renderList();renderDetail();
+</script>
+</body>
+</html>

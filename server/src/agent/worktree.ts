@@ -7,7 +7,6 @@
  *  sources walk skips dot-dirs so a worktree is never ingested; dirty main
  *  checkout refuses (protect user WIP); failure discards the worktree. */
 
-import { execSync } from 'node:child_process';
 import { existsSync, rmSync, cpSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 

@@ -1,5 +1,7 @@
 import { defineConfig } from 'vite';
+import { fileURLToPath, URL } from 'node:url';
 import vue from '@vitejs/plugin-vue';
+import tailwindcss from '@tailwindcss/vite';
 
 // CRUCIBLE_API_TARGET (default 9230): point the dev proxy at a test
 // instance (e.g. 9231) without touching the real server — see
@@ -7,7 +9,12 @@ import vue from '@vitejs/plugin-vue';
 const apiTarget = process.env.CRUCIBLE_API_TARGET ?? 'http://127.0.0.1:9230';
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [vue(), tailwindcss()],
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
   server: {
     port: 5230,
     proxy: {

@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>037 audit — C · activity stream</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --void:#101010; --carbon:#1d1a18; --carbon-lift:#232020; --iron:#3d3a39;
+  --steel:#8a8380; --ash:#b8b3b0; --chalk:#eeeeee;
+  --ember:#ee6018; --ok:#a0ca92;
+  --font:'Geist',ui-sans-serif,system-ui,sans-serif;
+  --mono:'Geist Mono','JetBrains Mono',ui-monospace,Menlo,monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:14px}
+body{font-family:var(--font);background:var(--void);color:var(--chalk);-webkit-font-smoothing:antialiased;line-height:1.5}
+button{background:none;border:none;color:inherit;font:inherit;cursor:pointer}
+
+.wrap{max-width:760px;margin:0 auto;padding:0 24px 60px}
+
+.head{display:flex;align-items:baseline;gap:12px;padding:22px 0 14px;border-bottom:1px solid var(--iron);flex-wrap:wrap}
+h1{font-family:var(--mono);font-size:18px;font-weight:500;letter-spacing:-.01em}
+.count{font-family:var(--mono);font-size:12px;color:var(--steel)}
+
+/* ── live toggle + summary bar ── */
+.live{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;color:var(--steel);margin-left:auto}
+.live .pulse{width:6px;height:6px;border-radius:50%;background:var(--ember);animation:blink 2s infinite}
+.live.on{color:var(--ash)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
+
+.sumbar{display:flex;gap:0;border:1px solid var(--iron);border-radius:3px;overflow:hidden;margin:16px 0 0;font-family:var(--mono);font-size:11px}
+.sum{flex:1;padding:10px 12px;display:flex;flex-direction:column;gap:2px;background:var(--carbon);cursor:pointer;border:none}
+.sum+.sum{border-left:1px solid var(--iron)}
+.sum .n{font-size:20px;color:var(--chalk);font-weight:400}
+.sum .l{color:var(--steel);font-size:10px;letter-spacing:.06em;text-transform:uppercase}
+.sum.on{outline:1px solid var(--ash);outline-offset:-1px}
+.sum .n.hi{color:var(--ember)}
+
+/* ── stream ── */
+.stream{margin-top:22px;position:relative}
+.feed{position:relative;padding-left:22px}
+.feed::before{content:'';position:absolute;left:5px;top:6px;bottom:6px;width:1px;background:var(--iron)}
+.evt{position:relative;padding:0 0 20px}
+.evt .node{position:absolute;left:-22px;top:5px;width:11px;height:11px;border-radius:50%;background:var(--void);border:1px solid var(--iron)}
+.evt.auth .node{border-color:var(--ash)}
+.evt.runs .node{border-color:var(--ok)}
+.evt.rbac .node{border-color:var(--ember)}
+.evt .l1{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.evt .ev{font-family:var(--mono);font-size:12px;color:var(--chalk)}
+.evt.auth .ev{color:var(--ash)}.evt.runs .ev{color:var(--ok)}.evt.rbac .ev{color:var(--ember)}
+.evt .who{font-size:13px;color:var(--ash)}
+.evt .who b{color:var(--chalk);font-weight:400}
+.evt .t{font-family:var(--mono);font-size:11px;color:var(--steel);margin-left:auto;white-space:nowrap}
+.evt .what{font-size:13px;color:var(--steel);margin-top:2px;padding-left:0}
+.evt .what b{color:var(--ash);font-weight:400}
+.evt .ctx{display:flex;gap:10px;margin-top:6px;font-family:var(--mono);font-size:11px;color:var(--steel);flex-wrap:wrap}
+.evt .ctx span{border:1px solid rgba(61,58,57,.6);border-radius:3px;padding:2px 7px}
+.evt.rbac .ctx .deny{border-color:rgba(238,96,24,.5);color:var(--ember)}
+
+.daysep{position:relative;display:flex;align-items:center;gap:10px;margin:26px 0 18px;font-family:var(--mono);font-size:11px;color:var(--steel)}
+.daysep::before{content:'';position:absolute;left:-22px;top:50%;width:11px;height:1px;background:var(--iron)}
+.daysep .d{border:1px solid var(--iron);border-radius:3px;padding:3px 9px}
+
+.search{display:flex;gap:8px;margin:14px 0 0}
+.q{flex:1;display:flex;align-items:center;gap:8px;border:1px solid var(--iron);border-radius:3px;padding:7px 10px;background:var(--carbon)}
+.q:focus-within{border-color:var(--ash)}
+.q input{background:none;border:none;color:var(--chalk);font-family:var(--mono);font-size:12px;outline:none;flex:1}
+
+.more{font-family:var(--mono);font-size:12px;border:1px solid var(--iron);border-radius:3px;padding:7px 14px;color:var(--ash);margin-top:6px}
+.more:hover{border-color:var(--ash);color:var(--chalk)}
+.empty{padding:48px 0;color:var(--steel);font-size:13px}
+
+@media (max-width:640px){
+  .evt .t{display:none}
+  .evt{padding-left:0}
+  .sumbar{flex-wrap:wrap}.sum{min-width:44%}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="head">
+    <h1>audit log</h1>
+    <span class="count" id="count">128 events · 14d</span>
+    <button class="live on" id="live" aria-pressed="true"><span class="pulse"></span>live</button>
+  </header>
+  <main>
+  <div class="sumbar" role="group" aria-label="event class filter">
+    <button class="sum on" data-cls="all"><span class="n" id="n-all">128</span><span class="l">all</span></button>
+    <button class="sum" data-cls="auth"><span class="n" id="n-auth">41</span><span class="l">auth</span></button>
+    <button class="sum" data-cls="runs"><span class="n" id="n-runs">36</span><span class="l">runs</span></button>
+    <button class="sum" data-cls="devices"><span class="n" id="n-devices">18</span><span class="l">devices</span></button>
+    <button class="sum" data-cls="rbac"><span class="n hi" id="n-rbac">12</span><span class="l">denials</span></button>
+    <button class="sum" data-cls="other"><span class="n" id="n-other">21</span><span class="l">other</span></button>
+  </div>
+
+  <div class="search">
+    <label class="q">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--steel)"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" placeholder="search actor, event, detail…" aria-label="search audit log">
+    </label>
+  </div>
+
+  <div class="stream"><div class="feed" id="feed"></div></div>
+  <button class="more" id="more">load earlier</button>
+  <p class="empty" id="empty" hidden>no events match</p>
+  </main>
+</div>
+
+<script>
+const CLASSES={login:'auth',login_failed:'auth',logout:'auth',session_killed:'auth',approved:'accounts',unapproved:'accounts',role_changed:'accounts',active_changed:'accounts',password_changed:'accounts',bot_token_rotated:'accounts',run_play:'runs',run_abort:'runs',case_create:'cases',case_edit:'cases',case_delete:'cases',manual_take_control:'devices',manual_release:'devices',device_action:'devices',build_trigger:'devices',rbac_denied:'rbac'};
+const ACTORS=[['a.pratama@lionparcel.com','A. Pratama'],['n.wijaya@lionparcel.com','N. Wijaya'],['ci-bot','ci-bot'],['system','system']];
+const DETAILS={login:'signed in from <b>10.14.88.2</b> (web)',login_failed:'bad password from <b>10.14.88.9</b>',logout:'signed out',session_killed:'session killed by supervisor — stale',approved:'approved operator account <b>n.wijaya@…</b>',role_changed:'role operator → <b>supervisor</b>',active_changed:'account <b>disabled</b>',password_changed:'changed own password',bot_token_rotated:'rotated bot token',run_play:'ran case <b>login-flow</b> on iPhone 16 · b-7741',run_abort:'aborted run after 34s',case_create:'created case <b>login-flow-v3</b>',case_edit:'edited steps 4→7 on <b>login-flow</b>',case_delete:'deleted case <b>stale-probe</b>',manual_take_control:'took control of <b>iPhone 16</b> for 90s',manual_release:'released <b>iPhone 16</b>',device_action:'captured screenshot batch (12)',build_trigger:'triggered build <b>382</b> (develop)',rbac_denied:'tried <b>users: list</b>'};
+const CONTEXTS={login:['web','10.14.88.2'],login_failed:['web','10.14.88.9'],logout:['web'],run_play:['iPhone 16','b-7741','382'],run_abort:['iPhone 16'],manual_take_control:['iPhone 16','90s'],manual_release:['iPhone 16'],build_trigger:['develop','382'],rbac_denied:['operator','users: list'],approved:['accounts']};
+const now=Date.now(),D=864e5;
+let seed=23;const rnd=()=>{seed=(seed*16807)%2147483647;return seed/2147483647};
+const EVS=Object.keys(CLASSES);
+let rows=[];
+for(let i=0;i<128;i++){
+  const ev=EVS[Math.floor(rnd()*EVS.length)];
+  const a=ACTORS[Math.floor(rnd()*(ev==='rbac_denied'?2:4))];
+  rows.push({id:i+1,at:now-Math.floor(rnd()*14*D)-i*36e5,ev,email:a[0],name:a[1],detail:DETAILS[ev],ctx:CONTEXTS[ev]||[]});
+}
+rows.sort((a,b)=>b.at-a.at);
+let q='',cls='all';
+const $=s=>document.querySelector(s);
+function rel(t){const s=(Date.now()-t)/1e3;if(s<60)return`${s|0}s`;if(s<3600)return`${s/60|0}m`;if(s<86400)return`${s/3600|0}h`;return`${s/86400|0}d`}
+function day(t){return new Date(t).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'})}
+function render(){
+  const f=rows.filter(r=>(cls==='all'||(cls==='other'?['accounts','cases'].includes(CLASSES[r.ev]):CLASSES[r.ev]===cls))&&(!q||(r.email+' '+r.ev+' '+r.detail).toLowerCase().includes(q)));
+  $('#count').textContent=`${f.length} events · 14d`;
+  const F=$('#feed');F.innerHTML='';
+  if(!f.length){$('#empty').hidden=false;$('#more').hidden=true;return}
+  $('#empty').hidden=true;
+  let lastDay='',html='';
+  for(const r of f.slice(0,50)){
+    const d=day(r.at);
+    if(d!==lastDay){html+=`<div class="daysep"><span class="d">${d}</span></div>`;lastDay=d}
+    html+=`<div class="evt ${CLASSES[r.ev]}">
+      <span class="node"></span>
+      <div class="l1"><span class="ev">${r.ev}</span><span class="who"><b>${r.name}</b> ${r.ev==='rbac_denied'?'':'· '+r.email.split('@')[0]}</span><span class="t">${rel(r.at)} ago</span></div>
+      <div class="what">${r.detail}</div>
+      ${r.ctx.length?`<div class="ctx">${r.ctx.map((c,i)=>`<span${r.ev==='rbac_denied'&&i===1?' class="deny"':''}>${c}</span>`).join('')}</div>`:''}
+    </div>`;
+  }
+  F.innerHTML=html;
+}
+$('#q').addEventListener('input',e=>{q=e.target.value.trim().toLowerCase();render()});
+document.querySelectorAll('.sum').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.sum').forEach(x=>x.classList.remove('on'));b.classList.add('on');cls=b.dataset.cls;render()}));
+$('#live').addEventListener('click',()=>{const b=$('#live');b.classList.toggle('on');b.setAttribute('aria-pressed',b.classList.contains('on'))});
+$('#more').addEventListener('click',()=>{$('#more').textContent='no earlier data in sketch'});
+render();
+</script>
+</body>
+</html>

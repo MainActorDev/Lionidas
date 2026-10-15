@@ -8,7 +8,7 @@
       {
         "patterns": [
           {
-            "group": ["**/server/**"],
+            "group": ["../server/**", "*/server/**"],
             "message": "Web must not import server code — UI knows only orchestrator API shapes."
           }
         ]

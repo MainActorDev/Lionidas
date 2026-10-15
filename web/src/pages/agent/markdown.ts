@@ -50,7 +50,7 @@ const alignOf = (c: string): string => {
 
 import { highlightBlock, normalizeLang } from './highlight.ts';
 
-const LANG_LABEL: Record<string, string> = { ts: 'typescript', js: 'javascript', sh: 'shell', text: '' };
+const _LANG_LABEL: Record<string, string> = { ts: 'typescript', js: 'javascript', sh: 'shell', text: '' };
 
 export function renderMarkdown(src: string): string {
   const lines = src.split('\n');

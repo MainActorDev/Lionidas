@@ -2,7 +2,7 @@
  *  Token rules per language; escape-first (spans wrap ESCAPED text). */
 
 import { describe, expect, it } from 'vitest';
-import { highlightBlock, highlightLine, normalizeLang } from '../highlight.ts';
+import { highlightLine, normalizeLang } from '../highlight.ts';
 import { renderMarkdown } from '../markdown.ts';
 
 describe('normalizeLang', () => {

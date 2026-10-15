@@ -1,5 +1,5 @@
 /** rev23 F2 tests — attachments: store dedup/cap/kind, upload route, attachment.get tool. */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';

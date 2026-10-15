@@ -41,7 +41,7 @@ export function fuzzyScore(query: string, target: string): number | null {
   return score / q.length;
 }
 
-export async function searchLocalRefs(ctx: AgentContext, q: string, sessionId?: string): Promise<PaletteRow[]> {
+export async function searchLocalRefs(ctx: AgentContext, q: string, _sessionId?: string): Promise<PaletteRow[]> {
   const rows: PaletteRow[] = [];
   const query = q.trim();
 

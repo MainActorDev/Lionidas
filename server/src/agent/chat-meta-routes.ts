@@ -9,7 +9,6 @@ import type Database from 'better-sqlite3';
 import type { AgentContext } from './context.ts';
 import { requireRoleAtLeast } from '../auth/roles.ts';
 import { auditWrite, auditDenial } from '../auth/audit.ts';
-import { join } from 'node:path';
 
 async function agentDbDeleteSession(agentDbPath: string, id: string): Promise<void> {
   // direct SQL on the butler DB: the Storage contract is append-only by

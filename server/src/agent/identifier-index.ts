@@ -9,7 +9,7 @@
  *  meta: bundle → head_sha/files/indexed_at — the PRECISE staleness oracle. */
 
 import type Database from 'better-sqlite3';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { execSync } from 'node:child_process';
 
@@ -17,7 +17,7 @@ export interface IdentifierRow { identifier: string; file: string; line: number;
 export interface IndexMeta { bundle: string; repo: string; headSha: string; files: number; indexedAt: number }
 
 const LITERAL_RE = /\.accessibilityIdentifier\(\s*"([^"]+)"\s*\)|accessibilityIdentifier\s*=\s*"([^"]+)"|\.identifier\(\s*"([^"]+)"\s*\)/g;
-const ANY_CALL_RE = /\.accessibilityIdentifier\(|accessibilityIdentifier\s*=|\.identifier\(/g;
+const _ANY_CALL_RE = /\.accessibilityIdentifier\(|accessibilityIdentifier\s*=|\.identifier\(/g;
 
 const DDL = `
 CREATE TABLE IF NOT EXISTS app_identifiers(

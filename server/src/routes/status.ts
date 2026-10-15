@@ -11,7 +11,6 @@
  *    engine/data-freshness per-age thresholds (7d run/ingest, 14d diag)
  *  Secrets NEVER serialized (PR: key-present booleans only). */
 import type { FastifyInstance } from 'fastify';
-import { existsSync } from 'node:fs';
 import { projectWorkspace } from '../manual/packages.ts';
 import { detectBuildConfig } from '../projects/build-config-detect.ts';
 import { activeBuildConfig } from '../projects/build-configs.ts';

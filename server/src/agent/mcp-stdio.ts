@@ -35,7 +35,7 @@ const db = openDb(dbPath);
 migrateM1(db.raw);
 {
   // verify the PAT against api_tokens (same join as resolvePat) and refuse non-operator
-  const { randomBytes, scryptSync, timingSafeEqual } = await import('node:crypto');
+  const { scryptSync, timingSafeEqual } = await import('node:crypto');
   const verify = (plain: string, stored: string): boolean => {
     const [saltHex, dkHex] = stored.split(':');
     if (!saltHex || !dkHex) return false;

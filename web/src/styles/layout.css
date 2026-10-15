@@ -1,33 +1,14 @@
-/* ═══ Layout: Sidebar + Topbar + Main (Axiom) ═══ */
+/* ═══ Layout: Sidebar + Topbar + Main — Factory system (round 036) ═══ */
 
 .app {
   display: grid;
-  grid-template-columns: var(--sidebar-w) 1fr;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
   grid-template-rows: var(--topbar-h) 1fr;
   grid-template-areas:
-    "logo  topbar"
-    "nav   main";
+    "nav  topbar"
+    "nav  main";
   height: 100vh;
   background: var(--color-void);
-}
-
-/* ─── Logo bar ─── */
-.logo {
-  grid-area: logo;
-  display: flex; align-items: center; gap: var(--s-2);
-  padding: 0 var(--s-4);
-  background: var(--color-void);
-  border-bottom: 1px solid var(--color-iron);
-  font-family: var(--font-mono);
-  font-weight: var(--weight-bold);
-  font-size: var(--text-body);
-  color: var(--color-paper);
-  letter-spacing: 0.02em;
-}
-.logo .logo-mark {
-  width: 20px; height: 20px;
-  border-radius: 4px;
-  flex-shrink: 0;
 }
 
 /* ─── Sidebar ─── */
@@ -35,14 +16,41 @@
   grid-area: nav;
   background: var(--color-void);
   border-right: 1px solid var(--color-iron);
-  padding: var(--s-4) 0;
+  padding: 20px 12px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  z-index: 30;
 }
-.nav-grp { margin-bottom: var(--s-5); }
+
+/* Brand — mono wordmark + live pulse (status accent, never chrome).
+   The old separate .logo grid cell is gone; the brand rides the sidebar. */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 22px;
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-regular);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-chalk);
+  white-space: nowrap;
+}
+.brand .brand-pulse {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--color-ember);
+  flex: none;
+}
+.brand .brand-mark { width: 20px; height: 20px; border-radius: 3px; flex-shrink: 0; }
+
+.nav-grp { margin-bottom: 18px; }
 /* guide: standalone footer link — flush left (not nested under a group) */
-.nav-item.nav-guide { margin-top: auto; padding-left: var(--s-4); border-top: 1px solid var(--color-void); }
+.nav-item.nav-guide { margin-top: auto; padding-left: 8px; border-top: 1px solid var(--color-carbon); }
+
+/* Group label — Geist Mono 12px uppercase, the instrument voice */
 .nav-grp-head {
   display: flex; align-items: center; gap: var(--s-2);
   width: 100%;
@@ -50,13 +58,12 @@
   font-size: var(--text-caption);
   font-weight: var(--weight-regular);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-steel);
-  padding: var(--s-1) var(--s-4);
-  margin-bottom: var(--s-2);
+  letter-spacing: -0.24px;
+  color: var(--color-ash);
+  padding: 0 8px 6px;
+  margin-bottom: 0;
   cursor: pointer;
   user-select: none;
-  border-left: 2px solid transparent;
   transition: color var(--t);
 }
 .nav-grp-head:hover { color: var(--color-fog); }
@@ -67,51 +74,96 @@
   transition: transform var(--t);
 }
 .nav-grp.closed .nav-grp-head .caret { transform: rotate(-90deg); }
-.nav-grp-head.on { color: var(--color-paper); }
+.nav-grp-head.on { color: var(--color-chalk); }
+
 .nav-item {
-  display: flex; align-items: center; gap: var(--s-3);
-  padding: var(--s-2) var(--s-4);
-  font-family: var(--font-mono);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  font-family: var(--font-sans);
   font-size: var(--text-body);
   font-weight: var(--weight-regular);
-  color: var(--color-fog);
+  color: var(--color-steel);
   cursor: pointer;
   transition: color var(--t), background var(--t);
-  border-left: 2px solid transparent;
+  border-radius: var(--r-sm);
   user-select: none;
   text-decoration: none;
+  min-height: 32px;
 }
-.nav-grp .nav-item { padding-left: 30px; }
-.nav-item:hover { color: var(--color-paper); background: var(--color-carbon); }
+.nav-grp .nav-item { padding-left: 10px; }
+.nav-item:hover { color: var(--color-chalk); }
 .nav-item.active {
-  color: var(--color-paper);
+  color: var(--color-chalk);
   background: var(--color-carbon);
-  border-left-color: var(--color-ember);
+}
+
+/* rail footer (sidebar bottom): mono, muted */
+.railfoot {
+  margin-top: auto;
+  padding: 12px 8px 0;
+  border-top: 1px solid var(--color-carbon);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  letter-spacing: -0.24px;
+  text-transform: uppercase;
+  color: var(--color-steel);
 }
 
 /* ─── Topbar ─── */
 .topbar {
   grid-area: topbar;
-  display: flex; align-items: center; gap: var(--s-3);
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
   padding: 0 var(--s-5);
   background: var(--color-void);
-  border-bottom: 1px solid var(--color-iron);
+  border-bottom: 1px solid var(--color-carbon);
+  min-width: 0;
 }
-/* title span removed — the page header owns page identity (015-B); topbar
+.topbar .nav-open { display: none; color: var(--color-steel); }
+/* title span removed — the page header owns page identity; topbar
    carries only user/sign-out/⌘K */
 .topbar-spacer { flex: 1; }
 
 /* ─── Main content ─── */
 .main {
   grid-area: main;
-  padding: var(--s-6);
+  padding: var(--s-5);
   overflow-y: auto;
   width: 100%;
   min-width: 0;
 }
 
-@media (max-width: 768px) {
-  .app { grid-template-columns: 1fr; grid-template-areas: "logo" "main"; }
+/* ─── Mobile nav = shadcn Sheet (reka-ui: focus trap, scroll lock, Esc) ───
+   The sidebar keeps its desktop grid slot; the Sheet is a separate mount of
+   the same AppNav source. Nav-open button shows ≤760px only. */
+.sidebar-sheet {
+  background: var(--color-void);
+  border-right: 1px solid var(--color-iron);
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-sheet-nav {
+  padding: 0 12px 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+/* scrollable region is keyboard-reachable via tabindex="0" on the element
+   (WCAG 2.1.1 / axe scrollable-region-focusable); no outline because the
+   links inside carry their own visible focus ring */
+.sidebar-sheet-nav:focus-visible { outline: none; }
+
+/* ─── ≤760px: off-canvas handled by the Sheet; hide the grid sidebar ─── */
+@media (max-width: 760px) {
+  .app { display: block; }
   .sidebar { display: none; }
-  .main { padding: var(--s-4); }
+  .topbar { padding: 0 14px; position: sticky; top: 0; z-index: 20; }
+  .topbar .nav-open { display: block; }
+  .topbar-user { display: none; }
+  .main { padding: 20px 14px 44px; }
 }

@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
-import { reindexBundle, lookupIdentifier, conventionFor, ensureIdentifierTables } from '../src/agent/identifier-index.ts';
+import { reindexBundle, lookupIdentifier, conventionFor } from '../src/agent/identifier-index.ts';
 import { resolveCaseRefs } from '../src/routes/templates.ts';
 
 let tmp: string;
