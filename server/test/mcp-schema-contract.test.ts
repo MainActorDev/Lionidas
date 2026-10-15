@@ -12,6 +12,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { rmSync } from 'node:fs';
+import { hashToken } from '../src/routes/auth-cli.ts';
+import { openDb } from '../src/db/client.ts';
+import { migrateM1 } from '../src/db/schema.ts';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -58,7 +61,21 @@ function sampleValue(p: Record<string, unknown>): unknown {
 }
 
 beforeAll(async () => {
-  child = spawn('/bin/bash', [join(SERVER_DIR, 'src/agent/mcp-stdio.sh')], { cwd: SERVER_DIR, stdio: ['pipe', 'pipe', 'ignore'], env: { ...process.env, VITEST: 'true' } });
+  // HERMETIC PAT + DB (CI lesson): mcp-stdio.ts exits(2) without a valid LIONIDAS_PAT,
+  // and the shell wrapper sources server/.env — absent on CI. Mint our own operator
+  // token into a throwaway DB and point the child at it, so the contract test never
+  // depends on a real operator PAT or the dev database.
+  const dbPath = join(tmpdir(), 'mcp-contract-db');
+  rmSync(dbPath, { recursive: true, force: true });
+  const tdb = openDb(dbPath);
+  migrateM1(tdb.raw);
+  tdb.raw.prepare(`INSERT OR IGNORE INTO users (id, email, name, role, active, created_at) VALUES ('u_con', 'contract@local', 'contract', 'operator', 1, ?)`).run(Date.now());
+  tdb.raw.prepare(`INSERT INTO api_tokens (id, user_id, name, token_hash, created_at) VALUES ('tok_con', 'u_con', 'contract', ?, ?)`).run(hashToken('lion_contract_probe_0001'), Date.now());
+  tdb.close();
+  // Spawn the SAME entrypoint the shell wrapper execs (node --import tsx src/agent/mcp-stdio.ts)
+  // but WITHOUT the wrapper: `set -a; source .env` would override our hermetic LIONIDAS_PAT
+  // with the dev PAT and the child would exit(2) verifying it against the throwaway DB.
+  child = spawn(process.execPath, ['--import', 'tsx', 'src/agent/mcp-stdio.ts'], { cwd: SERVER_DIR, stdio: ['pipe', 'pipe', 'ignore'], env: { ...process.env, VITEST: 'true', LIONIDAS_PAT: 'lion_contract_probe_0001', CRUCIBLE_DB_PATH: dbPath } });
   child.stdout!.on('data', (chunk: Buffer) => {
     buf += chunk.toString();
     const lines = buf.split('\n');
