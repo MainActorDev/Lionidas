@@ -18,5 +18,7 @@ jobs:
           node-version: 24.12.0   # pinned: 24.20 crashes worker startup on arm64 runners (node#RemoveEnvironmentCleanupHook assertion, ERR_IPC_CHANNEL_CLOSED) — verified green locally on 24.12
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Playwright browsers (web e2e)
+        run: pnpm --filter web exec playwright install chromium
       - run: pnpm --filter server check
       - run: pnpm --filter web check
