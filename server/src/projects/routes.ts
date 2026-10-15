@@ -131,7 +131,7 @@ export function registerProjectRoutes(app: FastifyInstance, db: Database.Databas
       db.prepare('UPDATE projects SET build_config_state = ?, build_config_report_json = ?, updated_at = ? WHERE id = ?')
         .run(recipeState, JSON.stringify(detection), Date.now(), id);
     } catch { /* columns absent on legacy fixtures — report still returned */ }
-    return { ok: true, kind: r.kind, path: r.path, recipe: detection };
+    return { ok: true, kind: r.kind, path: r.path, buildConfig: detection };
   });
 
   // R3b: on-demand re-detection (projects registered before this change; post-pull)
@@ -146,7 +146,7 @@ export function registerProjectRoutes(app: FastifyInstance, db: Database.Databas
       db.prepare('UPDATE projects SET build_config_state = ?, build_config_report_json = ?, updated_at = ? WHERE id = ?')
         .run(recipeState, JSON.stringify(detection), Date.now(), id);
     } catch { /* legacy fixtures */ }
-    return { recipe: detection };
+    return { buildConfig: detection };
   });
 
   // the ONLY sanctioned path from discovery to a recipe (never silent): user
@@ -158,7 +158,7 @@ export function registerProjectRoutes(app: FastifyInstance, db: Database.Databas
     const ws = projectWorkspace(proj.name);
     const detection = detectBuildConfig(ws);
     if (detection.state !== 'derivable') {
-      return reply.code(409).send({ error: `recipe not derivable (${detection.state})`, detection });
+      return reply.code(409).send({ error: `build config not derivable (${detection.state})`, detection });
     }
     const row = writeBuildConfigRevision(db, {
       projectId: id,
@@ -169,7 +169,7 @@ export function registerProjectRoutes(app: FastifyInstance, db: Database.Databas
       generated: true,
       provenance: { by: 'derive', at: Date.now(), source: 'detectBuildConfig (derivable)', evidence: detection.notes },
     });
-    return { ok: true, recipe: row };
+    return { ok: true, buildConfig: row };
   });
 
   // S4: on-demand verify (NO scheduler — D4). Verdict stamps the recipe revision;
