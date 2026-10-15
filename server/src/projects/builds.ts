@@ -161,7 +161,7 @@ export function resolveBuildConfig(db: Database.Database, projectId: string, ws:
  *  Verdict lands on the recipe revision: green/failed + verified_at + log tail. */
 export type VerifyResult =
   | { ok: true; verdict: 'green' | 'failed'; recipeId: string; seconds: number }
-  | { ok: false; code: 'PROJECT_NOT_FOUND' | 'CLONE_FIRST' | 'NO_RECIPE' | 'BUSY'; error: string };
+  | { ok: false; code: 'PROJECT_NOT_FOUND' | 'CLONE_FIRST' | 'NO_RECIPE' | 'BUSY' | 'VERIFY_BUDGET_EXHAUSTED' | 'SAME_ERROR_LOOP'; error: string };
 
 /** newest .app under the repo-local products dir (prepare-embedded builds land here
  *  via -derivedDataPath .derived-data conventions; falls back to a scan) */
@@ -196,6 +196,29 @@ export function startBuildVerify(db: Database.Database, projectId: string): Veri
   const ws = projectWorkspace(proj.name ?? '');
   if (!ws || !existsSync(join(ws, '.git'))) return { ok: false, code: 'CLONE_FIRST', error: `no workspace at ${ws} — clone first` };
   if (running.has(projectId)) return { ok: false, code: 'BUSY', error: 'a build/verify is already running for this project' };
+  // ── autonomy rails (plan 20261015T164500Z R2) — ENGINE-enforced, not prompt-trust ──
+  // verify budget: max 3 fires per rolling hour, PROJECT-scoped (model-driven diagnose
+  // loops must not storm the machine; the prompt cannot waive this)
+  const hourAgo = Date.now() - 60 * 60_000;
+  const recent = (db.prepare('SELECT COUNT(*) AS n FROM build_configs WHERE project_id = ? AND verified_at > ? AND verify_state IS NOT NULL').get(projectId, hourAgo) as { n: number }).n;
+  if (recent >= 3) {
+    const nextEligible = new Date((db.prepare('SELECT MIN(verified_at) AS m FROM build_configs WHERE project_id = ? AND verified_at > ? AND verify_state IS NOT NULL').get(projectId, hourAgo) as { m: number | null }).m! + 60 * 60_000);
+    return { ok: false, code: 'VERIFY_BUDGET_EXHAUSTED', error: `verify budget exhausted (${recent}/hour) — next eligible ${nextEligible.toLocaleTimeString()}. END THE TURN: report the last failure and what was tried.` };
+  }
+  // identical-error circuit breaker: same normalized first hard error as the previous
+  // revision = the stuck signature; do not re-verify the same mistake
+  const prev = db.prepare('SELECT verify_log FROM build_configs WHERE project_id = ? AND id != ? AND verify_state = ? ORDER BY revision DESC LIMIT 1').get(projectId, row.id, 'failed') as { verify_log: string | null } | undefined;
+  const normErr = (log: string | null): string => (log ?? '').split('\n').find((l) => /error:/i.test(l))?.replace(/\s+/g, ' ').slice(0, 160) ?? '';
+  const prevErr = normErr(prev?.verify_log ?? null);
+  if (prevErr) {
+    // cannot know THIS run's error pre-flight; the breaker fires post-run — record and
+    // compare at stamp time (below). Pre-flight we only BLOCK when the LAST TWO failed
+    // revisions share the same first error (already a loop).
+    const prev2 = db.prepare('SELECT verify_log FROM build_configs WHERE project_id = ? AND id != ? AND verify_state = ? ORDER BY revision DESC LIMIT 1 OFFSET 1').get(projectId, row.id, 'failed') as { verify_log: string | null } | undefined;
+    if (prev2 && normErr(prev2.verify_log) === prevErr) {
+      return { ok: false, code: 'SAME_ERROR_LOOP', error: `the last two failed revisions share the same first error ("${prevErr.slice(0, 80)}…") — a stuck signature. END THE TURN; a human should look at this failure.` };
+    }
+  }
 
   const _t0 = Date.now();
   running.set(projectId, (async () => {

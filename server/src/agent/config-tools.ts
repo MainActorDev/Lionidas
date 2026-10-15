@@ -880,6 +880,77 @@ export function registerConfigTools(deps: ConfigToolDeps): void {
     },
   });
 
+  // ── env_config.provision (autonomy plan 20261015T164500Z A1, review R1) ──
+  registry.register({
+    name: 'env_config.provision',
+    description: 'Copy gitignored *.xcconfig env-config files that already exist on this machine into a project\'s workspace clone (cp semantics — contents are NEVER returned, only sha256+bytes). Exact filenames only; credential-looking names refused. Missing files report ENV_CONFIG_NOT_FOUND with the searched dirs — that is the human bootstrap.',
+    permission: 'draft',
+    parameters: { type: 'object', properties: {
+      projectId: { type: 'string' },
+      files: { type: 'array', items: { type: 'string' }, description: 'exact *.xcconfig filenames, e.g. DevelopmentConfig.xcconfig' },
+      force: { type: 'boolean', description: 'overwrite an existing different-sha file (default false → conflict reported)' },
+    }, required: ['projectId', 'files'] },
+    async execute(args) {
+      const { provisionEnvConfigs } = await import('../projects/env-provision.ts');
+      const projectId = String(args['projectId'] ?? '');
+      const proj = db.prepare('SELECT id, name FROM projects WHERE id = ?').get(projectId) as { id: string; name: string } | undefined;
+      if (!proj) return JSON.stringify({ error: `unknown projectId ${projectId}` });
+      const { projectWorkspace } = await import('../manual/packages.ts');
+      const ws = projectWorkspace(proj.name);
+      const files = Array.isArray(args['files']) ? (args['files'] as unknown[]).map(String) : [];
+      if (!files.length) return JSON.stringify({ error: 'files required' });
+      const out = provisionEnvConfigs(db, projectId, proj.name, ws, files, { force: args['force'] === true });
+      if (out.refused.length || out.conflicts.length || out.missing.length) {
+        return JSON.stringify({ ...out, hint: out.missing.length ? `ENV_CONFIG_NOT_FOUND — searched: ${out.missing.join(', ')} not in any registered source dir. A human must place them (bootstrap).` : undefined });
+      }
+      return JSON.stringify(out);
+    },
+  });
+
+  // ── build_config.write — AUTONOMOUS path (plan 20261015T164500Z A2) ──
+  registry.register({
+    name: 'build_config.write',
+    description: 'Autonomously write a build-config revision and fire verify (simulator-slice autonomy). Budgets are ENGINE-enforced: max 3 revisions/hour/project, verify 3/hour/project, identical-error circuit breaker. Provenance is ai-auto — never laundered as user-confirmed.',
+    permission: 'draft',
+    parameters: { type: 'object', properties: {
+      projectId: { type: 'string' },
+      transport: { type: 'string', enum: ['repo-lane', 'generic'] },
+      scheme: { type: 'string' },
+      configuration: { type: 'string' },
+      prepare: { type: 'array', items: { type: 'object', properties: { run: { type: 'string' } }, required: ['run'] } },
+      evidence: { type: 'array', items: { type: 'string' } },
+    }, required: ['projectId', 'transport'] },
+    async execute(args) {
+      const projectId = String(args['projectId'] ?? '');
+      const proj = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId) as { id: string } | undefined;
+      if (!proj) return JSON.stringify({ error: `unknown projectId ${projectId}` });
+      // revision budget (R2)
+      const hourAgo = Date.now() - 60 * 60_000;
+      const revs = (db.prepare('SELECT COUNT(*) AS n FROM build_configs WHERE project_id = ? AND created_at > ?').get(projectId, hourAgo) as { n: number }).n;
+      if (revs >= 3) return JSON.stringify({ error: 'REVISION_BUDGET_EXHAUSTED', detail: `${revs} revisions in the last hour (cap 3) — END THE TURN; report state and what was tried.` });
+      // R3: refuse device destinations on untoggled projects — never mutate silently
+      const allowDevice = Boolean((db.prepare('SELECT allow_device_signing FROM projects WHERE id = ?').get(projectId) as { allow_device_signing?: number } | undefined)?.allow_device_signing);
+      const prepare = Array.isArray(args['prepare']) ? (args['prepare'] as Array<{ run?: unknown }>).filter((x) => x && typeof x['run'] === 'string').map((x) => ({ run: String(x['run']) })) : [];
+      for (const step of prepare) {
+        if (/iphoneos|generic\/platform=iOS(?! Simulator)/.test(step.run) && !allowDevice) {
+          return JSON.stringify({ error: 'DEVICE_SIGNING_BLOCKED', detail: `'${step.run.slice(0, 60)}' names a DEVICE destination but projects.allow_device_signing is off — an honest refusal beats a silently modified build. Propose a simulator destination or ask the human to enable the toggle.` });
+        }
+      }
+      const { writeBuildConfigRevision } = await import('../projects/build-configs.ts');
+      const row = writeBuildConfigRevision(db, {
+        projectId,
+        transport: (args['transport'] === 'repo-lane' ? 'repo-lane' : 'generic') as 'repo-lane' | 'generic',
+        scheme: args['scheme'] != null ? String(args['scheme']) : null,
+        configuration: args['configuration'] != null ? String(args['configuration']) : null,
+        prepare,
+        provenance: { by: 'ai-auto', at: Date.now(), source: 'autonomous build-config loop (plan 20261015T164500Z)', evidence: Array.isArray(args['evidence']) ? (args['evidence'] as unknown[]).map(String) : [] },
+      });
+      const { startBuildVerify } = await import('../projects/builds.ts');
+      const v = startBuildVerify(db, projectId);
+      return JSON.stringify({ written: true, revision: row.revision, recipeId: row.id, provenance: 'ai-auto', verify: v.ok ? 'started' : `${v.code}: ${v.error}` });
+    },
+  });
+
   registry.register({
     name: 'recipes.get',
     description: 'read an app login/logout recipes (app-level, revisioned). Route shape: {login: <recipe|null>, revision}; absent → null, not an error.',

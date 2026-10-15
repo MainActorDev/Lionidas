@@ -859,6 +859,9 @@ export function migrateBuildConfigs(db: Database.Database): void {
   for (const col of [
     'ALTER TABLE projects ADD COLUMN build_config_state TEXT',
     'ALTER TABLE projects ADD COLUMN build_config_report_json TEXT',
+    // autonomy plan A3 (review R3): device-signing toggle — off by default; device
+    // destinations on untoggled projects get an honest refusal, never silent mutation
+    'ALTER TABLE projects ADD COLUMN allow_device_signing INTEGER NOT NULL DEFAULT 0',
   ]) {
     try { db.exec(col); } catch { /* column exists */ }
   }

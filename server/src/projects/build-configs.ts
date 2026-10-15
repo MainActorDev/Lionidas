@@ -12,7 +12,7 @@ import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 
 export interface BuildConfigProvenance {
-  by: 'user' | 'ai+user' | 'import' | 'derive';
+  by: 'user' | 'ai+user' | 'import' | 'derive' | 'ai-auto';
   at: number;
   source?: string | null;
   evidence?: string[];
