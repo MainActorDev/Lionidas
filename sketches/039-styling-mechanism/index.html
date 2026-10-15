@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>039 — styling mechanism: scoped CSS vs Tailwind utilities</title>
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<style>
+/* Factory tokens — exactly what tokens.css/theme.css ship. The ONLY hand CSS
+   in this file: the token definitions themselves (both systems read them). */
+:root{--background:#101010;--card:#1d1a18;--secondary:#262220;--border:#3d3a39;--foreground:#eeeeee;--muted:#b8b3b0;--status-orange:#ee6018;--status-green:#a0ca92;--ring:#b8b3b0;--font-mono:'Geist Mono',ui-monospace,monospace}
+@theme inline{
+  --color-border:#3d3a39;--color-card:#1d1a18;--color-muted:#b8b3b0;
+  --color-status-orange:#ee6018;--color-status-green:#a0ca92;--color-ring:#b8b3b0;
+  --radius-sm:1px;
+  --font-mono:'Geist Mono',ui-monospace,monospace;
+}
+*,*::before,*::after{box-sizing:border-box}html,body{margin:0}
+body{background:var(--background);color:var(--foreground);font:400 14px/1.5 'Geist',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button{cursor:pointer}
+</style>
+</head>
+<body class="p-6">
+<header class="mb-6 flex items-baseline gap-3 border-b border-border pb-4">
+  <h1 class="font-mono text-xl font-medium">status board — styling mechanism demo</h1>
+  <span class="font-mono text-xs text-muted">identical Factory composition, identical tokens, three mechanisms</span>
+</header>
+
+<!-- ═══════════ VARIANT A — scoped CSS (what ships today) ═══════════ -->
+<section class="mb-10">
+  <h2 class="mb-3 font-mono text-sm font-medium text-status-orange">A · scoped CSS <span class="text-muted">(current: StatusBoardPage.vue)</span></h2>
+  <style>
+    .a-board{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+    .a-tile{min-width:0;display:flex;flex-direction:column;gap:7px;min-height:135px;padding:14px;border:1px solid var(--border);border-radius:3px;text-align:left;background:none;color:inherit;font:inherit}
+    .a-tile:hover,.a-tile.on{background:var(--card)}
+    .a-tile.on{border-color:var(--muted)}
+    .a-top{display:flex;align-items:center;gap:8px}
+    .a-name{font-family:var(--font-mono);font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .a-state{margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--muted)}
+    .a-state.degraded{color:var(--status-orange)}
+    .a-head{font-family:var(--font-mono);font-size:12px;line-height:1.5;min-height:35px;overflow-wrap:anywhere}
+    .a-sig{font-family:var(--font-mono);font-size:11px;line-height:1.4;color:var(--muted);margin-top:auto;overflow-wrap:anywhere}
+    .a-sig.alert{color:var(--status-orange)}
+    .a-dot{width:7px;height:7px;border-radius:50%;background:var(--status-green);flex:none}
+    .a-dot.degraded{background:var(--status-orange)}
+  </style>
+  <div class="a-board">
+    <button type="button" class="a-tile"><span class="a-top"><i class="a-dot"></i><span class="a-name">server</span><span class="a-state">ok</span></span><span class="a-head">up 4h 12m · v0.1.0</span><span class="a-sig">both databases readable</span></button>
+    <button type="button" class="a-tile on"><span class="a-top"><i class="a-dot degraded"></i><span class="a-name">agent core</span><span class="a-state degraded">degraded</span></span><span class="a-head">1 live turn · 24h: 41 ✓ / 3 ✕</span><span class="a-sig alert">zombie 22m · outbox 2</span></button>
+    <button type="button" class="a-tile"><span class="a-top"><i class="a-dot"></i><span class="a-name">llm backend</span><span class="a-state">ok</span></span><span class="a-head">api.z.ai · last turn 8.4s</span><span class="a-sig">burn 24h: 0</span></button>
+  </div>
+</section>
+
+<!-- ═══════════ VARIANT B — pure Tailwind utilities (no scoped CSS at all) ═══════════ -->
+<section class="mb-10">
+  <h2 class="mb-3 font-mono text-sm font-medium" style="color:var(--status-orange)">B · pure Tailwind utilities <span style="color:var(--muted)">(zero scoped CSS)</span></h2>
+  <div class="grid grid-cols-3 gap-2.5">
+    <button type="button" class="flex min-w-0 min-h-[135px] flex-col gap-[7px] rounded-[3px] p-3.5 text-left" style="border:1px solid var(--border)">
+      <span class="flex items-center gap-2">
+        <i class="size-[7px] shrink-0 rounded-full" style="background:var(--status-green)"></i>
+        <span class="truncate font-mono text-[13px] font-medium">server</span>
+        <span class="ml-auto font-mono text-[11px]" style="color:var(--muted)">ok</span>
+      </span>
+      <span class="min-h-[35px] font-mono text-xs leading-normal [overflow-wrap:anywhere]">up 4h 12m · v0.1.0</span>
+      <span class="mt-auto font-mono text-[11px] leading-tight [overflow-wrap:anywhere]" style="color:var(--muted)">both databases readable</span>
+    </button>
+    <button type="button" class="flex min-w-0 min-h-[135px] flex-col gap-[7px] rounded-[3px] p-3.5 text-left" style="border:1px solid var(--muted);background:var(--card)">
+      <span class="flex items-center gap-2">
+        <i class="size-[7px] shrink-0 rounded-full" style="background:var(--status-orange)"></i>
+        <span class="truncate font-mono text-[13px] font-medium">agent core</span>
+        <span class="ml-auto font-mono text-[11px]" style="color:var(--status-orange)">degraded</span>
+      </span>
+      <span class="min-h-[35px] font-mono text-xs leading-normal [overflow-wrap:anywhere]">1 live turn · 24h: 41 ✓ / 3 ✕</span>
+      <span class="mt-auto font-mono text-[11px] leading-tight [overflow-wrap:anywhere]" style="color:var(--status-orange)">zombie 22m · outbox 2</span>
+    </button>
+    <button type="button" class="flex min-w-0 min-h-[135px] flex-col gap-[7px] rounded-[3px] p-3.5 text-left" style="border:1px solid var(--border)">
+      <span class="flex items-center gap-2">
+        <i class="size-[7px] shrink-0 rounded-full" style="background:var(--status-green)"></i>
+        <span class="truncate font-mono text-[13px] font-medium">llm backend</span>
+        <span class="ml-auto font-mono text-[11px]" style="color:var(--muted)">ok</span>
+      </span>
+      <span class="min-h-[35px] font-mono text-xs leading-normal [overflow-wrap:anywhere]">api.z.ai · last turn 8.4s</span>
+      <span class="mt-auto font-mono text-[11px] leading-tight [overflow-wrap:anywhere]" style="color:var(--muted)">burn 24h: 0</span>
+    </button>
+  </div>
+</section>
+
+<!-- ═══════════ VARIANT C — Tailwind + tiny composition components ═══════════ -->
+<section>
+  <h2 class="mb-3 font-mono text-sm font-medium" style="color:var(--status-orange)">C · utilities + small shared components <span style="color:var(--muted)">(tile class via cva)</span></h2>
+  <style type="text/tailwindcss">
+    @layer components {
+      .x-tile { @apply flex min-w-0 min-h-[135px] flex-col gap-[7px] rounded-[3px] p-3.5 text-left; border:1px solid var(--border); }
+      .x-tile[data-on="true"] { background:var(--card); border-color:var(--muted); }
+      .x-top { @apply flex items-center gap-2; }
+      .x-name { @apply truncate font-mono text-[13px] font-medium; }
+      .x-state { @apply ml-auto font-mono text-[11px]; color:var(--muted); }
+      .x-state[data-state="degraded"], .x-state[data-state="down"] { color:var(--status-orange); }
+      .x-head { @apply min-h-[35px] font-mono text-xs leading-normal [overflow-wrap:anywhere]; }
+      .x-sig { @apply mt-auto font-mono text-[11px] leading-tight [overflow-wrap:anywhere]; color:var(--muted); }
+      .x-sig[data-alert="true"] { color:var(--status-orange); }
+      .x-dot { @apply size-[7px] shrink-0 rounded-full; background:var(--status-green); }
+      .x-dot[data-state="degraded"], .x-dot[data-state="down"] { background:var(--status-orange); }
+    }
+  </style>
+  <div class="grid grid-cols-3 gap-2.5">
+    <button type="button" class="x-tile" data-on="false">
+      <span class="x-top"><i class="x-dot" data-state="ok"></i><span class="x-name">server</span><span class="x-state" data-state="ok">ok</span></span>
+      <span class="x-head">up 4h 12m · v0.1.0</span>
+      <span class="x-sig" data-alert="false">both databases readable</span>
+    </button>
+    <button type="button" class="x-tile" data-on="true">
+      <span class="x-top"><i class="x-dot" data-state="degraded"></i><span class="x-name">agent core</span><span class="x-state" data-state="degraded">degraded</span></span>
+      <span class="x-head">1 live turn · 24h: 41 ✓ / 3 ✕</span>
+      <span class="x-sig" data-alert="true">zombie 22m · outbox 2</span>
+    </button>
+    <button type="button" class="x-tile" data-on="false">
+      <span class="x-top"><i class="x-dot" data-state="ok"></i><span class="x-name">llm backend</span><span class="x-state" data-state="ok">ok</span></span>
+      <span class="x-head">api.z.ai · last turn 8.4s</span>
+      <span class="x-sig" data-alert="false">burn 24h: 0</span>
+    </button>
+  </div>
+</section>
+
+<footer class="mt-10 border-t border-border pt-4 font-mono text-[11px] leading-relaxed text-muted">
+  Same tokens (single source of truth), same Factory rules, same composition — only the styling mechanism differs.
+  A is what the repo ships; B inlines every rule into the template; C extracts the repeated unit into one component class (cva-shaped, like the generated ui/ primitives).
+  View source to compare authoring; resize to see all three stay responsive (3 → 1 columns via the same breakpoints).
+</footer>
+
+<style>
+@media (max-width:760px){
+  .a-board{grid-template-columns:minmax(0,1fr)}
+  .grid.grid-cols-3{grid-template-columns:minmax(0,1fr)}
+}
+</style>
+</body>
+</html>
