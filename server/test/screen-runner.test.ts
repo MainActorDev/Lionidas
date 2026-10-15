@@ -85,9 +85,17 @@ describe('S5 — GUARD 1: refresh verifies traffic (pass AND fail)', () => {
 
   it('PASS: request lands mid-budget → confirmed with count', async () => {
     seedScreen();
-    // traffic row appears 60ms in (within the 120ms budget)
-    setTimeout(() => db.prepare('INSERT INTO traffic(id, run_id, ts, mode, method, path, matched_preset_id, status, latency_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('t1', 'run_x', Date.now(), 'hybrid', 'GET', '/x', 'p1', 200, 5), 60);
-    const r = mkRunner(snapWith([]));
+    // deterministic (CI lesson): the row lands from INSIDE the faked pull gesture —
+    // the gesture is the app's fetch trigger, so its traffic landing between markTs
+    // and the first poll tick is exactly 'mid-budget' with ZERO dependence on
+    // wall-clock timer scheduling (a 60ms setTimeout lost the race on loaded runners).
+    const dispatch: Dispatch = async (tool, input) => {
+      if (tool === 'alloy_act') {
+        db.prepare('INSERT INTO traffic(id, run_id, ts, mode, method, path, matched_preset_id, status, latency_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('t1', 'run_x', Date.now() + 2, 'hybrid', 'GET', '/x', 'p1', 200, 5);
+      }
+      return snapWith([])(tool, input);
+    };
+    const r = mkRunner(dispatch);
     const out = await r.refresh('tracking');
     expect(out.ok).toBe(true);
     expect(out.note).toContain('1 request');
