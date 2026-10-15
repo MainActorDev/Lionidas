@@ -6,28 +6,33 @@
    across the app resolve unchanged; only VALUES were remapped. */
 
 :root {
-  /* ─── Surfaces ─── */
-  --color-void:     #101010;   /* Obsidian canvas — page background, nav */
-  --color-carbon:   #1d1a18;   /* Carbon lift — raised surfaces, buttons, hover rows */
-  --color-graphite: #1d1a18;   /* Inner tile dividers (carbon) */
-  --color-iron:     #3d3a39;   /* Ash stroke — hairline borders, dividers */
-  --color-slate:    #4d4947;   /* Graphite mid — mid-tone fills, muted borders */
-  --color-pewter:   #3d3a39;   /* (alias of ash) */
+  /* ─── Surfaces — themed: values resolve through theme.css (light registered
+     there too), so the legacy names flip with .dark exactly like shadcn vars.
+     NAMES keep their Axiom-era identity so all ~2,670 var() references
+     across the app resolve unchanged. ─── */
+  --color-void:     var(--background);  /* Obsidian canvas — page background, nav */
+  --color-carbon:   var(--card);        /* Carbon lift — raised surfaces, buttons, hover rows */
+  --color-graphite: var(--card);        /* Inner tile dividers (carbon) */
+  --color-iron:     var(--border);      /* Ash stroke — hairline borders, dividers */
+  --color-slate:    var(--secondary);   /* Graphite mid — mid-tone fills, muted borders */
+  --color-pewter:   var(--border);      /* (alias of ash) */
 
-  /* ─── Text (bone ramp) ─── */
-  --color-steel:    #8a8380;   /* Warm granite — muted text, inactive labels */
-  --color-ash:      #b8b3b0;   /* Pale stone — tertiary text, eyebrows */
-  --color-fog:      #b8b3b0;   /* (alias of pale stone) */
-  --color-chalk:    #eeeeee;   /* Bone — primary text, LIGHT TEXT ONLY (never a fill) */
-  --color-paper:    #eeeeee;   /* (alias of bone) */
+  /* ─── Text (bone ramp / themed) ─── */
+  --color-steel:    var(--muted-foreground); /* Warm granite — muted text, inactive labels */
+  --color-ash:      var(--muted-foreground); /* Pale stone — tertiary text, eyebrows (themed; dark value identical to legacy #b8b3b0) */
+  --color-fog:      var(--muted-foreground); /* (alias) */
+  --color-chalk:    var(--foreground); /* Bone — primary text (themed) */
+  --color-paper:    var(--foreground); /* (alias of bone) */
 
-  /* ─── Status accents — DATA/STATUS ONLY, never fills ─── */
-  --color-ember:    #ee6018;   /* Signal orange — live status, failures, active marks */
-  --color-ember-dim: #c24f13;  /* Hover/active on signal orange */
+  /* ─── Status accents — DATA/STATUS ONLY, never fills ───
+     Values are themed (theme.css flips --status-* per light/dark) so the
+     legacy token names and the shadcn variables stay in lockstep. */
+  --color-ember:    var(--status-orange);  /* Signal orange — live status, failures, active marks */
+  --color-ember-dim: var(--status-orange-dim, #c24f13);  /* Hover/active on signal orange */
 
-  --color-ok:       #a0ca92;   /* Metric green */
+  --color-ok:       var(--status-green);   /* Metric green */
   --color-warn:     #b8b3b0;   /* Warn reads as pale stone (neutral) */
-  --color-err:      #ee6018;   /* Errors read as signal orange */
+  --color-err:      var(--status-orange);  /* Errors read as signal orange */
 
   /* ─── Typography ─── */
   --font-mono: 'Geist Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -91,14 +96,15 @@ body {
   font-size: var(--text-body);
 }
 
-/* ─── Scrollbar (dark, unobtrusive) ─── */
+/* ─── Scrollbar (themed, unobtrusive) ─── */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: var(--color-void); }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--color-carbon); border-radius: 0; }
 ::-webkit-scrollbar-thumb:hover { background: var(--color-slate); }
 
 /* ─── Selection — status accent, never chrome ─── */
 ::selection { background: var(--color-ember); color: var(--color-chalk); }
+.dark ::selection { color: #101010; }
 
 /* ─── Code ─── */
 code, .mono { font-family: var(--font-mono); }

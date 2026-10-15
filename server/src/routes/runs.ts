@@ -111,7 +111,7 @@ export function registerRunRoutes(app: FastifyInstance, db: Database.Database, b
 
   // audit log read (RBAC T3): supervisor+ only; denial-flood-controlled writes
   app.get('/api/audit', { preHandler: requireRoleAtLeast('supervisor') }, async (req) => {
-    return auditListImport(db, req.query as { actor?: string; event?: string; before?: string; limit?: string });
+    return auditListImport(db, req.query as { actor?: string; event?: string; q?: string; page?: string; limit?: string });
   });
 
   app.get('/api/runs', async (req) => {

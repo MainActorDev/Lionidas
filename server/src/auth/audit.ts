@@ -36,17 +36,25 @@ export function auditDenial(db: Database.Database, req: FastifyRequest, route: s
   // the window map is bounded by (users × routes) — small; no eviction needed
 }
 
-/** GET /api/audit handler — supervisor+ (gated at registration). */
-export function auditList(db: Database.Database, q: { actor?: string; event?: string; before?: string; limit?: string }): { events: unknown[]; hasMore: boolean } {
+/** GET /api/audit handler — supervisor+ (gated at registration).
+ *  Page-based (numbered) pagination; `q` = substring match across
+ *  email/event/detail. NOTE: offset pagination on a live log can drift a
+ *  row across page seams between fetches — accepted for an audit UI
+ *  (rows are timestamped, not transactional).
+ *  Facet (event-class) filtering is intentionally NOT here: the UI counts
+ *  and filters classes client-side over the loaded window ("in view"). */
+export function auditList(db: Database.Database, q: { actor?: string; event?: string; q?: string; page?: string; limit?: string }): { events: unknown[]; total: number; page: number; pageCount: number } {
   const limit = Math.min(Math.max(Number.parseInt(q.limit ?? '50', 10) || 50, 1), 200);
+  const page = Math.max(Number.parseInt(q.page ?? '1', 10) || 1, 1);
   const where: string[] = [];
   const params: unknown[] = [];
   if (q.actor) { where.push('email LIKE ?'); params.push(`%${q.actor}%`); }
   if (q.event) { where.push('event = ?'); params.push(q.event); }
-  if (q.before) { where.push('at < ?'); params.push(Number(q.before)); }
+  if (q.q) { where.push('(email LIKE ? OR event LIKE ? OR detail LIKE ?)'); params.push(`%${q.q}%`, `%${q.q}%`, `%${q.q}%`); }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  const rows = db.prepare(`SELECT id, at, email, user_id, event, detail FROM auth_log ${whereSql} ORDER BY at DESC, id DESC LIMIT ?`)
-    .all(...(params as unknown[]), limit + 1) as unknown[];
-  const hasMore = rows.length > limit;
-  return { events: rows.slice(0, limit), hasMore };
+  const total = (db.prepare(`SELECT COUNT(*) AS n FROM auth_log ${whereSql}`).get(...(params as unknown[])) as { n: number }).n;
+  const pageCount = Math.ceil(total / limit);
+  const rows = db.prepare(`SELECT id, at, email, user_id, event, detail FROM auth_log ${whereSql} ORDER BY at DESC, id DESC LIMIT ? OFFSET ?`)
+    .all(...(params as unknown[]), limit, (page - 1) * limit) as unknown[];
+  return { events: rows, total, page, pageCount };
 }

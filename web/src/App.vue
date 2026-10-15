@@ -1,7 +1,13 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, ref, provide } from 'vue';
 import CmdPalette from './components/CmdPalette.vue';
-import { ref, onMounted, onUnmounted, reactive, provide } from 'vue';
+import AppNav from './components/AppNav.vue';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
+import { useRoute, useRouter } from 'vue-router';
+import { watch } from 'vue';
+
+const route = useRoute();
+const router = useRouter();
 
 const me = ref<{ name: string; role: string } | null>(null);
 /** RBAC (plan 20261009T102032Z T5): server-computed capability map — the
@@ -23,12 +29,13 @@ async function signOut(): Promise<void> {
   await router.push('/login');
   me.value = null;
 }
-onMounted(() => void loadMe());
-import { useRoute, useRouter } from 'vue-router';
-import { watch } from 'vue';
+onMounted(() => {
+  void loadMe();
+  // Factory dark theme is the locked default (Phase 2 theme.css registers
+  // light values for a future toggle; activation UI is out of scope).
+  document.documentElement.classList.add('dark');
+});
 
-const route = useRoute();
-const router = useRouter();
 const isActive = (name: string): boolean => route.name === name;
 const isPublic = computed(() => route.meta.public === true);
 // fullscreen pages render outside the app shell (own chrome) but stay auth-guarded
@@ -87,20 +94,6 @@ const navGroups: NavGroup[] = [
     ],
   },
 ];
-const collapsed = reactive<Record<string, boolean>>({});
-const toggleGroup = (id: string): void => { collapsed[id] = !collapsed[id]; };
-const groupHasActive = (g: NavGroup): boolean =>
-  g.items.some(it => it.names.some(isActive));
-
-// ── mobile drawer (Factory round 036): sidebar becomes off-canvas ≤760px ──
-const navOpen = ref(false);
-const openNav = (): void => { navOpen.value = true; };
-const closeNav = (): void => { navOpen.value = false; };
-const onNavKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') closeNav(); };
-onMounted(() => document.addEventListener('keydown', onNavKey));
-onUnmounted(() => document.removeEventListener('keydown', onNavKey));
-// route change closes the drawer (mobile navigation completes)
-watch(() => route.fullPath, () => { navOpen.value = false; });
 // adminOnly items render for admins only (the route itself stays auth-guarded,
 // the API enforces the role); groups that empty out hide entirely
 const visibleGroups = computed<NavGroup[]>(() => {
@@ -117,41 +110,28 @@ const visibleGroups = computed<NavGroup[]>(() => {
     }) }))
     .filter(g => g.items.length > 0);
 });
-// navigating into a collapsed group expands it (active page must stay visible)
-watch(() => route.name, () => {
-  for (const g of navGroups) if (groupHasActive(g)) collapsed[g.id] = false;
-}, { immediate: true });
+
+// ── mobile drawer (Phase 2 Task 2): shadcn Sheet — reka-ui supplies focus
+// trap, scroll lock, Esc, and aria-modal; we keep route-change auto-close. ──
+const navOpen = ref(false);
+watch(() => route.fullPath, () => { navOpen.value = false; });
 </script>
 
 <template>
   <!-- public routes (login) own the full viewport — no app chrome -->
   <router-view v-if="isBare" />
   <div v-else class="app">
-    <aside class="sidebar" :class="{ open: navOpen }" aria-label="primary">
+    <aside class="sidebar" aria-label="primary">
       <div class="brand">
         <span class="brand-pulse" aria-hidden="true"></span>
         <img class="brand-mark" src="/icons/lionidas-app-128.png" alt="" width="20" height="20" /> lionidas
-        <button type="button" class="nav-close" aria-label="close menu" @click="closeNav">✕</button>
       </div>
-
-      <div v-for="g in visibleGroups" :key="g.id" class="nav-grp" :class="{ closed: collapsed[g.id] }">
-        <button type="button" class="nav-grp-head" :class="{ on: groupHasActive(g) }" :aria-expanded="!collapsed[g.id]" @click="toggleGroup(g.id)">
-          <span class="caret">▾</span>{{ g.label }}
-        </button>
-        <div v-show="!collapsed[g.id]" class="nav-grp-kids">
-          <RouterLink
-            v-for="it in g.items" :key="it.to" :to="it.to" class="nav-item"
-            :class="{ active: it.names.some(isActive) }"
-          >{{ it.label }}</RouterLink>
-        </div>
-      </div>
-      <!-- guide hidden for now (user, 2026-10-08) — re-enable by uncommenting -->
-      <!-- <RouterLink to="/guide" class="nav-item nav-guide" :class="{ active: isActive('guide') }">guide</RouterLink> -->
+      <AppNav :groups="visibleGroups" />
+      <div class="railfoot">admin</div>
     </aside>
-    <div v-if="navOpen" class="nav-scrim" @click="closeNav"></div>
 
-    <div class="topbar">
-      <button type="button" class="nav-open" aria-label="open menu" :aria-expanded="navOpen" @click="openNav">☰</button>
+    <div class="topbar" role="banner">
+      <button type="button" class="nav-open" aria-label="open menu" :aria-expanded="navOpen" @click="navOpen = true">☰</button>
       <span class="topbar-spacer" />
       <span v-if="me" class="topbar-user" title="signed in">
         <span class="dot"></span>{{ me.name }} · {{ me.role }}
@@ -165,5 +145,19 @@ watch(() => route.name, () => {
       <router-view />
     </main>
     <CmdPalette />
+
+    <!-- mobile nav: same AppNav source inside an accessible Sheet -->
+    <Sheet v-model:open="navOpen">
+      <SheetContent side="left" class="sidebar-sheet w-[min(84vw,280px)] p-0">
+        <SheetTitle class="brand" style="padding: 20px 20px 14px;">
+          <span class="brand-pulse" aria-hidden="true"></span>
+          <img class="brand-mark" src="/icons/lionidas-app-128.png" alt="" width="20" height="20" /> lionidas
+        </SheetTitle>
+        <div class="sidebar-sheet-nav" role="navigation" aria-label="primary mobile" tabindex="0">
+          <AppNav :groups="visibleGroups" />
+          <div class="railfoot">admin</div>
+        </div>
+      </SheetContent>
+    </Sheet>
   </div>
 </template>

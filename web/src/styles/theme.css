@@ -1,0 +1,104 @@
+/* ═══ shadcn-vue theme — Factory system mapping (Phase 2, round 036 locked) ═══
+   Tailwind v4 + shadcn variables read FROM the Factory token vocabulary so the
+   utility layer and the hand-rolled token system share one source of truth.
+   .dark is the ACTIVE default (Factory is dark-first); :root registers light
+   values for a future toggle — activation UI is intentionally out of scope. */
+
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 4px);
+  --font-sans: 'Geist', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* ─── Factory status accents — status/data use ONLY, flipped per theme ───
+   Light-mode values are darker ramps so they keep ≥4.5:1 on #fafafa/#fff
+   (Phase 2 Task 4 contrast audit). */
+:root {
+  --status-orange: #b03d0e;
+  --status-orange-dim: #8a2f0b;
+  --status-green: #3f6b34;
+}
+.dark {
+  --status-orange: #ee6018;
+  --status-orange-dim: #c24f13;
+  --status-green: #a0ca92;
+}
+
+/* ─── LIGHT (registered, NOT active — values are proposals pending a
+       light-mode concept round; contrast-audited in Phase 2 Task 4) ─── */
+:root {
+  --background: #fafafa;
+  --foreground: #101010;
+  --card: #ffffff;
+  --card-foreground: #101010;
+  --popover: #ffffff;
+  --popover-foreground: #101010;
+  --primary: #1d1a18;
+  --primary-foreground: #eeeeee;
+  --secondary: #eeeeec;
+  --secondary-foreground: #101010;
+  --muted: #efedeb;
+  --muted-foreground: #6b6663;
+  --accent: #efedeb;
+  --accent-foreground: #101010;
+  --destructive: #b03d0e;
+  --destructive-foreground: #fafafa;
+  --border: #ddd9d6;
+  --input: #ddd9d6;
+  --ring: #6b6663;
+  --radius: 0.1875rem; /* 3px — Factory button radius */
+}
+
+/* ─── DARK = Factory source of truth (locked rounds 1–4) ─── */
+.dark {
+  --background: #101010;
+  --foreground: #eeeeee;
+  --card: #1d1a18;
+  --card-foreground: #eeeeee;
+  --popover: #1d1a18;
+  --popover-foreground: #eeeeee;
+  --primary: #1d1a18;          /* primary = dark fill emphasized by border, never bright */
+  --primary-foreground: #eeeeee;
+  --secondary: #262220;
+  --secondary-foreground: #eeeeee;
+  --muted: #1d1a18;
+  --muted-foreground: #b8b3b0;
+  --accent: #262220;
+  --accent-foreground: #eeeeee;
+  --destructive: #ee6018;
+  --destructive-foreground: #101010;
+  --border: #3d3a39;
+  --input: #3d3a39;
+  --ring: #b8b3b0;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+}
