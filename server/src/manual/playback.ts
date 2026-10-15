@@ -84,7 +84,7 @@ export interface PlaybackDeps {
 
 export interface PlaybackStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin' | 'doubleTap' | 'longPress' | 'shake' | 'paste';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin' | 'doubleTap' | 'longPress' | 'shake' | 'paste' | 'wait';
   x?: number;
   y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
@@ -102,6 +102,8 @@ export interface PlaybackStep {
   selector?: { identifier?: string; label?: string; type?: string };
   /** A5 subflow reference — expanded to child steps before execution */
   templateId?: string;
+  /** wait step payload (plan 20261015T221500Z) */
+  wait?: { mode: 'time'; ms: number; for?: string } | { mode: 'until'; target: { kind: 'identifier' | 'text' | 'screen'; value: string; state?: string }; timeoutMs: number };
   /** set by expandFlows: child flow name for run_steps provenance */
   flow?: string;
   /** setup-only guard: snapshot existence check (labelContains, ignoreCase)
@@ -146,6 +148,13 @@ function stepName(s: PlaybackStep): string {
   if (s.action === 'doubleTap') return s.x !== undefined ? `double-tap ${s.x},${s.y}` : `double-tap ${s.selector ? (s.selector.label ?? s.selector.identifier ?? 'selector') : '?'}`;
   if (s.action === 'longPress') return `long-press ${s.x ?? '?'},${s.y ?? '?'} ${s.dwellMs ?? 800}ms`;
   if (s.action === 'shake') return 'shake';
+  if (s.action === 'wait') {
+    const w = s['wait'] as { mode: 'time'; ms: number; for?: string } | { mode: 'until'; target: { kind: string; value: string; state?: string }; timeoutMs: number } | undefined;
+    if (!w) return 'wait';
+    if (w.mode === 'time') return `wait ${w.ms % 1000 === 0 ? `${w.ms / 1000}s` : `${w.ms}ms`}${w.for ? ` (${w.for})` : ''}`;
+    const tgt = w.target.kind === 'screen' ? `${w.target.value}.${w.target.state}` : w.target.value;
+    return `wait until ${tgt} (≤${w.timeoutMs % 1000 === 0 ? `${w.timeoutMs / 1000}s` : `${w.timeoutMs}ms`})`;
+  }
   if (s.action === 'paste') return `paste ${(s.text ?? '').slice(0, 24)}${s.press === false ? ' (pasteboard only)' : ''}`;
   if (s.action === 'scroll') return `scroll ${s.direction}`;
   if (s.action === 'ensureLogout') return `ensure logout (${s.ensureLogout?.button ?? '?'})`;
@@ -1279,6 +1288,77 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               const msg = err instanceof Error ? err.message : String(err);
               runStatus = 'failed';
               insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', msg, t0, Date.now() - t0, '[]', JSON.stringify({ action: 'location', latitude: loc.latitude, longitude: loc.longitude }), s.narrate ?? null);
+              for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
+                insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null, rest.narrate ?? null);
+              }
+              break;
+            }
+            continue;
+          }
+          // wait steps (plan 20261015T221500Z): time form = literal sleep (abort-chunked);
+          // condition form = poll-and-probe every 250ms reusing the SAME AX snapshot +
+          // selector resolution expect uses; screen targets reuse the registry-state probe
+          // expectScreen uses. Honest failure on timeout names the target and the wait.
+          if (s.action === 'wait') {
+            const w = s['wait'] as { mode: 'time'; ms: number; for?: string } | { mode: 'until'; target: { kind: 'identifier' | 'text' | 'screen'; value: string; state?: string }; timeoutMs: number };
+            const tWait = Date.now();
+            try {
+              let audit: Record<string, unknown>;
+              if (w.mode === 'time') {
+                // abort-aware: sleep in ≤250ms slices so run-abort lands within a slice
+                const deadline = Date.now() + w.ms;
+                while (Date.now() < deadline && !isAborted(runId)) {
+                  await new Promise((r) => setTimeout(r, Math.min(250, deadline - Date.now())));
+                }
+                audit = { action: 'wait', mode: 'time', ms: w.ms, for: w.for ?? null, elapsedMs: Date.now() - tWait, outcome: isAborted(runId) ? 'aborted' : 'slept' };
+              } else {
+                const deadline = Date.now() + w.timeoutMs;
+                let met = false;
+                while (Date.now() < deadline && !isAborted(runId)) {
+                  if (w.target.kind === 'screen') {
+                    // registry-state probe — ScreenRunner.expectScreen IS the state oracle
+                    // (same source of truth the expect screen step uses; ok=true ⇔ state holds)
+                    if (!screenRunner) {
+                      const { ScreenRunner } = await import('./screen-runner.ts');
+                      const svc = forgeStateService(deps);
+                      screenRunner = new ScreenRunner({
+                        db: deps.db,
+                        appBundleId: appToLaunch,
+                        runId,
+                        udid,
+                        onTap: () => undefined,
+                        dispatch: (tool, input) => alloy.dispatch(tool, input, deps.dispatchDeps) as never,
+                        onTrafficHit: (cb) => deps.bus.on('forge.traffic.hit', cb),
+                      });
+                      void svc;
+                    }
+                    const probe = await screenRunner!.expectScreen(w.target.value, w.target.state!, false);
+                    met = probe.ok;
+                  } else {
+                    const snap = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
+                      | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
+                    if (snap.ok) {
+                      const nodes = snap.result.nodes ?? [];
+                      // identifier-first, label-second (the on: precedent)
+                      const sel: StepSelector = w.target.kind === 'identifier' ? { identifier: w.target.value } : { label: w.target.value };
+                      met = resolveSelector(nodes, sel) != null;
+                      if (!met && w.target.kind === 'identifier') met = resolveSelector(nodes, { label: w.target.value }) != null;
+                    }
+                  }
+                  if (met) break;
+                  await new Promise((r) => setTimeout(r, 250));
+                }
+                const tgtLabel = w.target.kind === 'screen' ? `${w.target.value}.${w.target.state}` : w.target.value;
+                if (!met) {
+                  throw new Error(`waited ${Math.round((Date.now() - tWait) / 100) / 10}s for ${tgtLabel}: never saw it (timeout ${w.timeoutMs % 1000 === 0 ? `${w.timeoutMs / 1000}s` : `${w.timeoutMs}ms`})`);
+                }
+                audit = { action: 'wait', mode: 'until', target: tgtLabel, timeoutMs: w.timeoutMs, elapsedMs: Date.now() - tWait, outcome: 'met' };
+              }
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', null, tWait, Date.now() - tWait, '[]', JSON.stringify(audit), s.narrate ?? null);
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              runStatus = 'failed';
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', msg, tWait, Date.now() - tWait, '[]', JSON.stringify({ action: 'wait', mode: w.mode }), s.narrate ?? null);
               for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
                 insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null, rest.narrate ?? null);
               }
