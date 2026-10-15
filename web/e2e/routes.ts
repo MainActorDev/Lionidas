@@ -58,6 +58,14 @@ export const AUDIT_ROWS = Array.from({ length: 16 }, (_, i) => ({
   detail: DETAILS[i % DETAILS.length],
 }));
 
+/** Scroll-state fixture: long enough to engage sticky headers even at 900px.
+ *  Keep the normal page snapshots on AUDIT_ROWS; only the scroll test uses this. */
+export const AUDIT_SCROLL_ROWS = Array.from({ length: 48 }, (_, i) => ({
+  ...AUDIT_ROWS[i % AUDIT_ROWS.length]!,
+  id: i + 1,
+  at: ANCHOR - i * H,
+}));
+
 /** overview payload mirrors the drill shape (fixed numbers, no Date.now) */
 export const OVERVIEW = {
   health: {
@@ -77,7 +85,7 @@ import type { Page } from '@playwright/test';
 
 /** Register ALL API mocks BEFORE navigation (review H1: the router guard
  *  fetches /api/auth/me on every nav and bounces to /login otherwise). */
-export async function installMocks(page: Page): Promise<void> {
+export async function installMocks(page: Page, auditRows = AUDIT_ROWS): Promise<void> {
   await page.route('**/api/auth/me', (r) => r.fulfill({ json: { user: { name: 'QA Harness', role: 'admin' } } }));
   await page.route('**/api/me/capabilities', (r) => r.fulfill({ json: { capabilities: { readUsers: true } } }));
   await page.route('**/api/setup/state', (r) => r.fulfill({ status: 404, body: '{}' }));
@@ -90,7 +98,7 @@ export async function installMocks(page: Page): Promise<void> {
     const pg = Math.max(1, Number.parseInt(u.searchParams.get('page') ?? '1', 10) || 1);
     const actor = u.searchParams.get('actor') ?? '';
     const q = (u.searchParams.get('q') ?? '').toLowerCase();
-    const filtered = AUDIT_ROWS.filter((x) =>
+    const filtered = auditRows.filter((x) =>
       (!actor || (x.email ?? '').includes(actor)) &&
       (!q || `${x.email ?? ''} ${x.event} ${x.detail}`.toLowerCase().includes(q)));
     r.fulfill({ json: { events: filtered, total: filtered.length, page: pg, pageCount: 1 } });

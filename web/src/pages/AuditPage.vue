@@ -325,6 +325,10 @@ onMounted(() => void fetchPage(1));
 .skel-row { height: 32px; border-bottom: 1px solid var(--border); background: linear-gradient(90deg, transparent, var(--muted), transparent); background-size: 200% 100%; animation: shimmer 1.2s infinite linear; opacity: 0.15; }
 @keyframes shimmer { 0% { background-position: 200% 0 } 100% { background-position: -200% 0 } }
 @media (prefers-reduced-motion: reduce) { .skel-row { animation: none } }
+@media (max-width: 760px) {
+  /* On mobile the window scrolls behind the sticky shell topbar. */
+  .day { top: var(--topbar-h); }
+}
 
 /* pagination */
 .pager { display: flex; gap: 6px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
@@ -349,8 +353,9 @@ onMounted(() => void fetchPage(1));
 
 /* mobile */
 @media (max-width: 900px) {
-  .audit-body { grid-template-columns: 1fr; }
+  .audit-body { grid-template-columns: minmax(0, 1fr); }
   .rail { display: none; }
+  .q, .q input { min-width: 0; }
   .row { grid-template-columns: 56px 1fr 110px; }
   .row .who { display: none; }
   .row .what { grid-column: 1 / -1; grid-row: 2; }

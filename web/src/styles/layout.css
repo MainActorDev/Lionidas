@@ -160,10 +160,13 @@
 
 /* ─── ≤760px: off-canvas handled by the Sheet; hide the grid sidebar ─── */
 @media (max-width: 760px) {
-  .app { display: block; }
+  /* Mobile uses the window as its scrollport. Keep the shell as tall as its
+     content so the sticky topbar remains in range, and don't make .main a
+     non-scrolling overflow ancestor that traps sticky page headers. */
+  .app { display: block; height: auto; min-height: 100vh; }
   .sidebar { display: none; }
-  .topbar { padding: 0 14px; position: sticky; top: 0; z-index: 20; }
+  .topbar { padding: 0 14px; height: var(--topbar-h); position: sticky; top: 0; z-index: 20; }
   .topbar .nav-open { display: block; }
   .topbar-user { display: none; }
-  .main { padding: 20px 14px 44px; }
+  .main { padding: 20px 14px 44px; overflow-y: visible; }
 }
