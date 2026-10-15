@@ -29,7 +29,7 @@ const PREPARE_TIMEOUT_MS = 15 * 60_000;
 export interface BuildRow {
   id: string; projectId: string; number: number;
   status: 'running' | 'passed' | 'failed';
-  transport: 'repo-lane' | 'generic';
+  transport: 'repo-lane' | 'generic' | 'recipe-lane';
   scheme: string | null; configuration: string | null; resolution: string | null; smoke: string | null;
   startedAt: number; finishedAt: number | null;
   logPath: string | null;
@@ -254,6 +254,13 @@ export function startBuildVerify(db: Database.Database, projectId: string): Veri
   return { ok: true, verdict: 'green', recipeId: row.id, seconds: 0 };
 }
 
+/** the active store row's prepare steps (empty when the row isn't store-driven) */
+function storeRowPrepare(resolved: ResolvedBuildConfig, db: Database.Database, projectId: string): Array<{ run: string }> {
+  if (resolved.resolution.from !== 'recipes' || !resolved.recipeId) return [];
+  const row = activeBuildConfig(db, projectId);
+  return row?.prepare ?? [];
+}
+
 export function startBuild(db: Database.Database, projectId: string): StartResult {
   const proj = getProject(db, projectId);
   if (!proj) return { ok: false, code: 'PROJECT_NOT_FOUND', error: 'project not found' };
@@ -265,14 +272,23 @@ export function startBuild(db: Database.Database, projectId: string): StartResul
     return { ok: false, code: 'BUILD_RUNNING', error: `build #${cur?.number ?? '?'} is already running for this project` };
   }
   const number = ((db.prepare('SELECT MAX(number) AS n FROM builds WHERE project_id = ?').get(projectId) as { n: number | null })?.n ?? 0) + 1;
-  const id = `bld_${randomUUID().slice(0, 12)}`;
+  // unique, HUMAN-correlatable id: bld_<slug>-<number>-<yymmdd>-<rand4> — the /builds list
+  // and logs name the project+build without a DB lookup (user ask, 2026-10-15)
+  const slug = (proj.name ?? 'proj').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 18);
+  const d = new Date();
+  const ymd = `${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  const id = `bld_${slug}-${number}-${ymd}-${randomUUID().slice(0, 4)}`;
   mkdirSync(artifactsDir(), { recursive: true });
   const logPath = join(artifactsDir(), `${id}.log`);
-  const transport = pickTransport(ws);
   // ── input resolution (plan 20261015T021000Z S2): root manifest > recipes store >
   // legacy .lionidas > registry(discovery only via explicit derive) ──
   // manifest errors (strict schema) fail the build BEFORE any compile.
   const resolved = resolveBuildConfig(db, projectId, ws);
+  let transport: 'repo-lane' | 'generic' | 'recipe-lane' = pickTransport(ws);
+  // store row with prepare steps IS a lane when nothing on disk provides one (agent-authored
+  // repo-lane recipes: prepare = pod install + xcodebuild line). Without this, startBuild
+  // degrades to generic discovery and ignores the verified recipe entirely.
+  if (transport === 'generic' && storeRowPrepare(resolved, db, projectId).length > 0) transport = 'recipe-lane';
   const recipeId = resolved.recipeId ?? null;
   let manifest: BuildManifest | null = resolved.manifest;
   if (transport === 'generic' && !manifest) {
@@ -283,11 +299,12 @@ export function startBuild(db: Database.Database, projectId: string): StartResul
       // silently falls through to guessing
       const msg = e instanceof Error ? e.message : String(e);
       try { appendFileSync(logPath, `✕ ${msg}\n`); } catch { /* best-effort */ }
-      const errId = `bld_${randomUUID().slice(0, 12)}`;
       const errNum = ((db.prepare('SELECT MAX(number) AS n FROM builds WHERE project_id = ?').get(projectId) as { n: number | null })?.n ?? 0) + 1;
+      const errSlug = (proj.name ?? 'proj').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|$/g, '').slice(0, 18);
+      const errId = `bld_${errSlug}-${errNum}-err-${randomUUID().slice(0, 4)}`;
       db.prepare(`INSERT INTO builds(id, project_id, number, status, transport, started_at, log_path, error)
                   VALUES (?, ?, ?, 'failed', ?, ?, ?, ?)`)
-        .run(errId, projectId, errNum, transport, Date.now(), join(artifactsDir(), `${errId}.log`), msg);
+        .run(errId, projectId, errNum, transport as 'repo-lane' | 'generic', Date.now(), join(artifactsDir(), `${errId}.log`), msg);
       return { ok: false, code: 'PROJECT_NOT_FOUND', error: msg };
     }
   }
@@ -299,20 +316,27 @@ export function startBuild(db: Database.Database, projectId: string): StartResul
   if (transport === 'generic') {
     try { discr = discoverAppInputs(ws); } catch { discr = null; }
   }
+  // resolution law (S2): root manifest > STORE ROW > registry columns > discovery.
+  // The store row speaks even when its transport is repo-lane (manifest carries no
+  // scheme for those) — live catch: ios-consumer rev9 (repo-lane, scheme Dev) was
+  // IGNORED by startBuild → discovery → SCHEME_AMBIGUOUS, despite a verified config.
+  const storeRow = resolved.resolution.from === 'recipes' && recipeId
+    ? activeBuildConfig(db, projectId)
+    : null;
   const resolveInput = (m: string | null, r: string | null, d: (() => string | null) | null): { value: string | null; from: 'manifest' | 'registry' | 'discovered' | null } => {
     if (m) return { value: m, from: 'manifest' };
     if (r) return { value: r, from: 'registry' };
     const v = d?.() ?? null;
     return { value: v, from: v ? 'discovered' : null };
   };
-  let schemeFrom = resolveInput(manifest?.scheme ?? null, regScheme, discr ? () => (discr.appSchemes.length === 1 ? discr.appSchemes[0]! : null) : null);
+  let schemeFrom = resolveInput(manifest?.scheme ?? null, storeRow?.scheme ?? regScheme, discr ? () => (discr.appSchemes.length === 1 ? discr.appSchemes[0]! : null) : null);
   // AMBIGUITY: 2+ app schemes and neither manifest nor registry pinned one
   if (schemeFrom.value == null && discr && discr.appSchemes.length > 1) {
     const err = `SCHEME_AMBIGUOUS: ${discr.appSchemes.length} app schemes found (${discr.appSchemes.join(', ')}) — pin one via lionidas.yml or the project's build inputs`;
     try { appendFileSync(logPath, `✕ ${err}\n`); } catch { /* best-effort */ }
     db.prepare(`INSERT INTO builds(id, project_id, number, status, transport, scheme, started_at, log_path, error)
                 VALUES (?, ?, ?, 'failed', ?, NULL, ?, ?, ?)`)
-      .run(id, projectId, number, transport, Date.now(), logPath, err);
+      .run(id, projectId, number, transport === 'recipe-lane' ? 'repo-lane' : transport, Date.now(), logPath, err);
     running.delete(projectId); runningBuildIds.delete(projectId);
     return { ok: false, code: 'BUILD_RUNNING', error: err };
   }
@@ -328,7 +352,7 @@ export function startBuild(db: Database.Database, projectId: string): StartResul
   });
   db.prepare(`INSERT INTO builds(id, project_id, number, status, transport, scheme, configuration, resolution, started_at, log_path)
               VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?, ?)`)
-    .run(id, projectId, number, transport, scheme, configuration, resolution, Date.now(), logPath);
+    .run(id, projectId, number, transport === 'recipe-lane' ? 'repo-lane' : transport, scheme, configuration, resolution, Date.now(), logPath);
   const log = (line: string): void => { try { appendFileSync(logPath, `${line}\n`); } catch { /* log best-effort */ } };
   log(`# build ${number} · ${proj.name} · transport=${transport}${scheme ? ` · scheme=${scheme}` : ''}${configuration ? ` · config=${configuration}` : ''}`);
   log(`# inputs: ${resolution}${manifest ? ' · manifest=present' : ''}`);
@@ -343,7 +367,9 @@ export function startBuild(db: Database.Database, projectId: string): StartResul
       const benv: Record<string, string> = { LIONIDAS_BUILD_NUMBER: String(number), LIONIDAS_BUILD_ID: id };
       const ipaPath = transport === 'repo-lane'
         ? await runRepoLane(ws, log, benv)
-        : await runGeneric(ws, scheme, configuration, log, (s) => safeDb(() => db.prepare('UPDATE builds SET scheme = ? WHERE id = ?').run(s, id)), manifest?.prepare ?? [], benv);
+        : transport === 'recipe-lane'
+          ? await runRecipeLane(ws, storeRowPrepare(resolved, db, projectId), log, benv)
+          : await runGeneric(ws, scheme, configuration, log, (s) => safeDb(() => db.prepare('UPDATE builds SET scheme = ? WHERE id = ?').run(s, id)), manifest?.prepare ?? [], benv);
       // platform guard parity: reject device/macos artifacts
       const idn = readIpaIdentity(ipaPath);
       if (!idn) throw new Error(`cannot read identity from built artifact ${ipaPath}`);
@@ -435,6 +461,29 @@ async function runCommand(cmd: string, args: string[], cwd: string, log: (l: str
       else reject(new Error(`${cmd} ${args[0] ?? ''} exited ${code}${tail ? `: ${tail.trim().split('\n').pop()}` : ''}`));
     });
   });
+}
+
+/** recipe-lane: the store row's prepare chain IS the lane (verify semantics).
+ *  Runs each step (destinations normalized), then the .app is the product. */
+async function runRecipeLane(ws: string, steps: Array<{ run: string }>, log: (l: string) => void, benv: Record<string, string> = {}): Promise<string> {
+  for (const [i, step0] of steps.entries()) {
+    const step = /(^|\s)xcodebuild\b/.test(step0.run) ? { run: normalizeDest(step0.run) } : step0;
+    log(`$ recipe-lane[${i}]: ${step.run}`);
+    await runCommand('sh', ['-c', step.run], ws, log, BUILD_TIMEOUT_MS, benv);
+  }
+  const app = await productsAppFor(ws);
+  // package as .ipa for the /builds pipeline (its contract) — Payload zip, sim slice
+  const stage = mkdtempSync(join(tmpdir(), 'bld-'));
+  try {
+    mkdirSync(join(stage, 'Payload'));
+    const { cpSync } = await import('node:fs');
+    cpSync(app, join(stage, 'Payload', app.split('/').pop()!), { recursive: true });
+    const ipa = join(stage, 'app.ipa');
+    await runCommand('zip', ['-q', '-r', '-X', ipa, 'Payload'], stage, () => undefined, 10 * 60_000);
+    const stable = join(tmpdir(), `bld-out-${randomUUID().slice(0, 8)}.ipa`);
+    copyFileSync(ipa, stable);
+    return stable;
+  } finally { rmSync(stage, { recursive: true, force: true }); }
 }
 
 async function runRepoLane(ws: string, log: (l: string) => void, benv: Record<string, string> = {}): Promise<string> {
