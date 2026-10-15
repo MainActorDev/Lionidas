@@ -134,3 +134,42 @@ test('sticky day header — scrolled state [dark]', async ({ page }) => {
     caret: 'hide',
   });
 });
+
+/** status board selected-state surface (038-C): keyboard tile activation
+ *  moves focus to the detail heading; the detail reflects the selection. */
+test('status board — keyboard selection and detail sync [dark]', async ({ page }) => {
+  await installMocks(page);
+  await page.clock.install();
+  await page.clock.setFixedTime(ANCHOR);
+  await page.goto('/status', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.tile', { timeout: 15_000 });
+  expect(page.url()).not.toContain('/login');
+
+  // severity-first default: agent core (degraded) selected, not tile 0
+  const selectedName = await page.locator('.detail-head h3').textContent();
+  expect(selectedName).toBe('agent core');
+
+  // keyboard: focus the engine tile and activate with Enter
+  const engine = page.locator('.tile', { hasText: 'engine' });
+  await engine.focus();
+  await engine.press('Enter');
+  await expect(page.locator('.detail-head h3')).toHaveText('engine');
+  // keyboard activation moves focus to the detail heading
+  await expect.poll(() => page.evaluate(() => document.activeElement?.tagName ?? '')).toContain('H3');
+
+  // tile/detail stay in agreement (aria-pressed ↔ detail heading)
+  const pressed = await page.locator('.tile[aria-pressed="true"]').textContent();
+  expect(pressed).toContain('engine');
+
+  // no horizontal overflow on this surface
+  const overflowX = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+  expect(overflowX).toBe(false);
+
+  await expect(page).toHaveScreenshot('status-selected-dark', {
+    fullPage: false,
+    maxDiffPixelRatio: 0.0005,
+    threshold: 0.05,
+    animations: 'disabled',
+    caret: 'hide',
+  });
+});

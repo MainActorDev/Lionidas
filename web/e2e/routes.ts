@@ -24,6 +24,7 @@ export interface FixtureRoute {
 export const ROUTES: FixtureRoute[] = [
   { path: '/', name: 'overview', readySelector: '.kpi, .page' },
   { path: '/audit', name: 'audit', readySelector: '.row' },
+  { path: '/status', name: 'status', readySelector: '.tile' },
 ];
 
 /** fixed audit rows — deterministic, seeded like a real page: 16 rows across
@@ -83,6 +84,31 @@ export const OVERVIEW = {
 
 import type { Page } from '@playwright/test';
 
+/** status payload — 037-board shape: 7 systems (6 core + conditional canary),
+ *  mixed states incl. the sketch's agent-core incident. checkedAt anchored so
+ *  the age label ("12s ago") is deterministic. Includes long values, false,
+ *  0 and null to pin the detail pane's honesty. */
+export const STATUS = {
+  checkedAt: ANCHOR - 12_000,
+  cached: true,
+  systems: [
+    { id: 'server', name: 'server', state: 'ok', summary: 'up 4h 12m · v0.1.0', signal: 'both databases readable', rule: 'DB read fails → down',
+      detail: { uptime: '4h 12m', version: '0.1.0', 'crucible.db journal': 'wal', 'agent.db journal': 'wal' } },
+    { id: 'agent-core', name: 'agent core', state: 'degraded', summary: '1 live turn · 24h: 41 ✓ / 3 ✕', signal: 'zombie 22m · outbox 2', rule: 'zombie idle >15m · outbox backlog >0',
+      detail: { 'live turns': 1, 'zombie candidates': 't_aebb8b52 (idle 22m)', 'outbox backlog': '2 effects', '24h completed': 41, '24h failed': 3, '24h aborted': 0 } },
+    { id: 'provider-mcp', name: 'provider · mcp', state: 'ok', summary: 'openai-compat · configured model', signal: 'last ok turn 8m ago', rule: 'MCP_PENDING failures in the last hour >0',
+      detail: { provider: 'openai-compat', model: 'configured model', 'api key present': true, 'mcp retries 1h': 0, 'last ok turn': '8m ago' } },
+    { id: 'llm-backend', name: 'llm backend', state: 'ok', summary: 'api.z.ai · last turn 8.4s', signal: 'burn 24h: 0', rule: 'empty-answer failures in 24h >0',
+      detail: { endpoint: 'api.z.ai', 'key present': true, 'spend 24h': '412k tok', 'last turn': '8.4s', 'context burn 24h': 0 } },
+    { id: 'engine', name: 'engine', state: 'degraded', summary: '3 devices seen · 1 running · 0 queued', signal: '1 orphan session', rule: 'orphaned manual session >15m → degraded',
+      detail: { 'devices seen': 3, 'runs running': 1, 'runs queued': 0, 'orphan sessions': 1, source: 'tables (no live probes)' } },
+    { id: 'data-freshness', name: 'data freshness', state: 'unknown', summary: 'run 9d ago · ingest 5d ago', signal: 'run · repo ingest beyond threshold', rule: 'run 7d · ingest 7d · diag 14d',
+      detail: { 'last run': '9d ago', 'last case edit': '2d ago', 'last diag payload': '4d ago', 'last repo ingest': '5d ago', 'stale beyond threshold': 'last run, last repo ingest', thresholds: 'run 7d · ingest 7d · diag 14d' } },
+    { id: 'build-recipe', name: 'build configs', state: 'ok', summary: '2 projects · build configs honest', signal: 'no config gap detected', rule: 'fallback-lied, unverified generated, or blocked-with-builds → degraded',
+      detail: { 'project A detection': 'found:manifest', 'project A recipe': 'manifest rev3', 'project A verified': 'green', 'project B detection': 'derivable', 'project B recipe': 'none', 'project B generated': false, 'a long sentinel value to force wrapping in the detail pane at narrow widths': null } },
+  ],
+};
+
 /** Register ALL API mocks BEFORE navigation (review H1: the router guard
  *  fetches /api/auth/me on every nav and bounces to /login otherwise). */
 export async function installMocks(page: Page, auditRows = AUDIT_ROWS): Promise<void> {
@@ -93,6 +119,7 @@ export async function installMocks(page: Page, auditRows = AUDIT_ROWS): Promise<
   await page.route('**/api/devices', (r) => r.fulfill({ json: { devices: [] } }));
   await page.route('**/api/plans', (r) => r.fulfill({ json: { plans: [] } }));
   await page.route('**/api/overview', (r) => r.fulfill({ json: OVERVIEW }));
+  await page.route('**/api/status', (r) => r.fulfill({ json: STATUS }));
   await page.route('**/api/audit**', (r) => {
     const u = new URL(r.request().url());
     const pg = Math.max(1, Number.parseInt(u.searchParams.get('page') ?? '1', 10) || 1);

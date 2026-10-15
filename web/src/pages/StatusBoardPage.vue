@@ -92,11 +92,12 @@ const detailPairs = computed<Array<[string, string]>>(() =>
 
 function select(id: string, ev?: Event): void {
   selected.value = id;
-  const mobile = window.matchMedia('(max-width: 760px)').matches;
+  const viaKeyboard = ev instanceof KeyboardEvent;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   void nextTick(() => {
-    if (mobile) detailHead.value?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+    if (window.matchMedia('(max-width: 760px)').matches) detailHead.value?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
     // keyboard activation (Enter/Space) moves focus to the detail heading
-    if (ev instanceof KeyboardEvent) detailHead.value?.focus();
+    if (viaKeyboard) detailHead.value?.focus();
   });
 }
 </script>
@@ -126,6 +127,8 @@ function select(id: string, ev?: Event): void {
           class="tile" :class="{ on: s.id === selected }"
           :aria-pressed="s.id === selected" aria-controls="status-detail"
           @click="select(s.id, $event)"
+          @keydown.enter.prevent="select(s.id, $event)"
+          @keydown.space.prevent="select(s.id, $event)"
         >
           <span class="tile-top">
             <i class="dot sm" :class="s.state" />
