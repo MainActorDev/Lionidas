@@ -180,6 +180,14 @@ async function productsAppFor(ws: string): Promise<string> {
   throw new Error('no .app found under .derived-data/Build/Products (prepare chain reported success — check its -derivedDataPath)');
 }
 
+// DESTINATION NORMALIZATION: a name-pinned simulator destination rots between
+// Xcode versions (iPhone 16 vanished on Xcode 27 → xcodebuild SILENTLY fell
+// back to 'My Mac' → platform mismatch instead of 'no such simulator').
+// Rewrite name= destinations to the generic sim platform — machine-proof.
+const normalizeDest = (cmd: string): string => cmd.replace(
+  /(-destination\s+)['"]?platform=iOS Simulator,name=[^'"]+['"]?/g,
+  "$1'generic/platform=iOS Simulator'");
+
 export function startBuildVerify(db: Database.Database, projectId: string): VerifyResult {
   const proj = getProject(db, projectId);
   if (!proj) return { ok: false, code: 'PROJECT_NOT_FOUND', error: 'project not found' };
@@ -198,7 +206,8 @@ export function startBuildVerify(db: Database.Database, projectId: string): Veri
       // before any scheme can resolve — compileWorktree alone sees a workspace-less
       // clone and reports 'no scheme discovered'). The recipe's prepare steps are
       // part of the verified claim: verify proves prepare+build together.
-      for (const [i, step] of row.prepare.entries()) {
+      for (const [i, step0] of row.prepare.entries()) {
+        const step = /(^|\s)xcodebuild\b/.test(step0.run) ? { run: normalizeDest(step0.run) } : step0;
         log(`$ prepare[${i}]: ${step.run}`);
         await runCommand('sh', ['-c', step.run], ws, log, PREPARE_TIMEOUT_MS, {});
       }

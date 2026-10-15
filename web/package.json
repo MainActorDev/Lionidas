@@ -8,7 +8,7 @@
     "build": "vue-tsc --noEmit && vite build",
     "typecheck": "vue-tsc --noEmit",
     "lint": "oxlint src",
-    "check": "pnpm typecheck && pnpm lint",
+    "check": "pnpm typecheck && pnpm build && pnpm lint && pnpm test && pnpm test:e2e",
     "test": "vitest run",
     "test:e2e": "pnpm build && playwright test -c e2e/playwright.config.ts"
   },

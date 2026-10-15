@@ -26,19 +26,37 @@ export const ROUTES: FixtureRoute[] = [
   { path: '/audit', name: 'audit', readySelector: '.row' },
 ];
 
-/** fixed audit rows — two day groups, all event classes, stable ids/times.
- *  Row 4's detail is deliberately LONG (the real-world case that broke the
- *  ledger: content-driven overflow past the container when rows don't
- *  stretch). Keep it long. */
-export const AUDIT_ROWS = [
-  { id: 1, at: ANCHOR - 2 * H, email: 'a.pratama@lionparcel.com', user_id: 'u_a', event: 'login', detail: 'session opened · web · 10.14.88.2' },
-  { id: 2, at: ANCHOR - 4 * H, email: 'ci-bot@lionparcel.com', user_id: 'u_bot', event: 'run_play', detail: 'case login-flow on iPhone 16 · b-7741' },
-  { id: 3, at: ANCHOR - 6 * H, email: 'n.wijaya@lionparcel.com', user_id: 'u_n', event: 'rbac_denied', detail: 'users: list — denied for operator' },
-  { id: 4, at: ANCHOR - 9 * H, email: 'a.pratama@lionparcel.com', user_id: 'u_a', event: 'build_trigger', detail: 'project prj_6035c50f-2a0b-4c8d-9e1f-7a2b by admin — triggered from cockpit after merge of feat/recipe-onboarding into develop, build 382, artifacts uploaded to the package registry' },
-  { id: 5, at: ANCHOR - 26 * H, email: 'a.pratama@lionparcel.com', user_id: 'u_a', event: 'logout', detail: 'session closed' },
-  { id: 6, at: ANCHOR - 30 * H, email: 'ci-bot@lionparcel.com', user_id: 'u_bot', event: 'run_abort', detail: 'aborted after 34s (operator)' },
-  { id: 7, at: ANCHOR - 40 * H, email: null, user_id: null, event: 'login_failed', detail: 'bad password · web · 10.14.88.9' },
+/** fixed audit rows — deterministic, seeded like a real page: 16 rows across
+ *  three day groups, all event classes, MEDIUM-LONG details in most rows.
+ *  Fixture weight matters: visual thresholds (maxDiffPixelRatio 0.002) need
+ *  enough rendered structure that a layout break (e.g. rows stop stretching)
+ *  moves >0.2% of pixels. With only a few short rows, a broken grid can
+ *  sneak under threshold (measured: 7 rows → 0.137% diff = MISS;
+ *  16 weighted rows → comfortably over). Keep rows ≥ 14 with real lengths. */
+const EVENTS = ['login', 'run_play', 'rbac_denied', 'build_trigger', 'logout', 'run_abort', 'case_edit', 'manual_take_control', 'login_failed', 'role_changed', 'device_action', 'password_changed'] as const;
+const DETAILS = [
+  'session opened · web · 10.14.88.2',
+  'case login-flow on iPhone 16 · b-7741 · variant en-US · passed in 42s',
+  'users: list — denied for operator (role below supervisor)',
+  'project prj_6035c50f-2a0b by admin — triggered from cockpit after merge of feat/recipe-onboarding into develop, build 382',
+  'session closed after 4h 12m',
+  'aborted after 34s (operator) — device reclaimed for manual session',
+  'steps 4→7 edited on case login-flow (added OTP verification step)',
+  'device iPhone 16 · manual control 90s · 3 screenshots captured',
+  'bad password · web · 10.14.88.9',
+  'role operator → supervisor by a.pratama',
+  'screenshot batch (12) uploaded to evidence store',
+  'self password change (no reset token)',
 ];
+const EMAILS = ['a.pratama@lionparcel.com', 'ci-bot@lionparcel.com', 'n.wijaya@lionparcel.com', null] as const;
+export const AUDIT_ROWS = Array.from({ length: 16 }, (_, i) => ({
+  id: i + 1,
+  at: ANCHOR - (i * 5 + (i % 3)) * 1_800_000, // ~5h apart, 3 day-groups
+  email: EMAILS[i % 4],
+  user_id: EMAILS[i % 4] ? `u_${i % 4}` : null,
+  event: EVENTS[i % EVENTS.length],
+  detail: DETAILS[i % DETAILS.length],
+}));
 
 /** overview payload mirrors the drill shape (fixed numbers, no Date.now) */
 export const OVERVIEW = {

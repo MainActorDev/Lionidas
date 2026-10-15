@@ -14,8 +14,12 @@ export default defineConfig({
   timeout: 60_000,
   expect: {
     toHaveScreenshot: {
-      maxDiffPixelRatio: 0.002,
-      threshold: 0.2,
+      // strict: layout breaks must not hide under a generous budget.
+      // NOTE per-pixel `threshold`: 0.2 swallowed ≤51/255 color shifts (a
+      // toolbar fill swap passed!) — 0.05 catches ~13/255 shifts, still above
+      // most antialias noise on identical content.
+      maxDiffPixelRatio: 0.0005,
+      threshold: 0.05,
       animations: 'disabled',
       caret: 'hide',
     },

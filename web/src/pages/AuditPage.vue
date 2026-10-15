@@ -275,7 +275,7 @@ onMounted(() => void fetchPage(1));
 .audit-body { display: grid; grid-template-columns: 200px 1fr; gap: 20px; align-items: start; }
 
 /* facet rail — sketch 037-A: two stacked sections, sticky */
-.rail { position: sticky; top: 0; display: flex; flex-direction: column; gap: 22px; padding-top: 22px; }
+.rail { position: sticky; top: 0; display: flex; flex-direction: column; gap: 22px; padding-top: 14px; } /* = toolbar padding-top: EVENT CLASS header aligns with search-bar top edge */
 .rail-h { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-foreground); margin-bottom: 8px; display: flex; align-items: baseline; }
 .rail-h .clear { margin-left: auto; font-size: 10px; font-family: var(--font-mono); color: var(--muted-foreground); }
 .rail-h .clear:hover { color: var(--foreground); }
@@ -291,23 +291,23 @@ onMounted(() => void fetchPage(1));
 
 /* toolbar — sketch 037-A: carbon-filled search box + seg toggle */
 .toolbar { display: flex; gap: 8px; padding: 14px 0; align-items: center; }
-.q { flex: 1; min-width: 220px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 3px; padding: 7px 10px; background: var(--card); }
+.q { flex: 1; min-width: 220px; height: 34px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 3px; padding: 0 10px; background: var(--card); }
 .q:focus-within { border-color: var(--muted-foreground); }
 .q input { background: none; border: none; color: var(--foreground); font-family: var(--font-mono); font-size: 12px; outline: none; flex: 1; }
 .q input::placeholder { color: var(--muted-foreground); }
 .q svg { width: 12px; height: 12px; color: var(--muted-foreground); flex-shrink: 0; }
 .q .k { font-family: var(--font-mono); font-size: 10px; color: var(--muted-foreground); border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; flex-shrink: 0; }
-.seg { display: flex; border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
-.seg button { font-family: var(--font-mono); font-size: 11px; padding: 7px 12px; color: var(--muted-foreground); }
+.seg { display: flex; height: 34px; border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
+.seg button { font-family: var(--font-mono); font-size: 11px; height: 100%; padding: 0 12px; color: var(--muted-foreground); }
 .seg button.on { background: var(--accent); color: var(--accent-foreground); }
 .seg button + button { border-left: 1px solid var(--border); }
 
 /* ledger */
 .ledger { border-top: 1px solid var(--border); }
-.day { position: sticky; top: 0; background: var(--background); z-index: 2; display: flex; align-items: baseline; gap: 10px; padding: 10px 12px 6px; border-bottom: 1px solid var(--border); }
+.day { position: sticky; top: calc(var(--s-5) * -1); background: var(--background); z-index: 2; display: flex; align-items: baseline; gap: 10px; padding: 10px 12px 6px; border-bottom: 1px solid var(--border); }
 .day .d { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--foreground); }
 .day .n { font-family: var(--font-mono); font-size: 11px; color: var(--muted-foreground); }
-.row { display: grid; grid-template-columns: 64px 200px 150px 1fr; gap: 14px; padding: 7px 12px; border-bottom: 1px solid var(--border); align-items: baseline; cursor: pointer; text-align: left; }
+.row { display: grid; width: 100%; grid-template-columns: 64px 200px 150px 1fr; gap: 14px; padding: 7px 12px; border-bottom: 1px solid var(--border); align-items: baseline; cursor: pointer; text-align: left; }
 .row:hover, .row:focus-visible { background: var(--accent); color: var(--accent-foreground); }
 .row:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .row .t { font-family: var(--font-mono); font-size: 11px; color: var(--muted-foreground); white-space: nowrap; }

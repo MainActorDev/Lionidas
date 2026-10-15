@@ -121,3 +121,13 @@ table + mock data), `visual.spec.ts`, `package.json` scripts, devDeps.
   reviewed `--update-snapshots` commits.
 - **happy-dom vitest ≠ real browser gaps** — some assertions may differ;
   keep vitest suite untouched; e2e is additive.
+
+## Results (2026-10-15, all tasks complete)
+
+**Task 1** ✓ — `web/e2e/` scaffold: playwright.config.ts (projects 375/1440, locale en-GB/TZ UTC, webServer=vite preview port 5277 OWNED — `reuseExistingServer: false` after a stale server produced false greens), routes.ts (route table + full pre-nav mock set per review H1; ANCHOR epoch fixtures; 16 weighted rows per threshold lesson), visual.spec.ts (10 tests), `test:e2e` script = build + run.
+
+**Task 2** ✓ — baselines committed (10 PNGs). Mutation evidence: toolbar-fill→transparent CAUGHT (after fixing two harness traps); baseline-deletion CAUGHT. Shrink-wrap mutation initially missed (0.137–0.19% under 0.2% budget) → fixed via threshold 0.05/0.0005 + STRUCTURAL gate (uniform row widths, no overflowX); on the final DOM the width:100% removal is a visual no-op (rows stretch as block-level grid siblings) so the mutation is now neutral — gates remain correct. **Three harness traps found & encoded:** (1) config-level expect block silently ignored with `-c` configs → options inline; (2) default per-pixel threshold 0.2 swallows ≤51/255 shifts; (3) stale preview server serves stale dist.
+
+**Task 3** ✓ — axe wcag2a/2aa in-suite, 0 serious/critical across all 10 surfaces incl. Sheet-open.
+
+**Task 4** ✓ — `web/e2e/README.md` (runbook + pitfalls + mutation table); `ui-qa-gate` skill (lionparcel category) encoding the agent protocol; `web` check script now chains typecheck→build→lint→test→test:e2e. Relative-time rot fixed via `page.clock.setFixedTime(ANCHOR)` (pauseAt hangs axe polling — also documented). Final: e2e 10/10 ×3 stable, vitest 104/104, lint 0.

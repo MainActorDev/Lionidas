@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { ROUTES, installMocks } from './routes';
+import { ROUTES, installMocks, ANCHOR } from './routes';
 
 /** Visual regression + accessibility gate (plan 20261015T082000Z).
  *  Iterates the route table × projects (viewports) × themes (dark active,
@@ -14,6 +14,13 @@ for (const route of ROUTES) {
   for (const theme of THEMES) {
     test(`visual + a11y — ${route.name} [${theme}]`, async ({ page }) => {
       await installMocks(page);
+      // Freeze relative time: pages render "Xh ago" from Date.now(); real
+      // clock drift would rot baselines within hours (fixture anchors to
+      // 2026-10-15T09:00Z — ANCHOR in routes.ts).
+      // setFixedTime (not pauseAt): deterministic Date.now() without freezing
+      // timers — pauseAt hangs axe-core's polling (60s timeouts).
+      await page.clock.install();
+      await page.clock.setFixedTime(ANCHOR);
       if (theme === 'light') {
         await page.addInitScript(() => document.documentElement.classList.remove('dark'));
       }
@@ -26,7 +33,26 @@ for (const route of ROUTES) {
       await page.evaluate(() => document.fonts.ready);
       await page.waitForTimeout(250);
 
-      await expect(page).toHaveScreenshot(`${route.name}-${theme}`, { fullPage: true });
+      await expect(page).toHaveScreenshot(`${route.name}-${theme}`, {
+        fullPage: true,
+        maxDiffPixelRatio: 0.0005,
+        threshold: 0.05,
+        animations: 'disabled',
+        caret: 'hide',
+      });
+
+      // STRUCTURAL gate — catches layout breaks that photos hide under pixel
+      // budgets (lesson: shrink-wrapped rows once landed 0.19% under a 0.2%
+      // threshold). Every ledger row must span the same width as its day
+      // header, and the page must not overflow horizontally.
+      const layout = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll('.row')].map((r) => Math.round(r.getBoundingClientRect().width));
+        const day = document.querySelector('.day');
+        const uniform = rows.length === 0 || (day && rows.every((w) => Math.abs(w - rows[0]) < 2));
+        return { rows: rows.length, uniform, overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1 };
+      });
+      expect(layout.overflowX).toBe(false);
+      if (page.url().includes('/audit')) expect(layout.uniform).toBe(true);
 
       const results = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa'])
