@@ -79,6 +79,10 @@ export const OVERVIEW = {
   latestRuns: [
     { runId: 'r-1', templateId: 'login-flow', status: 'passed', blocked: 0, appVersion: '382', variantId: null, batchId: 'b-7741', startedAt: ANCHOR - 2 * H, finishedAt: ANCHOR - 2 * H + 60_000 },
     { runId: 'r-2', templateId: 'checkout-flow', status: 'failed', blocked: 0, appVersion: '382', variantId: null, batchId: 'b-7741', startedAt: ANCHOR - 3 * H, finishedAt: ANCHOR - 3 * H + 240_000 },
+    { runId: 'r-3', templateId: 'login-flow', status: 'passed', blocked: 0, appVersion: '382', variantId: 'en-US', batchId: 'b-7741', startedAt: ANCHOR - 5 * H, finishedAt: ANCHOR - 5 * H + 75_000 },
+    { runId: 'r-4', templateId: 'payment-retry', status: 'failed', blocked: 0, appVersion: '382', variantId: null, batchId: 'b-7741', startedAt: ANCHOR - 6 * H, finishedAt: ANCHOR - 6 * H + 180_000 },
+    { runId: 'r-5', templateId: 'search-filters', status: 'passed', blocked: 0, appVersion: '382', variantId: null, batchId: 'b-7741', startedAt: ANCHOR - 8 * H, finishedAt: ANCHOR - 8 * H + 95_000 },
+    { runId: 'r-6', templateId: 'login-flow', status: 'passed', blocked: 0, appVersion: '382', variantId: 'id-ID', batchId: 'b-7741', startedAt: ANCHOR - 22 * H, finishedAt: ANCHOR - 22 * H + 66_000 },
   ],
 };
 
