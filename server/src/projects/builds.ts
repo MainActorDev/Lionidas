@@ -163,6 +163,23 @@ export type VerifyResult =
   | { ok: true; verdict: 'green' | 'failed'; recipeId: string; seconds: number }
   | { ok: false; code: 'PROJECT_NOT_FOUND' | 'CLONE_FIRST' | 'NO_RECIPE' | 'BUSY'; error: string };
 
+/** newest .app under the repo-local products dir (prepare-embedded builds land here
+ *  via -derivedDataPath .derived-data conventions; falls back to a scan) */
+async function productsAppFor(ws: string): Promise<string> {
+  const { readdirSync } = await import('node:fs');
+  const base = join(ws, '.derived-data', 'Build', 'Products');
+  try {
+    for (const conf of readdirSync(base)) {
+      const dir = join(base, conf);
+      try {
+        const app = readdirSync(dir).find((f) => f.endsWith('.app'));
+        if (app) return join(dir, app);
+      } catch { /* not a dir */ }
+    }
+  } catch { /* no products yet */ }
+  throw new Error('no .app found under .derived-data/Build/Products (prepare chain reported success — check its -derivedDataPath)');
+}
+
 export function startBuildVerify(db: Database.Database, projectId: string): VerifyResult {
   const proj = getProject(db, projectId);
   if (!proj) return { ok: false, code: 'PROJECT_NOT_FOUND', error: 'project not found' };
@@ -177,7 +194,21 @@ export function startBuildVerify(db: Database.Database, projectId: string): Veri
     const lines: string[] = [];
     const log = (l: string): void => { lines.push(l); };
     try {
-      const res = await compileWorktree(ws, log);
+      // PREPARE FIRST (live drill catch: a CocoaPods recipe's 'pod install' must run
+      // before any scheme can resolve — compileWorktree alone sees a workspace-less
+      // clone and reports 'no scheme discovered'). The recipe's prepare steps are
+      // part of the verified claim: verify proves prepare+build together.
+      for (const [i, step] of row.prepare.entries()) {
+        log(`$ prepare[${i}]: ${step.run}`);
+        await runCommand('sh', ['-c', step.run], ws, log, PREPARE_TIMEOUT_MS, {});
+      }
+      // skip compileWorktree's own build when the prepare chain already IS the build
+      // (agent-authored recipes embed the xcodebuild line as the last prepare step —
+      // running it twice is wasted minutes and doubled failure surfaces)
+      const lastIsBuild = /(^|\s)(xcodebuild|xcbuddy)/.test(row.prepare[row.prepare.length - 1]?.run ?? '');
+      const res = lastIsBuild
+        ? { scheme: row.scheme ?? 'recipe', app: await productsAppFor(ws) }
+        : await compileWorktree(ws, log);
       stampVerify(db, row.id, 'green', `BUILD OK ${res.scheme} → ${res.app.split('/').pop()}`);
     } catch (err) {
       const tail = lines.slice(-40).join('\n');

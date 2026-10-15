@@ -26,12 +26,15 @@ export const ROUTES: FixtureRoute[] = [
   { path: '/audit', name: 'audit', readySelector: '.row' },
 ];
 
-/** fixed audit rows — two day groups, all event classes, stable ids/times */
+/** fixed audit rows — two day groups, all event classes, stable ids/times.
+ *  Row 4's detail is deliberately LONG (the real-world case that broke the
+ *  ledger: content-driven overflow past the container when rows don't
+ *  stretch). Keep it long. */
 export const AUDIT_ROWS = [
   { id: 1, at: ANCHOR - 2 * H, email: 'a.pratama@lionparcel.com', user_id: 'u_a', event: 'login', detail: 'session opened · web · 10.14.88.2' },
   { id: 2, at: ANCHOR - 4 * H, email: 'ci-bot@lionparcel.com', user_id: 'u_bot', event: 'run_play', detail: 'case login-flow on iPhone 16 · b-7741' },
   { id: 3, at: ANCHOR - 6 * H, email: 'n.wijaya@lionparcel.com', user_id: 'u_n', event: 'rbac_denied', detail: 'users: list — denied for operator' },
-  { id: 4, at: ANCHOR - 9 * H, email: 'a.pratama@lionparcel.com', user_id: 'u_a', event: 'build_trigger', detail: 'project prj_6035c50f by admin' },
+  { id: 4, at: ANCHOR - 9 * H, email: 'a.pratama@lionparcel.com', user_id: 'u_a', event: 'build_trigger', detail: 'project prj_6035c50f-2a0b-4c8d-9e1f-7a2b by admin — triggered from cockpit after merge of feat/recipe-onboarding into develop, build 382, artifacts uploaded to the package registry' },
   { id: 5, at: ANCHOR - 26 * H, email: 'a.pratama@lionparcel.com', user_id: 'u_a', event: 'logout', detail: 'session closed' },
   { id: 6, at: ANCHOR - 30 * H, email: 'ci-bot@lionparcel.com', user_id: 'u_bot', event: 'run_abort', detail: 'aborted after 34s (operator)' },
   { id: 7, at: ANCHOR - 40 * H, email: null, user_id: null, event: 'login_failed', detail: 'bad password · web · 10.14.88.9' },

@@ -35,7 +35,10 @@ export default defineConfig({
     command: 'pnpm exec vite preview --port 5277 --strictPort',
     cwd: e2eDir.replace('/e2e/', '/'),
     port: 5277,
-    reuseExistingServer: true,
+    // ALWAYS own the server: a long-lived preview from a stale dist makes
+    // visual tests compare against outdated assets (false green). Found the
+    // hard way during mutation testing.
+    reuseExistingServer: false,
     timeout: 60_000,
   },
   snapshotPathTemplate: '{testDir}/__screenshots__/{testFileName}/{arg}-{projectName}-{platform}.png',
