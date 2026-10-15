@@ -307,7 +307,7 @@ onMounted(() => void fetchPage(1));
 .day { position: sticky; top: 0; background: var(--background); z-index: 2; display: flex; align-items: baseline; gap: 10px; padding: 10px 12px 6px; border-bottom: 1px solid var(--border); }
 .day .d { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--foreground); }
 .day .n { font-family: var(--font-mono); font-size: 11px; color: var(--muted-foreground); }
-.row { display: grid; width: 100%; grid-template-columns: 64px 200px 150px 1fr; gap: 14px; padding: 7px 12px; border-bottom: 1px solid var(--border); align-items: baseline; cursor: pointer; text-align: left; }
+.row { display: grid; grid-template-columns: 64px 200px 150px 1fr; gap: 14px; padding: 7px 12px; border-bottom: 1px solid var(--border); align-items: baseline; cursor: pointer; text-align: left; }
 .row:hover, .row:focus-visible { background: var(--accent); color: var(--accent-foreground); }
 .row:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .row .t { font-family: var(--font-mono); font-size: 11px; color: var(--muted-foreground); white-space: nowrap; }

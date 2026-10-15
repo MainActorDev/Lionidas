@@ -101,18 +101,33 @@ export function proposalFromAnswer(answer: string): BridgeProposal | null {
 /** the prepareTurn-side flip (R1): called with the user's next message content;
  *  flips pending→applied for every pending project row when the message is a
  *  bare confirmation; declines clear. Returns the flipped rows so the turn
- *  overlay can tell the model WHICH projects were confirmed. */
-export function consumeConfirmation(db: Database.Database, sessionId: string, userContent: string): ParkedRow[] {
-  const pending = listParkedForSession(db, sessionId).filter((r) => r.state === 'pending');
+ *  overlay can tell the model WHICH projects were confirmed.
+ *
+ *  SESSION-ID BRIDGE (live drill catch): tools invoked through the MCP child
+ *  (mcp__lionidas__*) park under the child's placeholder id ('mcp-stdio'), not
+ *  the chat session — the child's ToolContext cannot see the chat id. The
+ *  confirmation flip therefore matches pending rows for the SAME PROJECT parked
+ *  recently (default 30 min) from ANY session: the chat that proposes is the
+ *  chat that confirms; the child 'session' is an artifact, never an actor. The
+ *  gate stays structural — only this seam flips, only on the user's message. */
+export function consumeConfirmation(db: Database.Database, sessionId: string, userContent: string, opts?: { recencyMs?: number }): ParkedRow[] {
+  const recency = opts?.recencyMs ?? 30 * 60_000;
+  const own = listParkedForSession(db, sessionId).filter((r) => r.state === 'pending');
+  const foreign = (db.prepare(`SELECT * FROM build_config_proposals WHERE state = 'pending' AND session_id != ? AND created_at > ?`)
+    .all(sessionId, Date.now() - recency) as Array<{ session_id: string; project_id: string; proposal_json: string; created_at: number; state: ParkedRow['state'] }>)
+    .map(rowToParked)
+    // a project already parked by THIS session is owned by this session
+    .filter((r) => !own.some((x) => x.projectId === r.projectId));
+  const pending = [...own, ...foreign];
   if (!pending.length) return [];
   if (isDecline(userContent)) {
     const upd = db.prepare("UPDATE build_config_proposals SET state = 'declined' WHERE session_id = ? AND project_id = ?");
-    for (const r of pending) upd.run(sessionId, r.projectId);
+    for (const r of pending) upd.run(r.sessionId, r.projectId);
     return [];
   }
   if (!isConfirmation(userContent)) return []; // a question keeps it pending
   const upd = db.prepare("UPDATE build_config_proposals SET state = 'applied' WHERE session_id = ? AND project_id = ?");
   const flipped: ParkedRow[] = [];
-  for (const r of pending) { upd.run(sessionId, r.projectId); flipped.push({ ...r, state: 'applied' }); }
+  for (const r of pending) { upd.run(r.sessionId, r.projectId); flipped.push({ ...r, state: 'applied' }); }
   return flipped;
 }

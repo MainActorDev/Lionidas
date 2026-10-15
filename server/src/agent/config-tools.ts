@@ -827,8 +827,18 @@ export function registerConfigTools(deps: ConfigToolDeps): void {
     async execute(args, ctx) {
       const { getParked } = await import('./build-config-flow.ts');
       const projectId = String(args['projectId'] ?? '');
-      const parked = getParked(db, ctx.sessionId, projectId);
-      if (!parked) return JSON.stringify({ error: 'NO_PROPOSAL', detail: `no parked proposal for this session/project — call build_config.propose first` });
+      // session-id bridge: the row may live under the MCP child's placeholder id;
+      // the FLIP was driven by the user's chat message — match by project + state
+      let parked = getParked(db, ctx.sessionId, projectId);
+      if (!parked) {
+        const anyRow = db.prepare(`SELECT * FROM build_config_proposals WHERE project_id = ? ORDER BY created_at DESC LIMIT 1`).get(projectId) as
+          { session_id: string; project_id: string; proposal_json: string; created_at: number; state: 'pending' | 'applied' | 'declined' } | undefined;
+        if (anyRow) {
+          const { getParked: getRow } = await import('./build-config-flow.ts');
+          parked = getRow(db, anyRow.session_id, projectId);
+        }
+      }
+      if (!parked) return JSON.stringify({ error: 'NO_PROPOSAL', detail: `no parked proposal for this project — call build_config.propose first` });
       if (parked.state !== 'applied') {
         return JSON.stringify({ error: 'NOT_CONFIRMED', detail: `the proposal is ${parked.state} — the USER must confirm in a message before this write. Do not retry; render the proposal and stop.` });
       }
