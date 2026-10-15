@@ -73,7 +73,9 @@ beforeAll(async () => {
   });
   await send('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'contract-probe', version: '1' } });
   notify('notifications/initialized');
-}, 30_000);
+}, 150_000);
+// ^ hook budget: the initialize inside pays cold tsx transform on a fresh CI runner
+// (observed >30s on macos-latest); 150s hook + 90s per-call initialize budget.
 afterAll(() => { child.kill(); rmSync(join(tmpdir(), 'mcp-contract-db'), { recursive: true, force: true }); });
 
 describe('interface matrix: every tool × every non-string param type crosses the MCP boundary', () => {

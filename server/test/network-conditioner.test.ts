@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { afterAll, beforeAll, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { migrateM1 } from '../src/db/schema.ts';
@@ -8,8 +8,10 @@ import { baguetteNetwork, resolveBaguettePath, __setBaguettePathForTest, type Ba
 
 // hermetic: argv-contract tests inject fake runners; binary resolution must not
 // depend on a real baguette (BAGUETTE_PATH / ~/.alloy/crucible.json / sibling repo)
-// existing on the machine — force it, like absent-binary drills do.
-__setBaguettePathForTest('/usr/local/bin/baguette');
+// existing on the machine — forced around each test (module-scope restore ran
+// before tests; beforeAll/afterAll is the correct lifecycle).
+beforeAll(() => __setBaguettePathForTest('/usr/local/bin/baguette'));
+afterAll(() => __setBaguettePathForTest(undefined));
 
 /** Plan 20260928T153608Z rev 2 — network conditioner: preset vocab pinned,
  *  shim argv contracts, exit-code-is-contract semantics, route surface. */
@@ -113,5 +115,3 @@ describe('condition routes', () => {
   });
 });
 
-// restore resolution for any other suite file in this worker
-__setBaguettePathForTest(undefined);
