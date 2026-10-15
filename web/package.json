@@ -38,6 +38,8 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.64.0",
     "@vitejs/plugin-vue": "^5.1.0",
     "@vue/test-utils": "^2.5.1",
     "axe-core": "^4.14.0",

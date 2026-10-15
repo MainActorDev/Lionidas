@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { registerConversationApi, mountMcp } from '@mainactordev/butler';
 import { registerMentionRoutes } from './mention-search.ts';
 import { makeTurnDecorator } from './identifier-flow.ts';
+import { consumeConfirmation, proposalFromAnswer, listParkedForSession, parkProposal } from './build-config-flow.ts';
 import { join, resolve } from 'node:path';
 import { orderCommands, overlayBlock, toolsFor, registerCommandRoutes } from './commands.ts';
 import { requireRole } from '../auth/roles.ts';
@@ -75,8 +76,37 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AgentContext, bus
       sink: ctx.sink, // R3-S5: durable turns — event log rides the storage DB
       contextWindow: 200_000,
       ...(decorator ? {
-        prepareTurn: decorator.prepareTurn,
+        prepareTurn: async (sessionId: string, body: { content: string; commands?: string[] }) => {
+          // build-config apply bridge (plan 20261015T121500Z R1): the pending→applied
+          // flip happens HERE — driven by the user's actual message, BEFORE the model
+          // sees the turn. The model can never flip it; build_config.apply only
+          // succeeds on an already-flipped row.
+          try {
+            const flipped = consumeConfirmation((ctx as { db: import('better-sqlite3').Database }).db, sessionId, body.content ?? '');
+            if (flipped.length) {
+              app.log.info(`[build-config-bridge] ${sessionId}: user confirmed ${flipped.map((f) => f.projectId).join(', ')} — rows flipped to applied`);
+            }
+          } catch (err) { app.log.warn({ err: String(err) }, 'build-config bridge flip failed'); }
+          return decorator.prepareTurn(sessionId, body);
+        },
         afterTurn: (sessionId: string, outcome: { ok: boolean; turnId: string; answer: string }) => {
+          // R2 dual-layer parking: if build_config.propose wasn't called this turn,
+          // an answer that IS a proposal (yaml block + confirm question) still parks
+          try {
+            if (outcome.ok) {
+              const proposals = listParkedForSession((ctx as { db: import('better-sqlite3').Database }).db, sessionId);
+              const parkedThisTurn = /parked/.test(outcome.answer) && proposals.some((r) => Date.now() - r.createdAt < 120_000);
+              if (!parkedThisTurn) {
+                const fromAnswer = proposalFromAnswer(outcome.answer);
+                const pidM = /project:?\s*(\S+)/i.exec(outcome.answer);
+                const projects = (ctx as { db: import('better-sqlite3').Database }).db.prepare("SELECT id FROM projects").all() as Array<{ id: string }>;
+                if (fromAnswer && pidM) {
+                  const pid = projects.find((x) => x.id === pidM[1])?.id ?? projects[0]?.id;
+                  if (pid) parkProposal((ctx as { db: import('better-sqlite3').Database }).db, sessionId, pid, fromAnswer);
+                }
+              }
+            }
+          } catch { /* parking fallback best-effort */ }
           // fire-and-forget BY DESIGN: the compile gate runs for minutes — the chat
           // turn must not block on xcodebuild. Progress lands via the server log.
           void Promise.resolve(decorator.afterTurn(sessionId, outcome)).catch((err) => { app.log.warn({ err: String(err) }, 'afterTurn hook failed'); });

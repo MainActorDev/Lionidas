@@ -5,13 +5,15 @@
 import type Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { flowHistory, flakeScore } from '../domain/flake.ts';
-import type { ToolRegistry } from '@mainactordev/butler';
+import type { ToolRegistry, SqliteStorage } from '@mainactordev/butler';
 
 export interface ConfigToolDeps {
   db: Database.Database;
   registry: ToolRegistry;
   /** F2: preset writes must push to the live forge proxy — wired in index.ts */
   syncPresets?: () => void;
+  /** apply-bridge (plan 20261015T121500Z R3): verify-outcome durability notes */
+  storage?: SqliteStorage;
 }
 
 interface SuiteRow { id: string; name: string; description: string | null; app_bundle_id: string | null; created_by: string; created_at: number; updated_at: number }
@@ -35,7 +37,7 @@ function suiteOutLite(db: Database.Database, r: SuiteRow): Record<string, unknow
 }
 
 export function registerConfigTools(deps: ConfigToolDeps): void {
-  const { db, registry } = deps;
+  const { db, registry, storage } = deps;
 
   // ── reads (steps_001) ────────────────────────────────────────────────────
 
@@ -779,6 +781,92 @@ export function registerConfigTools(deps: ConfigToolDeps): void {
       });
       tx();
       return JSON.stringify({ appBundle: bundle, revision: next, count: (screens as unknown[]).length });
+    },
+  });
+
+  // ── build-config apply bridge (plan 20261015T121500Z B1) ──
+  registry.register({
+    name: 'build_config.propose',
+    description: 'Park a build-config proposal for THIS session (the /build-config-propose hard-stop flow). Returns the rendered table to show the user. The parked row stays pending until the USER confirms in a later message — the state flip is structural (turn seam), not yours.',
+    permission: 'draft',
+    parameters: { type: 'object', properties: {
+      projectId: { type: 'string', description: 'the project id (repo.projects)' },
+      transport: { type: 'string', enum: ['repo-lane', 'generic'] },
+      scheme: { type: 'string' },
+      configuration: { type: 'string' },
+      prepare: { type: 'array', items: { type: 'object', properties: { run: { type: 'string' } }, required: ['run'] } },
+      evidence: { type: 'array', items: { type: 'string' }, description: 'file:line citations per claim' },
+    }, required: ['projectId', 'transport'] },
+    async execute(args, ctx) {
+      const { parkProposal } = await import('./build-config-flow.ts');
+      const projectId = String(args['projectId'] ?? '');
+      const proj = db.prepare('SELECT id, name FROM projects WHERE id = ?').get(projectId) as { id: string; name: string } | undefined;
+      if (!proj) return JSON.stringify({ error: `unknown projectId ${projectId}` });
+      const proposal = {
+        transport: (args['transport'] === 'repo-lane' ? 'repo-lane' : 'generic') as 'repo-lane' | 'generic',
+        scheme: args['scheme'] != null ? String(args['scheme']) : null,
+        configuration: args['configuration'] != null ? String(args['configuration']) : null,
+        prepare: Array.isArray(args['prepare']) ? (args['prepare'] as Array<{ run?: unknown }>).filter((x) => x && typeof x['run'] === 'string').map((x) => ({ run: String(x['run']) })) : [],
+        evidence: Array.isArray(args['evidence']) ? (args['evidence'] as unknown[]).map(String) : [],
+      };
+      parkProposal(db, ctx.sessionId, projectId, proposal);
+      const prep = proposal.prepare.map((x) => x.run).join(' → ') || '(no prepare steps)';
+      return JSON.stringify({
+        parked: true, projectId, project: proj.name,
+        render: `| transport | scheme | configuration | prepare |\n|---|---|---|---|\n| ${proposal.transport} | ${proposal.scheme ?? '—'} | ${proposal.configuration ?? '—'} | ${prep} |`,
+        next: 'Render the table with your evidence, then HARD STOP: "Confirm applying this build config? The host writes it (provenance ai+user) and verify-build runs."',
+      });
+    },
+  });
+
+  registry.register({
+    name: 'build_config.apply',
+    description: 'Write the CONFIRMED build-config revision and fire verify-build. Succeeds ONLY when the user has already confirmed (the proposal row is in state applied — the flip happened in the turn seam, before you saw the turn). Calling this on a pending/unconfirmed proposal is refused.',
+    permission: 'draft',
+    parameters: { type: 'object', properties: { projectId: { type: 'string' } }, required: ['projectId'] },
+    async execute(args, ctx) {
+      const { getParked } = await import('./build-config-flow.ts');
+      const projectId = String(args['projectId'] ?? '');
+      const parked = getParked(db, ctx.sessionId, projectId);
+      if (!parked) return JSON.stringify({ error: 'NO_PROPOSAL', detail: `no parked proposal for this session/project — call build_config.propose first` });
+      if (parked.state !== 'applied') {
+        return JSON.stringify({ error: 'NOT_CONFIRMED', detail: `the proposal is ${parked.state} — the USER must confirm in a message before this write. Do not retry; render the proposal and stop.` });
+      }
+      const { writeBuildConfigRevision } = await import('../projects/build-configs.ts');
+      const row = writeBuildConfigRevision(db, {
+        projectId,
+        transport: parked.proposal.transport,
+        scheme: parked.proposal.scheme,
+        configuration: parked.proposal.configuration,
+        prepare: parked.proposal.prepare,
+        provenance: { by: 'ai+user', at: Date.now(), source: 'chat confirmation via apply bridge (plan 20261015T121500Z)', evidence: parked.proposal.evidence },
+      });
+      // verify: fire-and-forget — the verdict stamps the revision minutes later;
+      // a best-effort durable note carries the outcome to later turns (review R3)
+      const { startBuildVerify } = await import('../projects/builds.ts');
+      const v = startBuildVerify(db, projectId);
+      void (async () => {
+        try {
+          const deadline = Date.now() + 15 * 60_000;
+          while (Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, 15_000));
+            const fresh = getParked(db, ctx.sessionId, projectId); // parked still exists; read the revision verdict instead
+            void fresh;
+            const rev = db.prepare('SELECT verify_state, verify_log FROM build_configs WHERE id = ?').get(row.id) as { verify_state: string | null; verify_log: string | null } | undefined;
+            if (rev && rev.verify_state && rev.verify_state !== 'unverified') {
+              try {
+                await storage?.insertNote({
+                  scope_key: `project:${projectId}`, kind: 'env-gate',
+                  content: `build-config verify ${rev.verify_state} (rev ${row.revision}, ${parked.proposal.scheme ?? parked.proposal.transport}) — ${(rev.verify_log ?? '').slice(0, 400)}`,
+                  source_type: 'session', source_ref: ctx.sessionId, created_by: 'apply-bridge',
+                });
+              } catch { /* note best-effort */ }
+              break;
+            }
+          }
+        } catch { /* poll best-effort */ }
+      })();
+      return JSON.stringify({ applied: true, revision: row.revision, recipeId: row.id, verify: v.ok ? 'started' : v.error });
     },
   });
 

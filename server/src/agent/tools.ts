@@ -238,7 +238,7 @@ export function buildToolRegistry(deps: ToolDeps): ToolRegistry {
     },
   });
 
-  registerConfigTools({ db, registry, ...(syncPresets ? { syncPresets } : {}) });
+  registerConfigTools({ db, registry, ...(syncPresets ? { syncPresets } : {}), ...(storage ? { storage } : {}) });
 
   return registry;
 }
