@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { migrateM1, migrateRecipes } from '../src/db/schema.ts';
+import { migrateM1, migrateBuildConfigs } from '../src/db/schema.ts';
 import { registerManualRoutes } from '../src/routes/manual.ts';
 import { registerProjectRoutes } from '../src/projects/routes.ts';
 import { startBuild } from '../src/projects/builds.ts';
@@ -73,7 +73,7 @@ beforeEach(() => {
   fakeToolchain();
   db = new Database(':memory:');
   migrateM1(db);
-  migrateRecipes(db);
+  migrateBuildConfigs(db);
   app = makeApp('admin');
   return app.ready();
 });

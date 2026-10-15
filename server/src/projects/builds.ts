@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { getProject } from './store.ts';
 import { claimPackage, unclaimPackage } from './store.ts';
-import { activeRecipe, stampVerify } from './recipes.ts';
+import { activeBuildConfig, stampVerify } from './build-configs.ts';
 import { readBuildManifest, prepareCommandPath, type BuildManifest, type PrepareStep } from './manifest.ts';
 import { smokeTestArtifact } from './smoke.ts';
 import { discoverAppInputs, type DiscoveredInputs } from './discovery.ts';
@@ -117,14 +117,14 @@ export type StartResult =
  *  3. legacy .lionidas/lionidas.yml — still readable (import nag), recorded as manifest-legacy
  *  4. discovery — NEVER silent; only reached via explicit derive (a generated recipe row)
  *  Returns the manifest the engine runs plus the resolution provenance stamped on the build row. */
-export interface ResolvedRecipe {
+export interface ResolvedBuildConfig {
   manifest: BuildManifest | null;
   resolution: { scheme: string | null; from: 'manifest' | 'manifest-legacy' | 'recipes' | 'registry' | 'discovered' | null };
   recipeId?: string;
   recipeRevision?: number;
 }
 
-export function resolveRecipe(db: Database.Database, projectId: string, ws: string): ResolvedRecipe {
+export function resolveBuildConfig(db: Database.Database, projectId: string, ws: string): ResolvedBuildConfig {
   // 1 — repo-committed root manifest
   if (existsSync(join(ws, 'lionidas.yml'))) {
     try {
@@ -133,7 +133,7 @@ export function resolveRecipe(db: Database.Database, projectId: string, ws: stri
     } catch { /* malformed root manifest falls through to the store */ }
   }
   // 2 — the recipes store
-  const row = activeRecipe(db, projectId);
+  const row = activeBuildConfig(db, projectId);
   if (row && row.transport === 'generic') {
     return {
       manifest: { scheme: row.scheme, configuration: row.configuration, prepare: row.prepare },
@@ -163,10 +163,10 @@ export type VerifyResult =
   | { ok: true; verdict: 'green' | 'failed'; recipeId: string; seconds: number }
   | { ok: false; code: 'PROJECT_NOT_FOUND' | 'CLONE_FIRST' | 'NO_RECIPE' | 'BUSY'; error: string };
 
-export function startVerify(db: Database.Database, projectId: string): VerifyResult {
+export function startBuildVerify(db: Database.Database, projectId: string): VerifyResult {
   const proj = getProject(db, projectId);
   if (!proj) return { ok: false, code: 'PROJECT_NOT_FOUND', error: 'project not found' };
-  const row = activeRecipe(db, projectId);
+  const row = activeBuildConfig(db, projectId);
   if (!row) return { ok: false, code: 'NO_RECIPE', error: 'no active recipe — derive or import one first' };
   const ws = projectWorkspace(proj.name ?? '');
   if (!ws || !existsSync(join(ws, '.git'))) return { ok: false, code: 'CLONE_FIRST', error: `no workspace at ${ws} — clone first` };
@@ -209,7 +209,7 @@ export function startBuild(db: Database.Database, projectId: string): StartResul
   // ── input resolution (plan 20261015T021000Z S2): root manifest > recipes store >
   // legacy .lionidas > registry(discovery only via explicit derive) ──
   // manifest errors (strict schema) fail the build BEFORE any compile.
-  const resolved = resolveRecipe(db, projectId, ws);
+  const resolved = resolveBuildConfig(db, projectId, ws);
   const recipeId = resolved.recipeId ?? null;
   let manifest: BuildManifest | null = resolved.manifest;
   if (transport === 'generic' && !manifest) {

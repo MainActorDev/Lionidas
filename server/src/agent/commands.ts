@@ -86,18 +86,18 @@ Rules:
 - If the target repo has no compile CI on PRs, say so in your report — the user decides the gate.`,
   },
   {
-    cmd: '/recipe-propose',
-    description: 'Propose a build recipe for an unclassifiable or blocked repo',
+    cmd: '/build-config-propose',
+    description: 'Propose a build config for an unclassifiable or blocked repo',
     order: 5,
     tools: ['repo.list', 'repo.apps', 'repo.tree', 'repo.read', 'sources.search', 'notes.read', 'note.save'],
-    instructions: `You are executing the /recipe-propose command for this turn. The project's build recipe detection returned blocked (or unclassifiable); this turn PROPOSES a recipe — you never write it.
+    instructions: `You are executing the /build-config-propose command for this turn. The project's build recipe detection returned blocked (or unclassifiable); this turn PROPOSES a recipe — you never write it.
 
 Workflow — follow exactly, with a HARD STOP:
 1. READ the project workspace via repo tools (repo.tree / repo.read): build files (project.yml, Package.swift, Project.swift, Podfile, *.xcodeproj/workspace, fastlane/Fastfile), config wiring (xcconfig paths and whether they exist), scripts, CI workflows. Use sources.search when the repo is large.
 2. CLASSIFY the archetype and DIAGNOSE each blocker from the detection report (it names codes with evidence).
 3. PROPOSE a markdown table: transport (repo-lane|generic) | scheme | configuration | prepare steps (ordered, exact commands) — and for EVERY row a file:line evidence citation. If a blocker is a MISSING SECRET or credential you cannot read (gitignored xcconfig, private spec repo, signing), that row is the blocker NEEDS_SECRETS — the HUMAN supplies it; never propose synthesizing or bypassing a secret.
 4. HARD STOP: end your turn with the table and "Confirm applying this recipe? The host writes it (provenance: ai+user) and offers verify." Do NOT write anything before the user replies.
-5. After confirmation (next turn), the HOST applies the recipe via POST /api/projects/:id/recipe/apply-proposal — say so and stop. Park the proposal as a note (kind recipe-proposal, scope project) if the user defers.
+5. After confirmation (next turn), the HOST applies the recipe via POST /api/projects/:id/build-config/apply-proposal — say so and stop. Park the proposal as a note (kind recipe-proposal, scope project) if the user defers.
 
 Rules:
 - Every claim cites file:line. No evidence, no row.
@@ -105,11 +105,11 @@ Rules:
 - You never mark a recipe green; only verify-build (xcodebuild) decides that.`,
   },
   {
-    cmd: '/recipe-diagnose',
-    description: 'Diagnose a failed verify build and propose a recipe revision',
+    cmd: '/build-diagnose',
+    description: 'Diagnose a failed verify build and propose a build-config revision',
     order: 6,
     tools: ['repo.list', 'repo.apps', 'repo.tree', 'repo.read', 'sources.search', 'notes.read', 'note.save'],
-    instructions: `You are executing the /recipe-diagnose command for this turn. A verify build FAILED against the active recipe; this turn diagnoses the failure log and PROPOSES a recipe revision — you never write it.
+    instructions: `You are executing the /build-diagnose command for this turn. A verify build FAILED against the active recipe; this turn diagnoses the failure log and PROPOSES a recipe revision — you never write it.
 
 Workflow — follow exactly, with a HARD STOP:
 1. READ the failure: the recipe's verify log (the user pastes it or it rides the thread) — find the FIRST hard error (xcodebuild, xcodegen, prepare step, resolution).

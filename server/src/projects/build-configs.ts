@@ -11,14 +11,14 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 
-export interface RecipeProvenance {
+export interface BuildConfigProvenance {
   by: 'user' | 'ai+user' | 'import' | 'derive';
   at: number;
   source?: string | null;
   evidence?: string[];
 }
 
-export interface RecipeRow {
+export interface BuildConfigRow {
   id: string;
   projectId: string;
   revision: number;
@@ -27,7 +27,7 @@ export interface RecipeRow {
   configuration: string | null;
   prepare: Array<{ run: string }>;
   generated: boolean;
-  provenance: RecipeProvenance;
+  provenance: BuildConfigProvenance;
   supersededBy: string | null;
   verifyState: 'unverified' | 'green' | 'failed' | null;
   verifiedAt: number | null;
@@ -41,11 +41,11 @@ interface RawRow {
   verify_state: 'unverified' | 'green' | 'failed' | null; verified_at: number | null; created_at: number;
 }
 
-function toRow(r: RawRow): RecipeRow {
+function toRow(r: RawRow): BuildConfigRow {
   let prep: Array<{ run: string }> = [];
-  let prov: RecipeProvenance = { by: 'user', at: r.created_at };
+  let prov: BuildConfigProvenance = { by: 'user', at: r.created_at };
   try { prep = JSON.parse(r.prepare_json) as Array<{ run: string }>; } catch { /* corrupt → empty */ }
-  try { prov = { at: r.created_at, ...(JSON.parse(r.provenance_json) as object) } as RecipeProvenance; } catch { /* keep default */ }
+  try { prov = { at: r.created_at, ...(JSON.parse(r.provenance_json) as object) } as BuildConfigProvenance; } catch { /* keep default */ }
   return {
     id: r.id, projectId: r.project_id, revision: r.revision, transport: r.transport,
     scheme: r.scheme, configuration: r.configuration, prepare: prep,
@@ -55,58 +55,58 @@ function toRow(r: RawRow): RecipeRow {
 }
 
 /** the ACTIVE recipe = highest revision whose superseded_by is NULL */
-export function activeRecipe(db: Database.Database, projectId: string): RecipeRow | null {
+export function activeBuildConfig(db: Database.Database, projectId: string): BuildConfigRow | null {
   const row = db.prepare(
-    'SELECT * FROM recipes WHERE project_id = ? AND superseded_by IS NULL ORDER BY revision DESC LIMIT 1',
+    'SELECT * FROM build_configs WHERE project_id = ? AND superseded_by IS NULL ORDER BY revision DESC LIMIT 1',
   ).get(projectId) as RawRow | undefined;
   return row ? toRow(row) : null;
 }
 
-export function listRevisions(db: Database.Database, projectId: string): RecipeRow[] {
-  return (db.prepare('SELECT * FROM recipes WHERE project_id = ? ORDER BY revision DESC').all(projectId) as RawRow[]).map(toRow);
+export function listBuildConfigRevisions(db: Database.Database, projectId: string): BuildConfigRow[] {
+  return (db.prepare('SELECT * FROM build_configs WHERE project_id = ? ORDER BY revision DESC').all(projectId) as RawRow[]).map(toRow);
 }
 
-export interface WriteRecipe {
+export interface WriteBuildConfig {
   projectId: string;
   transport: 'repo-lane' | 'generic';
   scheme?: string | null;
   configuration?: string | null;
   prepare?: Array<{ run: string }>;
   generated?: boolean;
-  provenance: RecipeProvenance;
+  provenance: BuildConfigProvenance;
 }
 
 /** append the next revision, superseding the current active row — one txn */
-export function writeRecipeRevision(db: Database.Database, w: WriteRecipe): RecipeRow {
-  const tx = db.transaction((): RecipeRow => {
+export function writeBuildConfigRevision(db: Database.Database, w: WriteBuildConfig): BuildConfigRow {
+  const tx = db.transaction((): BuildConfigRow => {
     const prev = db.prepare(
-      'SELECT id, revision FROM recipes WHERE project_id = ? AND superseded_by IS NULL ORDER BY revision DESC LIMIT 1',
+      'SELECT id, revision FROM build_configs WHERE project_id = ? AND superseded_by IS NULL ORDER BY revision DESC LIMIT 1',
     ).get(w.projectId) as { id: string; revision: number } | undefined;
     const id = `rcp_${randomUUID().slice(0, 12)}`;
     const revision = (prev?.revision ?? 0) + 1;
-    db.prepare(`INSERT INTO recipes(id, project_id, revision, transport, scheme, configuration, prepare_json, generated, provenance_json, verify_state, created_at)
+    db.prepare(`INSERT INTO build_configs(id, project_id, revision, transport, scheme, configuration, prepare_json, generated, provenance_json, verify_state, created_at)
                 VALUES (?,?,?,?,?,?,?,?,?,'unverified',?)`)
       .run(id, w.projectId, revision, w.transport, w.scheme ?? null, w.configuration ?? null,
         JSON.stringify(w.prepare ?? []), w.generated ? 1 : 0, JSON.stringify(w.provenance), Date.now());
-    if (prev) db.prepare('UPDATE recipes SET superseded_by = ? WHERE id = ?').run(id, prev.id);
-    return toRow(db.prepare('SELECT * FROM recipes WHERE id = ?').get(id) as RawRow);
+    if (prev) db.prepare('UPDATE build_configs SET superseded_by = ? WHERE id = ?').run(id, prev.id);
+    return toRow(db.prepare('SELECT * FROM build_configs WHERE id = ?').get(id) as RawRow);
   });
   return tx();
 }
 
 /** verify verdict on a revision (S4) — append-only state transition on the row */
 export function stampVerify(db: Database.Database, recipeId: string, state: 'green' | 'failed', log: string | null): void {
-  db.prepare('UPDATE recipes SET verify_state = ?, verified_at = ?, verify_log = ? WHERE id = ?')
+  db.prepare('UPDATE build_configs SET verify_state = ?, verified_at = ?, verify_log = ? WHERE id = ?')
     .run(state, Date.now(), log, recipeId);
 }
 
 /** LAZY BACKFILL (review R1): a project whose columns carry values but has no
  *  recipe row gets one imported on first read — the columns are dead from then on. */
-export function backfillFromColumns(db: Database.Database, project: { id: string; build_scheme: string | null; build_configuration: string | null }): RecipeRow | null {
-  const existing = activeRecipe(db, project.id);
+export function backfillBuildConfigFromColumns(db: Database.Database, project: { id: string; build_scheme: string | null; build_configuration: string | null }): BuildConfigRow | null {
+  const existing = activeBuildConfig(db, project.id);
   if (existing) return existing;
   if (!project.build_scheme) return null;
-  return writeRecipeRevision(db, {
+  return writeBuildConfigRevision(db, {
     projectId: project.id,
     transport: 'generic',
     scheme: project.build_scheme,

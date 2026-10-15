@@ -6,7 +6,7 @@ import { COMMANDS, orderCommands, overlayBlock, toolsFor, commandByCmd } from '.
 
 describe('command registry', () => {
   it('the registered commands registered with order + descriptions', () => {
-    expect(COMMANDS.map((c) => c.cmd)).toEqual(['/planning', '/breakdown', '/author', '/implement-identifiers', '/recipe-propose', '/recipe-diagnose']);
+    expect(COMMANDS.map((c) => c.cmd)).toEqual(['/planning', '/breakdown', '/author', '/implement-identifiers', '/build-config-propose', '/build-diagnose']);
     expect(COMMANDS.every((c) => c.description.length > 0 && c.instructions.length > 200)).toBe(true);
   });
 

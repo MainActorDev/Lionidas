@@ -36,16 +36,16 @@ export interface Blocker {
   evidence: string;
 }
 
-export interface DetectedRecipe {
+export interface DetectedBuildConfig {
   transport: 'repo-lane' | 'generic';
   scheme: string | null;
   configuration: string | null;
   prepare: Array<{ run: string }>;
 }
 
-export type DetectionReport =
-  | { state: 'found'; source: 'root-manifest' | 'dot-lionidas-manifest' | 'repo-lane'; recipe: DetectedRecipe; legacy?: boolean }
-  | { state: 'derivable'; recipe: DetectedRecipe; generated: true; notes: string[] }
+export type BuildConfigReport =
+  | { state: 'found'; source: 'root-manifest' | 'dot-lionidas-manifest' | 'repo-lane'; recipe: DetectedBuildConfig; legacy?: boolean }
+  | { state: 'derivable'; recipe: DetectedBuildConfig; generated: true; notes: string[] }
   | { state: 'blocked'; blockers: Blocker[] };
 
 /** pattern files at root — the archetype matrix (review R6: possessed shapes only) */
@@ -81,7 +81,7 @@ export function probeArchetypes(ws: string): Archetypes {
   return a;
 }
 
-function manifestToRecipe(m: BuildManifest): DetectedRecipe {
+function manifestToRecipe(m: BuildManifest): DetectedBuildConfig {
   return { transport: 'generic', scheme: m.scheme ?? null, configuration: m.configuration ?? null, prepare: m.prepare ?? [] };
 }
 
@@ -104,7 +104,7 @@ function missingXcconfigs(ws: string): Array<{ detail: string; evidence: string 
   } catch { return []; }
 }
 
-export function detectRecipe(ws: string): DetectionReport {
+export function detectBuildConfig(ws: string): BuildConfigReport {
   if (!existsSync(join(ws, '.git')) && !existsSync(join(ws, 'project.yml')) && !readdirSafe(ws)) {
     return { state: 'blocked', blockers: [{ code: 'NOT_CLONED', detail: `no workspace at ${ws}`, evidence: ws }] };
   }
@@ -136,7 +136,7 @@ export function detectRecipe(ws: string): DetectionReport {
   // 4 ── derivable / blocked — needs a generated-or-committed project to list schemes
   const blockers: Blocker[] = [];
   if (a.tuist && !a.xcodeproj && !a.workspace) {
-    blockers.push({ code: 'NEEDS_GENERATION', detail: 'Tuist repo (Project.swift) with no generated project — run tuist generate, or propose a recipe via /recipe-propose', evidence: 'Project.swift' });
+    blockers.push({ code: 'NEEDS_GENERATION', detail: 'Tuist repo (Project.swift) with no generated project — run tuist generate, or propose a recipe via /build-config-propose', evidence: 'Project.swift' });
   }
   if (a.spmApp && !a.xcodeproj && !a.workspace) {
     blockers.push({ code: 'NEEDS_GENERATION', detail: 'SPM package at root with no Xcode project — needs an app project or an SPM-aware recipe', evidence: 'Package.swift' });

@@ -5,15 +5,15 @@
 import { describe, expect, it } from 'vitest';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
-import { detectRecipe, probeArchetypes } from '../src/projects/recipe-detect.ts';
+import { detectBuildConfig, probeArchetypes } from '../src/projects/build-config-detect.ts';
 
 import { fileURLToPath } from 'node:url';
 const HERE = fileURLToPath(new URL('.', import.meta.url)); // the FILE's dir — vitest-neutral
 const FX = join(HERE, 'fixtures', 'archetypes');
 
-describe('detectRecipe — found', () => {
+describe('detectBuildConfig — found', () => {
   it('root lionidas.yml WINS (the repo speaking for itself)', () => {
-    const r = detectRecipe(join(FX, 'root-manifest'));
+    const r = detectBuildConfig(join(FX, 'root-manifest'));
     expect(r).toMatchObject({ state: 'found', source: 'root-manifest' });
     if (r.state === 'found') {
       expect(r.recipe.scheme).toBe('App');
@@ -23,7 +23,7 @@ describe('detectRecipe — found', () => {
   });
 
   it('.lionidas/lionidas.yml → found(legacy) with import nag flag', () => {
-    const r = detectRecipe(join(FX, 'xcodegen'));
+    const r = detectBuildConfig(join(FX, 'xcodegen'));
     expect(r).toMatchObject({ state: 'found', source: 'dot-lionidas-manifest', legacy: true });
     if (r.state === 'found') {
       expect(r.recipe.prepare).toEqual([{ run: '.lionidas/scripts/prepare-sim.sh' }]);
@@ -31,15 +31,15 @@ describe('detectRecipe — found', () => {
   });
 
   it('repo lane (build-sim.sh or fastlane build_sim) → found, transport repo-lane', () => {
-    const r = detectRecipe(join(FX, 'fastlane-lane'));
+    const r = detectBuildConfig(join(FX, 'fastlane-lane'));
     expect(r).toMatchObject({ state: 'found', source: 'repo-lane' });
     if (r.state === 'found') expect(r.recipe.transport).toBe('repo-lane');
   });
 });
 
-describe('detectRecipe — blocked (with evidence)', () => {
+describe('detectBuildConfig — blocked (with evidence)', () => {
   it('Podfile without Pods/ → PODS_UNINSTALLED, evidence Podfile', () => {
-    const r = detectRecipe(join(FX, 'committed-project-nopods'));
+    const r = detectBuildConfig(join(FX, 'committed-project-nopods'));
     expect(r.state).toBe('blocked');
     if (r.state === 'blocked') {
       expect(r.blockers).toContainEqual(expect.objectContaining({ code: 'PODS_UNINSTALLED', evidence: 'Podfile' }));
@@ -47,7 +47,7 @@ describe('detectRecipe — blocked (with evidence)', () => {
   });
 
   it('xcodegen repo without project → NEEDS_GENERATION; referenced-but-absent xcconfig → MISSING_XCCONFIG', () => {
-    const r = detectRecipe(join(FX, 'xcodegen-bare'));
+    const r = detectBuildConfig(join(FX, 'xcodegen-bare'));
     expect(r.state).toBe('blocked');
     if (r.state === 'blocked') {
       expect(r.blockers).toContainEqual(expect.objectContaining({ code: 'NEEDS_GENERATION', evidence: 'project.yml' }));
@@ -56,7 +56,7 @@ describe('detectRecipe — blocked (with evidence)', () => {
   });
 
   it('Tuist (Project.swift, no project) → NEEDS_GENERATION — blocked-with-evidence, NOT a green fixture (review R6)', () => {
-    const r = detectRecipe(join(FX, 'tuist'));
+    const r = detectBuildConfig(join(FX, 'tuist'));
     expect(r.state).toBe('blocked');
     if (r.state === 'blocked') {
       expect(r.blockers).toContainEqual(expect.objectContaining({ code: 'NEEDS_GENERATION', evidence: 'Project.swift' }));
@@ -64,7 +64,7 @@ describe('detectRecipe — blocked (with evidence)', () => {
   });
 
   it('SPM package at root without a project → NEEDS_GENERATION', () => {
-    const r = detectRecipe(join(FX, 'spm-app'));
+    const r = detectBuildConfig(join(FX, 'spm-app'));
     expect(r.state).toBe('blocked');
     if (r.state === 'blocked') {
       expect(r.blockers.some((b: { code: string }) => b.code === 'NEEDS_GENERATION')).toBe(true);
@@ -72,7 +72,7 @@ describe('detectRecipe — blocked (with evidence)', () => {
   });
 
   it('uncloned path → NOT_CLONED (create-without-clone is honest)', () => {
-    const r = detectRecipe(join(FX, 'does-not-exist'));
+    const r = detectBuildConfig(join(FX, 'does-not-exist'));
     expect(r.state).toBe('blocked');
     if (r.state === 'blocked') {
       expect(r.blockers[0]?.code).toBe('NOT_CLONED');
@@ -80,9 +80,9 @@ describe('detectRecipe — blocked (with evidence)', () => {
   });
 });
 
-describe('detectRecipe — derivable', () => {
+describe('detectBuildConfig — derivable', () => {
   it('committed project + Pods installed → derivable with pod-install prepare (needs xcodebuild on PATH; honest skip otherwise)', () => {
-    const r = detectRecipe(join(FX, 'committed-project'));
+    const r = detectBuildConfig(join(FX, 'committed-project'));
     // machines without xcodebuild: the single -list call fails → blocked NO_APP_SCHEME —
     // assert the CONTRACT: either derivable-with-prepare or blocked-with-evidence, never a guess
     if (r.state === 'derivable') {
@@ -108,7 +108,7 @@ describe('live repos (D2: detector also runs against reality — skipped when cl
   const intl = join(HERE, '..', 'repos', 'ios-consumer-intl');
   const consumer = join(HERE, '..', 'repos', 'ios-consumer');
   it.skipIf(!existsSync(intl))('ios-consumer-intl → found (legacy .lionidas, import nag)', () => {
-    const r = detectRecipe(intl);
+    const r = detectBuildConfig(intl);
     expect(r.state).toBe('found');
     if (r.state === 'found') {
       expect(r.source).toBe('dot-lionidas-manifest');
@@ -117,7 +117,7 @@ describe('live repos (D2: detector also runs against reality — skipped when cl
     }
   });
   it.skipIf(!existsSync(consumer))('ios-consumer → honest state (blocked-with-evidence or derivable; NEVER silent)', () => {
-    const r = detectRecipe(consumer);
+    const r = detectBuildConfig(consumer);
     expect(['found', 'derivable', 'blocked']).toContain(r.state);
     if (r.state === 'blocked') expect(r.blockers.length).toBeGreaterThan(0);
     if (r.state === 'derivable') expect(r.generated).toBe(true);
