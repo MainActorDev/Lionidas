@@ -25,7 +25,9 @@ export default defineConfig({
     },
   },
   use: {
-    baseURL: 'http://127.0.0.1:5277',
+    // localhost (not 127.0.0.1): vite preview binds [::1] IPv6-only on some
+    // machines — a hard IPv4 URL then gets ERR_CONNECTION_REFUSED.
+    baseURL: 'http://localhost:5277',
     locale: 'en-GB',
     timezoneId: 'UTC',
     colorScheme: 'dark',

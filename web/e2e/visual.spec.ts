@@ -21,14 +21,18 @@ for (const route of ROUTES) {
       // timers — pauseAt hangs axe-core's polling (60s timeouts).
       await page.clock.install();
       await page.clock.setFixedTime(ANCHOR);
-      if (theme === 'light') {
-        await page.addInitScript(() => document.documentElement.classList.remove('dark'));
-      }
       await page.goto(route.path, { waitUntil: 'domcontentloaded' });
       await page.waitForSelector(route.readySelector, { timeout: 15_000 });
       // H1 pass criterion: we are ON the route, not bounced to /login
       expect(page.url()).not.toContain('/login');
       expect(page.url()).toContain(route.path === '/' ? new URL(page.url()).pathname : route.path);
+      // App.vue adds .dark on mount, so a pre-navigation light override lies.
+      if (theme === 'light') await page.evaluate(() => document.documentElement.classList.remove('dark'));
+      const actualTheme = await page.evaluate(() => ({
+        dark: document.documentElement.classList.contains('dark'),
+        background: getComputedStyle(document.documentElement).getPropertyValue('--background').trim(),
+      }));
+      expect(actualTheme).toEqual({ dark: theme === 'dark', background: theme === 'dark' ? '#101010' : '#fafafa' });
       // fonts settle before capture (Geist via Google Fonts)
       await page.evaluate(() => document.fonts.ready);
       await page.waitForTimeout(250);
@@ -123,6 +127,45 @@ test('sticky day header — scrolled state [dark]', async ({ page }) => {
   expect(Math.abs((m.stuckTop ?? 0) - m.scrollportTop)).toBeLessThanOrEqual(2);
   expect(m.headerCoversRows).toBe(true);
   await expect(page).toHaveScreenshot('audit-scrolled-dark', {
+    fullPage: false,
+    maxDiffPixelRatio: 0.0005,
+    threshold: 0.05,
+    animations: 'disabled',
+    caret: 'hide',
+  });
+});
+
+/** status board selected-state surface (038-C): keyboard tile activation
+ *  moves focus to the detail heading; the detail reflects the selection. */
+test('status board — keyboard selection and detail sync [dark]', async ({ page }) => {
+  await installMocks(page);
+  await page.clock.install();
+  await page.clock.setFixedTime(ANCHOR);
+  await page.goto('/status', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.tile', { timeout: 15_000 });
+  expect(page.url()).not.toContain('/login');
+
+  // severity-first default: agent core (degraded) selected, not tile 0
+  const selectedName = await page.locator('.detail-head h3').textContent();
+  expect(selectedName).toBe('agent core');
+
+  // keyboard: focus the engine tile and activate with Enter
+  const engine = page.locator('.tile', { hasText: 'engine' });
+  await engine.focus();
+  await engine.press('Enter');
+  await expect(page.locator('.detail-head h3')).toHaveText('engine');
+  // keyboard activation moves focus to the detail heading
+  await expect.poll(() => page.evaluate(() => document.activeElement?.tagName ?? '')).toContain('H3');
+
+  // tile/detail stay in agreement (aria-pressed ↔ detail heading)
+  const pressed = await page.locator('.tile[aria-pressed="true"]').textContent();
+  expect(pressed).toContain('engine');
+
+  // no horizontal overflow on this surface
+  const overflowX = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+  expect(overflowX).toBe(false);
+
+  await expect(page).toHaveScreenshot('status-selected-dark', {
     fullPage: false,
     maxDiffPixelRatio: 0.0005,
     threshold: 0.05,
