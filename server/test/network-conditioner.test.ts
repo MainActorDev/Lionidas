@@ -4,7 +4,12 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { migrateM1 } from '../src/db/schema.ts';
 import { registerForgeRoutes } from '../src/forge/routes.ts';
 import { NETWORK_PROFILES, NETWORK_PROFILE_IDS, isNetworkProfile } from '../../shared/src/network-profiles.ts';
-import { baguetteNetwork, resolveBaguettePath, type BaguetteRunner } from '../src/forge/baguette-network.ts';
+import { baguetteNetwork, resolveBaguettePath, __setBaguettePathForTest, type BaguetteRunner } from '../src/forge/baguette-network.ts';
+
+// hermetic: argv-contract tests inject fake runners; binary resolution must not
+// depend on a real baguette (BAGUETTE_PATH / ~/.alloy/crucible.json / sibling repo)
+// existing on the machine — force it, like absent-binary drills do.
+__setBaguettePathForTest('/usr/local/bin/baguette');
 
 /** Plan 20260928T153608Z rev 2 — network conditioner: preset vocab pinned,
  *  shim argv contracts, exit-code-is-contract semantics, route surface. */
@@ -107,3 +112,6 @@ describe('condition routes', () => {
     expect(r.statusCode).toBe(400);
   });
 });
+
+// restore resolution for any other suite file in this worker
+__setBaguettePathForTest(undefined);

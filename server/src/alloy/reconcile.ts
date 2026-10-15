@@ -15,7 +15,11 @@ export interface ReconcileReport {
 
 export async function bootReconcile(db: Database.Database, bus: TypedEventBus<AppEvents>, dispatchDeps: unknown): Promise<ReconcileReport> {
   const report: ReconcileReport = { sessionsClosed: 0, queueAborted: 0, deviceClaimsCleared: 0, buildsFailed: 0 };
-  const alloy = crucibleAlloy();
+  // lazy: the alloy client is only needed when device rows exist; building it eagerly
+  // throws on machines with no alloy repo (CI) and the reconcile of DB-only state
+  // (queue, runs, builds) must never depend on an external tool being configured.
+  let alloy: ReturnType<typeof crucibleAlloy> | null = null;
+  const getAlloy = () => (alloy ??= crucibleAlloy());
 
   // 1. abort stale waiting queue rows (enqueued before this boot)
   const stale = db.prepare(`SELECT id FROM queue WHERE state = 'waiting'`).all() as Array<{ id: string }>;
@@ -36,7 +40,7 @@ export async function bootReconcile(db: Database.Database, bus: TypedEventBus<Ap
   const touched = new Set<string>();
   for (const r of stuck) touched.add(r.device_udid);
   for (const udid of touched) {
-    const res = (await alloy.dispatch('alloy_release', { udid }, dispatchDeps)) as { ok: boolean };
+    const res = (await getAlloy().dispatch('alloy_release', { udid }, dispatchDeps)) as { ok: boolean };
     if (res.ok) report.sessionsClosed++;
     // clear the mirror lease state
     db.prepare(`UPDATE devices SET lease_holder = NULL, lease_engine = NULL WHERE udid = ?`).run(udid);

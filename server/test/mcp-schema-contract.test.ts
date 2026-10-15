@@ -32,7 +32,10 @@ function send(method: string, params?: unknown): Promise<JsonRpc> {
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve });
     child.stdin!.write(JSON.stringify({ jsonrpc: '2.0', id, method, ...(params !== undefined ? { params } : {}) }) + '\n');
-    setTimeout(() => { if (pending.has(id)) { pending.delete(id); reject(new Error(`jsonrpc timeout: ${method}`)); } }, 20_000);
+    // initialize pays the cold-start (tsx transform + module graph) — on a fresh CI
+  // runner that alone can eat 20s; tool calls stay at the normal budget.
+  const budget = method === 'initialize' ? 90_000 : 20_000;
+  setTimeout(() => { if (pending.has(id)) { pending.delete(id); reject(new Error(`jsonrpc timeout: ${method}`)); } }, budget);
   });
 }
 function notify(method: string, params?: unknown): void {
