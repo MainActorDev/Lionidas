@@ -19,7 +19,7 @@ import AuditPage from './pages/AuditPage.vue';
 import GuidePage from './pages/GuidePage.vue';
 import SuitesPage from './pages/SuitesPage.vue';
 import AgentChatPage from './pages/agent/AgentChatPage.vue';
-import StatusPage from './pages/StatusPage.vue';
+import StatusBoardPage from './pages/StatusBoardPage.vue';
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -44,7 +44,7 @@ export const router = createRouter({
     { path: '/setup', name: 'setup', component: SetupPage, meta: { title: 'first-run setup', public: true } },
     { path: '/guide', name: 'guide', component: GuidePage, meta: { title: 'guide' } },
     { path: '/agent', name: 'agentChat', component: AgentChatPage, meta: { title: 'agent' } },
-    { path: '/status', name: 'status', component: StatusPage, meta: { title: 'status' } },
+    { path: '/status', name: 'status', component: StatusBoardPage, meta: { title: 'status' } },
   ] satisfies RouteRecordRaw[],
 });
 
