@@ -187,7 +187,7 @@ export function stepLabel(s: PlaybackStep): string {
     const t = (s.text ?? '').trim();
     // run-time-resolved text (env/secret) and empty text both read as a
     // redaction marker — the plan never ships the literal either way
-    return `type ${t ? `\"${t.slice(0, 20)}\"` : '•••'}${on}`;
+    return `type ${t ? `"${t.slice(0, 20)}"` : '•••'}${on}`;
   }
   return `${s.action} ${selectorHint(s)}`.trim();
 }

@@ -7,7 +7,7 @@ import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { parseCaseYaml } from '@crucible/shared/case-yaml';
-import { resolveCaseRefs, renderTemplateYaml } from '../routes/templates.ts';
+import { resolveCaseRefs } from '../routes/templates.ts';
 import type { ToolDeps } from './tools.ts';
 
 function tagsToJson(input: unknown): string | null {

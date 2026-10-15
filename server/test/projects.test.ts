@@ -19,7 +19,7 @@ beforeEach(async () => {
   app = Fastify();
   // unit scope: identities injected per-test (admin OR operator) — auth
   // itself is covered by the auth suites
-  app.addHook('onRequest', async (req: import('fastify').FastifyRequest, reply) => {
+  app.addHook('onRequest', async (req: import('fastify').FastifyRequest, _reply) => {
     const role = (req.headers['x-test-role'] as string) || 'admin';
     if (role === 'anon') { (req as unknown as { user: unknown }).user = null; return; }
     (req as unknown as { user: unknown }).user = { name: 't', role };

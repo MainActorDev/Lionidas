@@ -1,7 +1,6 @@
-import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import Database from 'better-sqlite3';
-import { registerDeviceRoutes } from '../src/routes/devices.ts';
 
 /** restart = shutdown + WAIT for the mirror to leave Booted + boot. The old
  *  code fired boot immediately after the shutdown ack — engine-A's ensure-boot

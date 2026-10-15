@@ -10,7 +10,7 @@ import { migrateM1 } from '../src/db/schema.ts';
 import { seedUsers } from '../src/auth/users.ts';
 import {
   needsSetup, setupModeOff, writeSetupStamp, backfillSetupStamp,
-  ensureSetupToken, setupTokenValid, deleteSetupToken, claimSetup,
+  ensureSetupToken, setupTokenValid, claimSetup,
   setupRateLimit, originAllowed, readinessRows, resetProbeCache, resetRateLimit,
 } from '../src/auth/setup.ts';
 import { registerSetupRoutes } from '../src/routes/setup.ts';

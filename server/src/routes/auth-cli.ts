@@ -11,7 +11,7 @@ import type Database from 'better-sqlite3';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { requireRole } from '../auth/roles.ts';
 
-type UserRow = { id: string; email: string; name: string; role: string };
+type _UserRow = { id: string; email: string; name: string; role: string };
 
 interface PendingApproval { code: string; created_at: number; approved_user_id: string | null }
 const pending = new Map<string, PendingApproval>();
@@ -54,7 +54,7 @@ function mint(db: Database.Database, user: { id: string }, name: string): { id: 
 }
 
 export function registerAuthCliRoutes(app: FastifyInstance, db: Database.Database): void {
-  app.post('/api/auth/token', { preHandler: requireRole('operator') }, async (req, reply) => {
+  app.post('/api/auth/token', { preHandler: requireRole('operator') }, async (req, _reply) => {
     const b = (req.body ?? {}) as { name?: string };
     const name = (b.name ?? '').trim() || 'cli';
     const { id, token } = mint(db, req.user as { id: string }, name.slice(0, 64));

@@ -6,7 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { requireRole } from '../auth/roles.ts';
-import { parseRegistry, type ModelRouter, type Registry } from '@mainactordev/butler';
+import { parseRegistry, type Registry } from '@mainactordev/butler';
 import type { AgentContext } from './context.ts';
 
 function maskRegistry(reg: Registry, env: Record<string, string | undefined>): Record<string, unknown> {

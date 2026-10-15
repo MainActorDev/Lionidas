@@ -9,8 +9,8 @@
  *  artifacts/builds/<id>.log, per-project serial queue, 45-min kill timeout.
  *  Wrong-platform artifacts fail with the named reason (guard parity). */
 import type Database from 'better-sqlite3';
-import { execFileSync, spawn } from 'node:child_process';
-import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -172,7 +172,7 @@ export function startBuildVerify(db: Database.Database, projectId: string): Veri
   if (!ws || !existsSync(join(ws, '.git'))) return { ok: false, code: 'CLONE_FIRST', error: `no workspace at ${ws} — clone first` };
   if (running.has(projectId)) return { ok: false, code: 'BUSY', error: 'a build/verify is already running for this project' };
 
-  const t0 = Date.now();
+  const _t0 = Date.now();
   running.set(projectId, (async () => {
     const lines: string[] = [];
     const log = (l: string): void => { lines.push(l); };
@@ -496,8 +496,12 @@ async function runGeneric(ws: string, scheme: string | null, configuration: stri
   const xcbuddy = which('xcbuddy');
   const dd = join(ws, '.derived-data');
   if (xcbuddy) {
-    const args = ['build', '--scheme', scheme, '--json'];
-    log(`$ xcbuddy ${args.join(' ')} (auto: isolated caches, sim destination; config via project defaults)`);
+    // --isolated is REQUIRED, not cosmetic: without it xcbuddy builds into the DEFAULT
+    // Xcode DerivedData (hash-named, user-global) while the products lookup below reads
+    // the repo-local .derived-data/ — a green build then fails the 'no .app found'
+    // check (Foodiary live catch: 'Build Succeeded in 3s', verify stamped failed).
+    const args = ['build', '--scheme', scheme, '--isolated', '--json'];
+    log(`$ xcbuddy ${args.join(' ')} (isolated caches, sim destination; config via project defaults)`);
     await runCommand(xcbuddy, args, ws, log, BUILD_TIMEOUT_MS, benv);
   } else {
     const args = [

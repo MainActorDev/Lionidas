@@ -978,7 +978,7 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
     if (!row) return reply.code(404).send({ error: 'not found' });
     const b = req.body as { yaml?: string };
 const peekPut = parseCaseYaml(b.yaml ?? '');
-    const docAppPut = (peekPut.case as { app?: string } | null)?.app ?? null;
+    const _docAppPut = (peekPut.case as { app?: string } | null)?.app ?? null;
     const r = parseCaseYaml(b.yaml ?? '', { hasLogoutRecipe: (bundle) => (bundle === null || bundle === undefined) ? hasLogoutRecipe(row.app_bundle_id) : hasLogoutRecipe(bundle), hasLoginRecipe: (bundle) => (bundle === null || bundle === undefined) ? hasLoginRecipe(row.app_bundle_id) : hasLoginRecipe(bundle) });
     if (!r.ok || !r.case) return reply.code(422).send({ errors: r.errors });
     // one resolution bar, shared with import (review F1). Conflict-class

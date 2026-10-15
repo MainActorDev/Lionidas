@@ -132,7 +132,7 @@ describe('pipeline routes (operator-gated)', () => {
   it('external refs (jira) with no token compile as an honest not-fetched note (rev23 F5)', async () => {
     const r = await app.app.inject({ method: 'POST', url: '/api/agent/pipeline', headers: H(), payload: { appBundle: 'com.foo', refs: [{ kind: 'jira', locator: 'DEMO-101' }] } });
     expect(r.statusCode).toBe(201);
-    const { runId } = r.json() as { runId: string };
+    const { runId: _runId } = r.json() as { runId: string };
     const page = await app.agent.storage.latestArtifact('knowledge', 'app:com.foo');
     expect(page?.body ?? '').toContain('not fetched'); // honest env-hint line, run proceeds
   });
@@ -142,6 +142,7 @@ describe('pipeline routes (operator-gated)', () => {
     docRef(dir, 't.md', 'x');
     const r = await app.app.inject({ method: 'POST', url: '/api/agent/pipeline', headers: H(), payload: { appBundle: 'com.foo', refs: [{ kind: 'doc', locator: dir }] } });
     const { runId } = r.json() as { runId: string };
+
     const a = await app.app.inject({ method: 'POST', url: `/api/agent/pipeline/${runId}/answer`, headers: H(), payload: { stageId: 'plan', answers: { q: 'a' } } });
     expect(a.statusCode).toBe(409);
   });

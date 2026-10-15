@@ -539,7 +539,7 @@ async function playCase(id: string): Promise<void> {
   finally { playBusy.value = false; }
 }
 
-watch(stage, (s) => { if (s) s.setScreenState; }); // placeholder no-op — screenState flows via expose polling below
+watch(stage, (s) => { if (s) void s.setScreenState; }); // placeholder no-op — screenState flows via expose polling below
 let ovTimer = setInterval(() => {
   const t = toolsRef.value as unknown as { tree?: { state: { value: string }; nodes: { value: Array<Record<string, unknown>> }; logicalW: { value: number | null }; logicalH: { value: number | null } }; selection?: Record<string, unknown> | null } | null;
   if (t?.tree) {

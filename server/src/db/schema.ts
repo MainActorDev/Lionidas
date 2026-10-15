@@ -799,7 +799,7 @@ export function migrateM1(db: Database.Database): void {
           try {
             for (const st of JSON.parse(c.setup_json || '[]') as Array<{ ensureLogin?: { phone?: string; password?: string } }>) {
               const v = st.ensureLogin?.[slot];
-              if (typeof v === 'string' && v.startsWith('\${env.')) {
+              if (typeof v === 'string' && v.startsWith('$' + '{env.')) {
                 counts.set(v, (counts.get(v) ?? 0) + 1);
               }
             }
@@ -809,8 +809,8 @@ export function migrateM1(db: Database.Database): void {
         for (const [k, n] of counts) if (n > bestN) { best = k; bestN = n; }
         return best;
       };
-      const phoneRef = countRef('phone') || '\${env.LOGIN_PHONE}';
-      const pwRef = countRef('password') || '\${env.LOGIN_PASSWORD}';
+      const phoneRef = countRef('phone') || '$' + '{env.LOGIN_PHONE}';
+      const pwRef = countRef('password') || '$' + '{env.LOGIN_PASSWORD}';
       const steps = [
         { type: { on: old.phone, text: phoneRef } },
         { type: { on: old.password, text: pwRef } },

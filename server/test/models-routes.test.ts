@@ -5,7 +5,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import Database from 'better-sqlite3';
 import Fastify from 'fastify';
 import { registerModelRoutes } from '../src/agent/models-routes.ts';
 import type { AgentContext } from '../src/agent/context.ts';

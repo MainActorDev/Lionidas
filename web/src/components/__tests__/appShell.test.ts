@@ -98,7 +98,7 @@ describe('app shell sidebar (025-A collapsible tree)', () => {
     // v-show keeps DOM; children hidden
     const kids = grp.find('.nav-grp-kids');
     expect(kids?.element).toBeTruthy();
-    expect((kids?.element as HTMLElement).style.display).toBe('none');
+    expect((kids?.element ?? { style: { display: '' } } as HTMLElement).style.display).toBe('none');
   });
 
   it('marks the active item and its group head; run detail keeps runs active', async () => {

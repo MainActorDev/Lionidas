@@ -75,7 +75,7 @@ describe('screens.yaml carries the recipes', () => {
     expect(got.json().logout).toEqual({ button: 'b1', confirm: 'c1' });
     // bare list (legacy form) still imports
     const legacy = (await (await app.inject({ method: 'GET', url: `/api/apps/${bundle}/screens.yaml` })).body);
-    const bareList = legacy.split('\n').filter((l) => !/^(login|logout):/.test(l) && !/^  /.test(l) || /^  (entry|states|refresh)/.test(l)).join('\n');
+    const _bareList = legacy.split('\n').filter((l) => !/^(login|logout):/.test(l) && !l.startsWith('  ') || l.startsWith('  entry')||l.startsWith('  states')||l.startsWith('  refresh')).join('\n');
     const imp2 = await app.inject({ method: 'PUT', url: `/api/apps/${bundle}/screens.yaml`, payload: { yaml: '- id: home\n  entry:\n    tab:\n      label: Home\n  states:\n    guest:\n      all:\n        - label: welcome\n' } });
     expect(imp2.statusCode).toBe(200);
   });

@@ -79,7 +79,7 @@ describe('doubleTapSim', () => {
 
 describe('longPressSim', () => {
   it('sends down→(dwell)→up with the requested dwell honored by wall clock', async () => {
-    const base = await startChildAndSet();
+    const _base = await startChildAndSet();
     const t0 = Date.now();
     await longPressSim('UDID-1', 100, 200, 150, DIMS);
     expect(Date.now() - t0).toBeGreaterThanOrEqual(140); // dwell actually slept

@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import Fastify from 'fastify';
 import Database from 'better-sqlite3';
 import { join } from 'node:path';

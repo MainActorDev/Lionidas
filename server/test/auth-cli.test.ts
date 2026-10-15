@@ -25,7 +25,7 @@ function login(email: string): string {
   return createSession(db, u.id).cookie;
 }
 
-function bearer(token: string): Record<string, string> { return { authorization: `Bearer ${token}` }; }
+function _bearer(token: string): Record<string, string> { return { authorization: `Bearer ${token}` }; }
 
 beforeEach(async () => {
   db = new Database(':memory:');

@@ -21,7 +21,7 @@ export function useDeviceSessions() {
         live.add(s.udid);
         if (!map.has(s.udid)) map.set(s.udid, { sessionId: s.id, startedAt: s.startedAt, dims: { w: null, h: null } });
       }
-      for (const udid of [...map.keys()]) if (!live.has(udid)) map.delete(udid); // reaped or finished
+      for (const udid of map.keys()) if (!live.has(udid)) map.delete(udid); // reaped or finished
     } catch { /* offline — keep local state */ }
   }
 

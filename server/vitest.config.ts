@@ -13,5 +13,8 @@ export default defineConfig({
     // A bounded pool (4) fixes the channel storm with no measurable local cost
     // (971/971 in the same wall time on a 10-core dev box).
     maxWorkers: process.env['CI'] ? 4 : undefined,
+    // repos/ holds CLONES of registered projects (incl. Lionidas itself via the
+    // self-project drill) — their stale test copies must never shadow our suite
+    exclude: ['**/node_modules/**', '**/repos/**', '**/.wt/**'],
   },
 });

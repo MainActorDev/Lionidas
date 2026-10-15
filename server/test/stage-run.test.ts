@@ -8,7 +8,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ToolRegistry, SqliteStorage, StorageRetriever } from '@mainactordev/butler';
 import { registerStageRunTool } from '../src/agent/stage-run.ts';
 import { buildToolRegistry } from '../src/agent/tools.ts';
-import { COMMANDS } from '../src/agent/commands.ts';
 
 let dir: string;
 let db: Database.Database;

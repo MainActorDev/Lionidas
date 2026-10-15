@@ -18,7 +18,6 @@ import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { readBuildManifest, type BuildManifest } from './manifest.ts';
-import { discoverAppInputs } from './discovery.ts';
 
 export type BlockerCode =
   | 'NOT_CLONED'

@@ -121,7 +121,7 @@ export function smokeTestArtifact(ipaPath: string, log: (line: string) => void):
     try { simctl(['terminate', dev.udid, bid]); } catch { /* best effort */ }
     return { result: 'ok', detail: `smoke: ${bid} alive after ${PROBE_WAIT_MS / 1000}s on ${dev.name} — launch OK`, crashLine: null };
   }
-  const processName = bid.split('.').pop() ?? bid;
+  const _processName = bid.split('.').pop() ?? bid;
   const report = newestCrashReport('LionParcel', launchedAt);
   let crashLine = 'process exited during probe window';
   if (report) {

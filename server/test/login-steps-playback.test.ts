@@ -110,11 +110,11 @@ describe('steps-form login recipe playback', () => {
     seed('tpl_pw', [{ idx: 0, action: 'ensureLogin', ensureLogin: { recipe: 'app' } }], { DRILL_PHONE: '111', DRILL_PASSWORD: 'pw9' });
     // walk: navigate tap(open_login) → type phone → type pw → tap submit → verify session_badge appears
     nodesNow = [N(1, 'open_login'), N(2, 'phone_field', 10, 100), N(3, 'password_field', 10, 150), N(4, 'submit_button', 10, 250)];
-    const stateMachine: Array<() => void> = [];
+    const _stateMachine: Array<() => void> = [];
     let submitTapped = false;
     (globalThis as Record<string, unknown>).__sm = null;
     // simple: on press of submit_button (10+40, 250+20), reveal session_badge
-    const origDispatchLen = () => presses.length;
+    const _origDispatchLen = () => presses.length;
     const r = await (async () => {
       const patch = setInterval(() => {
         if (presses.some(p => p.x === 50 && p.y === 270) && !submitTapped) {
@@ -206,11 +206,11 @@ describe('steps-form login recipe playback', () => {
     seed('tpl_mask', [{ idx: 0, action: 'ensureLogin', ensureLogin: { recipe: 'app' } }], { DRILL_PHONE: '111', DRILL_PASSWORD: 'quality123' });
     nodesNow = [N(1, 'open_login'), N(2, 'phone_field', 10, 100), N(3, 'password_field', 10, 150), N(4, 'submit_button', 10, 250)];
     // password fill: engine reports mask mismatch with glyph count == text length → tolerant pass
-    let pwSeen = false;
-    const origDispatch = (globalThis as Record<string, unknown>).__nothing;
+    let _pwSeen = false;
+    const _origDispatch = (globalThis as Record<string, unknown>).__nothing;
     fillResult = { ok: false, error: { message: 'text entry verification failed: expected quality123, observed "⬤ ⬤ ⬤ ⬤ ⬤ ⬤ ⬤ ⬤ ⬤ ⬤"' } } as never;
     // per-call switching: phone fill ok, password fill fails-with-parity. Patch via a proxy on fills:
-    let fillCount = 0;
+    let _fillCount = 0;
     __setAlloyForTest({
       dispatch: async (tool: string, args: Record<string, unknown>) => {
         if (tool === 'alloy_apps') return { ok: true, apps: [] };

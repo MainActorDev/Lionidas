@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import CmdPalette from './components/CmdPalette.vue';
-import { ref, onMounted, reactive, provide } from 'vue';
+import { ref, onMounted, onUnmounted, reactive, provide } from 'vue';
 
 const me = ref<{ name: string; role: string } | null>(null);
 /** RBAC (plan 20261009T102032Z T5): server-computed capability map — the
@@ -91,6 +91,16 @@ const collapsed = reactive<Record<string, boolean>>({});
 const toggleGroup = (id: string): void => { collapsed[id] = !collapsed[id]; };
 const groupHasActive = (g: NavGroup): boolean =>
   g.items.some(it => it.names.some(isActive));
+
+// ── mobile drawer (Factory round 036): sidebar becomes off-canvas ≤760px ──
+const navOpen = ref(false);
+const openNav = (): void => { navOpen.value = true; };
+const closeNav = (): void => { navOpen.value = false; };
+const onNavKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') closeNav(); };
+onMounted(() => document.addEventListener('keydown', onNavKey));
+onUnmounted(() => document.removeEventListener('keydown', onNavKey));
+// route change closes the drawer (mobile navigation completes)
+watch(() => route.fullPath, () => { navOpen.value = false; });
 // adminOnly items render for admins only (the route itself stays auth-guarded,
 // the API enforces the role); groups that empty out hide entirely
 const visibleGroups = computed<NavGroup[]>(() => {
@@ -117,9 +127,13 @@ watch(() => route.name, () => {
   <!-- public routes (login) own the full viewport — no app chrome -->
   <router-view v-if="isBare" />
   <div v-else class="app">
-    <div class="logo"><img class="logo-mark" src="/icons/lionidas-app-128.png" alt="" width="20" height="20" /> lionidas</div>
+    <aside class="sidebar" :class="{ open: navOpen }" aria-label="primary">
+      <div class="brand">
+        <span class="brand-pulse" aria-hidden="true"></span>
+        <img class="brand-mark" src="/icons/lionidas-app-128.png" alt="" width="20" height="20" /> lionidas
+        <button type="button" class="nav-close" aria-label="close menu" @click="closeNav">✕</button>
+      </div>
 
-    <nav class="sidebar" aria-label="primary">
       <div v-for="g in visibleGroups" :key="g.id" class="nav-grp" :class="{ closed: collapsed[g.id] }">
         <button type="button" class="nav-grp-head" :class="{ on: groupHasActive(g) }" :aria-expanded="!collapsed[g.id]" @click="toggleGroup(g.id)">
           <span class="caret">▾</span>{{ g.label }}
@@ -133,16 +147,18 @@ watch(() => route.name, () => {
       </div>
       <!-- guide hidden for now (user, 2026-10-08) — re-enable by uncommenting -->
       <!-- <RouterLink to="/guide" class="nav-item nav-guide" :class="{ active: isActive('guide') }">guide</RouterLink> -->
-    </nav>
+    </aside>
+    <div v-if="navOpen" class="nav-scrim" @click="closeNav"></div>
 
     <div class="topbar">
+      <button type="button" class="nav-open" aria-label="open menu" :aria-expanded="navOpen" @click="openNav">☰</button>
       <span class="topbar-spacer" />
       <span v-if="me" class="topbar-user" title="signed in">
         <span class="dot"></span>{{ me.name }} · {{ me.role }}
         <button class="btn btn-sm" style="margin-left: 8px;" @click="signOut">sign out</button>
       </span>
       <RouterLink v-else to="/login" class="btn btn-sm" style="text-decoration: none;">sign in</RouterLink>
-      <span class="badge" style="border: none; color: var(--color-steel);">⌘K</span>
+      <span class="badge" style="border: none; color: var(--color-ash);">⌘K</span>
     </div>
 
     <main class="main">

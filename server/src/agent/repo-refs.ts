@@ -330,7 +330,7 @@ export function registerRepoTools(registry: ToolRegistry, deps: RepoToolsDeps, e
       const root = safeDir(String(args['project'] ?? ''));
       if (!root) return JSON.stringify({ error: 'invalid project name' });
       const sha = String(args['sha'] ?? '').trim();
-      if (!/^[A-Za-z0-9._\/^-]{3,64}$/.test(sha) || sha.includes('..')) return JSON.stringify({ error: 'invalid sha' });
+      if (!/^[A-Za-z0-9._/^-]{3,64}$/.test(sha) || sha.includes('..')) return JSON.stringify({ error: 'invalid sha' });
       try {
         const { stdout } = await exec('git', ['show', '--no-color', '--name-status', '--format=%H%n%s', sha], { cwd: root, timeout: 15_000, maxBuffer: 8 * 1024 * 1024 });
         const lines = stdout.split('\n');
@@ -354,7 +354,7 @@ export function registerRepoTools(registry: ToolRegistry, deps: RepoToolsDeps, e
       const root = safeDir(String(args['project'] ?? ''));
       if (!root) return JSON.stringify({ error: 'invalid project name' });
       const sha = String(args['sha'] ?? '').trim();
-      if (!/^[A-Za-z0-9._\/^-]{3,64}$/.test(sha) || sha.includes('..')) return JSON.stringify({ error: 'invalid sha' });
+      if (!/^[A-Za-z0-9._/^-]{3,64}$/.test(sha) || sha.includes('..')) return JSON.stringify({ error: 'invalid sha' });
       const fileArg = typeof args['file'] === 'string' && args['file'] ? String(args['file']) : null;
       if (fileArg && !safeSub(String(args['project'] ?? ''), fileArg)) return JSON.stringify({ error: 'invalid file (traversal rejected)' });
       const maxChars = Math.min(Math.max(2_000, Number(args['maxChars'] ?? READ_CAP) || READ_CAP), 24_000);
