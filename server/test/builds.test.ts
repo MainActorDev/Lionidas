@@ -138,33 +138,43 @@ async function waitSettled(buildId: string, tries = 40): Promise<void> {
     if (b.status !== 'running') return;
     await new Promise((r) => setTimeout(r, 250));
   }
-  throw new Error('build did not settle in time');
+  throw Error('build did not settle in time');
+}
+
+/** POST a build, retrying while the previous build's in-memory queue slot is still
+ *  draining (CI lesson: DB status leaves 'running' before the `running` Set is
+ *  cleaned — a slow packaging tail 409s BUILD_RUNNING; settled-then-retry is the
+ *  honest client behavior the panel implements too). */
+async function postBuild(pid: string, tries = 40): Promise<{ id: string; scheme: string | null; configuration: string | null; resolution: string }> {
+  for (let i = 0; i < tries; i++) {
+    const r = await app.inject({ method: 'POST', url: `/api/projects/${pid}/builds`, payload: {} });
+    const body = r.json() as { build?: { id: string; scheme: string | null; configuration: string | null; resolution: string }; error?: string };
+    if (body.build) return body.build;
+    if (r.statusCode !== 409) throw Error(`POST build → ${r.statusCode}: ${body.error}`);
+    await new Promise((res) => setTimeout(res, 250));
+  }
+  throw Error('build queue never drained');
 }
 
 describe('CI builds', () => {
   it('resolution: manifest > registry > discovery with provenance recorded', async () => {
     // no manifest, nothing pinned → discovered (single app scheme)
     const pid = mkClonedProject('resapp');
-    let r = await app.inject({ method: 'POST', url: `/api/projects/${pid}/builds`, payload: {} });
-    let b0 = (r.json() as { build: { id: string; scheme: string | null; configuration: string | null; resolution: string } }).build;
+    let b0 = await postBuild(pid);
     expect(b0.scheme).toBe('App');
     expect(b0.configuration).toBe('Debug');
     expect(JSON.parse(b0.resolution)).toEqual({ scheme: 'discovered', configuration: 'discovered' });
     await waitSettled(b0.id);
-    // registry pin wins over discovery (wait for build 1 to settle first —
-    // the per-project serial queue 409s an overlap)
-    await waitSettled(b0.id);
+    // registry pin wins over discovery (postBuild retries any queue drain lag)
     await app.inject({ method: 'PUT', url: `/api/projects/${pid}`, payload: { buildConfiguration: 'Staging' } });
-    r = await app.inject({ method: 'POST', url: `/api/projects/${pid}/builds`, payload: {} });
-    b0 = (r.json() as { build: { id: string; scheme: string | null; configuration: string | null; resolution: string } }).build;
+    b0 = await postBuild(pid);
     expect(b0.configuration).toBe('Staging');
     expect(JSON.parse(b0.resolution).configuration).toBe('registry');
     await waitSettled(b0.id);
     // manifest wins over everything
     await waitSettled(b0.id);
     writeFileSync(join(repos, 'resapp', 'lionidas.yml'), 'build:\n  scheme: App\n  configuration: Production\n');
-    r = await app.inject({ method: 'POST', url: `/api/projects/${pid}/builds`, payload: {} });
-    b0 = (r.json() as { build: { id: string; scheme: string | null; configuration: string | null; resolution: string } }).build;
+    b0 = await postBuild(pid);
     expect(b0.configuration).toBe('Production');
     expect(JSON.parse(b0.resolution)).toEqual({ scheme: 'manifest', configuration: 'manifest' });
     await waitSettled(b0.id);
