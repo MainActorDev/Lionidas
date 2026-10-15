@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { migrateM1 } from '../src/db/schema.ts';
+import { migrateM1, migrateBuildConfigs } from '../src/db/schema.ts';
 import { registerProjectRoutes } from '../src/projects/routes.ts';
 import { createProject } from '../src/projects/store.ts';
 
@@ -77,6 +77,7 @@ beforeEach(async () => {
   fakeToolchain();
   db = new Database(':memory:');
   migrateM1(db);
+  migrateBuildConfigs(db);
   app = Fastify();
   app.addHook('onRequest', async (req: import('fastify').FastifyRequest) => { (req as unknown as { user: unknown }).user = { name: 't', role: 'admin' }; });
   registerProjectRoutes(app, db);

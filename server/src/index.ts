@@ -4,7 +4,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import pino from 'pino';
 import { loadConfig, type Config } from './config.ts';
 import { openDb, type Db } from './db/client.ts';
-import { migrateM1 } from './db/schema.ts';
+import { migrateM1, migrateBuildConfigs } from './db/schema.ts';
 import { startBackupLoop } from './db/backup.ts';
 import { join } from 'node:path';
 import { createEventBus, type TypedEventBus, type AppEvents } from './ws/bus.ts';
@@ -67,6 +67,7 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   const bus = createEventBus<AppEvents>();
   const db = openDb(cfg.dbPath);
   migrateM1(db.raw);
+  migrateBuildConfigs(db.raw);
 
   registerHealthRoute(app);
   registerDeviceRoutes(app, db.raw);

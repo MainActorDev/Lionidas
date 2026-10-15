@@ -1,0 +1,4 @@
+platform :ios, '15.0'
+target 'AppTarget' do
+  pod 'SomePod'
+end

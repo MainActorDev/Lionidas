@@ -85,6 +85,44 @@ Rules:
 - One identifier per control; do not touch unrelated code; no refactors.
 - If the target repo has no compile CI on PRs, say so in your report — the user decides the gate.`,
   },
+  {
+    cmd: '/build-config-propose',
+    description: 'Propose a build config for an unclassifiable or blocked repo',
+    order: 5,
+    tools: ['repo.list', 'repo.apps', 'repo.tree', 'repo.read', 'sources.search', 'notes.read', 'note.save'],
+    instructions: `You are executing the /build-config-propose command for this turn. The project's build recipe detection returned blocked (or unclassifiable); this turn PROPOSES a recipe — you never write it.
+
+Workflow — follow exactly, with a HARD STOP:
+1. READ the project workspace via repo tools (repo.tree / repo.read): build files (project.yml, Package.swift, Project.swift, Podfile, *.xcodeproj/workspace, fastlane/Fastfile), config wiring (xcconfig paths and whether they exist), scripts, CI workflows. Use sources.search when the repo is large.
+2. CLASSIFY the archetype and DIAGNOSE each blocker from the detection report (it names codes with evidence).
+3. PROPOSE a markdown table: transport (repo-lane|generic) | scheme | configuration | prepare steps (ordered, exact commands) — and for EVERY row a file:line evidence citation. If a blocker is a MISSING SECRET or credential you cannot read (gitignored xcconfig, private spec repo, signing), that row is the blocker NEEDS_SECRETS — the HUMAN supplies it; never propose synthesizing or bypassing a secret.
+4. HARD STOP: end your turn with the table and "Confirm applying this recipe? The host writes it (provenance: ai+user) and offers verify." Do NOT write anything before the user replies.
+5. After confirmation (next turn), the HOST applies the recipe via POST /api/projects/:id/build-config/apply-proposal — say so and stop. Park the proposal as a note (kind recipe-proposal, scope project) if the user defers.
+
+Rules:
+- Every claim cites file:line. No evidence, no row.
+- Secrets (certs, credentials, gitignored env configs) are a HUMAN gate — name them, never invent them.
+- You never mark a recipe green; only verify-build (xcodebuild) decides that.`,
+  },
+  {
+    cmd: '/build-diagnose',
+    description: 'Diagnose a failed verify build and propose a build-config revision',
+    order: 6,
+    tools: ['repo.list', 'repo.apps', 'repo.tree', 'repo.read', 'sources.search', 'notes.read', 'note.save'],
+    instructions: `You are executing the /build-diagnose command for this turn. A verify build FAILED against the active recipe; this turn diagnoses the failure log and PROPOSES a recipe revision — you never write it.
+
+Workflow — follow exactly, with a HARD STOP:
+1. READ the failure: the recipe's verify log (the user pastes it or it rides the thread) — find the FIRST hard error (xcodebuild, xcodegen, prepare step, resolution).
+2. CORROBORATE against the repo via repo.read at the exact file:line the error names — a diagnosis without code corroboration is a guess.
+3. PROPOSE the minimal revision as a table: what changes (scheme | configuration | prepare step added/edited/removed) | why (the error it fixes) | evidence (file:line from BOTH the log and the repo).
+4. HARD STOP: end with the table and "Confirm applying this revision? The host writes it (revision N+1, provenance: ai+user); then re-run verify." Do NOT write anything before the user replies.
+5. After confirmation, the HOST applies the revision and the user re-runs verify — say so and stop. One revision per confirmation; no retry loops.
+
+Rules:
+- Root cause, not symptom: if the log's error is downstream (missing generated project), the revision fixes the UPSTREAM prepare step.
+- Every row cites log line + file:line. Secrets are a HUMAN gate (NEEDS_SECRETS) — never proposed around.
+- You never decide green; xcodebuild does.`,
+  },
 ];
 
 export const commandByCmd = (cmd: string): CommandSpec | undefined => COMMANDS.find((c) => c.cmd === cmd);

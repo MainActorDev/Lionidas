@@ -13,6 +13,8 @@
 import type { FastifyInstance } from 'fastify';
 import { existsSync } from 'node:fs';
 import { projectWorkspace } from '../manual/packages.ts';
+import { detectBuildConfig } from '../projects/build-config-detect.ts';
+import { activeBuildConfig } from '../projects/build-configs.ts';
 import type Database from 'better-sqlite3';
 import { requireRole } from '../auth/roles.ts';
 import { VERSION } from './health.ts';
@@ -218,36 +220,48 @@ export function computeStatus(db: Database.Database, agentDb: Database.Database,
     }
   }
 
-  // build-recipe canary (the silent-fallback class: builds ran discovery-based for
-  // days after the manifest moved to .lionidas/ and nobody noticed — status page
-  // must say when a project's recipe is missing or its prepare script is stale-broken)
+  // build-recipe canary (S3 upgrade): consumes detectBuildConfig + the recipes store —
+  // same law the engine obeys. Per project: detection state, active recipe (source,
+  // generated flag), verify verdict, and whether the LAST BUILD actually used its
+  // recipe (FALLBACK_LIED semantics, now recipe-aware per R4).
   try {
     const projects = db.prepare('SELECT id, name FROM projects').all() as Array<{ id: string; name: string }>;
-    const recipeRows: Record<string, string | number | boolean | null> = {};
+    const cfgRows: Record<string, string | number | boolean | null> = {};
     let degraded = false;
     for (const proj of projects) {
       try {
         const ws = projectWorkspace(proj.name);
-        const hasRoot = existsSync(`${ws}/lionidas.yml`);
-        const hasDot = existsSync(`${ws}/.lionidas/lionidas.yml`);
-        const lastBuild = db.prepare('SELECT status, started_at, resolution FROM builds WHERE project_id = ? ORDER BY number DESC LIMIT 1').get(proj.id) as { status: string; started_at: number; resolution: string | null } | undefined;
-        const usedManifest = lastBuild ? /manifest/.test(lastBuild.resolution ?? '') : null;
-        const recipeMissing = !hasRoot && !hasDot;
-        const fallbackLied = Boolean(lastBuild && lastBuild.status === 'passed' && !usedManifest && (hasRoot || hasDot));
-        if (recipeMissing || fallbackLied) degraded = true;
-        recipeRows[`${proj.name} recipe`] = hasRoot ? 'root' : hasDot ? '.lionidas/' : 'MISSING';
-        recipeRows[`${proj.name} lastBuild`] = lastBuild?.status ?? 'none';
-        recipeRows[`${proj.name} manifestUsed`] = usedManifest ?? false;
-        if (fallbackLied) recipeRows[`${proj.name} FALLBACK_LIED`] = true;
+        const detection = detectBuildConfig(ws);
+        const row = activeBuildConfig(db, proj.id);
+        const lastBuild = db.prepare('SELECT status, resolution FROM builds WHERE project_id = ? ORDER BY number DESC LIMIT 1').get(proj.id) as { status: string; resolution: string | null } | undefined;
+        let usedRecipe: boolean | null = null;
+        let fallbackLied = false;
+        if (lastBuild) {
+          try {
+            const res = JSON.parse(lastBuild.resolution ?? '{}') as { scheme?: string; recipeId?: string };
+            usedRecipe = res.scheme === 'recipes' || res.scheme === 'manifest' || res.scheme === 'manifest-legacy' || res.recipeId != null;
+            // a PASSING build with a findable recipe that did NOT use it = the lie
+            if (lastBuild.status === 'passed' && !usedRecipe && (detection.state === 'found' || row != null)) fallbackLied = true;
+          } catch { /* resolution unparseable */ }
+        }
+        const unverifiedGenerated = row != null && row.generated && row.verifyState !== 'green';
+        const blocked = detection.state === 'blocked';
+        if (fallbackLied || unverifiedGenerated || (blocked && lastBuild != null)) degraded = true;
+        cfgRows[`${proj.name} detection`] = detection.state === 'found' ? `found:${detection.source}` : detection.state;
+        cfgRows[`${proj.name} recipe`] = row ? `${row.transport}${row.scheme ? `:${row.scheme}` : ''} rev${row.revision}` : 'none';
+        if (row) cfgRows[`${proj.name} generated`] = row.generated;
+        if (row) cfgRows[`${proj.name} verified`] = row.verifyState ?? 'unverified';
+        if (lastBuild) cfgRows[`${proj.name} lastBuildUsedRecipe`] = usedRecipe;
+        if (fallbackLied) cfgRows[`${proj.name} FALLBACK_LIED`] = true;
       } catch (e) {
-        recipeRows[`${proj.name} error`] = e instanceof Error ? e.message.slice(0, 120) : String(e).slice(0, 120);
+        cfgRows[`${proj.name} error`] = e instanceof Error ? e.message.slice(0, 120) : String(e).slice(0, 120);
       }
     }
     systems.push({
-      id: 'build-recipe', name: 'build recipes',
+      id: 'build-recipe', name: 'build configs',
       state: degraded ? 'degraded' : 'ok',
-      summary: degraded ? 'a project builds WITHOUT its recipe (discovery fallback)' : `${projects.length} project(s) · recipe present`,
-      detail: recipeRows,
+      summary: degraded ? 'build-config gap: fallback-lie, unverified generated, or blocked-with-builds' : `${projects.length} project(s) · build configs honest`,
+      detail: cfgRows,
     });
   } catch { /* projects table absent on minimal installs */ }
 

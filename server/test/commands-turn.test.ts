@@ -41,7 +41,7 @@ describe('commands as chat turns', () => {
     const r = await app.app.inject({ method: 'GET', url: '/api/agent/commands', headers: { cookie: `crucible_session=${cookie}` } });
     expect(r.statusCode).toBe(200);
     const cmds = r.json()['commands'] as Array<{ cmd: string; order: number }>;
-    expect(cmds.map((c) => c.cmd)).toEqual(['/planning', '/breakdown', '/author', '/implement-identifiers']);
+    expect(cmds.map((c) => c.cmd)).toEqual(['/planning', '/breakdown', '/author', '/implement-identifiers', '/build-config-propose', '/build-diagnose']);
     expect(cmds[0]?.order).toBe(1);
   });
 
