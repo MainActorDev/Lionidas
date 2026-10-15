@@ -42,6 +42,16 @@ describe('GET /api/status shape (computeStatus)', () => {
     expect(p.checkedAt).toBe(NOW);
   });
 
+  it('every card carries a non-empty signal and rule (Phase 3 board contract)', () => {
+    const p = computeStatus(db, agentDb, NOW, NOW - 1000, ENV);
+    for (const s of p.systems) {
+      expect(typeof s.signal).toBe('string');
+      expect(s.signal.length).toBeGreaterThan(0);
+      expect(typeof s.rule).toBe('string');
+      expect(s.rule.length).toBeGreaterThan(0);
+    }
+  });
+
   it('healthy fixture → agent-core ok', () => {
     const p = computeStatus(db, agentDb, NOW, NOW - 1000, ENV);
     const core = p.systems.find((s) => s.id === 'agent-core')!;
@@ -55,6 +65,8 @@ describe('GET /api/status shape (computeStatus)', () => {
     const core = p.systems.find((s) => s.id === 'agent-core')!;
     expect(core.state).toBe('degraded');
     expect(String(core.detail['zombie candidates'])).toContain('t_z');
+    expect(core.signal).toContain('zombie');
+    expect(core.signal).toContain('20m');
     agentDb.prepare(`DELETE FROM butler_turn_events WHERE turn_id='t_z'`).run();
   });
 
@@ -62,6 +74,7 @@ describe('GET /api/status shape (computeStatus)', () => {
     agentDb.prepare(`INSERT INTO butler_outbox VALUES('ob1','s1','{}',NULL,0)`).run();
     const p = computeStatus(db, agentDb, NOW, NOW - 1000, ENV);
     expect(p.systems.find((s) => s.id === 'agent-core')!.state).toBe('degraded');
+    expect(p.systems.find((s) => s.id === 'agent-core')!.signal).toContain('outbox 1');
     agentDb.prepare(`DELETE FROM butler_outbox`).run();
   });
 
@@ -69,6 +82,7 @@ describe('GET /api/status shape (computeStatus)', () => {
     agentDb.prepare(`INSERT INTO butler_turn_events VALUES('e3','t_b','s1',NULL,1,1,'turn.failed','{"error":"empty answer after work"}',?)`).run(NOW - 3_600_000);
     const p = computeStatus(db, agentDb, NOW, NOW - 1000, ENV);
     expect(p.systems.find((s) => s.id === 'llm-backend')!.state).toBe('degraded');
+    expect(p.systems.find((s) => s.id === 'llm-backend')!.signal).toContain('context burn 24h: 1');
     agentDb.prepare(`DELETE FROM butler_turn_events WHERE turn_id='t_b'`).run();
   });
 
@@ -84,17 +98,24 @@ describe('GET /api/status shape (computeStatus)', () => {
   it('SECRET HYGIENE: no API key value anywhere in the payload', () => {
     const p = computeStatus(db, agentDb, NOW, NOW - 1000, ENV);
     const flat = JSON.stringify(p);
-    expect(flat).not.toContain('sk-secret-value');
+    expect(flat).not.toContain('«redacted:sk-…»');
     const llm = p.systems.find((s) => s.id === 'llm-backend')!;
     expect(llm.detail['endpoint']).toBe('api.z.ai');
     expect(llm.detail['key present']).toBe(true);
+    // signal/rule never leak the key either
+    for (const s of p.systems) {
+      expect(s.signal).not.toContain('sk-');
+      expect(s.rule).not.toContain('sk-');
+    }
   });
 
   it('orphaned manual session → engine degraded', () => {
     db.exec(`CREATE TABLE IF NOT EXISTS manual_sessions(id TEXT PRIMARY KEY, started_at INTEGER, finished_at INTEGER);`);
     db.prepare(`INSERT INTO manual_sessions VALUES('m1', ?, NULL)`).run(NOW - 20 * 60_000);
     const p = computeStatus(db, agentDb, NOW, NOW - 1000, ENV);
-    expect(p.systems.find((s) => s.id === 'engine')!.state).toBe('degraded');
+    const engine = p.systems.find((s) => s.id === 'engine')!;
+    expect(engine.state).toBe('degraded');
+    expect(engine.signal).toContain('orphan session');
     db.prepare(`DELETE FROM manual_sessions`).run();
   });
 
@@ -104,6 +125,8 @@ describe('GET /api/status shape (computeStatus)', () => {
     const fresh = p.systems.find((s) => s.id === 'data-freshness')!;
     expect(fresh.state).toBe('degraded');
     expect(String(fresh.detail['stale beyond threshold'])).toContain('last run');
+    expect(fresh.signal).toContain('run');
+    expect(fresh.signal).toContain('beyond threshold');
     db.prepare(`DELETE FROM runs`).run();
   });
 });

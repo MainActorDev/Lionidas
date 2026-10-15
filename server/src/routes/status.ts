@@ -23,6 +23,8 @@ export interface StatusCard {
   name: string;
   state: 'ok' | 'degraded' | 'down' | 'unknown';
   summary: string;
+  signal: string;
+  rule: string;
   detail: Record<string, string | number | boolean | null>;
 }
 
@@ -70,6 +72,8 @@ export function computeStatus(db: Database.Database, agentDb: Database.Database,
       id: 'server', name: 'server',
       state: dbOk ? 'ok' : 'down',
       summary: `up ${fmtAge(now - startedAt)} · v${VERSION}`,
+      signal: dbOk ? 'both databases readable' : 'a database read failed',
+      rule: 'DB read fails → down',
       detail: { uptime: fmtAge(now - startedAt), version: VERSION, ...dbDetail },
     });
   }
@@ -92,8 +96,9 @@ export function computeStatus(db: Database.Database, agentDb: Database.Database,
         SELECT kind, COUNT(*) AS n FROM butler_turn_events
         WHERE kind IN ('turn.completed','turn.failed','turn.aborted') AND at > ? GROUP BY kind`).all(now - BURN_WINDOW_MS) as Array<{ kind: string; n: number }>;
       const byKind = Object.fromEntries(outcomes.map((o) => [o.kind.replace('turn.', ''), o.n]));
-      if (zombies.length > 0) { state = 'degraded'; detail['zombie candidates'] = zombies.map((z) => `${z.turn_id} (idle ${fmtAge(now - z.last_at)})`).join(', '); }
-      if (backlog.n > 0) { state = 'degraded'; detail['outbox backlog'] = `${backlog.n} effects`; }
+      const signals: string[] = [];
+      if (zombies.length > 0) { state = 'degraded'; detail['zombie candidates'] = zombies.map((z) => `${z.turn_id} (idle ${fmtAge(now - z.last_at)})`).join(', '); signals.push(`zombie ${fmtAge(now - (zombies[0]?.last_at ?? now))}`); }
+      if (backlog.n > 0) { state = 'degraded'; detail['outbox backlog'] = `${backlog.n} effects`; signals.push(`outbox ${backlog.n}`); }
       detail['live turns'] = live.length;
       detail['24h completed'] = byKind['completed'] ?? 0;
       detail['24h failed'] = byKind['failed'] ?? 0;
@@ -102,10 +107,12 @@ export function computeStatus(db: Database.Database, agentDb: Database.Database,
         id: 'agent-core', name: 'agent core',
         state,
         summary: `${live.length} live turn${live.length === 1 ? '' : 's'} · 24h: ${byKind['completed'] ?? 0} ✓ / ${byKind['failed'] ?? 0} ✕`,
+        signal: signals.length > 0 ? signals.join(' · ') : `${live.length} live · no backlog`,
+        rule: 'zombie idle >15m · outbox backlog >0',
         detail,
       });
     } catch (e) {
-      systems.push({ id: 'agent-core', name: 'agent core', state: 'down', summary: 'event log unreadable', detail: { error: e instanceof Error ? e.message : String(e) } });
+      systems.push({ id: 'agent-core', name: 'agent core', state: 'down', summary: 'event log unreadable', signal: 'event log unreadable', rule: 'event-log read fails → down', detail: { error: e instanceof Error ? e.message : String(e) } });
     }
   }
 
@@ -131,9 +138,11 @@ export function computeStatus(db: Database.Database, agentDb: Database.Database,
       }
       // v0.6.0: per-model routing health lives at /api/agent/models/health
       // (router in-memory rollup); this card stays table-driven per plan.
-      systems.push({ id: 'provider-mcp', name: 'provider · mcp', state, summary: `${detail['provider']} · ${detail['model'] ?? 'default model'}`, detail });
+      systems.push({ id: 'provider-mcp', name: 'provider · mcp', state, summary: `${detail['provider']} · ${detail['model'] ?? 'default model'}`,
+        signal: retries > 0 ? `mcp retries 1h: ${retries}` : (lastOk ? `last ok turn ${fmtAge(now - lastOk)} ago` : 'no retries in the last hour'),
+        rule: 'MCP_PENDING failures in the last hour >0', detail });
     } catch (e) {
-      systems.push({ id: 'provider-mcp', name: 'provider · mcp', state: 'down', summary: 'unreadable', detail: { error: e instanceof Error ? e.message : String(e) } });
+      systems.push({ id: 'provider-mcp', name: 'provider · mcp', state: 'down', summary: 'unreadable', signal: 'provider tables unreadable', rule: 'provider tables read fails → down', detail: { error: e instanceof Error ? e.message : String(e) } });
     }
   }
 
@@ -158,9 +167,11 @@ export function computeStatus(db: Database.Database, agentDb: Database.Database,
       detail['key present'] = Boolean(env['BUTLER_API_KEY']);
       detail['spend 24h'] = `${((spendRow?.tok ?? 0) / 1000).toFixed(0)}k tok`;
       if (lastLatency) detail['last turn'] = `${((lastLatency.done - lastLatency.started) / 1000).toFixed(1)}s`;
-      systems.push({ id: 'llm-backend', name: 'llm backend', state, summary: `${detail['endpoint'] ?? 'not configured'}${lastLatency ? ` · ${detail['last turn']}` : ''}`, detail });
+      systems.push({ id: 'llm-backend', name: 'llm backend', state, summary: `${detail['endpoint'] ?? 'not configured'}${lastLatency ? ` · ${detail['last turn']}` : ''}`,
+        signal: burn > 0 ? `context burn 24h: ${burn}` : `burn 24h: 0`,
+        rule: 'empty-answer failures in 24h >0', detail });
     } catch (e) {
-      systems.push({ id: 'llm-backend', name: 'llm backend', state: 'down', summary: 'unreadable', detail: { error: e instanceof Error ? e.message : String(e) } });
+      systems.push({ id: 'llm-backend', name: 'llm backend', state: 'down', summary: 'unreadable', signal: 'usage tables unreadable', rule: 'usage tables read fails → down', detail: { error: e instanceof Error ? e.message : String(e) } });
     }
   }
 
@@ -184,9 +195,11 @@ export function computeStatus(db: Database.Database, agentDb: Database.Database,
       detail['runs running'] = running;
       detail['alloy orphans'] = orphans;
       detail['source'] = 'tables (no live probes)';
-      systems.push({ id: 'engine', name: 'engine', state, summary: `${sims.n} device${sims.n === 1 ? '' : 's'} seen · ${running} running · ${queued} queued`, detail });
+      systems.push({ id: 'engine', name: 'engine', state, summary: `${sims.n} device${sims.n === 1 ? '' : 's'} seen · ${running} running · ${queued} queued`,
+        signal: orphans > 0 ? `${orphans} orphan session${orphans === 1 ? '' : 's'}` : `${running} running · ${queued} queued`,
+        rule: 'orphaned manual session >15m → degraded', detail });
     } catch (e) {
-      systems.push({ id: 'engine', name: 'engine', state: 'down', summary: 'unreadable', detail: { error: e instanceof Error ? e.message : String(e) } });
+      systems.push({ id: 'engine', name: 'engine', state: 'down', summary: 'unreadable', signal: 'engine tables unreadable', rule: 'engine tables read fails → down', detail: { error: e instanceof Error ? e.message : String(e) } });
     }
   }
 
@@ -213,9 +226,11 @@ export function computeStatus(db: Database.Database, agentDb: Database.Database,
       }
       if (stale.length > 0) { state = 'degraded'; detail['stale beyond threshold'] = stale.join(', '); }
       detail['thresholds'] = `run ${FRESH_RUN_DAYS}d · ingest ${FRESH_INGEST_DAYS}d · diag ${FRESH_DIAG_DAYS}d`;
-      systems.push({ id: 'data-freshness', name: 'data freshness', state, summary: `run ${detail['last run']} · ingest ${detail['last repo ingest']}`, detail });
+      systems.push({ id: 'data-freshness', name: 'data freshness', state, summary: `run ${detail['last run']} · ingest ${detail['last repo ingest']}`,
+        signal: stale.length > 0 ? stale.map((s) => s.replace('last ', '')).join(' · ') + ' beyond threshold' : 'all freshness checks within thresholds',
+        rule: `run ${FRESH_RUN_DAYS}d · ingest ${FRESH_INGEST_DAYS}d · diag ${FRESH_DIAG_DAYS}d`, detail });
     } catch (e) {
-      systems.push({ id: 'data-freshness', name: 'data freshness', state: 'down', summary: 'unreadable', detail: { error: e instanceof Error ? e.message : String(e) } });
+      systems.push({ id: 'data-freshness', name: 'data freshness', state: 'down', summary: 'unreadable', signal: 'freshness tables unreadable', rule: 'freshness tables read fails → down', detail: { error: e instanceof Error ? e.message : String(e) } });
     }
   }
 
@@ -227,6 +242,7 @@ export function computeStatus(db: Database.Database, agentDb: Database.Database,
     const projects = db.prepare('SELECT id, name FROM projects').all() as Array<{ id: string; name: string }>;
     const cfgRows: Record<string, string | number | boolean | null> = {};
     let degraded = false;
+    let gapKind = '';
     for (const proj of projects) {
       try {
         const ws = projectWorkspace(proj.name);
@@ -245,7 +261,7 @@ export function computeStatus(db: Database.Database, agentDb: Database.Database,
         }
         const unverifiedGenerated = row != null && row.generated && row.verifyState !== 'green';
         const blocked = detection.state === 'blocked';
-        if (fallbackLied || unverifiedGenerated || (blocked && lastBuild != null)) degraded = true;
+        if (fallbackLied || unverifiedGenerated || (blocked && lastBuild != null)) { degraded = true; gapKind = fallbackLied ? 'fallback-lie' : unverifiedGenerated ? 'unverified generated' : 'blocked-with-builds'; }
         cfgRows[`${proj.name} detection`] = detection.state === 'found' ? `found:${detection.source}` : detection.state;
         cfgRows[`${proj.name} recipe`] = row ? `${row.transport}${row.scheme ? `:${row.scheme}` : ''} rev${row.revision}` : 'none';
         if (row) cfgRows[`${proj.name} generated`] = row.generated;
@@ -260,6 +276,8 @@ export function computeStatus(db: Database.Database, agentDb: Database.Database,
       id: 'build-recipe', name: 'build configs',
       state: degraded ? 'degraded' : 'ok',
       summary: degraded ? 'build-config gap: fallback-lie, unverified generated, or blocked-with-builds' : `${projects.length} project(s) · build configs honest`,
+      signal: degraded ? (gapKind || 'config gap detected') : 'no config gap detected',
+      rule: 'fallback-lied, unverified generated, or blocked-with-builds → degraded',
       detail: cfgRows,
     });
   } catch { /* projects table absent on minimal installs */ }
