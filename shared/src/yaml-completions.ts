@@ -41,6 +41,7 @@ const BODY_KEYS: Record<string, string[]> = {
   expect: ['on', 'contains', 'ignoreCase', 'optional', 'when', 'count', 'atLeast'],
   runFlow: ['name', 'optional'],
   location: ['latitude', 'longitude'],
+  wait: ['text', 'screen', 'until', 'for', 'time', 'timeout', 'narrate'],
 };
 
 export function buildCompletions(slot: YamlSlot, vocab: EditorVocabulary, _typed: string, action?: string): VocabCompletion[] {
@@ -68,6 +69,7 @@ export function buildCompletions(slot: YamlSlot, vocab: EditorVocabulary, _typed
         { label: 'refresh', detail: 're-trigger a screen\'s fetch via its declared gesture (traffic-verified)', apply: 'refresh: ', type: 'keyword' },
         { label: 'swap', detail: 'switch the live world (scenario set) mid-run', apply: 'swap: ', type: 'keyword' },
         { label: 'expect screen', detail: 'assert a registered screen state holds', apply: 'expect screen: .', type: 'keyword' },
+        { label: 'wait', detail: 'wait for readiness — condition (text/identifier/screen) or time', apply: 'wait: { text: \'\', timeout: 10s }', type: 'keyword' },
       ];
     case 'variant-key':
       return [
