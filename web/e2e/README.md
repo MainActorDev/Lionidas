@@ -6,7 +6,7 @@ Self-hosted, no CI dependency, deterministic on any machine.
 ## Run
 
 ```bash
-pnpm --filter web test:e2e          # build + preview + 10 tests (~10s)
+pnpm --filter web test:e2e          # build + preview + 12 tests (10 base + 2 scrolled)
 ```
 
 Adds a route when Phase 3 migrates a page: append to `ROUTES` in `routes.ts`
@@ -25,6 +25,12 @@ commit baselines **in the same reviewed commit** as the page change.
      horizontal overflow. Pixel diffs alone miss layout breaks that land
      under ratio budgets.
   3. **axe WCAG2 A/AA** — zero serious/critical violations.
+  4. **Scrolled audit state** — longer fixture and short viewport force the
+     day header to stick at the scrollport edge, both for desktop's `.main`
+     scroller and mobile's window scroller. Geometry + hit-testing verify
+     that it covers rows; reviewed viewport screenshots catch see-through
+     backgrounds and visual overlap. Scroll-top snapshots alone cannot
+     exercise sticky behavior.
 - Baselines live in `__screenshots__/` (committed). Intentional visual
   change = regenerate + review, like code.
 
@@ -44,7 +50,9 @@ commit baselines **in the same reviewed commit** as the page change.
 
 | injected bug | result |
 |---|---|
-| rows lose `width:100%` (shrink-wrap) | 5/10 FAILED ✓ caught |
+| sticky day `top` reset to `0` on desktop | scrolled-state assertion FAILED ✓ caught |
+| mobile `.main` overflow changed back to `auto` | scrolled-state assertion FAILED ✓ caught |
 | search box fill → transparent | FAILED ✓ caught |
 | baseline deleted | FAILED ✓ caught |
-| clean source | 10/10 passed, stable ×3 |
+| rows lose `width:100%` | no-op in final layout; not evidence of detection |
+| clean source | 12/12 passed (includes both scroll states) |

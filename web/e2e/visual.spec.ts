@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { ROUTES, installMocks, ANCHOR } from './routes';
+import { ROUTES, installMocks, ANCHOR, AUDIT_SCROLL_ROWS } from './routes';
 
 /** Visual regression + accessibility gate (plan 20261015T082000Z).
  *  Iterates the route table × projects (viewports) × themes (dark active,
@@ -77,4 +77,56 @@ test('visual + a11y — audit detail sheet open [dark]', async ({ page }) => {
 
   const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
   expect(results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')).toEqual([]);
+});
+
+/** scroll-state surface: sticky day headers must cover scrolled-past rows.
+ *  Regression: 2026-10-15 — .day stuck 24px low (.main padding-top), rows
+ *  readable above the header. Top-of-page captures never engage sticky, so
+ *  this test scrolls mid-list and asserts the header sits flush at the
+ *  scrollport top with nothing peeking above it. */
+test('sticky day header — scrolled state [dark]', async ({ page }) => {
+  await installMocks(page, AUDIT_SCROLL_ROWS);
+  await page.clock.install();
+  await page.clock.setFixedTime(ANCHOR);
+  await page.setViewportSize({ width: page.viewportSize()!.width, height: 400 });
+  await page.goto('/audit', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.row', { timeout: 15_000 });
+  expect(page.url()).not.toContain('/login');
+
+  const mobile = page.viewportSize()!.width <= 760;
+  if (mobile) {
+    // The mobile shell is block layout: window scrolls, not .main.
+    await page.evaluate(() => window.scrollTo(0, 400));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(300);
+  } else {
+    const scroller = page.locator('.main');
+    await scroller.evaluate((el) => { el.scrollTop = 400; });
+    await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(300);
+  }
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForTimeout(250);
+
+  const m = await page.evaluate(() => {
+    const main = document.querySelector('.main')!.getBoundingClientRect();
+    const topbar = document.querySelector('.topbar')!.getBoundingClientRect();
+    const scrollportTop = window.matchMedia('(max-width: 760px)').matches ? topbar.bottom : main.top;
+    const days = [...document.querySelectorAll<HTMLElement>('.day')];
+    const stuck = days.find((d) => {
+      const { top } = d.getBoundingClientRect();
+      return Math.abs(top - scrollportTop) <= 2;
+    });
+    const hit = stuck && document.elementFromPoint(stuck.getBoundingClientRect().left + 24, scrollportTop + 8);
+    return { scrollportTop, stuckTop: stuck?.getBoundingClientRect().top ?? null,
+      headerCoversRows: !!stuck && !!hit && (hit === stuck || stuck.contains(hit)) };
+  });
+  expect(m.stuckTop).not.toBeNull();
+  expect(Math.abs((m.stuckTop ?? 0) - m.scrollportTop)).toBeLessThanOrEqual(2);
+  expect(m.headerCoversRows).toBe(true);
+  await expect(page).toHaveScreenshot('audit-scrolled-dark', {
+    fullPage: false,
+    maxDiffPixelRatio: 0.0005,
+    threshold: 0.05,
+    animations: 'disabled',
+    caret: 'hide',
+  });
 });
