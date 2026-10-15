@@ -2,7 +2,7 @@
  *  Missing key = null (caller fails the step BEFORE dispatch — never type a
  *  half-resolved string). Pure module: no db, no alloy. */
 export interface SubstitutedStep {
-  idx: number; action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin' | 'doubleTap' | 'longPress' | 'shake' | 'paste';
+  idx: number; action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin' | 'doubleTap' | 'longPress' | 'shake' | 'paste' | 'wait' | 'wait';
   x?: number; y?: number; direction?: 'up' | 'down' | 'left' | 'right'; text?: string;
   /** longPress dwell (ms) / paste press flag — carried through untouched */
   dwellMs?: number; press?: boolean;
@@ -36,7 +36,7 @@ function firstMissingKey(keys: string[], env: Record<string, string>): string {
   return keys.find((k) => env[k] === undefined) ?? '??';
 }
 
-export function substituteStep(s: { idx: number; action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin' | 'doubleTap' | 'longPress' | 'shake' | 'paste'; x?: number; y?: number; direction?: 'up' | 'down' | 'left' | 'right'; text?: string; dwellMs?: number; press?: boolean; optional?: boolean; selector?: { identifier?: string; label?: string; labelContains?: string; type?: string }; templateId?: string; count?: number; atLeast?: number; ensureLogout?: { recipe?: 'app'; button?: string; stay?: string; confirm?: string; via?: string; back?: string }; ensureLogin?: { entry: string; phoneField: string; passwordField: string; submit: string; session: string; phone: string; password: string } }, env: Record<string, string>): SubstitutedStep {
+export function substituteStep(s: { idx: number; action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin' | 'doubleTap' | 'longPress' | 'shake' | 'paste' | 'wait'; x?: number; y?: number; direction?: 'up' | 'down' | 'left' | 'right'; text?: string; dwellMs?: number; press?: boolean; optional?: boolean; selector?: { identifier?: string; label?: string; labelContains?: string; type?: string }; templateId?: string; count?: number; atLeast?: number; ensureLogout?: { recipe?: 'app'; button?: string; stay?: string; confirm?: string; via?: string; back?: string }; ensureLogin?: { entry: string; phoneField: string; passwordField: string; submit: string; session: string; phone: string; password: string } }, env: Record<string, string>): SubstitutedStep {
   // selector label/labelContains resolve ${env.X} (variant-world assertions);
   // identifier/type stay literal. A missing key fails the step BEFORE
   // dispatch — the caller never asserts a half-resolved fragment.

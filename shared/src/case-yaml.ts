@@ -19,7 +19,7 @@ import { parseVariants, type YamlVariant } from './yaml-variants.js';
 export interface YamlSelector { identifier?: string; label?: string; labelContains?: string; ignoreCase?: boolean; type?: string }
 export interface YamlStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin' | 'doubleTap' | 'longPress' | 'shake' | 'paste';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin' | 'doubleTap' | 'longPress' | 'shake' | 'paste' | 'wait';
   x?: number; y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
   text?: string;
@@ -58,6 +58,12 @@ export interface YamlStep {
   swap?: string;
   /** expect screen: "<screen>.<state>" — parsed into parts; negate for != */
   expectScreen?: { screen: string; state: string; negate?: boolean };
+  /** wait step (plan 20261015T221500Z): time form (ms, optional reason) or
+   *  condition form — poll until the target holds or timeout. Bare until-string
+   *  resolves identifier-first then label (the on: precedent). */
+  wait?:
+    | { mode: 'time'; ms: number; for?: string }
+    | { mode: 'until'; target: { kind: 'identifier' | 'text' | 'screen'; value: string; state?: string }; timeoutMs: number };
 }
 export interface YamlCase {
   name: string;
@@ -89,8 +95,25 @@ export interface YamlError { line: number; message: string }
 const DROPPED_KEYS = new Set(['ts', 'thumb']); // capture artifacts — not semantics
 const STEP_KEYS = new Set(['action', 'x', 'y', 'direction', 'text', 'optional', 'selector', 'templateId', 'flow', 'count', 'atLeast']);
 const DIRECTIONS = new Set(['up', 'down', 'left', 'right']);
-const ACTIONS = new Set(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert', 'location', 'arrive', 'refresh', 'swap', 'world', 'expect screen', 'ensure logout', 'ensure login', 'double-tap', 'long-press', 'shake', 'paste']);
+const ACTIONS = new Set(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert', 'location', 'arrive', 'refresh', 'swap', 'world', 'expect screen', 'ensure logout', 'ensure login', 'double-tap', 'long-press', 'shake', 'paste', 'wait']);
 const SCREEN_ID_RE = /^[a-z][a-z0-9-]*$/;
+/** wait durations: "500ms" | "1s" | bare 1500 (=ms). Bounds (review R3):
+ *  time form ≤60s, condition timeout ≤120s. Returns ms or an error string. */
+export function parseWaitDuration(raw: unknown, maxMs: number): number | string {
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw >= 0) {
+    if (raw > maxMs) return `duration ${raw}ms exceeds the ${maxMs}ms limit`;
+    return Math.round(raw);
+  }
+  if (typeof raw === 'string') {
+    const m = /^(\d+)(ms|s)?$/.exec(raw.trim());
+    if (!m) return `bad duration ${JSON.stringify(raw)} — write like 500ms or 1s`;
+    const n = Number(m[1]!);
+    const ms = m[2] === 's' ? n * 1000 : n;
+    if (ms > maxMs) return `duration ${raw} exceeds the ${maxMs}ms limit`;
+    return ms;
+  }
+  return `bad duration ${JSON.stringify(raw)} — write like 500ms or 1s`;
+}
 /** runFlow references: name → id resolution is the CALLER's job (needs the DB);
  * the validator accepts both shapes and reports unresolved names. */
 export interface RunFlowRefs { names: string[] }
@@ -376,6 +399,78 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
         return undefined;
       };
 
+      if (action === 'wait') {
+        // forms: 500ms | 1s | 1500 | {for: reason, time: 7s} | {until: target[, timeout: 8s]}
+        // until-value shape rule (review R1): bare string OR map with exactly
+        // ONE of text:/screen: (screen dotted a.b — never doubly nested)
+        if (typeof body === 'string' || typeof body === 'number') {
+          const ms = parseWaitDuration(body, 60_000);
+          if (typeof ms === 'string') { errors.push({ line: 1, message: `${prefix(i)}: wait: ${ms}` }); continue; }
+          stepsOut.push({ idx: stepsOut.length, action: 'wait', wait: { mode: 'time', ms } });
+          continue;
+        }
+        if (body !== null && typeof body === 'object' && !Array.isArray(body)) {
+          const b = body as Record<string, unknown>;
+          const known = ['for', 'time', 'until', 'timeout', 'text', 'screen'];
+          for (const bk of Object.keys(b)) {
+            if (!known.includes(bk)) errors.push({ line: 1, message: `${prefix(i)}: unknown key "${bk}" in wait — allowed: for, time, until, timeout` });
+          }
+          const hasUntil = b['until'] !== undefined;
+          const hasTime = b['time'] !== undefined;
+          const hasText = b['text'] !== undefined;
+          const hasScr = b['screen'] !== undefined;
+          const hasCondition = hasUntil || hasText || hasScr;
+          if (hasCondition && hasTime) { errors.push({ line: 1, message: `${prefix(i)}: wait: condition and 'time' are mutually exclusive — condition form or time form, not both` }); continue; }
+          if (hasUntil && (hasText || hasScr)) { errors.push({ line: 1, message: `${prefix(i)}: wait: 'until' cannot combine with text:/screen: — write { until: <string> } or { text: … } / { screen: a.b }` }); continue; }
+          if (hasText && hasScr) { errors.push({ line: 1, message: `${prefix(i)}: wait: 'text' and 'screen' are mutually exclusive — one target per wait` }); continue; }
+          if (hasText || hasScr) {
+            // FLAT condition form (YAML flow style cannot nest maps — live parser lesson):
+            // { text: "Go" } | { screen: splash.dismissed } [, timeout: 8s]
+            const timeoutMs = b['timeout'] === undefined ? 10_000 : parseWaitDuration(b['timeout'], 120_000);
+            if (typeof timeoutMs === 'string') { errors.push({ line: 1, message: `${prefix(i)}: wait timeout: ${timeoutMs}` }); continue; }
+            let target: { kind: 'identifier' | 'text' | 'screen'; value: string; state?: string };
+            if (hasText) {
+              const v = b['text'];
+              if (typeof v !== 'string' || !v.trim()) { errors.push({ line: 1, message: `${prefix(i)}: wait text: needs a non-empty string` }); continue; }
+              target = { kind: 'text', value: v.trim() };
+            } else {
+              const v = b['screen'];
+              const pos = /^([a-z][a-z0-9-]*)\.([a-z][a-z0-9_-]*)$/.exec(typeof v === 'string' ? v.trim() : '');
+              if (!pos) { errors.push({ line: 1, message: `${prefix(i)}: wait screen takes "<screen>.<state>" (got ${JSON.stringify(v)})` }); continue; }
+              target = { kind: 'screen', value: pos[1]!, state: pos[2]! };
+            }
+            stepsOut.push({ idx: stepsOut.length, action: 'wait', wait: { mode: 'until', target, timeoutMs } });
+            continue;
+          }
+          if (hasUntil) {
+            const timeoutMs = b['timeout'] === undefined ? 10_000 : parseWaitDuration(b['timeout'], 120_000);
+            if (typeof timeoutMs === 'string') { errors.push({ line: 1, message: `${prefix(i)}: wait timeout: ${timeoutMs}` }); continue; }
+            const u = b['until'];
+            let target: { kind: 'identifier' | 'text' | 'screen'; value: string; state?: string } | null = null;
+            if (typeof u === 'string' && u.trim()) {
+              const v = u.trim();
+              target = IDENTIFIER_RE.test(v) ? { kind: 'identifier', value: v } : { kind: 'text', value: v };
+            } else {
+              // YAML flow style cannot nest maps (live parser lesson): the nested
+              // until:{text:…} spelling is structurally unparseable — guide to the flat form
+              errors.push({ line: 1, message: `${prefix(i)}: wait until takes a BARE string (or the flat form: wait: { text: … } / { screen: a.b }) — nesting inside until is not valid YAML flow` }); continue;
+            }
+            stepsOut.push({ idx: stepsOut.length, action: 'wait', wait: { mode: 'until', target: target!, timeoutMs } });
+            continue;
+          }
+          if (hasTime) {
+            const ms = parseWaitDuration(b['time'], 60_000);
+            if (typeof ms === 'string') { errors.push({ line: 1, message: `${prefix(i)}: wait time: ${ms}` }); continue; }
+            const reason = typeof b['for'] === 'string' && b['for'].trim() ? b['for'].trim() : undefined;
+            stepsOut.push({ idx: stepsOut.length, action: 'wait', wait: { mode: 'time', ms, ...(reason ? { for: reason } : {}) } });
+            continue;
+          }
+          errors.push({ line: 1, message: `${prefix(i)}: wait needs a duration (wait: 500ms) or a condition (wait: { until: … })` });
+          continue;
+        }
+        errors.push({ line: 1, message: `${prefix(i)}: wait takes a duration (wait: 500ms) or a mapping (wait: { until: …, timeout: 8s })` });
+        continue;
+      }
       if (action === 'alert') {
         if (typeof body !== 'string' || !['accept', 'dismiss'].includes(body)) {
           errors.push({ line: 1, message: `${prefix(i)}: alert needs accept or dismiss — write it as a scalar (alert: dismiss)` });
@@ -892,6 +987,20 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       lines.push(`  - paste: { text: ${yamlScalar(String(s['text'] ?? ''))}${press}${narrateSuffix(s['narrate'])} }`);
     } else if (action === 'scroll') {
       if (typeof s['narrate'] === 'string' && s['narrate']) { lines.push(`  - scroll: ${s['direction']}`); lines.push(`    narrate: ${yamlScalar(s['narrate'])}`); } else lines.push(`  - scroll: ${s['direction']}`);
+    } else if (action === 'wait') {
+      const w = s['wait'] as YamlStep['wait'];
+      if (w && w.mode === 'time') {
+        const dur = w.ms % 1000 === 0 ? `${w.ms / 1000}s` : `${w.ms}ms`;
+        if (w.for) lines.push(`  - wait: { for: ${yamlScalar(w.for)}, time: ${dur}${narrateSuffix(s['narrate'])} }`);
+        else if (typeof s['narrate'] === 'string' && s['narrate']) { lines.push(`  - wait: ${dur}`); lines.push(`    narrate: ${yamlScalar(s['narrate'])}`); }
+        else lines.push(`  - wait: ${dur}`);
+      } else if (w && w.mode === 'until') {
+        // FLAT spelling (YAML flow cannot nest maps — live parser lesson): text/screen
+        // ride as top-level keys of the wait map; bare identifiers keep until:
+        const tgt = w.target.kind === 'screen' ? `screen: ${w.target.value}.${w.target.state}` : w.target.kind === 'text' ? `text: ${yamlScalar(w.target.value)}` : `until: ${yamlScalar(w.target.value)}`;
+        const to = w.timeoutMs !== 10_000 ? `, timeout: ${w.timeoutMs % 1000 === 0 ? `${w.timeoutMs / 1000}s` : `${w.timeoutMs}ms`}` : '';
+        lines.push(`  - wait: { ${tgt}${to}${narrateSuffix(s['narrate'])} }`);
+      }
     } else if (action === 'alert') {
       if (typeof s['narrate'] === 'string' && s['narrate']) { lines.push(`  - alert: ${s['alertAction'] ?? 'dismiss'}`); lines.push(`    narrate: ${yamlScalar(s['narrate'])}`); } else lines.push(`  - alert: ${s['alertAction'] ?? 'dismiss'}`);
     } else if (action === 'location') {
