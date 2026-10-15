@@ -21,14 +21,18 @@ for (const route of ROUTES) {
       // timers — pauseAt hangs axe-core's polling (60s timeouts).
       await page.clock.install();
       await page.clock.setFixedTime(ANCHOR);
-      if (theme === 'light') {
-        await page.addInitScript(() => document.documentElement.classList.remove('dark'));
-      }
       await page.goto(route.path, { waitUntil: 'domcontentloaded' });
       await page.waitForSelector(route.readySelector, { timeout: 15_000 });
       // H1 pass criterion: we are ON the route, not bounced to /login
       expect(page.url()).not.toContain('/login');
       expect(page.url()).toContain(route.path === '/' ? new URL(page.url()).pathname : route.path);
+      // App.vue adds .dark on mount, so a pre-navigation light override lies.
+      if (theme === 'light') await page.evaluate(() => document.documentElement.classList.remove('dark'));
+      const actualTheme = await page.evaluate(() => ({
+        dark: document.documentElement.classList.contains('dark'),
+        background: getComputedStyle(document.documentElement).getPropertyValue('--background').trim(),
+      }));
+      expect(actualTheme).toEqual({ dark: theme === 'dark', background: theme === 'dark' ? '#101010' : '#fafafa' });
       // fonts settle before capture (Geist via Google Fonts)
       await page.evaluate(() => document.fonts.ready);
       await page.waitForTimeout(250);
