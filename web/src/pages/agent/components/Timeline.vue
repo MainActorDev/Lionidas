@@ -55,11 +55,20 @@ withDefaults(defineProps<{ items: TurnItem[]; emptyTitle?: string; emptyDescript
 
 <style scoped>
 .tl-scroll { position: relative; flex: 1; overflow-y: auto; min-height: 0; }
-.tl-inner { display: flex; flex-direction: column; gap: 14px; padding: 20px 24px 28px; max-width: 820px; margin: 0 auto; width: 100%; box-sizing: border-box; min-width: 0; overflow-wrap: anywhere; }
+.tl-inner { display: flex; flex-direction: column; justify-content: flex-end; gap: 14px; padding: 20px 24px 28px; max-width: 820px; margin: 0 auto; width: 100%; box-sizing: border-box; min-width: 0; overflow-wrap: anywhere; }
 /* work rows sit under the turn rail (sketch A: rail 19px + gap 14px) */
 .indent { padding-left: 33px; min-width: 0; }
-.tl-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 48px 0; text-align: center; }
+.tl-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 48px 0; text-align: center; margin: auto 0; }
 .tl-empty h3 { font-size: 13px; font-weight: 500; color: var(--ag-ink, #eae6e1); }
 .tl-empty p { font-size: 12px; color: var(--ag-ink-dim, #a39d95); }
 .tl-compaction { font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 10px; color: var(--ag-ink-dim, #a39d95); padding: 2px 0; }
+</style>
+
+<style>
+/* bottom-anchor (the common chat behavior): short conversations hug the
+ * composer — no dead void after the last message. vue-stick-to-bottom's
+ * content wrapper is a bare block; make it a full-height flex column so
+ * .tl-inner's justify-content:flex-end applies. Long chats overflow
+ * normally (min-height, not height). Global selector is .tl-scoped. */
+.tl-scroll > div > div > div { display: flex; flex-direction: column; min-height: 100%; }
 </style>
