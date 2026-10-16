@@ -12,7 +12,9 @@
  *  The human confirmation stays human: the machine only acts AFTER the user's
  *  next message on the session. */
 import Database from 'better-sqlite3';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { existsSync, readdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { createWorktree, commitEach, pushAndPr, removeWorktree } from './worktree.ts';
 import type { Provider } from '@mainactordev/butler';
 
@@ -35,8 +37,52 @@ function ensureTable(db: Database.Database): void {
     slug TEXT NOT NULL,
     entries_json TEXT NOT NULL,
     created_at INTEGER NOT NULL,
-    state TEXT NOT NULL DEFAULT 'pending'
+    state TEXT NOT NULL DEFAULT 'pending',
+    pre_existing_dirt_json TEXT
   )`);
+  // pre-existing-dirt snapshot column (in-place flow, plan 20261016T090000Z F1):
+  // lightweight ADD COLUMN migration for DBs created before the column existed.
+  const cols = db.prepare("SELECT name FROM pragma_table_info('identifier_proposals')").all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === 'pre_existing_dirt_json')) {
+    db.exec('ALTER TABLE identifier_proposals ADD COLUMN pre_existing_dirt_json TEXT');
+  }
+}
+
+/** Resolve which registered repo a proposal targets from its FILE PATHS (slice #1,
+ *  the sess_451c34f0-ceb wrong-repo lesson: parking hardcoded 'ios-consumer-intl').
+ *  Host resolves, never the model. Matching: a repo claims the proposal when one of
+ *  its first-path-segment directories exists in the clone (Foodiary/Views/… ⇒ the
+ *  Foodiary clone has Foodiary/; App/… ⇒ ios-consumer-intl has App/). Exactly one
+ *  claim wins; ambiguity or zero claims falls back to the first registered repo and
+ *  logs loudly — discovery is never silent. */
+export function resolveProposalRepo(reposRoot: string, filePaths: string[], fallback: string): { repo: string; how: string } {
+  const candidates: Array<{ repo: string; firstSeg: string }> = [];
+  try {
+    for (const repo of readdirSync(reposRoot, { withFileTypes: true })) {
+      if (!repo.isDirectory() || repo.name.startsWith('.') || repo.name === 'crucible.db') continue;
+      const firstSegs = new Set<string>();
+      for (const f of filePaths) {
+        const seg = f.trim().replace(/^\.\//, '').split('/')[0];
+        if (seg && !seg.endsWith('.swift') && !seg.endsWith('.yml') && !seg.endsWith('.md')) firstSegs.add(seg);
+      }
+      for (const seg of firstSegs) {
+        if (existsSync(join(reposRoot, repo.name, seg))) candidates.push({ repo: repo.name, firstSeg: seg });
+      }
+    }
+  } catch { /* unreadable repos root → fallback */ }
+  const uniqRepos = [...new Set(candidates.map((c) => c.repo))];
+  if (uniqRepos.length === 1) return { repo: uniqRepos[0]!, how: `file paths claim ${candidates[0]!.firstSeg}/` };
+  if (uniqRepos.length > 1) {
+    // disambiguate on the SECOND segment: 'Foodiary/Views/…' ⇒ the repo that has
+    // Foodiary/Views/ beats one that merely has Foodiary/
+    const deep = candidates.find((c) => {
+      const two = filePaths.find((f) => typeof f === 'string' && f.replace(/^\.\//, '').split('/')[0] === c.firstSeg && f.split('/').length > 2);
+      return two ? existsSync(join(reposRoot, c.repo, two.replace(/^\.\//, '').split('/').slice(0, 2).join('/'))) : false;
+    });
+    if (deep) return { repo: deep.repo, how: `deep claim ${deep.firstSeg}/…` };
+    return { repo: fallback, how: `AMBIGUOUS (${uniqRepos.join(', ')}) — fell back` };
+  }
+  return { repo: fallback, how: 'no path claims — fell back' };
 }
 
 export function setPending(db: Database.Database, p: PendingProposal): void {
@@ -86,6 +132,7 @@ function logTail(_wtPath: string, err: unknown): string {
 }
 
 export function makeTurnDecorator(deps: DecoratorDeps) {
+  ensureTable(deps.db);
   return {
     /** the turn AFTER the proposal: user content is the confirmation/decline */
     prepareTurn: (sessionId: string, body: { content: string; commands?: string[] }): { promptBlock?: string; provider?: Provider } | null => {
@@ -96,7 +143,34 @@ export function makeTurnDecorator(deps: DecoratorDeps) {
       // command keeps the proposal pending (the user may still confirm later).
       const isConfirm = CONFIRM_RE.test(content) || /^\s*(\d+([,\s]+\d+)*)\s*$/.test(content);
       const isDecline = DECLINE_RE.test(content);
-      if (!isConfirm && !isDecline) return null;
+      // in-place directive (plan 20261016T090000Z F5): BARE single-sentence only —
+      // questions/prose containing the phrase keep the proposal pending.
+      const isInPlace = /^(edit|apply)\s+in\s+place$/i.test(content.trim()) && !/\n|\.|\?/.test(content.trim());
+      if (!isConfirm && !isDecline && !isInPlace) return null;
+      if (isInPlace) {
+        // ── IN-PLACE EDIT TURN (plan 20261016T090000Z) ──
+        const clonePath = join(deps.reposRoot, p.repo);
+        if (!existsSync(join(clonePath, '.git'))) {
+          return { promptBlock: `\n\n--- IN-PLACE FLOW: no canonical clone at ${clonePath} — cannot edit in place. Report and ask how to proceed. ---` };
+        }
+        try {
+          const guard = guardInPlacePreconditions(clonePath, p);
+          if (!guard.ok) {
+            deps.onAuto?.(`[implement-identifiers] in-place REFUSED on ${sessionId}: ${guard.reason}`);
+            return { promptBlock: `\n\n--- IN-PLACE FLOW: refused — ${guard.reason} Ask the user to resolve and retry 'edit in place'. ---` };
+          }
+          deps.db.prepare("UPDATE identifier_proposals SET state = 'in-place', pre_existing_dirt_json = ? WHERE session_id = ?").run(JSON.stringify(guard.preExistingDirt), sessionId);
+          deps.onAuto?.(`[implement-identifiers] in-place on ${sessionId}: repo=${p.repo}, ${guard.preExistingDirt.length} pre-existing dirt paths snapshotted — edit turn starting`);
+          return {
+            provider: deps.makeEditorProvider(clonePath),
+            promptBlock: `\n\n--- IN-PLACE EDIT TURN — you are editing the CANONICAL clone ${clonePath} (repo ${p.repo}), user-authorized in place ---\nApply the EXACT edit set from your proposal (same files, same lines, same identifiers) using your native file tools (Read/Edit/Write). Follow the repo's own convention (constants catalog if one exists, inline literals otherwise). Do NOT run git, do NOT commit or push — the host commits exactly the proposal's files and opens the PR after your turn. When done, list every file+line you changed. ---`,
+          };
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          deps.onAuto?.(`[implement-identifiers] in-place trigger FAILED on ${sessionId}: ${msg}`);
+          return { promptBlock: `\n\n--- IN-PLACE FLOW: trigger failed (${msg}). Report the failure; do not attempt edits. ---` };
+        }
+      }
       if (isDecline) {
         clearProposal(deps.db, sessionId);
         deps.onAuto?.(`[implement-identifiers] proposal declined on ${sessionId} — cleared`);
@@ -125,6 +199,25 @@ Apply the EXACT edit set from your proposal (same files, same lines, same identi
     /** the turn that ENDS as a proposal parks it; the edit turn commits/pushes/PRs */
     afterTurn: async (sessionId: string, outcome: { ok: boolean; turnId: string; answer: string }): Promise<void> => {
       const p = getProposal(deps.db, sessionId);
+      if (p && p.state === 'in-place') {
+        // ── IN-PLACE COMPLETER (plan 20261016T090000Z slices A+B) ──
+        // host-side git; model keeps editor tools only. Ordering per review F2:
+        // stash → compile → commit → push/PR → restore → clear LAST.
+        const clonePath = join(deps.reposRoot, p.repo);
+        if (!outcome.ok) {
+          deps.db.prepare("UPDATE identifier_proposals SET state = 'in-place-failed' WHERE session_id = ?").run(sessionId);
+          deps.onAuto?.(`[implement-identifiers] ${sessionId}: IN-PLACE EDIT TURN FAILED (${outcome.turnId}) — edits kept at ${clonePath}; nothing committed`);
+          return;
+        }
+        try {
+          const result = await completeInPlace(deps, p, clonePath, outcome.turnId, outcome.answer);
+          deps.onAuto?.(`[implement-identifiers] ${sessionId}: in-place COMPLETE — ${result.note}`);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          deps.onAuto?.(`[implement-identifiers] ${sessionId}: IN-PLACE COMPLETE FAILED — ${msg}. Edits still at ${clonePath}; state parked`);
+        }
+        return;
+      }
       if (p && p.state === 'confirmed') {
         // claim the state synchronously — afterTurn is fire-and-forget at the
         // transport seam, and the compile gate runs for minutes; a second turn
@@ -190,9 +283,104 @@ Apply the EXACT edit set from your proposal (same files, same lines, same identi
         if (!ids.length) return;
         const uniq = [...new Set(ids)];
         const slug = `auto-${sessionId.slice(-6)}`;
-        setPending(deps.db, { session_id: sessionId, repo: 'ios-consumer-intl', slug, entries: uniq.map((identifier) => ({ identifier, screen: identifier.split('_')[0]!, })), created_at: Date.now() });
-        deps.onAuto?.(`[implement-identifiers] proposal parked on ${sessionId}: ${uniq.length} identifiers — awaiting user confirmation`);
+        // repo from the proposal's FILE PATHS (backticked .swift paths in the answer),
+        // not a hardcode — the wrong-repo lesson. Fallback: first registered repo.
+        const filePaths = [...outcome.answer.matchAll(/[`]([^`\n]+\.swift)[`]/g)].map((m) => m[1]!);
+        const { repo, how } = resolveProposalRepo(deps.reposRoot, filePaths, readdirSync(deps.reposRoot, { withFileTypes: true }).find((e) => e.isDirectory() && !e.name.startsWith('.'))?.name ?? 'ios-consumer-intl');
+        setPending(deps.db, { session_id: sessionId, repo, slug, entries: uniq.map((identifier) => ({ identifier, screen: identifier.split('_')[0]!, })), created_at: Date.now() });
+        deps.onAuto?.(`[implement-identifiers] proposal parked on ${sessionId}: ${uniq.length} identifiers, repo=${repo} (${how}) — awaiting user confirmation`);
       }
     },
   };
+}
+
+// ── in-place helpers (plan 20261016T090000Z; review F1/F2/F3) ──
+
+/** porcelain parser → {path, staged, untracked} rows */
+function porcelain(clonePath: string): Array<{ path: string; staged: boolean; untracked: boolean }> {
+  const out = execFileSync('git', ['-C', clonePath, 'status', '--porcelain'], { encoding: 'utf8' });
+  return out.split('\n').filter(Boolean).map((l) => ({
+    staged: /^[MARD]/.test(l),
+    untracked: l.startsWith('??'),
+    path: l.slice(3).trim().replace(/^"|"$/g, ''),
+  }));
+}
+
+/** F1 guard: proposal files must be clean; snapshot non-proposal dirt for afterTurn. */
+function guardInPlacePreconditions(clonePath: string, p: PendingProposal & { state: string }): { ok: true; preExistingDirt: string[] } | { ok: false; reason: string } {
+  // F3 exclusivity: an active worktree for this repo means another lane is running —
+  // in-place compile and worktree creation share .git locks; one lane at a time.
+  const wtDir = join(dirname(clonePath), '.wt');
+  for (const wt of existsSync(wtDir) ? readdirSync(wtDir) : []) {
+    if (wt.startsWith(`${p.repo}-`)) return { ok: false, reason: `active worktree ${wt} exists for this repo — one lane at a time (remove it or use the worktree flow)` };
+  }
+  // F1: the trigger fires BEFORE the model edits — ANY dirty tracked file (staged or
+  // modified) is pre-existing. Proposal file paths aren't known until the edit turn
+  // lists them, so the contract is conservative: no tracked file may be pre-dirty.
+  // A human's mid-edit must never ride under the agent's trailer. Untracked dirt
+  // (.derived-data/, regen artifacts) is tolerable — snapshotted, stashed at completion.
+  const rows = porcelain(clonePath);
+  const modified = rows.filter((r) => !r.untracked);
+  if (modified.length) {
+    const first = modified[0]!.path;
+    return { ok: false, reason: `tracked file already has uncommitted changes (${first}${modified.length > 1 ? ` +${modified.length - 1} more` : ''}) — commit or discard first` };
+  }
+  return { ok: true, preExistingDirt: rows.filter((r) => r.untracked).map((r) => r.path) };
+}
+
+/** F2 branch name with collision suffix */
+function freshBranchName(clonePath: string, base: string): string {
+  let name = base; let n = 2;
+  const exists = (b: string): boolean => {
+    try { execFileSync('git', ['-C', clonePath, 'rev-parse', '--verify', `refs/heads/${b}`], { encoding: 'utf8', stdio: 'ignore' }); return true; } catch { return false; }
+  };
+  while (exists(name)) name = `${base}-${n++}`;
+  return name;
+}
+
+/** the host-side completer: stash → compile → commit (proposal files only) → push/PR → restore → clear LAST */
+export async function completeInPlace(deps: DecoratorDeps, p: PendingProposal & { state: string; pre_existing_dirt_json?: string | null }, clonePath: string, turnId: string, answer0: string): Promise<{ note: string }> {
+  ensureTable(deps.db);
+  const git = (...args: string[]): string => execFileSync('git', ['-C', clonePath, ...args], { encoding: 'utf8' });
+  // files the model reports having changed (from the turn's answer: backticked .swift paths)
+  const files = [...new Set([...answer0.matchAll(/[`]([^`\n]+\.swift)[`]/g)].map((m) => m[1]!))];
+  const proposalFiles = files.filter((f) => existsSync(join(clonePath, f)));
+  if (!proposalFiles.length) throw new Error('no edited .swift files found in the turn answer — refusing to commit anything');
+  // partition: stash everything dirty that is NOT a proposal file
+  const dirt = porcelain(clonePath).filter((r) => !r.path.startsWith('.lionidas')).map((r) => r.path);
+  const toStash = [...new Set(dirt.filter((d) => !proposalFiles.includes(d)))];
+  let stashKept = false;
+  if (toStash.length) {
+    git('stash', 'push', '--include-untracked', '-m', `lionidas-in-place ${p.slug}`, '--', ...toStash);
+    deps.onAuto?.(`[implement-identifiers] in-place: stashed ${toStash.length} non-proposal path(s) (${toStash.slice(0, 3).join(', ')}${toStash.length > 3 ? '…' : ''})`);
+  }
+  try {
+    // COMPILE GATE — same proven path, compile-only; nothing red is ever pushed
+    const compile = deps.compileWorktree ?? (await import('../projects/builds.ts')).compileWorktree;
+    const compileRes = await compile(clonePath, () => undefined);
+    void compileRes;
+    // commit exactly the proposal files, with trailer
+    const branch = freshBranchName(clonePath, `feat/identifiers-${p.slug}`);
+    git('checkout', '-q', '-b', branch);
+    git('add', '--', ...proposalFiles);
+    git('commit', '-q', '-m', `feat(a11y): add ${p.entries.length} accessibility identifiers (in-place)\n\nLionidas-In-Place: session ${p.session_id}, turn ${turnId}, user-authorized\nRepo: ${p.repo}`);
+    // push + PR with provenance prefix (F4: bodyPrefix via direct body construction)
+    const pr = pushAndPr({ repo: p.repo, slug: p.slug, path: clonePath, branch }, {
+      title: `feat(a11y): add ${p.entries.length} accessibility identifiers`,
+      body: `**Applied in-place, user-authorized** (session ${p.session_id}, turn ${turnId}).\n\n${p.entries.map((e) => `- \`${e.identifier}\`${e.screen ? ` (${e.screen})` : ''}`).join('\n')}\n\nFiles: ${proposalFiles.map((f) => `\`${f}\``).join(', ')}`,
+    });
+    // restore (F2 ordering): back to main, pop stash best-effort, clear LAST
+    git('checkout', '-q', 'main');
+    if (toStash.length) {
+      try { git('stash', 'pop'); } catch { stashKept = true; }
+    }
+    deps.db.prepare('DELETE FROM identifier_proposals WHERE session_id = ?').run(p.session_id);
+    return { note: `${proposalFiles.length} file(s) committed on ${branch} — ${pr.url}${stashKept ? ' · STASH KEPT (pop conflicted — restore manually: git stash list)' : ''}` };
+  } catch (err) {
+    // park honestly; keep edits; never drop the stash
+    const msg = err instanceof Error ? err.message : String(err);
+    try { git('checkout', '-q', 'main'); } catch { /* already somewhere safe */ }
+    deps.db.prepare("UPDATE identifier_proposals SET state = 'in-place-failed' WHERE session_id = ?").run(p.session_id);
+    throw new Error(`${msg} (edits preserved${toStash.length ? ' + stash kept' : ''} at ${clonePath})`);
+  }
 }
