@@ -119,19 +119,19 @@ export const STATUS = {
  *  timestamps (anchored), one live-looking-but-settled session. Weighted like
  *  the real thing: user asks, tool calls with mixed outcomes, a failed turn,
  *  a queued follow-up, usage, assistant markdown with a code fence. */
-const agBase = (ordinal: number, status: string, startedAt: number): { ordinal: number; status: string; startedAt: number; completedAt: number } =>
-  ({ ordinal, status, startedAt, completedAt: startedAt + 60_000 });
+const agBase = (ordinal: number, status: string, startedAt: number, durMs = 60_000): { ordinal: number; status: string; startedAt: number; completedAt: number } =>
+  ({ ordinal, status, startedAt, completedAt: startedAt + durMs });
 export const AGENT_TIMELINE = {
   items: [
-    { kind: 'message', id: 'm1', sessionId: 'sess_e2e', turnId: 't1', ...agBase(1, 'completed', ANCHOR - 40 * 60_000), role: 'user', streaming: false, text: 'why did login-flow fail on the last three nightly runs? [refs: case:tpl_login]' },
-    { kind: 'mcp_tool_call', id: 'w1', sessionId: 'sess_e2e', turnId: 't1', ...agBase(2, 'completed', ANCHOR - 39 * 60_000), toolCallId: 'tc1', name: 'repo.diff', arg: 'ios-consumer 9f2c1ab..HEAD', result: '6 files · +214 −89 · LoginViewModel.swift +142 −12' },
-    { kind: 'mcp_tool_call', id: 'w2', sessionId: 'sess_e2e', turnId: 't1', ...agBase(3, 'completed', ANCHOR - 38 * 60_000), toolCallId: 'tc2', name: 'cases.list', arg: 'template = tpl_login', result: '12 cases · 3 failed in last 3 nightlies' },
+    { kind: 'message', id: 'm1', sessionId: 'sess_e2e', turnId: 't1', ...agBase(1, 'completed', ANCHOR - 40 * 60_000), role: 'user', streaming: false, text: 'why did login-flow fail on the last three nightly runs? [cmds: /planning] [refs: case:tpl_login]' },
+    { kind: 'mcp_tool_call', id: 'w1', sessionId: 'sess_e2e', turnId: 't1', ...agBase(2, 'completed', ANCHOR - 39 * 60_000, 1_200), toolCallId: 'tc1', name: 'repo.diff', arg: 'ios-consumer 9f2c1ab..HEAD', result: '6 files · +214 −89 · LoginViewModel.swift +142 −12' },
+    { kind: 'mcp_tool_call', id: 'w2', sessionId: 'sess_e2e', turnId: 't1', ...agBase(3, 'completed', ANCHOR - 38 * 60_000, 300), toolCallId: 'tc2', name: 'cases.list', arg: 'template = tpl_login', result: '12 cases · 3 failed in last 3 nightlies' },
     { kind: 'usage', id: 'u1', sessionId: 'sess_e2e', turnId: 't1', ...agBase(4, 'completed', ANCHOR - 37 * 60_000), cost: 0.041, contextUsed: 41000, contextWindow: 200000 },
-    { kind: 'message', id: 'm2', sessionId: 'sess_e2e', turnId: 't1', ...agBase(5, 'completed', ANCHOR - 37 * 60_000), role: 'assistant', streaming: false, text: 'Three consecutive failures at `step: submit · credentials`. The regression window is `9f2c1ab..HEAD` — the new 0.8s debounce outruns the harness 0.5s submit-wait. Restore 0.3s.' },
+    { kind: 'message', id: 'm2', sessionId: 'sess_e2e', turnId: 't1', ...agBase(5, 'completed', ANCHOR - 37 * 60_000), role: 'assistant', streaming: false, text: 'Three consecutive failures at `step: submit · credentials`. The regression window is `9f2c1ab..HEAD` — the new 0.8s debounce outruns the harness 0.5s submit-wait. Restore 0.3s.', turnMeta: { durationMs: 161_000, cost: 0.041 } },
     { kind: 'message', id: 'm3', sessionId: 'sess_e2e', turnId: 't2', ...agBase(6, 'completed', ANCHOR - 12 * 60_000), role: 'user', streaming: false, text: 'draft the regression cases for the intl target', intent: 'queued' },
-    { kind: 'mcp_tool_call', id: 'w3', sessionId: 'sess_e2e', turnId: 't3', ...agBase(7, 'failed', ANCHOR - 5 * 60_000), toolCallId: 'tc3', name: 'repo.read', arg: 'LoginShip/ViewModel.swift', result: 'tool exceeded 12s read budget — retried once, failed again', isError: true },
+    { kind: 'mcp_tool_call', id: 'w3', sessionId: 'sess_e2e', turnId: 't3', ...agBase(7, 'failed', ANCHOR - 5 * 60_000, 24_000), toolCallId: 'tc3', name: 'repo.read', arg: 'LoginShip/ViewModel.swift', result: 'tool exceeded 12s read budget — retried once, failed again', isError: true },
     { kind: 'error', id: 'e1', sessionId: 'sess_e2e', turnId: 't3', ...agBase(8, 'failed', ANCHOR - 4 * 60_000), class: 'provider_error', message: 'turn failed: provider 502 after retry' },
-    { kind: 'message', id: 'm4', sessionId: 'sess_e2e', turnId: 't3', ...agBase(9, 'failed', ANCHOR - 4 * 60_000), role: 'assistant', streaming: false, text: 'Partial: the intl target kept 0.3s — one read timed out before the provider dropped.' },
+    { kind: 'message', id: 'm4', sessionId: 'sess_e2e', turnId: 't3', ...agBase(9, 'failed', ANCHOR - 4 * 60_000), role: 'assistant', streaming: false, text: 'Partial: the intl target kept 0.3s — one read timed out before the provider dropped.', turnMeta: { durationMs: 61_000, cost: 0.012 } },
   ],
 };
 

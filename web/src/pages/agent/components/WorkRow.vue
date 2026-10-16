@@ -12,6 +12,7 @@ const props = defineProps<{
   result?: string;
   isError?: boolean;
   status: 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
+  durationMs?: number | null;
 }>();
 
 const statusLabel = computed(() => {
@@ -34,6 +35,15 @@ const statusClass = computed(() => {
 });
 const firstResultLine = computed(() => (props.result ?? '').split('\n').find((l) => l.trim()) ?? '');
 const hasDetail = computed(() => Boolean(props.arg || props.result));
+const durLabel = computed(() => {
+  const ms = props.durationMs;
+  if (ms === null || ms === undefined) return null;
+  if (ms < 1000) return `${ms}ms`;
+  const s = ms / 1000;
+  if (s < 10) return `${s.toFixed(1)}s`;
+  const r = Math.round(s);
+  return r < 60 ? `${r}s` : `${Math.floor(r / 60)}m ${r % 60}s`;
+});
 </script>
 
 <template>
@@ -42,8 +52,8 @@ const hasDetail = computed(() => Boolean(props.arg || props.result));
       <span class="wr-sym" aria-hidden="true">⏵</span>
       <span class="wr-name">{{ name }}</span>
       <span v-if="arg" class="wr-arg">{{ arg }}</span>
-      <span v-if="!hasDetail" class="wr-dur">{{ statusLabel }}</span>
-      <span class="wr-chevron" aria-hidden="true" data-chevron></span>
+      <span v-if="durLabel" class="wr-dur">{{ durLabel }}</span>
+      <span v-else-if="!hasDetail" class="wr-dur">{{ statusLabel }}</span>
     </CollapsibleTrigger>
     <CollapsibleContent v-if="hasDetail" class="wr-body">
       <div v-if="result !== undefined" class="wr-detail" :class="{ 'wr-err': isError }">
@@ -78,6 +88,7 @@ const hasDetail = computed(() => Boolean(props.arg || props.result));
 .wr-name { color: var(--ag-ink, #eae6e1); flex: none; }
 .wr-arg { color: var(--ag-ink-dim, #a39d95); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .wr-dur { margin-left: auto; color: var(--ag-ink-dim, #a39d95); font-size: 10px; flex: none; }
+.wr-head:not(:disabled) .wr-arg { padding-right: 8px; }
 .wr-chevron { margin-left: auto; color: var(--ag-ink-dim, #a39d95); font-size: 10px; }
 .wr-head:not(:disabled) .wr-chevron::after { content: '›'; display: inline-block; transition: transform .15s; }
 .work-row[data-state="open"] .wr-chevron::after { transform: rotate(90deg); }

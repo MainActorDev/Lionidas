@@ -41,6 +41,9 @@ export interface MessageItem extends TurnItemBase {
   /** queued/steered follow-ups (message.queued) — intent marker for the
    *  timeline; also how the Phase 5 UI renders the visible queue in-thread. */
   intent?: TurnItemIntent;
+  /** sketch-A turn meta (assistant messages): duration/cost from the durable
+   *  log; the page layers the model name. Null when the log lacks either. */
+  turnMeta?: { durationMs: number | null; cost: number | null };
 }
 
 /** Reasoning block (GLM thinking_delta, Claude thinking). ADAPTER-EMITTED:
@@ -152,6 +155,9 @@ interface TurnAccum {
   failPartial: string | null;
   abortReason: string | null;
   hasWork: boolean;
+  /** turn lifecycle instants (event `at`), for meta lines/durations */
+  startedAt: number | null;
+  endedAt: number | null;
 }
 
 const EMPTY_MSG_RE = /^\s*$/;
@@ -191,14 +197,14 @@ export function foldTurnEvents(sessionId: string, rows: FoldEventRow[]): TurnIte
         toolCalls: new Map(), toolUpdates: new Map(),
         usage: null, usageDetail: null,
         answer: null, failError: null, failPartial: null, abortReason: null,
-        hasWork: false,
+        hasWork: false, startedAt: null, endedAt: null,
       };
       turns.set(tid, t);
       turnOrder.push(tid);
     }
     const d = safeJson(r.detail_json);
     switch (r.kind) {
-      case 'turn.started': t.status = 'running'; break;
+      case 'turn.started': t.status = 'running'; if (t.startedAt === null) t.startedAt = r.at; break;
       case 'chunk': t.streamText += typeof d?.['delta'] === 'string' ? d['delta'] : ''; break;
       case 'tool_call':
         t.hasWork = true;
@@ -214,9 +220,9 @@ export function foldTurnEvents(sessionId: string, rows: FoldEventRow[]): TurnIte
         break;
       }
       case 'compaction': break; // emitted in pass 2 from the raw row
-      case 'turn.completed': t.status = 'completed'; t.answer = typeof d?.['answer'] === 'string' ? d['answer'] : ''; break;
-      case 'turn.failed': t.status = 'failed'; t.failError = String(d?.['error'] ?? 'turn failed'); t.failPartial = typeof d?.['partial'] === 'string' ? d['partial'] : null; break;
-      case 'turn.aborted': t.status = 'aborted'; t.abortReason = String(d?.['reason'] ?? 'aborted'); break;
+      case 'turn.completed': t.status = 'completed'; t.answer = typeof d?.['answer'] === 'string' ? d['answer'] : ''; t.endedAt = r.at; break;
+      case 'turn.failed': t.status = 'failed'; t.failError = String(d?.['error'] ?? 'turn failed'); t.failPartial = typeof d?.['partial'] === 'string' ? d['partial'] : null; t.endedAt = r.at; break;
+      case 'turn.aborted': t.status = 'aborted'; t.abortReason = String(d?.['reason'] ?? 'aborted'); t.endedAt = r.at; break;
       default: break; // turn.requested/user_message.recorded/queue.* handled in pass 2
     }
   }
@@ -232,6 +238,11 @@ export function foldTurnEvents(sessionId: string, rows: FoldEventRow[]): TurnIte
       default: return 'running'; // requested/running (live)
     }
   };
+
+  /** sketch-A turn meta line: `agent · 2m 41s · $0.041` (model is not in the
+   *  durable log — the page layers it; duration/cost come from events). */
+  const durationMs = (t: TurnAccum): number | null =>
+    t.startedAt !== null && t.endedAt !== null ? Math.max(0, t.endedAt - t.startedAt) : null;
 
   // pass 2: emit in ORIGINAL event order — walk rows again, emitting per-turn
   // structures when their anchor event appears, so interleaved sessions keep
@@ -268,6 +279,7 @@ export function foldTurnEvents(sessionId: string, rows: FoldEventRow[]): TurnIte
         cost: t.usageDetail.cost, contextUsed: t.usageDetail.contextUsed, contextWindow: t.usageDetail.contextWindow,
       });
     }
+    const meta = { durationMs: durationMs(t), cost: t.usageDetail?.cost ?? null };
     // verdict + assistant message
     if (t.status === 'completed') {
       if (EMPTY_MSG_RE.test(t.answer ?? '')) {
@@ -281,12 +293,12 @@ export function foldTurnEvents(sessionId: string, rows: FoldEventRow[]): TurnIte
             message: 'turn completed with an empty answer after tool work — partial work is preserved below',
           });
           if (!EMPTY_MSG_RE.test(t.streamText)) {
-            emit({ kind: 'message', id: `msg-a-${t.turnId}`, sessionId, turnId: t.turnId, ordinal: Number.MAX_SAFE_INTEGER, status: 'failed', startedAt: 0, completedAt: 0, role: 'assistant', streaming: false, text: t.streamText });
+            emit({ kind: 'message', id: `msg-a-${t.turnId}`, sessionId, turnId: t.turnId, ordinal: Number.MAX_SAFE_INTEGER, status: 'failed', startedAt: t.startedAt ?? 0, completedAt: t.endedAt ?? null, role: 'assistant', streaming: false, text: t.streamText, turnMeta: meta });
           }
         }
         // empty-on-no-work stays a completion — no items (skill rule)
       } else {
-        emit({ kind: 'message', id: `msg-a-${t.turnId}`, sessionId, turnId: t.turnId, ordinal: Number.MAX_SAFE_INTEGER, status: 'completed', startedAt: 0, completedAt: 0, role: 'assistant', streaming: false, text: t.answer ?? '' });
+        emit({ kind: 'message', id: `msg-a-${t.turnId}`, sessionId, turnId: t.turnId, ordinal: Number.MAX_SAFE_INTEGER, status: 'completed', startedAt: t.startedAt ?? 0, completedAt: t.endedAt ?? null, role: 'assistant', streaming: false, text: t.answer ?? '', turnMeta: meta });
       }
     } else if (t.status === 'failed') {
       emit({
@@ -296,7 +308,7 @@ export function foldTurnEvents(sessionId: string, rows: FoldEventRow[]): TurnIte
       });
       const partial = t.failPartial ?? t.streamText;
       if (!EMPTY_MSG_RE.test(partial)) {
-        emit({ kind: 'message', id: `msg-a-${t.turnId}`, sessionId, turnId: t.turnId, ordinal: Number.MAX_SAFE_INTEGER, status: 'failed', startedAt: 0, completedAt: 0, role: 'assistant', streaming: false, text: partial });
+        emit({ kind: 'message', id: `msg-a-${t.turnId}`, sessionId, turnId: t.turnId, ordinal: Number.MAX_SAFE_INTEGER, status: 'failed', startedAt: t.startedAt ?? 0, completedAt: t.endedAt ?? null, role: 'assistant', streaming: false, text: partial, turnMeta: meta });
       }
     } else if (t.status === 'aborted') {
       emit({
@@ -305,12 +317,12 @@ export function foldTurnEvents(sessionId: string, rows: FoldEventRow[]): TurnIte
         class: 'aborted', message: t.abortReason ?? 'aborted',
       });
       if (!EMPTY_MSG_RE.test(t.streamText)) {
-        emit({ kind: 'message', id: `msg-a-${t.turnId}`, sessionId, turnId: t.turnId, ordinal: Number.MAX_SAFE_INTEGER, status: 'cancelled', startedAt: 0, completedAt: 0, role: 'assistant', streaming: false, text: t.streamText });
+        emit({ kind: 'message', id: `msg-a-${t.turnId}`, sessionId, turnId: t.turnId, ordinal: Number.MAX_SAFE_INTEGER, status: 'cancelled', startedAt: t.startedAt ?? 0, completedAt: t.endedAt ?? null, role: 'assistant', streaming: false, text: t.streamText, turnMeta: meta });
       }
     } else {
       // live turn: streaming assistant message from accumulated chunks
       if (!EMPTY_MSG_RE.test(t.streamText)) {
-        emit({ kind: 'message', id: `msg-a-${t.turnId}`, sessionId, turnId: t.turnId, ordinal: Number.MAX_SAFE_INTEGER, status: 'running', startedAt: 0, completedAt: null, role: 'assistant', streaming: true, text: t.streamText });
+        emit({ kind: 'message', id: `msg-a-${t.turnId}`, sessionId, turnId: t.turnId, ordinal: Number.MAX_SAFE_INTEGER, status: 'running', startedAt: t.startedAt ?? 0, completedAt: null, role: 'assistant', streaming: true, text: t.streamText, turnMeta: meta });
       }
     }
   };

@@ -19,6 +19,9 @@ export interface MessageItem extends TurnItemBase {
   streaming: boolean;
   text: string;
   intent?: TurnItemIntent;
+  /** sketch-A turn meta (assistant messages): duration/cost from the durable
+   *  log; the page layers the model name. */
+  turnMeta?: { durationMs: number | null; cost: number | null };
 }
 
 export interface ToolCallItem extends TurnItemBase {

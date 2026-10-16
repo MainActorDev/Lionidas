@@ -32,6 +32,7 @@ withDefaults(defineProps<{ items: TurnItem[]; emptyTitle?: string; emptyDescript
           :text="item.text"
           :streaming="item.streaming"
           :intent="item.intent"
+          :turn-meta="item.turnMeta"
           :status="item.status === 'completed' || item.status === 'running' ? item.status : item.status === 'failed' ? 'failed' : 'cancelled'"
         />
         <WorkRow
@@ -41,10 +42,11 @@ withDefaults(defineProps<{ items: TurnItem[]; emptyTitle?: string; emptyDescript
           :result="item.result"
           :is-error="item.isError"
           :status="item.status"
+          :duration-ms="item.completedAt !== null ? item.completedAt - item.startedAt : null"
         />
-        <TimelineError v-else-if="item.kind === 'error'" :class-name="item.class" :message="item.message" />
-        <TimelineUsage v-else-if="item.kind === 'usage'" :cost="item.cost" :context-used="item.contextUsed" :context-window="item.contextWindow" />
-        <div v-else-if="item.kind === 'compaction'" class="tl-compaction">· context compacted — {{ item.summary }}</div>
+        <div v-else-if="item.kind === 'error'" class="indent"><TimelineError :class-name="item.class" :message="item.message" /></div>
+        <div v-else-if="item.kind === 'usage'" class="indent"><TimelineUsage :cost="item.cost" :context-used="item.contextUsed" :context-window="item.contextWindow" /></div>
+        <div v-else-if="item.kind === 'compaction'" class="indent tl-compaction">· context compacted — {{ item.summary }}</div>
       </template>
     </div>
     <ScrollPill />
@@ -53,7 +55,9 @@ withDefaults(defineProps<{ items: TurnItem[]; emptyTitle?: string; emptyDescript
 
 <style scoped>
 .tl-scroll { position: relative; flex: 1; overflow-y: auto; min-height: 0; }
-.tl-inner { display: flex; flex-direction: column; gap: 10px; padding: 20px 24px 28px; max-width: 820px; margin: 0 auto; width: 100%; box-sizing: border-box; min-width: 0; overflow-wrap: anywhere; }
+.tl-inner { display: flex; flex-direction: column; gap: 14px; padding: 20px 24px 28px; max-width: 820px; margin: 0 auto; width: 100%; box-sizing: border-box; min-width: 0; overflow-wrap: anywhere; }
+/* work rows sit under the turn rail (sketch A: rail 19px + gap 14px) */
+.indent { padding-left: 33px; min-width: 0; }
 .tl-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 48px 0; text-align: center; }
 .tl-empty h3 { font-size: 13px; font-weight: 500; color: var(--ag-ink, #eae6e1); }
 .tl-empty p { font-size: 12px; color: var(--ag-ink-dim, #a39d95); }

@@ -27,7 +27,8 @@ describe('Timeline', () => {
 
   it('renders every item kind it receives (tool detail collapsed by default)', async () => {
     const w = mount(Timeline, { props: { items: fixture() }, global: { stubs: { ScrollPill: true } } });
-    expect(w.findAll('.bubble').length).toBe(2);
+    expect(w.findAll('.bubble-user').length).toBe(1);
+    expect(w.findAll('.assistant').length).toBe(1);
     expect(w.text()).toContain('repo.diff');
     expect(w.text()).toContain('$0.041');
     // detail rides in the collapsible; expand reveals the result line
