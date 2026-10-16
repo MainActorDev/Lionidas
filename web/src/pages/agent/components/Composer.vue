@@ -467,6 +467,14 @@ function onKey(e: KeyboardEvent): void {
     if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); acceptSkill(); return; }
     if (e.key === 'Escape') { e.preventDefault(); closeSlash(); return; }
   }
+  if (e.key === 'Enter' && e.shiftKey) return; // newline (default)
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    // ⌘↵ sends like ↵ (common convention) — the PAGE routes a busy turn
+    // into the visible queue, so this is also the explicit queue path
+    e.preventDefault();
+    submit();
+    return;
+  }
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
 }
 
@@ -482,6 +490,9 @@ function submit(): void {
   const ask = stripped.replace(/\s+/g, ' ').trim() || (cmdTokens.length ? text.value.trim() : '');
   const cmds = cmdTokens.map((x) => x.label);
   emit('send', ask, refs.value.map((r) => ({ ...r })), (appBundle.value ?? '').trim(), cmds, props.model);
+  clearDraft();
+}
+function clearDraft(): void {
   text.value = ''; refs.value = []; tokens.value = [];
   closePalette(); closeSlash();
 }

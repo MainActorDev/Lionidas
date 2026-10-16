@@ -8,7 +8,7 @@
  *  panel are reused unchanged. */
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute } from 'vue-router';
-import ChatSidebar from './components/ChatSidebar.vue';
+import SessionRail from './components/SessionRail.vue';
 import Timeline from './components/Timeline.vue';
 import Composer from './components/Composer.vue';
 import RunPanel from './components/RunPanel.vue';
@@ -29,7 +29,7 @@ const liveTurn = ref<{ turnId: string; startedAt: number } | null>(null);
 const sending = ref(false);
 const queue = ref<Array<{ id: number; text: string; refs: PipelineRef[]; appBundle: string; commands: string[] }>>([]);
 let queueSeq = 0;
-const sidebar = ref<InstanceType<typeof ChatSidebar> | null>(null);
+const sidebar = ref<InstanceType<typeof SessionRail> | null>(null);
 const panel = ref<InstanceType<typeof RunPanel> | null>(null);
 const composer = ref<InstanceType<typeof Composer> | null>(null);
 let ws: WebSocket | null = null;
@@ -50,8 +50,22 @@ async function openSession(id: string): Promise<void> {
   composer.value?.resetDraft();
   sessionId.value = id;
   localStorage.setItem('agent.lastSession', id);
+  const row = chats.value.find((c) => c.id === id);
+  if (row?.title) title.value = row.title;
   await loadTimeline();
   void panel.value?.refresh();
+}
+/** session rows mirror the rail's (title truth for the header pill). */
+interface ChatRow { id: string; title: string | null; updatedAt: number }
+const chats = ref<ChatRow[]>([]);
+async function loadChats(): Promise<void> {
+  try {
+    const r = await fetch('/api/agent/chats');
+    if (!r.ok) return;
+    chats.value = ((await r.json()) as { chats: ChatRow[] }).chats ?? [];
+    const row = chats.value.find((c) => c.id === sessionId.value);
+    if (row?.title) title.value = row.title;
+  } catch { /* rail shows the honest empty state */ }
 }
 
 async function loadTimeline(): Promise<void> {
@@ -105,6 +119,7 @@ async function send(text: string, refs: PipelineRef[], appBundle: string, comman
     await loadTimeline(); // the projection IS the truth — no client-side bubble math
     settleAiTitle();
     void sidebar.value?.load();
+    void loadChats();
     drainQueue();
   }
 }
@@ -274,6 +289,7 @@ function startPolling(): void {
 onMounted(() => {
   void loadModels();
   void loadMe();
+  void loadChats();
   const qRun = route.query['run'];
   if (typeof qRun === 'string' && qRun) runId.value = qRun;
   // restore the last-open chat; else auto-open the most recent session so a
@@ -314,7 +330,7 @@ function onPanelError(m: string): void {
     </div>
   </div>
   <div v-else class="ag-root v2-root">
-    <ChatSidebar ref="sidebar" :me="me" :active-id="sessionId" @select="openSession" @new-chat="newChat" @renamed="onRenamed" @deleted="onDeleted" />
+    <SessionRail ref="sidebar" :me="me" :active-id="sessionId" @select="openSession" @new-chat="newChat" @renamed="onRenamed" @deleted="onDeleted" />
     <div class="mid">
       <div class="head">
         <h1>{{ title }}</h1>
