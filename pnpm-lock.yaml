@@ -181,6 +181,9 @@ importers:
       vue-sonner:
         specifier: ^2.0.9
         version: 2.0.9
+      vue-stick-to-bottom:
+        specifier: ^1.0.1
+        version: 1.0.1(vue@3.5.42(typescript@5.9.3))
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
@@ -2607,6 +2610,12 @@ packages:
       nuxt:
         optional: true
 
+  vue-stick-to-bottom@1.0.1:
+    resolution: {integrity: sha512-RuT83MqGsQuBwCYq3KOlsXIz9u2ITE5iToJyM6iOOT17gvxaCjgU6lvOCjbRNVwejy7KxSy5EZG9UOuR+WkEVA==}
+    engines: {node: '>=22.22.0', pnpm: '>=11.15.1'}
+    peerDependencies:
+      vue: '>=3.3.0'
+
   vue-tsc@2.2.12:
     resolution: {integrity: sha512-P7OP77b2h/Pmk+lZdJ0YWs+5tJ6J2+uOQPo7tlBnY44QqQSPYvS0qVT4wqDJgwrZaLe47etJLLQRFia71GYITw==}
     hasBin: true
@@ -4871,6 +4880,10 @@ snapshots:
       vue: 3.5.42(typescript@5.9.3)
 
   vue-sonner@2.0.9: {}
+
+  vue-stick-to-bottom@1.0.1(vue@3.5.42(typescript@5.9.3)):
+    dependencies:
+      vue: 3.5.42(typescript@5.9.3)
 
   vue-tsc@2.2.12(typescript@5.9.3):
     dependencies:
