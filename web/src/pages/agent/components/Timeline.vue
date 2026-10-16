@@ -54,7 +54,10 @@ withDefaults(defineProps<{ items: TurnItem[]; emptyTitle?: string; emptyDescript
 </template>
 
 <style scoped>
-.tl-scroll { position: relative; flex: 1; overflow-y: auto; min-height: 0; }
+.tl-scroll { position: relative; flex: 1; min-height: 0; overflow: visible; }
+/* ONE scroller: vue-stick-to-bottom's internal wrapper is overflow:auto —
+ *  .tl-scroll must not also scroll or two bars render (the lib wrapper +
+ *  ours). We only position (relative, for the scroll pill). */
 .tl-inner { display: flex; flex-direction: column; justify-content: flex-end; gap: 14px; padding: 20px 24px 28px; max-width: 820px; margin: 0 auto; width: 100%; box-sizing: border-box; min-width: 0; overflow-wrap: anywhere; }
 /* work rows sit under the turn rail (sketch A: rail 19px + gap 14px) */
 .indent { padding-left: 33px; min-width: 0; }
