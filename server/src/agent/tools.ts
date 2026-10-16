@@ -5,6 +5,7 @@ import { ToolRegistry, type SqliteStorage, type StorageRetriever } from '@mainac
 import type Database from 'better-sqlite3';
 import { renderTemplateYaml } from '../routes/templates.ts';
 import { registerConfigTools } from './config-tools.ts';
+import { registerCommandRunTool } from './commands.ts';
 import type { AttachmentStore } from './attachments.ts';
 import { join } from 'node:path';
 
@@ -239,6 +240,7 @@ export function buildToolRegistry(deps: ToolDeps): ToolRegistry {
   });
 
   registerConfigTools({ db, registry, ...(syncPresets ? { syncPresets } : {}), ...(storage ? { storage } : {}) });
+  registerCommandRunTool(registry); // dynamic skill routing (20261016T061611Z)
 
   return registry;
 }
