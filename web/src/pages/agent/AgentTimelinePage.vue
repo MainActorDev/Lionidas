@@ -293,29 +293,31 @@ function onPanelError(m: string): void {
           <button type="button" @click="queueDelete(q.id)">✕</button>
         </div>
       </div>
-      <Composer ref="composer" :busy="live" :model-options="modelOptions" :model="modelSel" @model-change="(m: string) => { modelSel = m; }" @send="send" @abort="abortTurn" />
+      <div class="composer-zone">
+        <Composer ref="composer" :busy="live" :model-options="modelOptions" :model="modelSel" @model-change="(m: string) => { modelSel = m; }" @send="send" @abort="abortTurn" />
+      </div>
     </div>
     <RunPanel v-if="runId && runMeta" ref="panel" :run-id="runId" :template-id="runMeta.templateId" :case-name="runMeta.caseName" :udid="runMeta.udid" @error="onPanelError" />
   </div>
 </template>
 
 <style scoped>
-.v2-root { display: flex; height: 100%; min-height: 0; }
+.v2-root { display: flex; height: 100%; min-height: 0; min-width: 0; width: 100%; max-width: 100%; overflow: hidden; }
 .mid { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
-.head { display: flex; align-items: baseline; gap: 10px; padding: 14px 24px 12px; border-bottom: 1px solid var(--agent-line, #2a2724); }
-.head h1 { font-size: 14px; font-weight: 500; color: var(--color-fg, #eae6e1); }
-.pill { font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 10px; color: var(--color-dim, #6b665e); border: 1px solid var(--agent-line, #2a2724); border-radius: 2px; padding: 2px 6px; }
+.head { display: flex; align-items: baseline; gap: 10px; padding: 14px 24px 12px; border-bottom: 1px solid var(--ag-line, #2a2a2a); min-width: 0; }
+.head h1 { font-size: 14px; font-weight: 500; color: var(--ag-ink, #eae6e1); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
+.pill { font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 10px; color: var(--ag-ink-dim, #a39d95); border: 1px solid var(--ag-line, #2a2a2a); border-radius: 2px; padding: 2px 6px; }
 .pill.live { color: var(--color-ember, #ee6018); border-color: rgba(238, 96, 24, .4); }
 .queue { padding: 0 24px 8px; max-width: 820px; margin: 0 auto; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px; }
-.q-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--color-ash, #a39d95); border: 1px dashed var(--agent-line, #2a2724); border-radius: 2px; padding: 6px 10px; }
+.q-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ag-ink-dim, #a39d95); border: 1px dashed var(--ag-line, #2a2a2a); border-radius: 2px; padding: 6px 10px; }
 .q-item .qt { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.q-item button { font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 10px; color: var(--color-dim, #6b665e); background: none; border: none; cursor: pointer; }
-.q-item button:hover:not(:disabled) { color: var(--color-fg, #eae6e1); }
+.q-item button { font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 10px; color: var(--ag-ink-dim, #a39d95); background: none; border: none; cursor: pointer; }
+.q-item button:hover:not(:disabled) { color: var(--ag-ink, #eae6e1); }
 .q-item button:disabled { opacity: .4; cursor: default; }
 .denied { height: 100%; display: grid; place-items: center; }
-.d-card { border: 1px solid var(--color-iron, #2a2724); border-radius: 2px; padding: 16px 20px; background: var(--agent-carbon, #1d1a18); text-align: center; }
-.d-t { font-size: 14px; margin-bottom: 8px; color: var(--color-fg, #eae6e1); }
-.d-s { font-size: 12px; color: var(--color-dim, #6b665e); }
+.d-card { border: 1px solid var(--color-iron, #2a2724); border-radius: 2px; padding: 16px 20px; background: var(--ag-surface, #1d1a18); text-align: center; }
+.d-t { font-size: 14px; margin-bottom: 8px; color: var(--ag-ink, #eae6e1); }
+.d-s { font-size: 12px; color: var(--ag-ink-dim, #a39d95); }
 @media (max-width: 900px) { .v2-root :deep(.runpanel) { display: none; } }
 /* mobile: the chat column needs the width — hide the session sidebar under
  * 900px (sketch 042-A: rail hides, chat fills; the app shell's own nav
@@ -325,4 +327,8 @@ function onPanelError(m: string): void {
   .v2-root .head { padding: 12px 16px; }
   .v2-root .queue { padding: 0 16px 8px; }
 }
+/* the composer zone owns horizontal shrink: the legacy .composer sizes
+ * against its parent — a 100%-width min-width:0 wrapper keeps the flex
+ * chain from flooring on its content at narrow viewports. */
+.composer-zone { width: 100%; min-width: 0; padding: 0 16px 14px; box-sizing: border-box; }
 </style>

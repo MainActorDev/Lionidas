@@ -53,9 +53,9 @@ withDefaults(defineProps<{ items: TurnItem[]; emptyTitle?: string; emptyDescript
 
 <style scoped>
 .tl-scroll { position: relative; flex: 1; overflow-y: auto; min-height: 0; }
-.tl-inner { display: flex; flex-direction: column; gap: 10px; padding: 20px 24px 28px; max-width: 820px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+.tl-inner { display: flex; flex-direction: column; gap: 10px; padding: 20px 24px 28px; max-width: 820px; margin: 0 auto; width: 100%; box-sizing: border-box; min-width: 0; overflow-wrap: anywhere; }
 .tl-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 48px 0; text-align: center; }
-.tl-empty h3 { font-size: 13px; font-weight: 500; color: var(--color-fg, #eae6e1); }
-.tl-empty p { font-size: 12px; color: var(--color-dim, #6b665e); }
-.tl-compaction { font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 10px; color: var(--color-dim, #6b665e); padding: 2px 0; }
+.tl-empty h3 { font-size: 13px; font-weight: 500; color: var(--ag-ink, #eae6e1); }
+.tl-empty p { font-size: 12px; color: var(--ag-ink-dim, #a39d95); }
+.tl-compaction { font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 10px; color: var(--ag-ink-dim, #a39d95); padding: 2px 0; }
 </style>

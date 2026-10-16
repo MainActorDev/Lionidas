@@ -32,21 +32,21 @@ const html = computed(() => renderMarkdown(props.text));
 </template>
 
 <style scoped>
-.bubble { display: flex; flex-direction: column; max-width: 85%; }
+.bubble { display: flex; flex-direction: column; max-width: 85%; min-width: 0; }
 .is-user { align-self: flex-end; }
 .is-assistant { align-self: flex-start; max-width: 100%; }
 .is-user .body {
-  background: var(--agent-carbon, #1d1a18); border: 1px solid var(--agent-line, #2a2724);
-  border-radius: 2px; padding: 9px 13px; font-size: 13px;
+  background: var(--ag-surface, #1d1a18); border: 1px solid var(--ag-line, #2a2a2a);
+  border-radius: 2px; padding: 9px 13px; font-size: 13px; min-width: 0;
 }
-.is-assistant .body { font-size: 13.5px; color: var(--color-fg, #eae6e1); }
+.is-assistant .body { font-size: 13.5px; color: var(--ag-ink, #eae6e1); min-width: 0; }
 .is-failed .body, .is-cancelled .body { opacity: .85; }
 .txt { min-width: 0; overflow-wrap: anywhere; }
 .txt :deep(p) { margin: 0 0 8px; }
 .txt :deep(p:last-child) { margin-bottom: 0; }
 .txt :deep(code) {
   font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 12px;
-  background: var(--agent-carbon, #1d1a18); border: 1px solid #232120; border-radius: 2px; padding: 1px 5px;
+  background: var(--ag-surface, #1d1a18); border: 1px solid #232120; border-radius: 2px; padding: 1px 5px;
 }
 .cursor {
   display: inline-block; width: 7px; height: 13px; margin-left: 3px;
@@ -56,6 +56,6 @@ const html = computed(() => renderMarkdown(props.text));
 .intent { font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 10px; color: var(--color-gold, #d9b06a); margin-top: 4px; }
 .intent-steering { color: var(--color-ember, #ee6018); }
 .badge { font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 10px; color: var(--color-danger, #d97a6a); margin-top: 4px; }
-.badge-off { color: var(--color-dim, #6b665e); }
+.badge-off { color: var(--ag-ink-dim, #a39d95); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 </style>

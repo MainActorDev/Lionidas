@@ -15,7 +15,7 @@ const pct = computed(() => (props.contextWindow > 0 ? Math.min(100, Math.round((
 </template>
 
 <style scoped>
-.tl-usage { display: inline-flex; gap: 12px; font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 10px; color: var(--color-dim, #6b665e); padding: 1px 0; align-self: flex-end; }
-.cost { color: var(--color-ash, #a39d95); }
+.tl-usage { display: inline-flex; gap: 12px; font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 10px; color: var(--ag-ink-dim, #a39d95); padding: 1px 0; align-self: flex-end; }
+.cost { color: var(--ag-ink-dim, #a39d95); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 </style>

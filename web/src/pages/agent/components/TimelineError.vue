@@ -14,6 +14,6 @@ defineProps<{ className: string; message: string }>();
 .tl-error { display: flex; gap: 8px; align-items: baseline; font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 11px; padding: 2px 0; }
 .is-err .msg { color: var(--color-danger, #d97a6a); }
 .is-err .sym { color: var(--color-danger, #d97a6a); }
-.is-off .msg { color: var(--color-dim, #6b665e); }
-.is-off .sym { color: var(--color-dim, #6b665e); }
+.is-off .msg { color: var(--ag-ink-dim, #a39d95); }
+.is-off .sym { color: var(--ag-ink-dim, #a39d95); }
 </style>
