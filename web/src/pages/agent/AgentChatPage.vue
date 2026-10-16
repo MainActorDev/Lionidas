@@ -484,7 +484,7 @@ onBeforeUnmount(() => { ws?.close(); if (pollTimer) clearInterval(pollTimer); })
         </div>
       </Thread>
     </div>
-    <RunPanel ref="panel" @error="onPanelError" :run-id="runId" />
+    <RunPanel v-if="runId" ref="panel" @error="onPanelError" :run-id="runId" />
   </div>
 </template>
 

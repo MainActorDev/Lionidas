@@ -44,8 +44,8 @@ export const router = createRouter({
     { path: '/login', name: 'login', component: LoginPage, meta: { title: 'sign in', public: true } },
     { path: '/setup', name: 'setup', component: SetupPage, meta: { title: 'first-run setup', public: true } },
     { path: '/guide', name: 'guide', component: GuidePage, meta: { title: 'guide' } },
-    { path: '/agent', name: 'agentChat', component: AgentChatPage, meta: { title: 'agent' } },
-    { path: '/agent-v2', name: 'agentTimeline', component: AgentTimelinePage, meta: { title: 'agent' } }, // Phase 5 parallel-run
+    { path: '/agent', name: 'agentChat', component: AgentTimelinePage, meta: { title: 'agent' } },
+    { path: '/agent-v1', name: 'agentChatLegacy', component: AgentChatPage, meta: { title: 'agent (legacy)' } }, // v1 escape hatch until decommission
     { path: '/status', name: 'status', component: StatusBoardPage, meta: { title: 'status' } },
   ] satisfies RouteRecordRaw[],
 });

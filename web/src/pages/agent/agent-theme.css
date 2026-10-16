@@ -35,9 +35,23 @@
   min-height: 0;
   margin: calc(-1 * var(--s-6));
   width: calc(100% + 2 * var(--s-6));
+  max-width: calc(100% + 2 * var(--s-6));
+  overflow: hidden; /* width clamp: flex content must not floor the page wider
+                     * than the shell (the 393-in-375 mobile overflow) */
+  min-width: 0;
 }
 
 .ag-root * { box-sizing: border-box; }
+
+/* mobile backport (phase 5 step 5): v1 never had narrow-viewport rules —
+ * the 280px session sidebar starved the chat column to ~131px at 375 and
+ * the page overflowed (393-in-375). Same collapse the v2 page ships. */
+@media (max-width: 900px) {
+  .ag-root .sb { display: none; }
+  /* the full-bleed negative margin cancels DESKTOP .main padding (s-6);
+   * mobile .main pads 14px — cancel exactly that, not more. */
+  .ag-root { margin: -20px -14px 0; width: calc(100% + 28px); max-width: calc(100% + 28px); }
+}
 
 /* ═══ Syntax highlighting (highlight.ts) — one palette, ember-adjacent,
  *   tuned for #141414 canvas. WCAG-AA (4.5:1) targets on all text colors. */

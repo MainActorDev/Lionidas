@@ -595,7 +595,7 @@ function submit(): void {
 .chip.jira { color: var(--color-ember); border-color: var(--color-ember-dim); }
 .chip:hover { background: var(--color-graphite); }
 textarea { width: 100%; background: none; border: none; outline: none; color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-body); resize: none; min-height: 30px; }
-.row { display: flex; align-items: center; gap: var(--s-2); margin-top: 6px; }
+.row { display: flex; align-items: center; gap: var(--s-2); margin-top: 6px; flex-wrap: wrap; min-width: 0; }
 .icon { min-height: 24px; padding: 2px var(--s-2); border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); background: var(--ag-surface); color: var(--color-fog); cursor: pointer; font-size: var(--text-caption); font-family: var(--font-mono); }
 .icon:hover { background: var(--color-graphite); color: var(--color-paper); }
 .bundle { max-width: 260px; min-width: 120px; background: var(--ag-panel); border: 1px solid var(--ag-line); border-radius: var(--r-sm); outline: none; color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 3px var(--s-2); }

@@ -162,6 +162,42 @@ async function abortTurn(): Promise<void> {
   await loadTimeline();
 }
 
+/** attachment flow (v1 parity): @attachment → hidden file input; upload on
+ *  SELECT; the composer chips it. Paste/drop ride the same upload. */
+let attachInput: HTMLInputElement | null = null;
+function openAttachmentPicker(): void {
+  attachInput?.remove();
+  attachInput = document.createElement('input');
+  attachInput.type = 'file';
+  attachInput.style.display = 'none';
+  attachInput.addEventListener('change', () => { const f = attachInput?.files?.[0]; if (f) void uploadAttachment(f); });
+  document.body.appendChild(attachInput);
+  attachInput.click();
+}
+async function uploadAttachment(file: File): Promise<void> {
+  const fd = new FormData();
+  fd.append('file', file, file.name);
+  try {
+    const r = await fetch('/api/agent/attachments', { method: 'POST', body: fd });
+    const b = (await r.json()) as { id?: string; fileName?: string; error?: string };
+    if (!r.ok || !b.id) {
+      items.value = [...items.value, { kind: 'error', id: `att-${Date.now()}`, sessionId: sessionId.value ?? '', turnId: null, ordinal: Number.MAX_SAFE_INTEGER, status: 'failed', startedAt: Date.now(), completedAt: Date.now(), class: 'provider_error', message: `attachment failed: ${b.error ?? r.status}` }];
+      return;
+    }
+    composer.value?.addAttachmentChip(b.id, b.fileName ?? file.name);
+  } catch (e) {
+    items.value = [...items.value, { kind: 'error', id: `att-${Date.now()}`, sessionId: sessionId.value ?? '', turnId: null, ordinal: Number.MAX_SAFE_INTEGER, status: 'failed', startedAt: Date.now(), completedAt: Date.now(), class: 'provider_error', message: `attachment failed: ${(e as Error).message}` }];
+  }
+}
+function onPaste(e: ClipboardEvent): void {
+  const f = e.clipboardData?.files?.[0];
+  if (f) { e.preventDefault(); void uploadAttachment(f); }
+}
+function onDrop(e: DragEvent): void {
+  const f = e.dataTransfer?.files?.[0];
+  if (f) { e.preventDefault(); void uploadAttachment(f); }
+}
+
 // ── model picker (unchanged contract) ───────────────────────────────────
 interface ModelOptionUi { id: string; kind: 'combo' | 'model'; label?: string; members?: string[]; healthy?: boolean }
 const modelOptions = ref<ModelOptionUi[]>([]);
@@ -259,10 +295,6 @@ onBeforeUnmount(() => { ws?.close(); if (pollTimer) clearInterval(pollTimer); })
 defineExpose({ send, applySnapshot, loadTimeline, queueSendNow, queueEdit, queueDelete, abortTurn });
 
 const runId = ref<string | null>(null);
-/** RunPanel mounts ONLY with a complete run binding — a null-run mount spawns
- *  device-stream fetches against undefined ids (the v2 e2e caught this: the
- *  unguarded panel was the login-bounce churn source). */
-const runMeta = ref<{ templateId: string; caseName: string; udid: string } | null>(null);
 function onPanelError(m: string): void {
   // panel errors ride the timeline as a synthetic error item (visible, honest)
   items.value = [...items.value, { kind: 'error', id: `panel-${Date.now()}`, sessionId: sessionId.value ?? '', turnId: null, ordinal: Number.MAX_SAFE_INTEGER, status: 'failed', startedAt: Date.now(), completedAt: Date.now(), class: 'provider_error', message: m }];
@@ -293,11 +325,11 @@ function onPanelError(m: string): void {
           <button type="button" @click="queueDelete(q.id)">✕</button>
         </div>
       </div>
-      <div class="composer-zone">
-        <Composer ref="composer" :busy="live" :model-options="modelOptions" :model="modelSel" @model-change="(m: string) => { modelSel = m; }" @send="send" @abort="abortTurn" />
+      <div class="composer-zone" @paste="onPaste" @drop="onDrop" @dragover.prevent>
+        <Composer ref="composer" :busy="live" :model-options="modelOptions" :model="modelSel" @model-change="(m: string) => { modelSel = m; }" @send="send" @abort="abortTurn" @open-attachment="openAttachmentPicker" />
       </div>
     </div>
-    <RunPanel v-if="runId && runMeta" ref="panel" :run-id="runId" :template-id="runMeta.templateId" :case-name="runMeta.caseName" :udid="runMeta.udid" @error="onPanelError" />
+    <RunPanel v-if="runId" ref="panel" :run-id="runId" @error="onPanelError" />
   </div>
 </template>
 

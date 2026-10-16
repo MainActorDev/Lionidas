@@ -25,7 +25,8 @@ export const ROUTES: FixtureRoute[] = [
   { path: '/', name: 'overview', readySelector: '.kpi, .page' },
   { path: '/audit', name: 'audit', readySelector: '.row' },
   { path: '/status', name: 'status', readySelector: '.tile' },
-  { path: '/agent-v2', name: 'agentv2', readySelector: '.tl-inner' },
+  { path: '/agent', name: 'agent', readySelector: '.tl-inner' },
+  { path: '/agent-v1', name: 'agentv1', readySelector: '.ag-root' },
 ];
 
 /** fixed audit rows — deterministic, seeded like a real page: 16 rows across
