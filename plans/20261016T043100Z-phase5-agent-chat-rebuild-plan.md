@@ -1,8 +1,8 @@
 # Phase 5 — Agent chat rebuild — implementation plan
 
 - Source brainstorm: `brainstorm/20261016T041716Z-agent-chat-t3code-reference.md` (all 3 questions answered)
-- Visual contract: sketches `sketches/042-agent-chat-rebuild/` (3 variants, chosen before implementation)
-- Status: Ready for review
+- Visual contract: `sketches/042-agent-chat-rebuild/a-session-rail/` — **variant A selected by operator 2026-10-16**
+- Status: Ready for implementation gate
 
 ## 0. Locked decisions (user, 2026-10-16)
 
@@ -32,16 +32,22 @@ Butler remains the durable engine (event-sourced turns, EventSink, orphan sweep)
 4. **Timeline projection fold** — pure `foldTurnEvents(events) -> TurnItem[]` server-side, unit-tested against captured butler event logs (real shapes, per the verify-payload-shape law). History load = one GET; no client-side folding of raw events. Fold rules keyed off documented butler behavior: textless tool-hops render as work items not empty bubbles; `turn.completed` with empty answer + rich tool trail → error item (honest-failure rule); zombie turns → `interrupted` items with partial content; queued/steered messages → message items with intent markers. Replayed timeline == live timeline (event-sourcing invariant).
 5. **Multi-provider router** — `server/src/agent/providers.ts` registry: adapter selection by `model` (combo) or explicit provider id; health reuses `models/health` shape; per-provider capability flags. Router satisfies butler's `Provider` seam (guard the legacy-clobber pitfall). Default install: claude-cli live, openai-compat live, codex/opencode capability-stubbed.
 
-## 2. Web — timeline UI rebuild
+## 2. Web — timeline UI rebuild (variant A: session rail)
 
-1. **`web/src/pages/agent/` restructure** around a timeline renderer:
-   - `Timeline.vue` — flat list of timeline entries derived ONLY from items: `message | work | error | question | usage-footer`. One component tree for all providers (the t3code invariant).
-   - `WorkRow.vue` — collapsed tool/command row (tone + lifecycle status + arg summary, expandable payload), success/neutral/failure semantics; `⏵ name arg-summary` / `⎿ first line of result` language ported from lioclaw streamlog (already the house reference).
-   - `MessageBubble.vue` — markdown + fenced highlighting (existing `markdown.ts`/`highlight.ts` reused); streaming is a per-item flag fed by coalesced snapshots.
-   - Composer redesign rides the same sketches (keep: caret palette, atomic chips, single send path; redesign: layout/structure per chosen variant).
-2. **State: the UI owns NO turn state** (the R3 direction already on record) — per-session state becomes a projection of the item stream; the existing per-session-state-map rule is the interim bridge.
-3. **Kept UX rules (from skill, operator-set)**: sticky composer in the same scroll column; visible multi-slot queue; load-time statuses fact-derived (`liveTurn`/`unsent`/`aborted`); resend hidden while live; identical-resend collapse; evidence:// embeds; no silent disappearance — every one of these gets a regression test in the new model.
-4. **Theme**: Factory tokens, scoped CSS (settled mechanism), house Axiom chat rules (mono, hairline, ember only for live state).
+Composition per `sketches/042-agent-chat-rebuild/a-session-rail/index.html`:
+
+1. **Session rail** (left, 200px): new-chat, recency-ordered session rows (title + `ago · model · N turns` mono subline), `N sessions · M live` footer; hides under 760px. Session switching moves the whole viewport, never a nested panel.
+2. **Turns as left-bordered groups** with dot markers: user turns (dim border/dot) vs agent turns; turn meta line (who · model · time · duration · cost, mono 10px).
+3. **Work rows inline under each turn** (⏵ name + ellipsized arg / ⎿ first result line, expandable payload): row-per-call granularity — NOT summary cards (C rejected). Live rows: ember symbol + fg name; ok: sage name; err: danger name.
+4. **Assistant prose** in sans 13.5px over the mono work rows; fences carry the hairline language chip + path:line (existing highlight.ts tokenizer reused).
+5. **Usage meters without an inspector column**: A gives up B's inspector — usage lands as the turn meta line (`2m 41s · $0.041`) plus a thin context bar in the composer foot (percent + k/200k tooltip) when a turn is live. Cost/context items still exist in the data model; only the presentation differs.
+6. **Composer** (sticky, same scroll column): model chips row above input (combo chain visible), textarea, hints, send↔stop toggle. Caret palette (@refs //cmds) — the existing interaction model, restyled to A.
+7. **Queue + statuses**: dashed multi-slot queue above composer; queued user turns also render in-thread with a gold `queued` marker; turn foot copy/retry; live turns carry ember `running · Ns` meta.
+
+Kept UX rules (operator-set, each with a regression test): sticky composer in-thread; visible multi-slot queue; fact-derived load statuses (`liveTurn`/`unsent`/`aborted`); resend hidden while live; identical-resend collapse; evidence:// embeds; no silent disappearance.
+
+8. **State: the UI owns NO turn state** (the R3 direction) — per-session state becomes a projection of the item stream; the existing per-session-state-map rule is the interim bridge.
+9. **Theme**: Factory tokens, scoped CSS (settled mechanism), house Axiom chat rules (mono, hairline, ember only for live state).
 
 ## 3. QA harness extension
 

@@ -1,7 +1,11 @@
 # Review — Phase 5 agent chat rebuild plan
 
 - Plan reviewed: `plans/20261016T043100Z-phase5-agent-chat-rebuild-plan.md` (2026-10-16)
-- Verdict: **Ready** — with 4 corrections applied during review (recorded below).
+- Verdict: **Ready** — with 4 corrections applied during review + variant-A selection folded in (2026-10-16).
+
+## Variant-A selection (2026-10-16, operator)
+
+Operator picked **A (session rail)** over the recommended B, calling it cleaner. Plan §2 rewritten to A's composition: 200px session rail, dot-marked turn groups, inline row-per-call work rows (C's summary cards explicitly rejected), sans prose over mono rows. **Delta risk identified and closed:** A lacks B's inspector column, so usage/context meters needed a new home — landed as turn-meta cost/duration + a live context bar in the composer foot (§2.5). Data model unchanged; usage items still exist for any future inspector.
 
 ## Correctness against sources
 
