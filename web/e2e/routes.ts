@@ -25,6 +25,7 @@ export const ROUTES: FixtureRoute[] = [
   { path: '/', name: 'overview', readySelector: '.kpi, .page' },
   { path: '/audit', name: 'audit', readySelector: '.row' },
   { path: '/status', name: 'status', readySelector: '.tile' },
+  { path: '/agent-v2', name: 'agentv2', readySelector: '.tl-inner' },
 ];
 
 /** fixed audit rows — deterministic, seeded like a real page: 16 rows across
@@ -113,6 +114,26 @@ export const STATUS = {
   ],
 };
 
+/** Agent v2 timeline fixture — every item kind the fold emits, deterministic
+ *  timestamps (anchored), one live-looking-but-settled session. Weighted like
+ *  the real thing: user asks, tool calls with mixed outcomes, a failed turn,
+ *  a queued follow-up, usage, assistant markdown with a code fence. */
+const agBase = (ordinal: number, status: string, startedAt: number): { ordinal: number; status: string; startedAt: number; completedAt: number } =>
+  ({ ordinal, status, startedAt, completedAt: startedAt + 60_000 });
+export const AGENT_TIMELINE = {
+  items: [
+    { kind: 'message', id: 'm1', sessionId: 'sess_e2e', turnId: 't1', ...agBase(1, 'completed', ANCHOR - 40 * 60_000), role: 'user', streaming: false, text: 'why did login-flow fail on the last three nightly runs? [refs: case:tpl_login]' },
+    { kind: 'mcp_tool_call', id: 'w1', sessionId: 'sess_e2e', turnId: 't1', ...agBase(2, 'completed', ANCHOR - 39 * 60_000), toolCallId: 'tc1', name: 'repo.diff', arg: 'ios-consumer 9f2c1ab..HEAD', result: '6 files · +214 −89 · LoginViewModel.swift +142 −12' },
+    { kind: 'mcp_tool_call', id: 'w2', sessionId: 'sess_e2e', turnId: 't1', ...agBase(3, 'completed', ANCHOR - 38 * 60_000), toolCallId: 'tc2', name: 'cases.list', arg: 'template = tpl_login', result: '12 cases · 3 failed in last 3 nightlies' },
+    { kind: 'usage', id: 'u1', sessionId: 'sess_e2e', turnId: 't1', ...agBase(4, 'completed', ANCHOR - 37 * 60_000), cost: 0.041, contextUsed: 41000, contextWindow: 200000 },
+    { kind: 'message', id: 'm2', sessionId: 'sess_e2e', turnId: 't1', ...agBase(5, 'completed', ANCHOR - 37 * 60_000), role: 'assistant', streaming: false, text: 'Three consecutive failures at `step: submit · credentials`. The regression window is `9f2c1ab..HEAD` — the new 0.8s debounce outruns the harness 0.5s submit-wait. Restore 0.3s.' },
+    { kind: 'message', id: 'm3', sessionId: 'sess_e2e', turnId: 't2', ...agBase(6, 'completed', ANCHOR - 12 * 60_000), role: 'user', streaming: false, text: 'draft the regression cases for the intl target', intent: 'queued' },
+    { kind: 'mcp_tool_call', id: 'w3', sessionId: 'sess_e2e', turnId: 't3', ...agBase(7, 'failed', ANCHOR - 5 * 60_000), toolCallId: 'tc3', name: 'repo.read', arg: 'LoginShip/ViewModel.swift', result: 'tool exceeded 12s read budget — retried once, failed again', isError: true },
+    { kind: 'error', id: 'e1', sessionId: 'sess_e2e', turnId: 't3', ...agBase(8, 'failed', ANCHOR - 4 * 60_000), class: 'provider_error', message: 'turn failed: provider 502 after retry' },
+    { kind: 'message', id: 'm4', sessionId: 'sess_e2e', turnId: 't3', ...agBase(9, 'failed', ANCHOR - 4 * 60_000), role: 'assistant', streaming: false, text: 'Partial: the intl target kept 0.3s — one read timed out before the provider dropped.' },
+  ],
+};
+
 /** Register ALL API mocks BEFORE navigation (review H1: the router guard
  *  fetches /api/auth/me on every nav and bounces to /login otherwise). */
 export async function installMocks(page: Page, auditRows = AUDIT_ROWS): Promise<void> {
@@ -124,6 +145,21 @@ export async function installMocks(page: Page, auditRows = AUDIT_ROWS): Promise<
   await page.route('**/api/plans', (r) => r.fulfill({ json: { plans: [] } }));
   await page.route('**/api/overview', (r) => r.fulfill({ json: OVERVIEW }));
   await page.route('**/api/status', (r) => r.fulfill({ json: STATUS }));
+  // agent v2 (timeline): sessions list, one session read, the projection
+  // LIFO: the specific timeline mock must register AFTER the catch-all so it
+  // wins for /timeline; the catch-all serves the v1 session read.
+  await page.route('**/api/agent/sessions/**', (r) => r.fulfill({ json: { session: { id: 'sess_e2e', title: 'Check login-flow failures' }, messages: [] } }));
+  await page.route('**/api/agent/sessions', (r) => r.fulfill({ json: { sessions: [{ id: 'sess_e2e', title: 'Check login-flow failures', updatedAt: ANCHOR - 4 * 60_000 }] } }));
+  await page.route('**/api/agent/sessions/sess_e2e/timeline', (r) => r.fulfill({ json: AGENT_TIMELINE }));
+  await page.route('**/api/agent/commands', (r) => r.fulfill({ json: { commands: [] } }));
+  await page.route('**/api/agent/models/health', (r) => r.fulfill({ json: { combos: [{ id: 'fast', members: ['glm-4.7', 'glm-4.7-flash'] }], models: [{ id: 'glm-4.7', ok: 3, failed: 0 }, { id: 'claude-sonnet', ok: 2, failed: 0 }] } }));
+  await page.route('**/api/agent/models', (r) => r.fulfill({ json: { registry: { defaultCombo: 'fast', models: [{ id: 'glm-4.7', enabled: true, kind: 'openai' }, { id: 'claude-sonnet', enabled: true, kind: 'claude' }] } } }));
+  await page.route('**/api/agent/chats', (r) => r.fulfill({ json: { chats: [{ id: 'sess_e2e', title: 'Check login-flow failures', updatedAt: ANCHOR - 4 * 60_000 }, { id: 'sess_2', title: 'Draft regression plan for checkout', updatedAt: ANCHOR - 5 * 3_600_000 }] } }));
+  // WS mock: page.route does NOT intercept WebSockets — the agent pages'
+  // /api/events connection against the static preview server's dead proxy
+  // EPIPEs and the reconnect churn destabilizes captures. routeWebSocket
+  // parks it silently (no server frames needed for these fixtures).
+  await page.routeWebSocket('**/api/events', () => { /* parked */ });
   await page.route('**/api/audit**', (r) => {
     const u = new URL(r.request().url());
     const pg = Math.max(1, Number.parseInt(u.searchParams.get('page') ?? '1', 10) || 1);

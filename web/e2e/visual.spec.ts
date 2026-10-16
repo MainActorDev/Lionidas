@@ -26,6 +26,13 @@ for (const route of ROUTES) {
       // H1 pass criterion: we are ON the route, not bounced to /login
       expect(page.url()).not.toContain('/login');
       expect(page.url()).toContain(route.path === '/' ? new URL(page.url()).pathname : route.path);
+      // login↔page ping-pong guard: the URL must be STABLE for a beat before
+      // capture — a late guard bounce after this assertion would capture the
+      // login screen against a route baseline (false baseline risk).
+      await expect(async () => {
+        await page.waitForTimeout(600);
+        expect(page.url()).not.toContain('/login');
+      }).toPass({ timeout: 5_000 });
       // App.vue adds .dark on mount, so a pre-navigation light override lies.
       if (theme === 'light') await page.evaluate(() => document.documentElement.classList.remove('dark'));
       const actualTheme = await page.evaluate(() => ({

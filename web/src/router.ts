@@ -19,6 +19,7 @@ import AuditPage from './pages/AuditPage.vue';
 import GuidePage from './pages/GuidePage.vue';
 import SuitesPage from './pages/SuitesPage.vue';
 import AgentChatPage from './pages/agent/AgentChatPage.vue';
+import AgentTimelinePage from './pages/agent/AgentTimelinePage.vue';
 import StatusBoardPage from './pages/StatusBoardPage.vue';
 
 export const router = createRouter({
@@ -44,6 +45,7 @@ export const router = createRouter({
     { path: '/setup', name: 'setup', component: SetupPage, meta: { title: 'first-run setup', public: true } },
     { path: '/guide', name: 'guide', component: GuidePage, meta: { title: 'guide' } },
     { path: '/agent', name: 'agentChat', component: AgentChatPage, meta: { title: 'agent' } },
+    { path: '/agent-v2', name: 'agentTimeline', component: AgentTimelinePage, meta: { title: 'agent' } }, // Phase 5 parallel-run
     { path: '/status', name: 'status', component: StatusBoardPage, meta: { title: 'status' } },
   ] satisfies RouteRecordRaw[],
 });
