@@ -57,7 +57,12 @@ async function openSession(id: string): Promise<void> {
 async function loadTimeline(): Promise<void> {
   if (!sessionId.value) return;
   const r = await fetch(`/api/agent/sessions/${sessionId.value}/timeline`);
-  if (!r.ok) { items.value = []; liveTurn.value = null; return; }
+  if (!r.ok) {
+    // honest failure: a dead route/stale server must not read as "no messages"
+    items.value = [{ kind: 'error', id: `tl-${Date.now()}`, sessionId: sessionId.value, turnId: null, ordinal: 0, status: 'failed', startedAt: Date.now(), completedAt: Date.now(), class: 'provider_error', message: `timeline unavailable (HTTP ${r.status}) — is the server current?` }];
+    liveTurn.value = null;
+    return;
+  }
   const b = (await r.json()) as TimelineResponse;
   items.value = b.items;
   liveTurn.value = b.liveTurn ?? null;
