@@ -4,6 +4,8 @@
 import type { FastifyInstance } from 'fastify';
 import { registerConversationApi, mountMcp } from '@mainactordev/butler';
 import { registerMentionRoutes } from './mention-search.ts';
+import { registerTimelineRoute } from './timeline-routes.ts';
+import { DeltaCoalescer } from './deltaCoalescer.ts';
 import { makeTurnDecorator } from './identifier-flow.ts';
 import { consumeConfirmation, proposalFromAnswer, listParkedForSession, parkProposal } from './build-config-flow.ts';
 import { join, resolve } from 'node:path';
@@ -13,6 +15,11 @@ import type { AgentContext } from './context.ts';
 import type { AppEvents, TypedEventBus } from '../ws/bus.ts';
 
 export function registerAgentRoutes(app: FastifyInstance, ctx: AgentContext, bus: TypedEventBus<AppEvents>): void {
+  // Phase 5 v2: server-side delta coalescing — one instance per server; the
+  // 80ms interval converts per-token frames into item-keyed snapshots.
+  const coalescer = new DeltaCoalescer((snap) => {
+    bus.emit('agent.turn.item', { sessionId: snap.sessionId, turnId: snap.turnId, itemId: snap.itemId, text: snap.text, done: snap.done });
+  });
   // /implement-identifiers auto flow (butler v0.6.2 seams): the proposal turn parks
   // state; the user's confirmation turn runs INSIDE the host worktree (editor
   // provider); afterTurn commits/pushes/PRs. The human stays in the loop.
@@ -43,7 +50,18 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AgentContext, bus
       policy: ctx.policy,
       systemPrompt: ctx.systemPrompt,
       embedder: ctx.embedder, // R2-F3: ranked note injection
-      emit: (e) => { bus.emit('agent.turn', { sessionId: e.sessionId, type: e.type, hop: e.hop, ...(e.detail !== undefined ? { detail: e.detail } : {}) }); },
+      emit: (e) => {
+        bus.emit('agent.turn', { sessionId: e.sessionId, type: e.type, hop: e.hop, ...(e.detail !== undefined ? { detail: e.detail } : {}) });
+        // Phase 5 v2: feed the coalescer for item-keyed snapshots. The
+        // durable itemId is per-turn assistant message (fold id `msg-a-<turn>`),
+        // matching timelineItems() so live and replay converge on one id.
+        if (e.type === 'turn.delta' && e.detail && typeof e.detail === 'object') {
+          const d = e.detail as { delta?: string };
+          if (typeof d.delta === 'string') coalescer.push(e.sessionId, `turn:${e.hop}`, `msg-a-turn:${e.hop}`, d.delta);
+        } else if (e.type === 'turn.end' || e.type === 'turn.error') {
+          coalescer.flushTurn(e.sessionId, `turn:${e.hop}`);
+        }
+      },
       // live chunk streaming (the forever-loading fix): without onDelta the
       // provider runs NON-streaming (openai-compat only sets stream:true when
       // a delta sink exists) — zero turn.delta events, UI dots for the whole
@@ -116,6 +134,7 @@ export function registerAgentRoutes(app: FastifyInstance, ctx: AgentContext, bus
 
     registerMentionRoutes(scope, ctx);
     registerCommandRoutes(scope);
+    registerTimelineRoute(scope, ctx); // Phase 5 v2 (parallel-run with v1)
 
     await mountMcp(scope, {
       registry: ctx.registry,
