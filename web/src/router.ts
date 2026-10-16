@@ -46,6 +46,7 @@ export const router = createRouter({
     { path: '/guide', name: 'guide', component: GuidePage, meta: { title: 'guide' } },
     { path: '/agent', name: 'agentChat', component: AgentTimelinePage, meta: { title: 'agent' } },
     { path: '/agent-v1', name: 'agentChatLegacy', component: AgentChatPage, meta: { title: 'agent (legacy)' } }, // v1 escape hatch until decommission
+    { path: '/agent-v2', redirect: '/agent' }, // parallel-run era is over — land old links on the default
     { path: '/status', name: 'status', component: StatusBoardPage, meta: { title: 'status' } },
   ] satisfies RouteRecordRaw[],
 });
