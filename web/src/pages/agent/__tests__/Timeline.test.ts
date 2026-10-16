@@ -93,3 +93,18 @@ describe('WorkRow', () => {
     expect(w.find('.wr-status').text()).toBe('running');
   });
 });
+
+describe('MessageBubble markdown tables', () => {
+  it('renders GFM tables and the styles make them scroll (display block + overflow-x)', async () => {
+    const { default: MessageBubble } = await import('../components/MessageBubble.vue');
+    const md = '| Case | Result | Notes that are quite long indeed yes |\n|---|---|---|\n| tpl_1 | passed | a very long cell of content that would otherwise squeeze the layout badly |\n| tpl_2 | failed | timeout on step 0 waiting for the welcome button to appear |';
+    const w = mount(MessageBubble, { props: { role: 'assistant', text: md } });
+    expect(w.find('table').exists()).toBe(true);
+    expect(w.findAll('td').length).toBe(6);
+    // source-rule assertion (happy-dom does not cascade scoped rules)
+    const src = (await import('../components/MessageBubble.vue?raw')).default as string;
+    const style = src.slice(src.lastIndexOf('<style'));
+    expect(style).toContain('overflow-x: auto');
+    expect(style).toContain('white-space: nowrap');
+  });
+});

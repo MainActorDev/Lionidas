@@ -109,6 +109,14 @@ const metaParts = computed(() => [durationLabel.value, costLabel.value].filter(B
 .txt { min-width: 0; overflow-wrap: anywhere; }
 .txt :deep(p) { margin: 0 0 8px; }
 .txt :deep(p:last-child) { margin-bottom: 0; }
+/* GFM tables: scroll instead of squeeze — a wide table must not compress
+ * cells to the chat width; it keeps its natural width and the bubble
+ * scrolls (display:block on the table wrapper = scroll container).
+ * Narrow tables still fill 100% (no visual change for the common case). */
+.txt :deep(table) { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.txt :deep(th), .txt :deep(td) { border: 1px solid var(--ag-line, #2a2a2a); padding: 5px 10px; text-align: left; white-space: nowrap; }
+.txt :deep(th) { font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 11px; color: var(--ag-ink-dim, #a39d95); }
+.txt :deep(td) { font-size: 12.5px; color: var(--ag-ink, #eae6e1); }
 .txt :deep(code) {
   font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 12px;
   background: var(--ag-surface, #1d1a18); border: 1px solid #232120; border-radius: 2px; padding: 1px 5px;
