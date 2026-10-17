@@ -50,7 +50,11 @@ export interface AppState {
   stateId: string;
   /** plain-English name for the web UI */
   label: string;
-  probe: StateSelector;
+  /** probe: null ONLY on forced reset states (actuator recipes) — the recipe
+   *  always runs because detection lies for resets: the device can show the
+   *  probe target while carrying dirty app state (Foodiary shows Welcome on
+   *  relaunch even mid-onboarding). Walk/entry recipes keep the probe. */
+  probe: StateSelector | null;
   recipe: StateRecipe;
   verify: StateVerify;
   provenance?: StateProvenance;
@@ -118,8 +122,19 @@ export function validateAppState(state: unknown): string[] {
     errors.push('label needs a non-empty plain-English name (shown in the web UI)');
   }
 
-  // probe: REQUIRED — idempotence depends on detection; identity, not a set
-  validateSelector('probe', s['probe'], true, errors);
+  // probe: REQUIRED for convergence states (idempotence depends on
+  // detection) — the ONE exception is a forced reset: probe null + an
+  // actuator-only recipe (no entry, no steps). Detection lies for resets —
+  // the probe target can render on a dirty device (live catch 2026-10-17:
+  // welcome visible ≠ fresh install; probe-hit skipped a needed reinstall
+  // and the case died mid-walk).
+  const rec0 = isPlainObject(s['recipe']) ? (s['recipe'] as Record<string, unknown>) : {};
+  const forcedReset = s['probe'] === null && typeof rec0['actuator'] === 'string' && rec0['steps'] === undefined && rec0['entry'] === undefined;
+  if (s['probe'] === null || s['probe'] === undefined) {
+    if (!forcedReset) errors.push('probe: required — only actuator-only recipes (forced reset states) may omit it (forced: the recipe always runs; a probe that can hold on a dirty device lies)');
+  } else {
+    validateSelector('probe', s['probe'], true, errors);
+  }
 
   // verify: REQUIRED — expect-shaped + optional via
   validateSelector('verify', s['verify'], true, errors, ['via']);

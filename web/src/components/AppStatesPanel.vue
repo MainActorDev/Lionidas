@@ -16,7 +16,7 @@ interface StateSelector { identifier?: string; label?: string; labelContains?: s
 interface StateRecipe { entry?: unknown; actuator?: string; launchArgs?: string[]; signal?: string; permission?: string; steps?: unknown[] }
 interface AppStateRow {
   id: string; stateId: string; label: string;
-  probe: StateSelector; recipe: StateRecipe; verify: StateSelector;
+  probe: StateSelector | null; recipe: StateRecipe; verify: StateSelector;
   provenance: string; revision: number;
 }
 interface ProposalRow {
@@ -36,7 +36,7 @@ const justAccepted = ref('');
 const err = ref('');
 const busy = ref(false);
 // the editor form (null = list mode); editingId null = creating
-const form = ref<null | { editingId: string | null; stateId: string; label: string; probeKind: SelKind; probeValue: string; verifyKind: SelKind; verifyValue: string; verifyVia: string }>(null);
+const form = ref<null | { editingId: string | null; stateId: string; label: string; probeKind: SelKind; probeValue: string; verifyKind: SelKind; verifyValue: string; verifyVia: string; wasForced: boolean }>(null);
 const ed = useYamlEditor();
 const host = ref<HTMLElement | null>(null);
 
@@ -52,7 +52,8 @@ recipe:
     - tap: { on: example_button }
 `;
 
-function selToKind(sel: StateSelector): { kind: SelKind; value: string } {
+function selToKind(sel: StateSelector | null): { kind: SelKind; value: string } {
+  if (!sel) return { kind: 'identifier', value: '' }; // forced reset: no probe to load
   if (sel.identifier) return { kind: 'identifier', value: sel.identifier };
   if (sel.labelContains) return { kind: 'labelContains', value: sel.labelContains };
   if (sel.screen) return { kind: 'screen', value: sel.screen };
@@ -111,14 +112,14 @@ async function reject(p: ProposalRow): Promise<void> {
 }
 
 async function openCreate(): Promise<void> {
-  form.value = { editingId: null, stateId: '', label: '', probeKind: 'identifier', probeValue: '', verifyKind: 'identifier', verifyValue: '', verifyVia: '' };
+  form.value = { editingId: null, stateId: '', label: '', probeKind: 'identifier', probeValue: '', verifyKind: 'identifier', verifyValue: '', verifyVia: '', wasForced: false };
   err.value = '';
   await nextTick();
   if (host.value) await ed.mount(host.value, RECIPE_TEMPLATE, () => void save());
 }
 async function openEdit(s: AppStateRow): Promise<void> {
   const p = selToKind(s.probe); const v = selToKind(s.verify);
-  form.value = { editingId: s.id, stateId: s.stateId, label: s.label, probeKind: p.kind, probeValue: p.value, verifyKind: v.kind, verifyValue: v.value, verifyVia: s.verify.via ?? '' };
+  form.value = { editingId: s.id, stateId: s.stateId, label: s.label, probeKind: p.kind, probeValue: p.value, verifyKind: v.kind, verifyValue: v.value, verifyVia: s.verify.via ?? '', wasForced: s.probe === null };
   err.value = '';
   await nextTick();
   const YAML = await import('yaml');
@@ -147,7 +148,7 @@ async function save(): Promise<void> {
       if (parsed && 'recipe' in parsed && Object.keys(parsed).length === 1) parsed = parsed['recipe'] as Record<string, unknown>;
       recipe = parsed ?? {};
     } catch (e) { err.value = `recipe parse error: ${e instanceof Error ? e.message : String(e)}`; return; }
-    const probe = { [f.probeKind]: f.probeValue.trim() };
+    const probe = f.wasForced && !f.probeValue.trim() ? null : { [f.probeKind]: f.probeValue.trim() };
     const verify: Record<string, string> = { [f.verifyKind]: f.verifyValue.trim() };
     if (f.verifyVia.trim()) verify['via'] = f.verifyVia.trim();
     const body = { stateId: f.stateId.trim(), label: f.label.trim(), probe, verify, recipe };
@@ -194,7 +195,7 @@ onMounted(load);
         <div v-for="s in states" :key="s.id" class="asp-row" :class="{ 'is-new': s.stateId === justAccepted }" :title="`provenance ${s.provenance}`">
           <span class="c-id mono">{{ s.stateId }}</span>
           <span class="c-label">{{ s.label }}</span>
-          <span class="c-probe mono">{{ describeSel(s.probe) }}</span>
+          <span class="c-probe mono">{{ s.probe ? describeSel(s.probe) : 'forced ⟳' }}</span>
           <span class="c-recipe">{{ recipeSummary(s.recipe) }}</span>
           <span class="c-meta" :title="`provenance ${s.provenance}`">{{ s.revision }}</span>
           <span class="c-acts">

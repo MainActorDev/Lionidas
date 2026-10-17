@@ -46,7 +46,7 @@ export function registerAppStateRoutes(app: FastifyInstance, db: Database.Databa
     );
     const errors: string[] = [];
     for (const [where, sel] of [['probe', probe], ['verify', verify]] as const) {
-      const scr = (sel as { screen?: string }).screen;
+      const scr = (sel as { screen?: string } | null)?.screen; // probe may be null (forced reset)
       if (typeof scr === 'string' && scr.trim() && !screens.has(scr)) {
         errors.push(`${where}.screen "${scr}" is not registered for ${bundle} — register the screen first (screens page)`);
       }

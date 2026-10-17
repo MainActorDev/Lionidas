@@ -53,6 +53,20 @@ describe('RunPanel — state provenance chip', () => {
     expect(chip.classes()).not.toContain('probe-hit');
   });
 
+  it('forced resets render the ⟳ glyph, forced class, and no probe timing', async () => {
+    stubFetch([
+      { idx: 0, flow_name: null, name: 'ensure state', status: 'pass', reason: null, duration_ms: 9900, narrate: null, evaluated_json: JSON.stringify({ action: 'ensureState', stateId: 'fresh_install', revision: 2, path: 'forced', forced: true, stepsPlayed: 1 }) },
+    ]);
+    const w = mount(RunPanel, { props: PROPS, global: { config: { warnHandler: () => {} } } });
+    await flushPromises();
+    const chip = w.find('.rp-state');
+    expect(chip.text()).toContain('fresh_install · r2');
+    expect(chip.find('.rp-state-glyph').text()).toBe('⟳');
+    expect(chip.classes()).toContain('forced');
+    expect(chip.attributes('title')).toContain('forced (recipe always runs');
+    expect(chip.attributes('title')).not.toContain('probe ');
+  });
+
   it('no chip on steps without an ensureState audit (null/garbage evaluated_json)', async () => {
     stubFetch([
       { idx: 0, flow_name: null, name: 'tap', status: 'pass', reason: null, duration_ms: 5, narrate: null, evaluated_json: null },

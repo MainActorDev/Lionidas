@@ -224,6 +224,28 @@ describe('ensure state executor — convergence branches', () => {
     } finally { delete process.env.CRUCIBLE_PACKAGES_DIR; }
   });
 
+  it('forced reset (probe null): the reinstall ALWAYS dispatches even when the probe target is on screen — detection lies for resets', async () => {
+    // live catch 2026-10-17: fresh_install probe-hit on a dirty app skipped
+    // the reinstall and the case died mid-walk. The forced state must run
+    // its actuator unconditionally; audit path = 'forced'.
+    const fx = join(tmp, 'fx2'); const pkgDir = join(fx, 'pkgs'); mkdirSync(pkgDir, { recursive: true });
+    const appDir = join(fx, 'Payload', 'F.app'); mkdirSync(appDir, { recursive: true });
+    writeFileSync(join(appDir, 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>${BUNDLE}</string><key>CFBundleVersion</key><string>9</string><key>CFBundleShortVersionString</key><string>1.0</string></dict></plist>\n`);
+    execFileSync('zip', ['-q', '-r', join(pkgDir, 'Foodiary-1.0-9.ipa'), 'Payload'], { cwd: fx });
+    process.env.CRUCIBLE_PACKAGES_DIR = pkgDir;
+    try {
+      // probe would "hold" (the tree shows Hi, Dev) — but probe is NULL: forced
+      seedState('fresh_forced', null, { actuator: 'uninstallReinstall' }, { label: 'Promo' }); // 'Promo' = the label the fake tree serves post-relaunch (same as the sibling reinstall test)
+      seedTemplate('tpl_forced', [{ idx: 0, action: 'ensureState', ensureState: 'fresh_forced' }], BUNDLE);
+      const { runId } = await play('tpl_forced');
+      expect(stepRows(runId)[0]?.status).toBe('pass');
+      expect(appsCalls.find((c) => c['action'] === 'reinstall')).toMatchObject({ app: BUNDLE });
+      expect(audit(runId)).toMatchObject({ path: 'forced', forced: true });
+      expect(audit(runId)).not.toHaveProperty('probeMs');
+      expect(stepRows(runId)[0]?.reason).toMatch(/forced reset — recipe ran unconditionally/);
+    } finally { delete process.env.CRUCIBLE_PACKAGES_DIR; }
+  });
+
   it('device-scoped actuator serializes (helper semantics: self + manual excluded, queued lane counts)', async () => {
     const { deviceContender } = await import('../src/manual/state-actuator.ts');
     // self: the calling run's own row (running, this udid) never contends

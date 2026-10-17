@@ -90,7 +90,10 @@ describe('validateAppState (shape)', () => {
   it.each([
     ['bad state id', { ...GOOD, stateId: 'Fresh-Install' }, /stateId/],
     ['empty label', { ...GOOD, label: ' ' }, /label/],
-    ['missing probe', { ...GOOD, probe: undefined }, /probe must be a mapping/],
+    ['missing probe', { ...GOOD, probe: undefined }, /probe: required/],
+    ['null probe on a walk recipe (not a reset)', { ...GOOD, probe: null, recipe: { steps: [{ tap: { on: 'get_started' } }] } }, /probe: required/],
+    ['null probe on an entry recipe (not a reset)', { ...GOOD, probe: null, recipe: { entry: { tab: { label: 'Account' } } } }, /probe: required/],
+    ['null probe on a mixed actuator+steps recipe', { ...GOOD, probe: null, recipe: { actuator: 'uninstallReinstall', steps: [{ tap: { on: 'x' } }] } }, /probe: required/],
     ['multi-key probe', { ...GOOD, probe: { label: 'A', identifier: 'b' } }, /exactly one targeting key/],
     ['recipe with no arm', { ...GOOD, recipe: {} }, /at least one arm/],
     ['relaunch without launchArgs', { ...GOOD, recipe: { actuator: 'relaunch' } }, /needs "launchArgs"/],
@@ -113,6 +116,12 @@ describe('validateAppState (shape)', () => {
     });
     expect(ok).toEqual([]);
   });
+  it('forced reset: null probe + actuator-only recipe is the one valid probe-less state', () => {
+    // live catch 2026-10-17: welcome visible ≠ fresh — a probe-hit skipped a
+    // needed reinstall and the case died mid-walk. Forced = always converge.
+    const ok = validateAppState({ ...GOOD, probe: null, recipe: { actuator: 'uninstallReinstall' }, verify: { label: 'Hi, Dev' } });
+    expect(ok).toEqual([]);
+  });
   it('phone-shaped bare literal rejected even untargeted', () => {
     expect(validateAppState({ ...GOOD, recipe: { steps: [{ type: { text: '081234567890', on: 'phone_field' } }] } }).join('\n')).toMatch(/env\.NAME/);
   });
@@ -132,6 +141,19 @@ describe('routes — contract', () => {
     expect(hist).toHaveLength(1);
     expect(hist[0]?.revision).toBe(1);
     expect(JSON.parse(hist[0]!.snapshot_json)).toMatchObject({ stateId: 'fresh_install' });
+  });
+  it('POST accepts a forced reset (probe null + actuator-only) and stores probe_json null', async () => {
+    const r = await app.inject({ method: 'POST', url: `/api/apps/${BUNDLE}/states`, payload: { ...GOOD, stateId: 'fresh_reset', probe: null, recipe: { actuator: 'uninstallReinstall' } } });
+    expect(r.statusCode).toBe(201);
+    const body = JSON.parse(r.body) as { state: { id: string; probe: unknown } };
+    expect(body.state.probe).toBeNull();
+    const row = db.prepare('SELECT probe_json FROM app_states WHERE id = ?').get(body.state.id) as { probe_json: string };
+    expect(row.probe_json).toBe('null');
+  });
+  it('POST rejects probe null on a walk recipe (forced is actuator-only)', async () => {
+    const r = await app.inject({ method: 'POST', url: `/api/apps/${BUNDLE}/states`, payload: { ...GOOD, stateId: 'bad_reset', probe: null, recipe: { steps: [{ tap: { on: 'get_started' } }] } } });
+    expect(r.statusCode).toBe(422);
+    expect(r.body).toMatch(/probe: required/);
   });
 
   it('body-supplied identity/provenance is IGNORED (attribution law)', async () => {

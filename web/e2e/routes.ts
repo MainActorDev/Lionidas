@@ -168,6 +168,8 @@ export async function installMocks(page: Page, auditRows = AUDIT_ROWS): Promise<
   await page.route('**/api/apps/*/states', (r) => r.fulfill({ json: { states: [
     { id: 'st_e2e1', stateId: 'fresh_install', label: 'Fresh install', probe: { screen: 'onboarding.ready' }, recipe: { actuator: 'uninstallReinstall' }, verify: { screen: 'onboarding.ready' }, provenance: 'user', revision: 2 },
     { id: 'st_e2e2', stateId: 'logged_in', label: 'Logged in', probe: { screen: 'home.landed' }, recipe: { entry: { tab: { identifier: 'tab_account' } }, steps: [{ tap: { on: 'open_login' } }, { type: { on: 'phone_field', text: '${env.DRILL_PHONE}' } }] }, verify: { screen: 'home.landed', via: 'tab_account' }, provenance: 'import', revision: 1 },
+    // forced reset (probe null + actuator-only): the registry lists it as 'forced ⟳'
+    { id: 'st_e2e3', stateId: 'factory_fresh', label: 'Factory fresh', probe: null, recipe: { actuator: 'uninstallReinstall' }, verify: { screen: 'onboarding.ready' }, provenance: 'user', revision: 1 },
   ] } }));
   // phase B S3: the proposals inbox — one open + one decided; POST accept/
   // reject flip the harness-local copy and re-serve it (edge 9: POST mocks)
