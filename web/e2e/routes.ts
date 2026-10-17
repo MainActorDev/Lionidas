@@ -27,6 +27,7 @@ export const ROUTES: FixtureRoute[] = [
   { path: '/status', name: 'status', readySelector: '.tile' },
   { path: '/agent', name: 'agent', readySelector: '.tl-inner' },
   { path: '/agent-v1', name: 'agentv1', readySelector: '.ag-root' },
+  { path: '/screens', name: 'screens', readySelector: '.a2-group-head' },
 ];
 
 /** fixed audit rows — deterministic, seeded like a real page: 16 rows across
@@ -145,6 +146,30 @@ export async function installMocks(page: Page, auditRows = AUDIT_ROWS): Promise<
   await page.route('**/api/devices', (r) => r.fulfill({ json: { devices: [] } }));
   await page.route('**/api/plans', (r) => r.fulfill({ json: { plans: [] } }));
   await page.route('**/api/overview', (r) => r.fulfill({ json: OVERVIEW }));
+  // screens page (phase A S6): app registry + case usage join + app states
+  const SCREEN_REGISTRIES: Array<{ bundle: string; screens: Array<Record<string, unknown>> }> = [
+    { bundle: 'com.his.foodiary.app', screens: [
+      { id: 'onboarding', entry: { deepLink: 'foodiary://onboarding' }, refresh: { gesture: 'pull' }, states: { ready: { all: [{ label: 'Get Started' }] } } },
+      { id: 'home', entry: { tab: { label: 'Home' } }, states: { landed: { all: [{ labelContains: 'Hi' }] }, empty: { any: [{ label: 'Add your first recipe' }] } } },
+    ] },
+    { bundle: 'com.lioparcel.services.consumer.int-dev', screens: [
+      { id: 'tracking', entry: { tab: { identifier: 'tab_tracking' } }, states: { loaded: { all: [{ labelContains: 'STATUS PENGIRIMAN' }] } } },
+    ] },
+  ];
+  await page.route('**/api/apps/screens', (r) => r.fulfill({ json: { registries: SCREEN_REGISTRIES } }));
+  await page.route('**/api/apps/*/screens', (r) => {
+    const bundle = decodeURIComponent(new URL(r.request().url()).pathname.split('/')[3] ?? '');
+    const reg = SCREEN_REGISTRIES.find((x) => x.bundle === bundle);
+    return r.fulfill({ json: { screens: reg?.screens ?? [] } });
+  });
+  await page.route('**/api/templates', (r) => r.fulfill({ json: { templates: [
+    { id: 'tpl_smoke1', name: 'Home renders greeting', appBundleId: 'com.his.foodiary.app' },
+    { id: 'tpl_track1', name: 'Tracking detail loads', appBundleId: 'com.lioparcel.services.consumer.int-dev' },
+  ] } }));
+  await page.route('**/api/apps/*/states', (r) => r.fulfill({ json: { states: [
+    { id: 'st_e2e1', stateId: 'fresh_install', label: 'Fresh install', probe: { screen: 'onboarding.ready' }, recipe: { actuator: 'uninstallReinstall' }, verify: { screen: 'onboarding.ready' }, provenance: 'user', revision: 2 },
+    { id: 'st_e2e2', stateId: 'logged_in', label: 'Logged in', probe: { screen: 'home.landed' }, recipe: { entry: { tab: { identifier: 'tab_account' } }, steps: [{ tap: { on: 'open_login' } }, { type: { on: 'phone_field', text: '${env.DRILL_PHONE}' } }] }, verify: { screen: 'home.landed', via: 'tab_account' }, provenance: 'import', revision: 1 },
+  ] } }));
   await page.route('**/api/status', (r) => r.fulfill({ json: STATUS }));
   // agent v2 (timeline): sessions list, one session read, the projection
   // LIFO: the specific timeline mock must register AFTER the catch-all so it
