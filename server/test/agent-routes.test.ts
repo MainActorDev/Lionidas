@@ -94,6 +94,34 @@ describe.skipIf(!hasButler)('agent routes (operator gate + transports)', () => {
     expect(frames.some((f) => f.sessionId === sid && f.type === 'turn.end')).toBe(true);
   });
 
+  it('v2 timeline: folds the session event log into items; live turn reported while fresh', async () => {
+    const created = await app.app.inject({ method: 'POST', url: '/api/agent/sessions', headers: { cookie: `crucible_session=${operatorCookie}` }, payload: {} });
+    const sid = created.json()['session']?.['id'] ?? created.json()['id'];
+    const turn = await app.app.inject({ method: 'POST', url: `/api/agent/sessions/${sid}/messages`, headers: { cookie: `crucible_session=${operatorCookie}` }, payload: { content: 'v2 timeline probe' } });
+    expect([200, 201]).toContain(turn.statusCode);
+
+    const tl = await app.app.inject({ method: 'GET', url: `/api/agent/sessions/${sid}/timeline`, headers: { cookie: `crucible_session=${operatorCookie}` } });
+    expect(tl.statusCode).toBe(200);
+    const body = tl.json() as { items: Array<{ kind: string; role?: string; text?: string }>; liveTurn?: unknown };
+    // user message + assistant answer items at minimum
+    const user = body.items.find((i) => i.kind === 'message' && i.role === 'user');
+    const assistant = body.items.find((i) => i.kind === 'message' && i.role === 'assistant');
+    expect(user?.['text']).toBe('v2 timeline probe');
+    expect(assistant).toBeDefined();
+    // mock turn already ended → no liveTurn
+    expect(body['liveTurn']).toBeUndefined();
+
+    // unknown session → honest 404
+    const missing = await app.app.inject({ method: 'GET', url: '/api/agent/sessions/sess_nope/timeline', headers: { cookie: `crucible_session=${operatorCookie}` } });
+    expect(missing.statusCode).toBe(404);
+
+    // gate: anonymous 401, viewer 403 (same operator gate as v1)
+    const anon = await app.app.inject({ method: 'GET', url: `/api/agent/sessions/${sid}/timeline` });
+    expect(anon.statusCode).toBe(401);
+    const vw = await app.app.inject({ method: 'GET', url: `/api/agent/sessions/${sid}/timeline`, headers: { cookie: `crucible_session=${viewerCookie}` } });
+    expect(vw.statusCode).toBe(403);
+  });
+
   it('MCP: initialize + tools/list gated; act tools invisible; cases.list callable', async () => {
     const H = { cookie: `crucible_session=${operatorCookie}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
     const init = await app.app.inject({ method: 'POST', url: '/mcp', headers: H, payload: { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'test', version: '0' } } } });

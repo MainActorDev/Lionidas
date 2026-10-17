@@ -5,6 +5,10 @@ export type AppEvents = {
    *  progress for a session — consumed by the events WS + future UI. */
   'agent.turn': { sessionId: string; type: 'turn.start' | 'provider.response' | 'turn.end' | 'turn.error' | 'turn.delta' | 'turn.tool'; hop: number; detail?: unknown };
   'agent.workflow': { runId: string; type: 'workflow.started' | 'workflow.knowledge_compiled' | 'workflow.stage_started' | 'workflow.stage_done' | 'workflow.paused' | 'workflow.answered' | 'workflow.stage_failed' | 'workflow.done' | 'workflow.turn.delta' | 'workflow.turn.tool'; stageId?: string; detail?: unknown };
+  /** Phase 5 v2: coalesced turn-item snapshots for the timeline UI. The
+   *  client REPLACES the item's text (idempotent); `done` marks the item's
+   *  final flush. Typed WITH the WS allowlist entry (silent-death rule). */
+  'agent.turn.item': { sessionId: string; turnId: string; itemId: string; text: string; done: boolean };
   'device.changed': { udid: string; name: string | null; state: string | null; platform?: string | null; kind?: string | null; lease_holder: string | null; lease_engine: string | null };
   'run.started': { runId: string; ticketKey: string; udid?: string; templateId?: string };
   'run.freshness.checked': { runId: string; freshness: string };

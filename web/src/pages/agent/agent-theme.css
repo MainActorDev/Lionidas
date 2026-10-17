@@ -12,21 +12,51 @@
   --ag-line-2: #3a3a3a;    /* control borders */
   --ag-user-bubble: #b3542c; /* softened ember — 2:1 vs canvas, readable paper text */
   --ag-head-h: 48px;       /* shared header band (fix #4) */
+  --ag-ink: #eae6e1;        /* primary text on the dark chat canvas */
+  --ag-ink-dim: #a39d95;    /* muted text on the dark chat canvas (6.9:1) */
+  /* a11y (phase 5 e2e): the chat keeps its DARK canvas in BOTH themes (house
+   * Axiom), but legacy rules styled text with theme-flipping tokens — light
+   * mode rendered dark-on-dark (1.1:1). Pin the chat-scoped text tokens to
+   * their dark-canvas values here so both themes stay readable. */
+  --color-paper: #f5f5f2;
+  --color-fog: #a39d95;
+  --color-steel: #a39d95;
+  --color-ember: #ee6018;        /* dark-ramp accents: the canvas is dark in both themes */
+  --color-ember-dim: #c24f13;
 
   font-family: var(--font-mono);
   font-size: var(--text-body);
   line-height: 1.6;
   color: var(--color-paper);
   background: var(--ag-bg);
-  height: calc(100vh - var(--topbar-h));
+  /* single scroller: the root full-bleeds over .main's padding via negative
+   *  margins, so its height must INCLUDE the pulled space — plain 100%
+   *  under .main's content box left the negative margins overflowing both
+   *  ends (.main scrolled anyway = two scrollbars). Exact arithmetic: the
+   *  content box PLUS both cancelled paddings. */
+  height: calc(100% + 2 * var(--s-6));
   display: flex;
   flex-direction: row;
   min-height: 0;
-  margin: calc(-1 * var(--s-6));
+  margin: calc(-1 * var(--s-6)); /* full-bleed: cancels .main padding on ALL sides — one scroller only */
   width: calc(100% + 2 * var(--s-6));
+  max-width: calc(100% + 2 * var(--s-6));
+  overflow: hidden; /* width clamp: flex content must not floor the page wider
+                     * than the shell (the 393-in-375 mobile overflow) */
+  min-width: 0;
 }
 
 .ag-root * { box-sizing: border-box; }
+
+/* mobile backport (phase 5 step 5): v1 never had narrow-viewport rules —
+ * the 280px session sidebar starved the chat column to ~131px at 375 and
+ * the page overflowed (393-in-375). Same collapse the v2 page ships. */
+@media (max-width: 900px) {
+  .ag-root .sb { display: none; }
+  /* the full-bleed negative margin cancels DESKTOP .main padding (s-6);
+   * mobile .main pads 14px — cancel exactly that, not more. */
+  .ag-root { margin: -20px -14px 0; width: calc(100% + 28px); max-width: calc(100% + 28px); }
+}
 
 /* ═══ Syntax highlighting (highlight.ts) — one palette, ember-adjacent,
  *   tuned for #141414 canvas. WCAG-AA (4.5:1) targets on all text colors. */
@@ -63,3 +93,10 @@ pre.code-hl[data-lang]::before {
   text-transform: lowercase;
   user-select: none;
 }
+
+
+/* two-scrollbar kill switch: the agent surface manages its own scrolling —
+ * .main must never show a second bar while the chat is mounted (grid row
+ * sizing + the full-bleed child make residual overflow impossible to
+ * reason about; this makes it impossible, period). */
+.main:has(> .ag-root) { overflow-y: hidden; }

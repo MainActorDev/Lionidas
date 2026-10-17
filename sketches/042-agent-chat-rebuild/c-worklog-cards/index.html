@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>042-C — Worklog cards</title>
+<style>
+  :root {
+    --bg: #101010; --panel: #161514; --carbon: #1d1a18; --line: #2a2724; --line-soft: #232120;
+    --fg: #eae6e1; --ash: #a39d95; --dim: #6b665e;
+    --ember: #ee6018; --sage: #a0ca92; --gold: #d9b06a; --danger: #d97a6a;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 13px; line-height: 1.55; }
+  button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+  .app { display: grid; grid-template-columns: 220px 1fr; height: 100vh; }
+
+  .rail { border-right: 1px solid var(--line); display: flex; flex-direction: column; background: var(--panel); }
+  .rail-head { padding: 14px 16px 10px; }
+  .new-chat { display: block; width: 100%; text-align: left; border: 1px solid var(--line); border-radius: 2px; padding: 7px 10px; color: var(--fg); font-size: 12px; }
+  .new-chat:hover { border-color: var(--dim); }
+  .rail-list { flex: 1; overflow-y: auto; padding: 8px; }
+  .sess { padding: 8px 10px; border-radius: 2px; margin-bottom: 2px; }
+  .sess .t { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ash); }
+  .sess.on { background: var(--carbon); }
+  .sess.on .t { color: var(--fg); }
+  .sess .m { font-family: var(--mono); font-size: 10px; color: var(--dim); margin-top: 2px; }
+  .rail-foot { border-top: 1px solid var(--line); padding: 10px 16px; font-family: var(--mono); font-size: 10px; color: var(--dim); }
+
+  .chat { display: flex; flex-direction: column; min-width: 0; }
+  .head { display: flex; align-items: baseline; gap: 10px; padding: 14px 24px 12px; border-bottom: 1px solid var(--line); }
+  .head h1 { font-size: 14px; font-weight: 500; }
+  .pill { font-family: var(--mono); font-size: 10px; color: var(--dim); border: 1px solid var(--line); border-radius: 2px; padding: 2px 6px; }
+
+  .scroll { flex: 1; overflow-y: auto; }
+  .inner { max-width: 780px; margin: 0 auto; padding: 20px 24px 28px; display: flex; flex-direction: column; gap: 14px; }
+
+  .u-msg { align-self: flex-end; max-width: 85%; background: carbon-val; }
+  .u-msg { background: var(--carbon); border: 1px solid var(--line); border-radius: 2px; padding: 9px 13px; }
+  .u-msg .chip { font-family: var(--mono); font-size: 11px; background: rgba(238,96,24,.14); color: var(--ember); border-radius: 2px; padding: 1px 5px; margin-right: 4px; }
+  .u-msg .ref { font-family: var(--mono); font-size: 11px; background: rgba(160,202,146,.12); color: var(--sage); border-radius: 2px; padding: 1px 5px; margin-right: 4px; }
+
+  .card { border: 1px solid var(--line); border-radius: 2px; background: var(--panel); overflow: hidden; }
+  .card-head { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--line-soft); cursor: pointer; }
+  .card-head .st-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .st-dot.done { background: var(--sage); }
+  .st-dot.live { background: var(--ember); animation: pulse 1.2s infinite; }
+  .st-dot.err { background: var(--danger); }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .card-head .ct { font-size: 12px; color: var(--ash); flex: 1; }
+  .card-head .ct b { color: var(--fg); font-weight: 500; }
+  .card-head .cdur { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+  .card-head .chev { color: var(--dim); font-size: 10px; }
+  .card.open .chev { transform: rotate(90deg); }
+  .card-body { display: none; border-top: 1px solid var(--line-soft); padding: 10px 14px; font-family: var(--mono); font-size: 11.5px; }
+  .card.open .card-body { display: block; }
+  .card-body .st2 { color: var(--sage); }
+  .card-body .err-line { color: var(--danger); }
+  .card-body .dim { color: var(--dim); }
+
+  .a-msg { max-width: 100%; }
+  .a-msg .body { font-size: 13.5px; }
+  .a-msg p + p { margin-top: 8px; }
+  code { font-family: var(--mono); font-size: 12px; background: var(--carbon); border: 1px solid var(--line-soft); border-radius: 2px; padding: 1px 5px; }
+  .fence { margin: 10px 0; border: 1px solid var(--line); border-radius: 2px; }
+  .fence-head { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10px; color: var(--dim); border-bottom: 1px solid var(--line-soft); padding: 4px 10px; }
+  .fence pre { font-family: var(--mono); font-size: 12px; line-height: 1.6; padding: 10px 12px; overflow-x: auto; color: #cfc9c2; }
+  .k { color: var(--ember); } .s { color: var(--sage); } .n { color: var(--gold); }
+  .stream-cursor { display: inline-block; width: 7px; height: 13px; background: var(--ember); vertical-align: text-bottom; animation: blink .9s infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .q-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ash); border: 1px dashed var(--line); border-radius: 2px; padding: 6px 10px; margin: 0 auto 6px; max-width: 732px; width: calc(100% - 48px); }
+  .q-item .qt { flex: 1; user-select: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .q-item button { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+  .q-item button:hover { color: var(--fg); }
+
+  .composer-wrap { border-top: 1px solid var(--line); background: var(--panel); }
+  .composer { max-width: 780px; margin: 0 auto; padding: 14px 24px 16px; position: relative; }
+  .caret-palette { position: absolute; left: 24px; right: 24px; bottom: 100%; margin-bottom: 8px; max-width: 480px; border: 1px solid var(--line); background: var(--panel); border-radius: 2px; box-shadow: 0 4px 16px rgba(0,0,0,.4); display: none; }
+  .caret-palette.open { display: block; }
+  .cp-head { font-family: var(--mono); font-size: 10px; color: var(--dim); padding: 6px 10px; border-bottom: 1px solid var(--line-soft); }
+  .cp-row { display: flex; align-items: baseline; gap: 8px; padding: 6px 10px; cursor: pointer; }
+  .cp-row:hover, .cp-row.hl { background: var(--carbon); }
+  .cp-row .k2 { color: var(--fg); font-size: 12px; }
+  .cp-row .sub { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+  .input-shell { border: 1px solid var(--line); border-radius: 2px; background: var(--carbon); }
+  .input-shell:focus-within { border-color: var(--dim); }
+  .input-shell textarea { display: block; width: 100%; background: none; border: none; outline: none; resize: none; color: var(--fg); font: 13px/1.5 var(--sans); padding: 10px 12px; min-height: 44px; }
+  .input-shell textarea::placeholder { color: var(--dim); }
+  .composer-foot { display: flex; align-items: center; gap: 10px; padding: 6px 10px 10px; }
+  .mchip { font-family: var(--mono); font-size: 10px; color: var(--ash); border: 1px solid var(--line); border-radius: 2px; padding: 2px 7px; }
+  .mchip.on { color: var(--ember); border-color: rgba(238,96,24,.4); background: rgba(238,96,24,.08); }
+  .hint { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+  .send { margin-left: auto; border: 1px solid var(--line); border-radius: 2px; padding: 5px 14px; font-size: 12px; }
+  .send.stop { color: var(--ember); border-color: rgba(238,96,24,.4); }
+  .send:hover { border-color: var(--dim); }
+
+  @media (max-width: 760px) { .app { grid-template-columns: 1fr; } .rail { display: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="rail-head">
+      <button class="new-chat">+ new chat</button>
+    </div>
+    <div class="rail-list">
+      <div class="sess on"><div class="t">Check login-flow failures</div><div class="m">12m ago · glm-4.7 · 4 turns</div></div>
+      <div class="sess"><div class="t">Draft regression plan for checkout</div><div class="m">2h ago · claude · 11 turns</div></div>
+      <div class="sess"><div class="t">Why is sim 3128 slow?</div><div class="m">yesterday · glm-4.7 · 7 turns</div></div>
+      <div class="sess"><div class="t">Author CUST-1187 cases</div><div class="m">2d ago · claude · 23 turns</div></div>
+    </div>
+    <div class="rail-foot">4 sessions · 1 live</div>
+  </aside>
+
+  <main class="chat">
+    <div class="head">
+      <h1>Check login-flow failures</h1>
+      <span class="pill">sess_9f2c</span>
+      <span class="pill" style="color: var(--ember); border-color: rgba(238,96,24,.4);">● live</span>
+    </div>
+
+    <div class="scroll">
+      <div class="inner">
+
+        <div class="u-msg"><span class="chip">/planning</span>why did login-flow fail on the last three nightly runs? <span class="ref">@case:tpl_login</span></div>
+
+        <div class="card open">
+          <div class="card-head" onclick="this.parentElement.classList.toggle('open')">
+            <span class="st-dot done"></span>
+            <span class="ct"><b>2 tool calls</b> · repo.diff, cases.list · finished 14:03</span>
+            <span class="cdur">1.5s</span>
+            <span class="chev">›</span>
+          </div>
+          <div class="card-body">
+            <div>⏵ <span class="st2">repo.diff</span> ios-consumer 9f2c1ab..HEAD <span class="dim">1.2s</span></div>
+            <div class="dim">⎿ 6 files · +214 −89 · LoginViewModel.swift +142 −12</div>
+            <div style="margin-top:4px">⏵ <span class="st2">cases.list</span> template = tpl_login <span class="dim">0.3s</span></div>
+            <div class="dim">⎿ 12 cases · 3 failed in last 3 nightlies</div>
+          </div>
+        </div>
+
+        <div class="a-msg">
+          <div class="body">
+            <p>Three consecutive nightly failures, all at <code>step: submit · credentials</code>. The regression window is <code>9f2c1ab..HEAD</code> — <code>LoginViewModel.swift</code> gained 142 lines there, and the failing assertion is the new submit debounce:</p>
+            <div class="fence">
+              <div class="fence-head"><span>swift</span><span>LoginViewModel.swift:137</span></div>
+              <pre><span class="k">guard</span> !isSubmitting <span class="k">else</span> { <span class="k">return</span> }
+submitButton.debounceInterval = <span class="n">0.8</span>  <span class="s">// was 0.3</span></pre>
+            </div>
+            <p>The 0.8s debounce outruns the harness's 0.5s submit-wait. Restore 0.3s — the change has no linked ticket.</p>
+          </div>
+        </div>
+
+        <div class="u-msg">and check whether the same debounce change touched the intl target <span class="ref" style="background:rgba(217,176,106,.12);color:var(--gold)">queued</span></div>
+
+        <div class="card open">
+          <div class="card-head" onclick="this.parentElement.classList.toggle('open')">
+            <span class="st-dot live"></span>
+            <span class="ct"><b>working</b> · repo.search, repo.read · 22s</span>
+            <span class="cdur">live</span>
+            <span class="chev">›</span>
+          </div>
+          <div class="card-body">
+            <div>⏵ <span class="st2">repo.search</span> debounce · LoginShip-intl</div>
+            <div style="margin-top:4px">⏵ <span class="err-line">repo.read</span> …/LoginShip/ViewModel.swift <span class="dim">timeout</span></div>
+            <div class="dim">⎿ tool exceeded 12s read budget — retried once, failed again</div>
+          </div>
+        </div>
+
+        <div class="a-msg">
+          <div class="body">
+            <p>The intl target kept 0.3s — it has its own view model that didn't take the change. One read timed out; retrying with the exact locator <span class="stream-cursor"></span></p>
+          </div>
+        </div>
+
+        <div class="q-item">
+          <span class="qt">and check whether the same debounce change touched the intl target</span>
+          <button>edit</button><button>send now</button><button>✕</button>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="composer-wrap">
+      <div class="composer">
+        <div class="caret-palette" id="palette">
+          <div class="cp-head">refs · matching "log"</div>
+          <div class="cp-row hl"><span class="k2">@case:login-flow</span><span class="sub">template · 12 cases</span></div>
+          <div class="cp-row"><span class="k2">@jira:CUST-1187</span><span class="sub">Bug · Login</span></div>
+          <div class="cp-row"><span class="k2">@repo:ios-consumer</span><span class="sub">main · 9f2c1ab</span></div>
+        </div>
+        <div class="input-shell">
+          <textarea id="ta" rows="2" placeholder="ask about cases, runs, or draft new tests…  type @ for refs · / for commands"></textarea>
+          <div class="composer-foot">
+            <button class="mchip on">glm-4.7 ▸ glm-4.7-flash</button>
+            <button class="mchip">claude-sonnet</button>
+            <button class="mchip">＋</button>
+            <span class="hint">↵ send · ⇧↵ newline</span>
+            <button class="send stop" onclick="const b=this;b.textContent=b.textContent==='stop'?'send':'stop';b.classList.toggle('stop')">stop</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+<script>
+  document.getElementById('ta').addEventListener('input', e => { document.getElementById('palette').classList.toggle('open', e.target.value.includes('@')); });
+</script>
+</body>
+</html>

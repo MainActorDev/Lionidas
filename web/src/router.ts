@@ -19,6 +19,7 @@ import AuditPage from './pages/AuditPage.vue';
 import GuidePage from './pages/GuidePage.vue';
 import SuitesPage from './pages/SuitesPage.vue';
 import AgentChatPage from './pages/agent/AgentChatPage.vue';
+import AgentTimelinePage from './pages/agent/AgentTimelinePage.vue';
 import StatusBoardPage from './pages/StatusBoardPage.vue';
 
 export const router = createRouter({
@@ -43,7 +44,9 @@ export const router = createRouter({
     { path: '/login', name: 'login', component: LoginPage, meta: { title: 'sign in', public: true } },
     { path: '/setup', name: 'setup', component: SetupPage, meta: { title: 'first-run setup', public: true } },
     { path: '/guide', name: 'guide', component: GuidePage, meta: { title: 'guide' } },
-    { path: '/agent', name: 'agentChat', component: AgentChatPage, meta: { title: 'agent' } },
+    { path: '/agent', name: 'agentChat', component: AgentTimelinePage, meta: { title: 'agent' } },
+    { path: '/agent-v1', name: 'agentChatLegacy', component: AgentChatPage, meta: { title: 'agent (legacy)' } }, // v1 escape hatch until decommission
+    { path: '/agent-v2', redirect: '/agent' }, // parallel-run era is over — land old links on the default
     { path: '/status', name: 'status', component: StatusBoardPage, meta: { title: 'status' } },
   ] satisfies RouteRecordRaw[],
 });

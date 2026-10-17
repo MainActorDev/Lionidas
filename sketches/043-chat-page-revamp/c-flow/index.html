@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>043-C — Flow</title>
+<style>
+  /* 043-C — FLOW: no visible chrome at rest. One centered column; sessions
+     live behind a ⌘K-style switcher; the composer is a whisper bar that
+     EXPANDS on focus (model row + hints reveal). Maximum content, minimum
+     furniture — the "invisible app" stance. */
+  :root {
+    --bg: #101010; --panel: #161514; --carbon: #1d1a18; --line: #2a2724; --line-soft: #232120;
+    --fg: #eae6e1; --ash: #a39d95; --dim: #6b665e;
+    --ember: #ee6018; --sage: #a0ca92; --gold: #d9b06a; --danger: #d97a6a;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 13px; line-height: 1.55; height: 100vh; overflow: hidden; }
+  button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+
+  .page { display: flex; flex-direction: column; height: 100vh; max-width: 720px; margin: 0 auto; padding: 0 20px; }
+
+  /* ── whisper header: title + session switcher only ── */
+  .head { display: flex; align-items: center; gap: 10px; padding: 18px 0 12px; border-bottom: 1px solid var(--line-soft); }
+  .head h1 { font-size: 13px; font-weight: 500; color: var(--fg); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .switcher { font-family: var(--mono); font-size: 10px; color: var(--dim); border: 1px solid var(--line); border-radius: 2px; padding: 3px 8px; }
+  .switcher:hover { color: var(--fg); }
+  .live-dot { color: var(--ember); font-size: 10px; }
+
+  /* ── thread ── */
+  .scroll { flex: 1; overflow-y: auto; }
+  .inner { display: flex; flex-direction: column; gap: 18px; padding: 20px 0 30px; }
+
+  /* turns WITHOUT a rail — separation by spacing + who-labels; user turns
+     get a hairline left border only */
+  .turn { min-width: 0; }
+  .turn.user { border-left: 2px solid var(--line); padding-left: 14px; }
+  .meta { font-family: var(--mono); font-size: 10px; color: var(--dim); margin-bottom: 6px; }
+  .meta .run { color: var(--ember); }
+  .bubble-user { font-size: 13px; color: var(--fg); }
+  .bubble-user .chip { font-family: var(--mono); font-size: 11px; background: rgba(238,96,24,.14); color: #f2732e; border-radius: 2px; padding: 1px 5px; margin-right: 5px; }
+  .bubble-user .chip.ref { background: rgba(160,202,146,.12); color: var(--sage); }
+  .prose { font-size: 13.5px; color: var(--fg); }
+  .prose p + p { margin-top: 8px; }
+  code { font-family: var(--mono); font-size: 12px; background: var(--carbon); border: 1px solid var(--line-soft); border-radius: 2px; padding: 1px 5px; }
+
+  .work { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
+  .work-row { display: flex; align-items: baseline; gap: 8px; font-family: var(--mono); font-size: 12px; color: var(--ash); }
+  .work-row .sym { color: var(--dim); width: 14px; flex: none; }
+  .work-row .nm.ok { color: var(--sage); }
+  .work-row .nm.err { color: var(--danger); }
+  .work-row .nm.live { color: var(--fg); }
+  .work-row .arg { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .work-row .dur { margin-left: auto; color: var(--dim); font-size: 10px; flex: none; }
+  .errline { font-family: var(--mono); font-size: 11px; color: var(--danger); padding: 2px 0; margin-top: 4px; }
+  .foot { display: flex; gap: 12px; margin-top: 8px; font-family: var(--mono); font-size: 10px; color: var(--dim); }
+  .foot button:hover { color: var(--fg); }
+
+  /* ── whisper bar: EXPANDED state shown ── */
+  .whisper-wrap { padding: 10px 0 18px; }
+  .whisper { border: 1px solid var(--line); border-radius: 4px; background: var(--carbon); transition: border-color .15s; }
+  .whisper:focus-within { border-color: var(--dim); }
+  .reveal { display: none; }
+  .whisper:focus-within .reveal { display: flex; }
+  .stage-top { gap: 6px; padding: 8px 10px 0; flex-wrap: wrap; }
+  .mchip { font-family: var(--mono); font-size: 10px; color: var(--ash); border: 1px solid var(--line); border-radius: 2px; padding: 2px 7px; }
+  .mchip.on { color: var(--ember); border-color: rgba(238,96,24,.4); background: rgba(238,96,24,.08); }
+  .stage-mid { display: flex; align-items: center; gap: 8px; padding: 10px; }
+  .stage-mid .chip { font-family: var(--mono); font-size: 11px; background: rgba(238,96,24,.14); color: #f2732e; border-radius: 2px; padding: 2px 6px; flex: none; }
+  .stage-mid .chip.ref { background: rgba(160,202,146,.12); color: var(--sage); }
+  .stage-mid input { flex: 1; background: none; border: none; outline: none; color: var(--fg); font: 13px/1.5 var(--sans); min-width: 0; }
+  .stage-mid input::placeholder { color: var(--dim); }
+  .go { border: 1px solid var(--line); border-radius: 2px; padding: 5px 14px; font-family: var(--mono); font-size: 12px; flex: none; }
+  .go.stop { color: var(--ember); border-color: rgba(238,96,24,.4); }
+  .stage-foot { align-items: center; gap: 10px; padding: 0 10px 8px; }
+  .stage-foot .hint { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+
+  /* queue rides ABOVE the whisper bar, same width */
+  .queue { display: flex; flex-direction: column; gap: 6px; padding-bottom: 10px; }
+  .q-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ash); border: 1px dashed var(--line); border-radius: 2px; padding: 6px 10px; }
+  .q-item .qt { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .q-item button { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="head">
+    <h1>Check login-flow failures</h1>
+    <span class="live-dot">●</span>
+    <button class="switcher">⌘K chats · 4</button>
+  </div>
+
+  <div class="scroll">
+    <div class="inner">
+      <div class="turn user">
+        <div class="meta">you · 14:02</div>
+        <div class="bubble-user"><span class="chip">/planning</span>why did login-flow fail on the last three nightly runs? <span class="chip ref">@tpl_login</span></div>
+      </div>
+      <div class="turn">
+        <div class="meta">agent · glm-4.7 · 2m 41s · $0.041</div>
+        <div class="work">
+          <div class="work-row"><span class="sym">⏵</span><span class="nm ok">repo.diff</span><span class="arg">ios-consumer 9f2c1ab..HEAD</span><span class="dur">1.2s</span></div>
+          <div class="work-row"><span class="sym">⏵</span><span class="nm ok">cases.list</span><span class="arg">template = tpl_login</span><span class="dur">300ms</span></div>
+        </div>
+        <div class="prose" style="margin-top: 8px">
+          <p>Three consecutive nightly failures, all at <code>step: submit · credentials</code>. The regression window is <code>9f2c1ab..HEAD</code> — the new debounce outruns the harness's 0.5s submit-wait. I'd restore 0.3s.</p>
+        </div>
+        <div class="foot"><button>copy</button><button>retry</button></div>
+      </div>
+      <div class="turn user">
+        <div class="meta">you · 14:05 · <span style="color: var(--gold)">queued</span></div>
+        <div class="bubble-user">and check whether the same debounce change touched the intl target</div>
+      </div>
+      <div class="turn">
+        <div class="meta">agent · glm-4.7 · <span class="run">running · 22s</span></div>
+        <div class="work">
+          <div class="work-row"><span class="sym" style="color: var(--ember)">⏵</span><span class="nm live">repo.search</span><span class="arg">debounce · LoginShip-intl</span></div>
+          <div class="work-row"><span class="sym">⏵</span><span class="nm err">repo.read</span><span class="arg">…/LoginShip/ViewModel.swift</span><span class="dur">timeout</span></div>
+        </div>
+        <div class="prose" style="margin-top: 8px"><p>The intl target kept 0.3s — it has its own view model<span style="color: var(--ember)">▌</span></p></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="whisper-wrap">
+    <div class="queue">
+      <div class="q-item">
+        <span class="qt">and check whether the same debounce change touched the intl target</span>
+        <button>edit</button><button>send now</button><button>✕</button>
+      </div>
+    </div>
+    <div class="whisper">
+      <div class="reveal stage-top">
+        <button class="mchip on">◆ glm-4.7 ▸ flash</button>
+        <button class="mchip">● claude-sonnet</button>
+        <button class="mchip">＋</button>
+      </div>
+      <div class="stage-mid">
+        <span class="chip">/planning</span>
+        <input placeholder="ask anything…  @ refs · / commands" value="why did login-flow fail " />
+        <span class="chip ref">@tpl_login</span>
+        <button class="go stop">stop</button>
+      </div>
+      <div class="reveal stage-foot">
+        <span class="hint">↵ send · ⇧↵ newline · ⌘↵ queue</span>
+        <span class="hint" style="margin-left: auto">ctx 21%</span>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

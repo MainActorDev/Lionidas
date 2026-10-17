@@ -18,12 +18,12 @@ function me(role: string): { user: { id: string; name: string; email: string; ro
   return { user: { id: 'u1', name: 'Bayu', email: 'b@x', role } };
 }
 
-async function mountPage(role = 'operator'): Promise<ReturnType<typeof mount>> {
+async function mountPage(role = 'operator', path = '/agent'): Promise<ReturnType<typeof mount>> {
   const router = createRouter({ history: createMemoryHistory(), routes: [
     { path: '/agent', name: 'agentChat', component: AgentChatPage },
     { path: '/', name: 'root', component: { template: '<div/>' } },
   ] });
-  router.push('/agent');
+  router.push(path);
   await router.isReady();
   fetchMock.mockReset();
   fetchMock.mockImplementation((url: string, init?: { method?: string }) => {
@@ -46,6 +46,8 @@ async function mountPage(role = 'operator'): Promise<ReturnType<typeof mount>> {
     if (url.includes('/api/agent/refs/search')) return Promise.resolve(jsonOk({ rows: [{ id: 'case:c1', kind: 'case', title: 'login_flow_ok', meta: 'active', ref: { kind: 'case', locator: 'c1' } }], tier: 'local' }));
     if (url.includes('/api/apps/bundles')) return Promise.resolve(jsonOk({ bundles: ['com.lionparcel.dev'] }));
     if (url === '/api/agent/pipeline') return Promise.resolve(jsonOk({ runId: 'wfr_new', status: 'done', stages: [] }));
+    if (url === '/api/agent/pipeline/wfr_1') return Promise.resolve(jsonOk({ run: { id: 'wfr_1', status: 'done', currentStage: null }, stages: [] }));
+    if (url.startsWith('/api/agent/artifacts')) return Promise.resolve(jsonOk({ artifacts: [] }));
     return Promise.resolve(jsonOk({}));
   });
   const w = mount(AgentChatPage, { global: { plugins: [router] } });
@@ -151,7 +153,11 @@ describe('agent chat page', () => {
   });
 
   it('panel collapse » → floating pill appears; click reopens', async () => {
-    const w = await mountPage('operator');
+    localStorage.setItem('agent.lastSession', 's1'); // setTurn needs an active session to bind the run
+    localStorage.setItem('agentRunBySession', JSON.stringify({ s1: 'wfr_1' })); // openSession binds the run from here
+    const w = await mountPage('operator', '/agent?run=wfr_1');
+    await flushPromises();
+    await flushPromises();
     expect(w.find('.reopen').exists()).toBe(false);
     await w.find('.x').trigger('click');
     expect(w.find('.panel').classes()).toContain('closed');

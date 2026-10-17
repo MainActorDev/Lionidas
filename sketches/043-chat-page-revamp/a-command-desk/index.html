@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>043-A — Command desk</title>
+<style>
+  /* Factory tokens (sketch-grade) — same palette as 042 but a NEW stance:
+     the composer is a persistent COMMAND BAR (top, like a launcher), the
+     session list is a compact strip, the thread owns the whole page. */
+  :root {
+    --bg: #101010; --panel: #161514; --carbon: #1d1a18; --line: #2a2724; --line-soft: #232120;
+    --fg: #eae6e1; --ash: #a39d95; --dim: #6b665e;
+    --ember: #ee6018; --sage: #a0ca92; --gold: #d9b06a; --danger: #d97a6a;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 13px; line-height: 1.55; height: 100vh; overflow: hidden; }
+  button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+
+  .page { display: flex; flex-direction: column; height: 100vh; }
+
+  /* ── top: session strip + command bar ── */
+  .top { border-bottom: 1px solid var(--line); background: var(--panel); }
+  .strip { display: flex; align-items: center; gap: 8px; padding: 8px 20px; border-bottom: 1px solid var(--line-soft); overflow-x: auto; }
+  .new { border: 1px solid var(--color-ember-dim, #c24f13); background: var(--ember); color: #141414; font-family: var(--mono); font-size: 11px; font-weight: 600; border-radius: 2px; padding: 4px 10px; flex: none; }
+  .tab { flex: none; font-family: var(--mono); font-size: 11px; color: var(--ash); padding: 4px 10px; border: 1px solid transparent; border-radius: 2px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tab.on { color: var(--fg); border-color: var(--line); background: var(--carbon); }
+  .tab .live { color: var(--ember); }
+  .strip-foot { margin-left: auto; flex: none; font-family: var(--mono); font-size: 10px; color: var(--dim); }
+
+  /* ── command bar (the composer, top-centered like a launcher) ── */
+  .cmdbar { display: flex; align-items: center; gap: 8px; max-width: 860px; width: calc(100% - 40px); margin: 12px auto; border: 1px solid var(--line); border-radius: 2px; background: var(--carbon); }
+  .cmdbar:focus-within { border-color: var(--dim); }
+  .cmdbar .pfx { font-family: var(--mono); font-size: 12px; color: var(--ember); padding: 0 4px 0 12px; flex: none; }
+  .cmdbar input { flex: 1; background: none; border: none; outline: none; color: var(--fg); font: 13px/1.5 var(--sans); padding: 11px 8px; min-width: 0; }
+  .cmdbar input::placeholder { color: var(--dim); }
+  .cmdbar .chip { font-family: var(--mono); font-size: 11px; background: rgba(238,96,24,.14); color: #f2732e; border-radius: 2px; padding: 2px 6px; margin: 0 2px; flex: none; }
+  .cmdbar .chip.ref { background: rgba(160,202,146,.12); color: var(--sage); }
+  .cmdbar .go { flex: none; border: 1px solid var(--line); border-radius: 2px; padding: 6px 16px; font-family: var(--mono); font-size: 12px; margin: 6px 10px 6px 0; }
+  .cmdbar .go.stop { color: var(--ember); border-color: rgba(238,96,24,.4); }
+  .models { display: flex; gap: 6px; max-width: 860px; width: calc(100% - 40px); margin: 0 auto 10px; }
+  .mchip { font-family: var(--mono); font-size: 10px; color: var(--ash); border: 1px solid var(--line); border-radius: 2px; padding: 2px 7px; }
+  .mchip.on { color: var(--ember); border-color: rgba(238,96,24,.4); background: rgba(238,96,24,.08); }
+
+  /* ── thread owns the rest ── */
+  .scroll { flex: 1; overflow-y: auto; }
+  .inner { max-width: 860px; margin: 0 auto; padding: 18px 20px 40px; display: flex; flex-direction: column; gap: 14px; }
+
+  .turn { display: grid; grid-template-columns: 19px 1fr; column-gap: 14px; position: relative; }
+  .node { width: 11px; height: 11px; border-radius: 50%; background: var(--bg); border: 2px solid var(--line); justify-self: center; margin-top: 4px; }
+  .turn.user .node { border-color: var(--ash); }
+  .turn::before { content: ''; position: absolute; left: 9px; top: 0; bottom: 0; width: 1px; background: var(--line-soft); }
+  .meta { display: flex; gap: 8px; font-family: var(--mono); font-size: 10px; color: var(--dim); margin-bottom: 6px; }
+  .meta .run { color: var(--ember); }
+
+  .bubble-user { background: var(--carbon); border: 1px solid var(--line); border-radius: 2px; padding: 9px 13px; font-size: 13px; }
+  .bubble-user .chip { font-family: var(--mono); font-size: 11px; background: rgba(238,96,24,.14); color: #f2732e; border-radius: 2px; padding: 1px 5px; margin-right: 5px; }
+  .bubble-user .chip.ref { background: rgba(160,202,146,.12); color: var(--sage); }
+  .prose { font-size: 13.5px; color: var(--fg); }
+  .prose p + p { margin-top: 8px; }
+  code { font-family: var(--mono); font-size: 12px; background: var(--carbon); border: 1px solid var(--line-soft); border-radius: 2px; padding: 1px 5px; }
+
+  .work { margin-left: 33px; }
+  .work-row { display: flex; align-items: baseline; gap: 8px; font-family: var(--mono); font-size: 12px; padding: 3px 0; color: var(--ash); }
+  .work-row .sym { color: var(--dim); width: 14px; flex: none; }
+  .work-row .nm.ok { color: var(--sage); }
+  .work-row .nm.err { color: var(--danger); }
+  .work-row .nm.live { color: var(--fg); }
+  .work-row .arg { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .work-row .dur { margin-left: auto; color: var(--dim); font-size: 10px; flex: none; }
+  .errline { margin-left: 33px; font-family: var(--mono); font-size: 11px; color: var(--danger); padding: 2px 0; }
+
+  .queue { max-width: 860px; width: calc(100% - 40px); margin: 0 auto 12px; display: flex; flex-direction: column; gap: 6px; }
+  .q-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ash); border: 1px dashed var(--line); border-radius: 2px; padding: 6px 10px; }
+  .q-item .qt { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .q-item button { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+  .q-item button:hover { color: var(--fg); }
+
+  .foot { display: flex; gap: 12px; margin-top: 8px; font-family: var(--mono); font-size: 10px; color: var(--dim); }
+  .foot button:hover { color: var(--fg); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="top">
+    <div class="strip" role="tablist" aria-label="sessions">
+      <button class="new">＋ new</button>
+      <button class="tab on">Check login-flow failures <span class="live">●</span></button>
+      <button class="tab">Draft regression plan…</button>
+      <button class="tab">sim 3128 slow?</button>
+      <span class="strip-foot">4 chats · 1 live</span>
+    </div>
+    <div class="cmdbar">
+      <span class="pfx">›</span>
+      <span class="chip">/planning</span>
+      <input placeholder="ask about cases, runs, or draft new tests…   @ refs · / commands" value="why did login-flow fail on the last three nightly runs? " />
+      <span class="chip ref">@tpl_login</span>
+      <button class="go stop">stop</button>
+    </div>
+    <div class="models">
+      <button class="mchip on">glm-4.7 ▸ flash</button>
+      <button class="mchip">claude-sonnet</button>
+      <button class="mchip">＋</button>
+    </div>
+  </div>
+
+  <div class="scroll">
+    <div class="inner">
+      <div class="turn user">
+        <span class="node"></span>
+        <div>
+          <div class="meta"><span>you · 14:02</span></div>
+          <div class="bubble-user"><span class="chip">/planning</span>why did login-flow fail on the last three nightly runs? <span class="chip ref">@tpl_login</span></div>
+        </div>
+      </div>
+      <div class="turn">
+        <span class="node"></span>
+        <div>
+          <div class="meta"><span>agent · glm-4.7</span><span>2m 41s · $0.041</span></div>
+          <div class="work">
+            <div class="work-row"><span class="sym">⏵</span><span class="nm ok">repo.diff</span><span class="arg">ios-consumer 9f2c1ab..HEAD</span><span class="dur">1.2s</span></div>
+            <div class="work-row"><span class="sym">⏵</span><span class="nm ok">cases.list</span><span class="arg">template = tpl_login</span><span class="dur">300ms</span></div>
+          </div>
+          <div class="prose">
+            <p>Three consecutive nightly failures, all at <code>step: submit · credentials</code>. The regression window is <code>9f2c1ab..HEAD</code> — <code>LoginViewModel.swift</code> gained 142 lines there, and the failing assertion is the new debounce:</p>
+            <p>The 0.8s debounce outruns the harness's 0.5s submit-wait. I'd restore 0.3s — the change has no linked ticket.</p>
+          </div>
+          <div class="foot"><button>copy</button><button>retry</button></div>
+        </div>
+      </div>
+      <div class="turn user">
+        <span class="node"></span>
+        <div>
+          <div class="meta"><span>you · 14:05</span><span style="color: var(--gold)">queued</span></div>
+          <div class="bubble-user">and check whether the same debounce change touched the intl target</div>
+        </div>
+      </div>
+      <div class="turn">
+        <span class="node"></span>
+        <div>
+          <div class="meta"><span>agent · glm-4.7</span><span class="run">running · 22s</span></div>
+          <div class="work">
+            <div class="work-row"><span class="sym" style="color: var(--ember)">⏵</span><span class="nm live">repo.search</span><span class="arg">debounce · LoginShip-intl</span></div>
+            <div class="work-row"><span class="sym">⏵</span><span class="nm err">repo.read</span><span class="arg">…/LoginShip/ViewModel.swift</span><span class="dur">timeout</span></div>
+          </div>
+          <div class="prose"><p>The intl target kept 0.3s — it has its own view model<span style="color: var(--ember)">▌</span></p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="queue">
+    <div class="q-item">
+      <span class="qt">and check whether the same debounce change touched the intl target</span>
+      <button>edit</button><button>send now</button><button>✕</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>

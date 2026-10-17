@@ -473,19 +473,35 @@ async function runGeneric(ws: string, scheme: string | null, configuration: stri
   // OWNS project generation: the engine's xcodegen fallback is skipped.
   if (prepare.length > 0) {
     for (const [i, step] of prepare.entries()) {
+      // TWO prepare dialects exist, BOTH legitimate (build 7 Foodiary lesson):
+      //   repo script — first token is a path INSIDE the repo (manifest v2 law:
+      //     'scripts/prepare-sim.sh'); committed, auditable, runs via sh.
+      //   shell line — first token is a binary on PATH ('xcodegen …', 'pod install',
+      //     'xcodebuild …'); agent-authored recipes (verify-confirmed) speak this
+      //     dialect and startVerify ALREADY executes them via sh -c. Treat the
+      //     first token as a script path ONLY when it exists in the repo;
+      //     otherwise it's a shell line — same execution path, same error contract.
       const scriptPath = prepareCommandPath(step.run);
-      if (!existsSync(join(ws, scriptPath))) {
+      // slash in the first token ⇒ unambiguously a repo-path dialect (scripts/x.sh);
+      // absent file there is a CONFIG error with the old hard contract. Slash-free
+      // tokens are shell binaries — sh -c owns their not-found error.
+      const isPathDialect = scriptPath.includes('/');
+      if (isPathDialect && !existsSync(join(ws, scriptPath))) {
         throw new Error(`PREPARE_FAILED: prepare[${i}] run "${scriptPath}" not found in the repo`);
       }
+      const isRepoScript = existsSync(join(ws, scriptPath));
       log(`$ prepare[${i}]: ${step.run}`);
       try {
-        // repo scripts are usually committed +x; if not, execute via sh <path>
-        const target = join(ws, scriptPath);
-        const executable = (() => { try { return (statSync(target).mode & 0o111) !== 0; } catch { return false; } })();
-        if (executable) {
-          await runCommand('sh', ['-c', step.run], ws, log, PREPARE_TIMEOUT_MS, benv);
+        if (isRepoScript) {
+          const target = join(ws, scriptPath);
+          const executable = (() => { try { return (statSync(target).mode & 0o111) !== 0; } catch { return false; } })();
+          if (executable) {
+            await runCommand('sh', ['-c', step.run], ws, log, PREPARE_TIMEOUT_MS, benv);
+          } else {
+            await runCommand('sh', [scriptPath, ...step.run.trim().split(/\s+/).slice(1)], ws, log, PREPARE_TIMEOUT_MS, benv);
+          }
         } else {
-          await runCommand('sh', [scriptPath, ...step.run.trim().split(/\s+/).slice(1)], ws, log, PREPARE_TIMEOUT_MS, benv);
+          await runCommand('sh', ['-c', step.run], ws, log, PREPARE_TIMEOUT_MS, benv);
         }
       } catch (e) {
         throw new Error(`PREPARE_FAILED: prepare[${i}] (${step.run}) — ${e instanceof Error ? e.message : String(e)}`);

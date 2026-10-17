@@ -127,6 +127,39 @@ Rules:
 
 export const commandByCmd = (cmd: string): CommandSpec | undefined => COMMANDS.find((c) => c.cmd === cmd);
 
+/** Dynamic skill routing (brainstorm 20261016T061611Z — frontier-copy, the
+ *  Claude Code Skill-tool pattern, host-implemented): the MODEL invokes a
+ *  command mid-turn from a plain message; the host returns the instruction
+ *  body as the tool result; execution continues in-context the same turn.
+ *  Guardrails stay inside the command bodies (SKILL.md semantics). */
+export function registerCommandRunTool(registry: ToolRegistryLike): void {
+  registry.register({
+    name: 'command.run',
+    description: 'invoke a registered Lionidas command when a plain message clearly asks for that kind of work — returns the command instructions to follow for the rest of this turn (do NOT use for mere questions about a topic)',
+    permission: 'read',
+    parameters: {
+      type: 'object',
+      properties: { name: { type: 'string', description: 'command name without the slash, e.g. planning' } },
+      required: ['name'],
+    },
+    async execute(args) {
+      const raw = String(args['name'] ?? '').trim().replace(/^\//, '');
+      const spec = COMMANDS.find((c) => c.cmd.replace(/^\//, '') === raw);
+      if (!spec) {
+        const known = COMMANDS.map((c) => c.cmd).join(', ');
+        return `error: unknown command "${raw}" — registered: ${known}`;
+      }
+      return `--- COMMAND ${spec.cmd} ACTIVE — follow these instructions for the rest of this turn ---\n${spec.instructions}`;
+    },
+  });
+}
+
+/** minimal structural type the tool registry exposes (avoids importing the
+ *  butler class here just for registration) */
+export interface ToolRegistryLike {
+  register(tool: { name: string; description: string; permission: 'read' | 'draft' | 'act'; parameters: Record<string, unknown>; execute(args: Record<string, unknown>): Promise<string> }): void;
+}
+
 /** engine order regardless of typing order (deduped) */
 export function orderCommands(cmds: string[]): CommandSpec[] {
   return [...COMMANDS].filter((c) => cmds.includes(c.cmd)).sort((a, b) => a.order - b.order);

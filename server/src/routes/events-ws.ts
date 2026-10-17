@@ -55,6 +55,8 @@ export async function registerEventsWs(app: FastifyInstance, bus: TypedEventBus<
       // agent surface (P3): live turn lifecycle + streaming deltas, run panel
       'agent.turn',
       'agent.workflow',
+      // Phase 5 v2: coalesced timeline snapshots (typed with the bus union)
+      'agent.turn.item',
     ] as const) {
       forward(t);
     }
