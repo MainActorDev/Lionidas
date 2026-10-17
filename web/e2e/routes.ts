@@ -26,7 +26,6 @@ export const ROUTES: FixtureRoute[] = [
   { path: '/audit', name: 'audit', readySelector: '.row' },
   { path: '/status', name: 'status', readySelector: '.tile' },
   { path: '/agent', name: 'agent', readySelector: '.tl-inner' },
-  { path: '/agent-v1', name: 'agentv1', readySelector: '.ag-root' },
   { path: '/screens', name: 'screens', readySelector: '.a2-group-head' },
 ];
 
