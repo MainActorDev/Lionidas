@@ -380,8 +380,8 @@ onMounted(() => {
 /* cause — red container (ember @ 0.5) ONLY for bad outcomes */
 .cause-box {
   margin-bottom:16px;
-  border:1px solid rgba(218, 92, 44, 0.6);
-  background:rgba(218, 92, 44, 0.5);
+  border:1px solid rgba(224, 111, 93, 0.6);
+  background:rgba(224, 111, 93, 0.5);
   border-radius:var(--r);
   padding:12px 16px;
 }
@@ -398,7 +398,7 @@ onMounted(() => {
 /* link underline hugs the text, not the grid cell — inline-block shrinks the
    box to content so border-bottom spans only the label */
 .link { text-decoration:none; border-bottom:1px dotted var(--color-slate); display:inline-block; max-width:100%; overflow:hidden; text-overflow:ellipsis; vertical-align:bottom; }
-.link:hover { color:var(--color-ember); border-bottom-color:var(--color-ember); }
+.link:hover { color:var(--color-accent); border-bottom-color:var(--color-accent); }
 
 /* actions */
 .actions { display:flex; gap:8px; margin-bottom:8px; align-items:center; }

@@ -92,13 +92,13 @@ const activeName = () => scenarios.value.find((s) => s.active)?.name ?? null;
 .scen-list { padding: 8px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
 .scen { border: 1px solid var(--color-iron); border-radius: var(--r); padding: 8px 10px; cursor: pointer; background: var(--color-void, #0d0d0d); }
 .scen:hover { border-color: var(--color-slate); }
-.scen.on { border-color: var(--color-ember); background: #131010; }
+.scen.on { border-color: var(--color-accent); background: #131010; }
 .scen.busy { opacity: .6; pointer-events: none; }
 .scen-top { display: flex; align-items: center; gap: 8px; }
 .scen-name { font-size: var(--text-caption); color: var(--color-paper); }
-.scen.on .scen-name { color: var(--color-ember); }
+.scen.on .scen-name { color: var(--color-accent); }
 .radio { width: 10px; height: 10px; border: 1.5px solid var(--color-pewter); border-radius: 50%; flex: none; }
-.scen.on .radio { border-color: var(--color-ember); background: radial-gradient(circle, var(--color-ember) 0 3.5px, transparent 4px); }
+.scen.on .radio { border-color: var(--color-accent); background: radial-gradient(circle, var(--color-accent) 0 3.5px, transparent 4px); }
 .scen-desc { font-size: 10.5px; color: var(--color-ash); margin-top: 3px; line-height: 1.45; }
 .scen-tag { margin-left: auto; font-size: 9px; color: var(--color-ash); border: 1px solid var(--color-iron); padding: 0 5px; border-radius: var(--r); flex: none; }
 .scen-foot { margin-top: 6px; display: flex; align-items: center; }

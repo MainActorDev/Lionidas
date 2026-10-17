@@ -61,7 +61,7 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
-.card-accent { border-left: 2px solid var(--color-ember); }
+.card-accent { border-left: 2px solid var(--color-accent); }
 
 /* ─── Buttons — Factory: dark filled button is the primary; NO chromatic/bright fills ─── */
 .btn {
@@ -181,7 +181,7 @@ tbody tr:hover { background: var(--color-carbon); }
   color: var(--color-ash);
   white-space: nowrap;
 }
-.badge-accent { border-color: var(--color-ember-dim); color: var(--color-ember); }
+.badge-accent { border-color: var(--color-accent-dim); color: var(--color-accent); }
 
 /* ─── Chips (interactive pills: tags, plan chips, filters) ─── */
 .chip {
@@ -337,8 +337,8 @@ a.chip:hover, button.chip:hover, .chip-click:hover { color: var(--color-paper); 
 .a2-tab:last-child { border-right: none; }
 .a2-tab .n { color: var(--color-steel); margin-left: 4px; }
 .a2-tab:hover { color: var(--color-paper); background: var(--color-graphite); }
-.a2-tab.on { color: var(--color-ember); background: var(--color-graphite); }
-.a2-tab.on .n { color: var(--color-ember); }
+.a2-tab.on { color: var(--color-accent); background: var(--color-graphite); }
+.a2-tab.on .n { color: var(--color-accent); }
 .a2-tab.dep.on { color: var(--color-steel); }
 
 /* ── a2-list: the shared list-container chrome (bordered scroll box).

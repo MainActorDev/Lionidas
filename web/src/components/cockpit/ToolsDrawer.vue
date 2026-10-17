@@ -267,7 +267,7 @@ function copySpec(): void {
 
 /* header */
 .head { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-bottom: 1px solid var(--color-iron); flex: 0 0 auto; }
-.ico { width: 22px; height: 22px; border: 1px solid var(--color-slate); border-radius: var(--r); display: grid; place-items: center; font-size: 11px; color: var(--color-ember); flex: none; }
+.ico { width: 22px; height: 22px; border: 1px solid var(--color-slate); border-radius: var(--r); display: grid; place-items: center; font-size: 11px; color: var(--color-accent); flex: none; }
 .title { font-size: var(--text-caption); letter-spacing: .1em; text-transform: uppercase; color: var(--color-paper); }
 .badge { font-size: 10px; color: var(--color-ash); border: 1px solid var(--color-slate); padding: 1px 6px; border-radius: var(--r); }
 .state { font-size: 9px; letter-spacing: .08em; color: var(--color-fog); border: 1px solid var(--color-iron); padding: 1px 7px; border-radius: var(--r); }
@@ -301,14 +301,14 @@ function copySpec(): void {
 /* empty state — one grouped, centered composition (icon + title + hint) */
 .empty { flex: 1; display: grid; place-items: center; padding: 18px 14px; }
 .empty-inner { display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; }
-.empty-mark { width: 30px; height: 30px; border: 1px solid var(--color-slate); border-radius: var(--r); display: grid; place-items: center; font-size: 14px; color: var(--color-ember); margin-bottom: 7px; }
+.empty-mark { width: 30px; height: 30px; border: 1px solid var(--color-slate); border-radius: var(--r); display: grid; place-items: center; font-size: 14px; color: var(--color-accent); margin-bottom: 7px; }
 .empty-title { margin: 0; color: var(--color-fog); font-size: var(--text-caption); }
 .empty-hint { margin: 0; color: var(--color-steel); font-size: 10.5px; line-height: 1.6; }
 
 /* identity */
 .ident-main { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .etype { color: var(--color-paper); font-weight: var(--weight-bold); font-size: var(--text-caption); }
-.eid { color: var(--color-ember); font-size: var(--text-caption); font-family: ui-monospace, monospace; }
+.eid { color: var(--color-accent); font-size: var(--text-caption); font-family: ui-monospace, monospace; }
 .elabel { color: var(--color-fog); font-size: var(--text-caption); margin-top: 3px; }
 .tags { display: flex; gap: 6px; margin-top: 7px; }
 .tag { font-size: 9px; letter-spacing: .06em; border: 1px solid var(--color-iron); color: var(--color-fog); padding: 1px 7px; border-radius: var(--r); }
@@ -335,9 +335,9 @@ function copySpec(): void {
 .actions { display: flex; gap: 6px; margin-top: 2px; }
 .act { flex: 1; font-family: inherit; background: none; border: 1px solid var(--color-iron); color: var(--color-fog); padding: 6px 0; cursor: pointer; font-size: var(--text-caption); border-radius: var(--r); }
 .act:hover:not(:disabled) { border-color: var(--color-slate); color: var(--color-paper); }
-.act.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: var(--weight-bold); flex: 0 0 64px; }
+.act.primary { background: var(--color-accent); border-color: var(--color-accent); color: #000; font-weight: var(--weight-bold); flex: 0 0 64px; }
 .act:disabled { opacity: .45; cursor: default; }
-.copymsg { font-size: 10px; color: var(--color-ember); text-align: center; }
+.copymsg { font-size: 10px; color: var(--color-accent); text-align: center; }
 
 .tree { padding: 4px 6px; }
 </style>

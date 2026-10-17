@@ -850,12 +850,12 @@ onBeforeUnmount(() => live.release());
 @keyframes toast-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
 .toast .t-ico { flex: none; width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; }
-.toast.ok .t-ico { background: var(--color-ember); color: var(--color-carbon); }
+.toast.ok .t-ico { background: var(--color-accent); color: var(--color-carbon); }
 .toast.err { border-color: var(--color-ember); }
 .toast.err .t-ico { border: 1px solid var(--color-ember); color: var(--color-ember); }
 .toast .t-text { white-space: normal; overflow-wrap: anywhere; }
 .toast .t-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; }
-.toast .t-bar i { display: block; height: 2px; background: var(--color-ember); animation: toast-drain 5s linear forwards; }
+.toast .t-bar i { display: block; height: 2px; background: var(--color-accent); animation: toast-drain 5s linear forwards; }
 @keyframes toast-drain { from { width: 100%; } to { width: 0; } }
 @media (prefers-reduced-motion: reduce) { .toast .t-bar { display: none; } }
 .modal-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; z-index: 50; }
@@ -867,8 +867,8 @@ onBeforeUnmount(() => live.release());
 .pick-row { display: flex; justify-content: space-between; padding: 6px 8px; border-radius: var(--r); cursor: pointer; color: var(--color-fog); font-size: var(--text-caption); }
 .pick-row:hover { background: var(--color-iron); color: var(--color-paper); }
 .pick-row.busy { opacity: .5; cursor: wait; }
-.pick-row.picked { border: 1px solid var(--color-ember); background: rgba(218, 92, 44, .08); color: var(--color-paper); }
-.pick-row.picked .k { color: var(--color-ember); }
+.pick-row.picked { border: 1px solid var(--color-accent); background: color-mix(in srgb, var(--color-accent) 8%, transparent); color: var(--color-paper); }
+.pick-row.picked .k { color: var(--color-accent); }
 .fanout-row { display: flex; align-items: center; gap: 8px; font-size: var(--text-caption); color: var(--color-fog); margin-bottom: 10px; cursor: pointer; user-select: none; }
 /* flex was STRETCHING the native checkbox to the row width (286px!) — the
    box rendered far from its label. Fixed size + no grow keeps the classic
@@ -877,13 +877,13 @@ onBeforeUnmount(() => live.release());
 .fanout-row:hover { color: var(--color-paper); }
 .modal.wide { width: 560px; min-width: 0; max-width: min(560px, calc(100vw - 48px)); }
 .app-row { border: 1px solid var(--color-iron); border-radius: var(--r); padding: 8px; margin-bottom: 6px; }
-.app-row.picked { border-color: var(--color-ember); }
+.app-row.picked { border-color: var(--color-accent); }
 .modal-search { box-sizing: border-box; font-family: inherit; font-size: var(--text-caption); color: var(--color-paper); background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r); padding: 5px 8px; margin-bottom: 8px; width: 100%; outline: none; }
 .modal-search:focus { border-color: var(--color-slate); }
 .case-row { cursor: pointer; }
 .case-row:hover { border-color: var(--color-slate); }
 .case-row.busy { opacity: .6; pointer-events: none; }
-.case-row.picked { background: rgba(218, 92, 44, .08); }
+.case-row.picked { background: color-mix(in srgb, var(--color-accent) 8%, transparent); }
 .case-desc { font-size: 10.5px; color: var(--color-ash); margin-top: 4px; line-height: 1.45; }
 .app-head { display: flex; justify-content: space-between; gap: 10px; cursor: pointer; }
 .app-name { color: var(--color-paper); font-size: var(--text-caption); }
@@ -891,7 +891,7 @@ onBeforeUnmount(() => live.release());
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .m-btn { font-family: inherit; background: none; border: 1px solid var(--color-iron); color: var(--color-fog); padding: 4px 14px; cursor: pointer; font-size: var(--text-caption); border-radius: var(--r); }
 .m-btn:hover:not(:disabled) { border-color: var(--color-slate); color: var(--color-paper); }
-.m-btn.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: var(--weight-bold); }
+.m-btn.primary { background: var(--color-accent); border-color: var(--color-accent); color: #101010; font-weight: var(--weight-bold); }
 .m-btn.danger { background: none; border-color: #d64545; color: #d64545; font-weight: var(--weight-bold); }
 .m-btn.danger:hover:not(:disabled) { background: #d64545; color: #fff; }
 .m-btn:disabled { opacity: .5; cursor: default; }
@@ -899,7 +899,7 @@ onBeforeUnmount(() => live.release());
 .hint-err { color: var(--color-paper); font-size: var(--text-caption); margin-top: 8px; border-left: 2px solid var(--color-ember); padding-left: 8px; overflow-wrap: anywhere; white-space: pre-wrap; max-height: 84px; overflow-y: auto; flex: none; }
 .dev-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; border: 1px solid var(--color-iron); border-radius: var(--r); padding: 8px 10px; margin-bottom: 6px; cursor: pointer; }
 .dev-row:hover { border-color: var(--color-slate); }
-.dev-row.picked { border-color: var(--color-ember); }
+.dev-row.picked { border-color: var(--color-accent); }
 .dev-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .dev-name { color: var(--color-paper); font-size: var(--text-caption); }
 .dev-meta { color: var(--color-steel); font-size: 10px; }

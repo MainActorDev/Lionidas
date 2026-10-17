@@ -37,16 +37,33 @@
 
 /* ─── Factory status accents — status/data use ONLY, flipped per theme ───
    Light-mode values are darker ramps so they keep ≥4.5:1 on #fafafa/#fff
-   (Phase 2 Task 4 contrast audit). */
+   (Phase 2 Task 4 contrast audit).
+   2026-10-17: the orange ramp RETIRED. Fail/degraded/live signal is now
+   VERMILION (approved mono-chrome direction — ember values were #e06f5d
+   dark / #b04a3f light). Var NAMES unchanged; 277 references inherit. */
 :root {
-  --status-orange: #b03d0e;
-  --status-orange-dim: #8a2f0b;
+  --status-orange: #b04a3f;
+  --status-orange-dim: #8f3a31;
   --status-green: #3f6b34;
 }
 .dark {
-  --status-orange: #ee6018;
-  --status-orange-dim: #c24f13;
+  --status-orange: #e06f5d;
+  --status-orange-dim: #c05645;
   --status-green: #a0ca92;
+}
+
+/* ─── Chrome accent (mono) — interactive surfaces ONLY: buttons, links,
+   selected states, focus rings, selection. Bone on dark, graphite on
+   light (the approved Linear/Vercel-style mono chrome). NEVER for
+   status/data — status stays vermilion/sage/gold above. Pure #fff
+   fills remain forbidden; this is low-chroma bone. */
+:root {
+  --color-accent: #2a2622;
+  --color-accent-dim: #4a453f;
+}
+.dark {
+  --color-accent: #d9d5cf;
+  --color-accent-dim: #b5b1ab;
 }
 
 /* ─── LIGHT (registered, NOT active — values are proposals pending a
@@ -66,7 +83,7 @@
   --muted-foreground: #6b6663;
   --accent: #efedeb;
   --accent-foreground: #101010;
-  --destructive: #b03d0e;
+  --destructive: #b04a3f;
   --destructive-foreground: #fafafa;
   --border: #ddd9d6;
   --input: #ddd9d6;
@@ -90,7 +107,7 @@
   --muted-foreground: #b8b3b0;
   --accent: #262220;
   --accent-foreground: #eeeeee;
-  --destructive: #ee6018;
+  --destructive: #e06f5d;
   --destructive-foreground: #101010;
   --border: #3d3a39;
   --input: #3d3a39;

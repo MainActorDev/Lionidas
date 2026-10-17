@@ -163,7 +163,7 @@ watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom
 .head .t { font-size: var(--text-body); color: var(--color-paper); }
 .sid { font-size: 11px; color: var(--color-steel); background: none; border: 1px solid var(--ag-line); border-radius: var(--r-sm); padding: 1px 8px; cursor: pointer; font-family: var(--font-mono); position: relative; }
 .sid:hover { color: var(--color-paper); border-color: var(--ag-line-2); }
-.sid .cok { color: var(--color-ember); margin-left: 6px; }
+.sid .cok { color: var(--color-accent); margin-left: 6px; }
 .pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--ag-line); border-radius: var(--r-sm); padding: 1px var(--s-2); font-size: var(--text-caption); color: var(--color-fog); }
 .pill.live { color: var(--color-ember); border-color: var(--color-ember-dim); }
 .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--color-ember); animation: agpulse 1.3s infinite; }
@@ -192,9 +192,9 @@ watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom
 .ab-tag.queued { color: var(--color-ember); border-color: var(--ag-line); }
 .ab-tag.unsent { color: var(--color-steel); border-color: var(--ag-line-2); }
 .tries-tag { display: inline-block; margin-top: 3px; font-size: 11px; letter-spacing: .02em; color: var(--color-steel, #8a8f98); }
-.ab-tag { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-ember); }
+.ab-tag { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-accent); }
 .ab-btn { border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); background: var(--ag-panel); color: var(--color-fog); font-family: var(--font-mono); font-size: var(--text-caption); padding: 2px 10px; cursor: pointer; }
-.ab-btn:hover { color: var(--color-paper); border-color: var(--color-ember-dim); }
+.ab-btn:hover { color: var(--color-paper); border-color: var(--color-accent-dim); }
 .msg.user .txt :deep(a) { color: var(--color-paper); text-decoration: underline; }
 .msg.assistant .body { max-width: 88%; background: #222; border: 1px solid var(--ag-line-2); border-radius: 10px; border-bottom-left-radius: 3px; padding: var(--s-2) var(--s-3); }
 .msg.assistant .txt { color: var(--color-fog); }
@@ -231,7 +231,7 @@ watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom
 /* yaml: subtle per-level tint on keys/structure via injected spans happens in
    the renderer; here we only cap width so wrap keeps lines readable */
 .txt :deep(pre.lang-yaml) { max-height: 420px; overflow-y: auto; }
-.txt :deep(a) { color: var(--color-ember); }
+.txt :deep(a) { color: var(--color-accent); }
 /* evidence embeds: capped, bordered, in-bubble media */
 .txt :deep(.ev-embed) { display: block; max-width: 100%; max-height: 320px; border: 1px solid var(--ag-line); border-radius: var(--r-sm); margin: 6px 0; }
 .txt :deep(video.ev-embed) { width: 100%; }
@@ -260,7 +260,7 @@ watch(() => props.streaming, () => { if (props.streaming !== null) stickToBottom
 
 .atts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: var(--s-2); }
 .att { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--ag-line); border-radius: var(--r-sm); padding: 0 var(--s-2); font-size: var(--text-caption); color: var(--color-fog); background: var(--ag-panel); }
-.att.jira { color: var(--color-ember); border-color: var(--color-ember-dim); }
+.att.jira { color: var(--color-accent); border-color: var(--color-accent-dim); }
 .tool { font-size: var(--text-caption); color: var(--color-steel); margin-top: 6px; }
 .sys { align-self: center; font-size: var(--text-caption); color: var(--color-steel); border: 1px dashed var(--ag-line); border-radius: var(--r-sm); padding: 4px var(--s-3); }
 </style>

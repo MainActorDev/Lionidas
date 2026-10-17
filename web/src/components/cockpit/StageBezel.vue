@@ -540,7 +540,7 @@ defineExpose({
 .zoombar { display: flex; align-items: center; justify-content: center; gap: 6px; background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r); padding: 3px 6px; }
 .session-btn { font-family: inherit; background: none; border: 1px solid var(--color-iron); color: var(--color-fog); padding: 4px 10px; cursor: pointer; font-size: var(--text-caption); border-radius: var(--r); }
 .session-btn:hover:not(:disabled) { border-color: var(--color-slate); color: var(--color-paper); }
-.session-btn.primary { background: var(--color-ember); border-color: var(--color-ember); color: #000; font-weight: var(--weight-bold); }
+.session-btn.primary { background: var(--color-accent); border-color: var(--color-accent); color: #101010; font-weight: var(--weight-bold); }
 .session-btn.abort { background: none; border: 1px solid var(--color-ember); color: var(--color-ember); }
 .session-btn.abort:hover { background: var(--color-ember); color: var(--color-carbon); }
 .session-btn.danger { background: #c8342c; border-color: #c8342c; color: #fff; font-weight: var(--weight-bold); }
@@ -548,14 +548,14 @@ defineExpose({
 .session-btn:disabled { opacity: .5; cursor: default; }
 .fps-chip { text-align: center; font-size: 9px; letter-spacing: .06em; color: var(--color-fog); background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r); padding: 1px 6px; }
 .zoombar button { font-family: inherit; width: 22px; height: 22px; line-height: 1; background: none; border: 1px solid var(--color-iron); color: var(--color-fog); border-radius: var(--r); cursor: pointer; font-size: 14px; display: grid; place-items: center; }
-.zoombar button:hover:not(:disabled) { border-color: var(--color-ember); color: var(--color-ember); }
+.zoombar button:hover:not(:disabled) { border-color: var(--color-accent); color: var(--color-accent); }
 .zoombar button:disabled { opacity: .35; cursor: default; }
 .zlabel { font-size: 10px; color: var(--color-fog); min-width: 36px; text-align: center; }
 
 /* the REAL bezel: wrap sized explicitly (WebKit aspect-ratio guard), image
  * fills it; canvas + buttons ride % rects — aligned by construction */
-.inspect-chip { background: var(--color-carbon); border: 1px solid var(--color-ember); color: var(--color-ember); font-family: inherit; font-size: 9px; letter-spacing: .06em; text-transform: uppercase; padding: 2px 6px; border-radius: var(--r); cursor: pointer; text-align: center; white-space: nowrap; }
-.inspect-chip:hover { background: var(--color-ember); color: var(--color-carbon); }
+.inspect-chip { background: var(--color-carbon); border: 1px solid var(--color-accent); color: var(--color-accent); font-family: inherit; font-size: 9px; letter-spacing: .06em; text-transform: uppercase; padding: 2px 6px; border-radius: var(--r); cursor: pointer; text-align: center; white-space: nowrap; }
+.inspect-chip:hover { background: var(--color-accent); color: var(--color-carbon); }
 .restarting-veil { position: absolute; z-index: 6; display: flex; align-items: center; justify-content: center; gap: 7px; background: rgba(0,0,0,.72); color: var(--color-ember); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; border: 1px solid var(--color-iron); }
 .restarting-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-ember); animation: restarting-pulse 1.1s infinite; }
 @keyframes restarting-pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }

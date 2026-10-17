@@ -58,7 +58,7 @@ const selRect = computed(() => props.selected?.rect ?? null);
 }
 .sel-ring {
   fill: rgba(255, 159, 64, 0.10);
-  stroke: var(--color-ember, #ff9f40);
+  stroke: var(--color-ember, #e06f5d);
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
 }

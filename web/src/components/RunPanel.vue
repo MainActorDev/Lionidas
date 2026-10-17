@@ -451,8 +451,8 @@ async function requestAbort(): Promise<void> {
 /* tap ripple: fraction-positioned over the canvas — the canvas maps the same
    logical space the fractions were computed from */
 .rp-tap { position: absolute; translate: -50% -50%; width: 0; height: 0; pointer-events: none; z-index: 2; }
-.rp-tap i { position: absolute; left: 0; top: 0; border-radius: 999px; translate: -50% -50%; border: 2px solid var(--color-ember, #f5a524); }
-.rp-tap i:first-child { width: 14px; height: 14px; background: var(--color-ember, #f5a524); opacity: 0.9; animation: rp-tap-pop 0.18s ease-out; }
+.rp-tap i { position: absolute; left: 0; top: 0; border-radius: 999px; translate: -50% -50%; border: 2px solid var(--color-ember, #e06f5d); }
+.rp-tap i:first-child { width: 14px; height: 14px; background: var(--color-ember, #e06f5d); opacity: 0.9; animation: rp-tap-pop 0.18s ease-out; }
 .rp-tap i:last-child { width: 14px; height: 14px; border-color: rgba(245, 165, 36, 0.9); animation: rp-tap-ring 1.2s ease-out forwards; }
 @keyframes rp-tap-pop { from { transform: scale(0.4); } to { transform: scale(1); } }
 @keyframes rp-tap-ring { from { transform: scale(0.8); opacity: 0.9; } to { transform: scale(3.2); opacity: 0; } }

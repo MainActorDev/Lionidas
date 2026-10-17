@@ -820,7 +820,7 @@ export default { name: 'ForgePage' };
 .crumb-acts { margin-left: auto; display: flex; gap: 6px; align-items: center; }
 .a2-folder-row { display: flex; align-items: center; gap: var(--s-2); padding: 8px 12px; border-bottom: 1px solid var(--color-iron); cursor: pointer; font-family: var(--font-mono); font-size: 12px; color: var(--color-paper); }
 .a2-folder-row:hover { background: var(--color-graphite); }
-.f-glyph { color: var(--color-ember); width: 16px; height: 16px; flex: none; }
+.f-glyph { color: var(--color-accent); width: 16px; height: 16px; flex: none; }
 .f-spacer { width: 26px; flex: none; display: flex; align-items: center; }
 .f-n { color: var(--color-steel); margin-left: 6px; }
 .f-fill { flex: 1; }
@@ -830,7 +830,7 @@ export default { name: 'ForgePage' };
 .f-acts { margin-left: auto; display: flex; gap: 4px; }
 .f-del.ghosted { visibility: hidden; }
 .doc-glyph { width: 14px; height: 14px; color: var(--color-pewter); margin-left: 6px; }
-.btn.on { border-color: var(--color-ember); color: var(--color-ember); }
+.btn.on { border-color: var(--color-accent); color: var(--color-accent); }
 .mv { display: inline-flex; gap: 4px; }
 .mv-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 60; }
 .mv-card { background: var(--color-graphite); border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: var(--s-4); min-width: 340px; max-width: 440px; }
@@ -847,7 +847,7 @@ export default { name: 'ForgePage' };
 .trf-row { display: grid; grid-template-columns: minmax(0, 80px) minmax(0, 50px) minmax(0, 150px) minmax(0, 1fr) minmax(0, 50px) minmax(0, 70px) minmax(0, 90px); align-items: center; border-bottom: 1px solid var(--color-iron); font-size: var(--text-caption); cursor: pointer; }
 .trf-row:hover { background: var(--color-graphite); }
 .trf-row > span { padding: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.pre-hit { color: var(--color-ember); font-size: 10px; }
+.pre-hit { color: var(--color-accent); font-size: 10px; }
 .row-selected { background: color-mix(in srgb, var(--color-ember) 8%, transparent); }
 /* detail — INLINE under its traffic row (the inset idiom) */
 .trf-detail { background: var(--color-void); border-bottom: 1px solid var(--color-iron); }

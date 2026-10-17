@@ -480,15 +480,15 @@ const canCreate = computed(() => openId.value !== 'draft');
 }
 .pj-row-card { border-bottom: 1px solid var(--color-iron); }
 .pj-row-card:last-child { border-bottom: none; }
-.pj-row-card.editing { border-color: var(--color-ember); }
-.pj-row-card.editing .pj-row { background: color-mix(in srgb, var(--color-ember) 6%, transparent); }
+.pj-row-card.editing { border-color: var(--color-accent); }
+.pj-row-card.editing .pj-row { background: color-mix(in srgb, var(--color-accent) 6%, transparent); }
 .pj-row { min-height: 44px; cursor: pointer; font-size: var(--text-label); color: var(--color-fog); }
 .pj-row:hover { background: var(--color-graphite); }
 .pj-name { color: var(--color-paper); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pj-newname { color: var(--color-ash); font-style: italic; }
 .pj-repo, .pj-br, .pj-upd { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ash); }
 .pj-auth { font-size: 10px; padding: 1px 5px; border: 1px solid var(--color-iron); color: var(--color-ash); text-transform: uppercase; justify-self: start; }
-.pj-auth.on { color: var(--color-ember); border-color: var(--color-ember-dim); }
+.pj-auth.on { color: var(--color-accent); border-color: var(--color-accent-dim); }
 .pj-claims { color: var(--color-ash); }
 .pj-ws { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ash); font-size: var(--text-caption); }
 .pj-ws.dirty { color: var(--color-ember); }

@@ -90,9 +90,9 @@ void props;
 }
 .tool:hover { color: var(--color-snow, #e8edf4); background: var(--color-graphite, #191919); }
 .tool.on {
-  color: var(--color-ember, #ff9f40);
-  border-color: var(--color-ember, #ff9f40);
-  background: color-mix(in srgb, var(--color-ember, #ff9f40) 12%, transparent);
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
 }
 .tool svg { width: 17px; height: 17px; }
 .tip {

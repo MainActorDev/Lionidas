@@ -124,5 +124,5 @@ onBeforeUnmount(() => { /* the editor host dies with the DOM; nothing to unmount
 .lfp-acts .danger { border: none; color: var(--color-ember); font-size: var(--text-caption); }
 .lfp-acts .danger:hover { color: var(--color-ember-dim); }
 .btn { display: inline-flex; align-items: center; padding: 6px var(--s-3); background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-body); min-height: 30px; cursor: pointer; }
-.btn-primary { background: var(--color-ember); border-color: var(--color-ember); color: var(--color-paper); font-weight: var(--weight-bold); }
+.btn-primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-paper); font-weight: var(--weight-bold); }
 </style>

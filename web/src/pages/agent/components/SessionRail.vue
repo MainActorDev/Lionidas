@@ -97,7 +97,7 @@ function askDelete(c: ChatRow): void {
 <style scoped>
 .rail { width: 200px; flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--ag-line, #2a2a2a); background: var(--ag-panel, #181818); }
 .rail-head { padding: 14px 16px 8px; display: flex; flex-direction: column; gap: 8px; }
-.new { border: 1px solid var(--color-ember-dim, #c24f13); border-radius: 2px; background: var(--color-ember, #ee6018); color: #141414; font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 12px; font-weight: 600; padding: 7px 10px; cursor: pointer; text-align: left; }
+.new { border: 1px solid var(--color-accent-dim, #b5b1ab); border-radius: 2px; background: var(--color-accent, #d9d5cf); color: #141414; font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 12px; font-weight: 600; padding: 7px 10px; cursor: pointer; text-align: left; }
 .new:hover { border-color: #141414; }
 .new:focus-visible { outline: 1px solid #141414; outline-offset: 2px; }
 .search { background: var(--ag-surface, #1f1f1f); border: 1px solid var(--ag-line, #2a2a2a); border-radius: 2px; color: var(--color-paper, #f5f5f2); font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 11px; padding: 5px 8px; outline: none; width: 100%; box-sizing: border-box; }
@@ -107,11 +107,11 @@ function askDelete(c: ChatRow): void {
 .sess { padding: 8px 10px; border-radius: 2px; margin-bottom: 2px; position: relative; cursor: pointer; min-width: 0; }
 .sess:hover { background: var(--ag-surface, #1f1f1f); }
 .sess.on { background: var(--ag-surface, #1f1f1f); }
-.sess:focus-visible { outline: 1px solid var(--color-ember, #ee6018); outline-offset: -1px; }
+.sess:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
 .sess .t { font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, sans-serif); font-size: 12px; color: var(--ag-ink-dim, #a39d95); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sess.on .t { color: var(--color-paper, #f5f5f2); }
 .sess .m { font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 10px; color: var(--ag-ink-dim, #a39d95); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.live-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--color-ember, #ee6018); margin-left: 5px; animation: railblink 1.2s infinite; vertical-align: baseline; }
+.live-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--color-ember, #e06f5d); margin-left: 5px; animation: railblink 1.2s infinite; vertical-align: baseline; }
 @keyframes railblink { 50% { opacity: .25; } }
 .mi { display: block; width: 100%; text-align: left; background: none; border: none; color: var(--ag-ink-dim, #a39d95); font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 10px; padding: 4px 0 0; cursor: pointer; }
 .mi:hover { color: var(--color-paper, #f5f5f2); }
@@ -119,5 +119,5 @@ function askDelete(c: ChatRow): void {
 .ren-in { width: 100%; box-sizing: border-box; background: var(--ag-surface, #1f1f1f); border: 1px solid var(--ag-line-2, #3a3a3a); border-radius: 2px; color: var(--color-paper, #f5f5f2); font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 11px; padding: 3px 6px; outline: none; }
 .empty { padding: 16px 10px; font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 11px; color: var(--ag-ink-dim, #a39d95); opacity: .7; }
 .rail-foot { border-top: 1px solid var(--ag-line, #2a2a2a); padding: 10px 16px; font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 10px; color: var(--ag-ink-dim, #a39d95); }
-.live-n { color: var(--color-ember, #ee6018); }
+.live-n { color: var(--color-ember, #e06f5d); }
 </style>

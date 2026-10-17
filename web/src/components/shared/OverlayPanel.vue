@@ -33,12 +33,12 @@ const emit = defineEmits<{ (e: 'close'): void }>();
 @media (prefers-reduced-motion: reduce) { .overlay { animation: none; } }
 
 .ov-head { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-bottom: 1px solid var(--color-iron); flex: 0 0 auto; }
-.ov-ico { width: 22px; height: 22px; border: 1px solid var(--color-slate); border-radius: var(--r); display: grid; place-items: center; font-size: 11px; color: var(--color-ember); flex: none; }
+.ov-ico { width: 22px; height: 22px; border: 1px solid var(--color-slate); border-radius: var(--r); display: grid; place-items: center; font-size: 11px; color: var(--color-accent); flex: none; }
 .ov-title { font-size: var(--text-caption); letter-spacing: .1em; text-transform: uppercase; color: var(--color-paper); }
-.ov-badge { font-size: 10px; color: var(--color-carbon); background: var(--color-ember); padding: 1px 6px; border-radius: var(--r); }
+.ov-badge { font-size: 10px; color: var(--color-carbon); background: var(--color-accent); padding: 1px 6px; border-radius: var(--r); }
 .ov-badge.off { background: none; color: var(--color-ash); border: 1px solid var(--color-slate); }
 .ov-spacer { flex: 1; }
 .ov-x { background: none; border: 1px solid var(--color-iron); color: var(--color-fog); border-radius: var(--r); cursor: pointer; font-size: var(--text-caption); padding: 1px 7px; }
-.ov-x:hover { border-color: var(--color-ember); color: var(--color-ember); }
+.ov-x:hover { border-color: var(--color-accent); color: var(--color-accent); }
 .ov-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
 </style>

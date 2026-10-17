@@ -277,7 +277,7 @@ export default { name: 'PresetDocPanel' };
 .fld .k { width: 90px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-steel); flex-shrink: 0; }
 .fld .k2 { width: auto; margin-left: var(--s-2); }
 .fld input, .fld textarea, .fld select { background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 5px var(--s-2); }
-.fld input:focus, .fld textarea:focus { outline: 1px solid var(--color-ember); outline-offset: 0; }
+.fld input:focus, .fld textarea:focus { outline: 1px solid var(--color-accent); outline-offset: 0; }
 .fld-col textarea { width: 100%; resize: vertical; }
 .mono-in { font-family: var(--font-mono); }
 .hint { font-size: var(--text-caption); color: var(--color-steel); margin-left: var(--s-2); }

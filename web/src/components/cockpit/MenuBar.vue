@@ -84,7 +84,7 @@ void props;
 <style scoped>
 .menubar { display: flex; align-items: center; gap: 2px; height: 36px; padding: 0 var(--s-3); border-bottom: 1px solid var(--color-iron); background: var(--color-carbon); position: relative; z-index: 30; }
 .brand-logo { display: block; width: 18px; height: 18px; margin-right: 2px; flex: none; }
-.brand { color: var(--color-ember); font-weight: var(--weight-bold); padding: 0 var(--s-2) 0 2px; }
+.brand { color: var(--color-accent); font-weight: var(--weight-bold); padding: 0 var(--s-2) 0 2px; }
 .menu { position: relative; }
 .menu > button { font-family: inherit; background: none; border: none; color: var(--color-fog); padding: 4px 10px; cursor: pointer; font-size: var(--text-caption); border-radius: var(--r); }
 .menu > button:hover, .menu.open > button { background: var(--color-graphite); color: var(--color-paper); }
@@ -94,7 +94,7 @@ void props;
 .item:hover { background: var(--color-iron); color: var(--color-paper); }
 .item.disabled { opacity: .35; cursor: default; }
 .item.disabled:hover { background: transparent; color: var(--color-fog); }
-.item.act { color: var(--color-ember); }
+.item.act { color: var(--color-accent); }
 .item .accel { color: var(--color-steel); }
 hr { border: none; border-top: 1px solid var(--color-iron); margin: 4px 0; }
 .status { margin-left: auto; display: flex; align-items: center; gap: var(--s-3); font-size: var(--text-caption); color: var(--color-ash); }
