@@ -90,6 +90,40 @@ test('visual + a11y — audit detail sheet open [dark]', async ({ page }) => {
   expect(results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')).toEqual([]);
 });
 
+/** open-state surface (phase B S3): the app-states panel carrying the
+ *  proposals inbox — one open + one decided in the fixture. */
+test('visual + a11y — app states panel + proposals inbox [dark]', async ({ page }) => {
+  await installMocks(page);
+  await page.goto('/screens', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.a2-group-head', { timeout: 15_000 });
+  expect(page.url()).not.toContain('/login');
+  await page.locator('.mini-act', { hasText: 'app states' }).first().click();
+  await page.waitForSelector('.asp', { timeout: 5_000 });
+  await page.waitForSelector('.asp-prow', { timeout: 5_000 }); // inbox rows present
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForTimeout(250);
+  await expect(page).toHaveScreenshot('app-states-inbox-dark', { fullPage: false });
+  const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
+  expect(results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')).toEqual([]);
+});
+
+/** phase B S3: accept is confirm-gated — a dismissed dialog accepts nothing;
+ *  the accepted tap removes the row from the open list. */
+test('proposals inbox — accept honors the confirm gate [dark]', async ({ page }) => {
+  await installMocks(page);
+  await page.goto('/screens', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.a2-group-head', { timeout: 15_000 });
+  await page.locator('.mini-act', { hasText: 'app states' }).first().click();
+  await page.waitForSelector('.asp-prow', { timeout: 5_000 });
+  page.once('dialog', (d) => void d.dismiss()); // cancel = no registry write
+  await page.locator('.asp-prow .c-act', { hasText: 'accept' }).first().click();
+  await page.waitForTimeout(150);
+  await expect(page.locator('.asp-prow')).toHaveCount(1); // still open
+  page.once('dialog', (d) => void d.accept()); // the human tap
+  await page.locator('.asp-prow .c-act', { hasText: 'accept' }).first().click();
+  await expect(page.locator('.asp-prow')).toHaveCount(0); // left the open list
+});
+
 /** scroll-state surface: sticky day headers must cover scrolled-past rows.
  *  Regression: 2026-10-15 — .day stuck 24px low (.main padding-top), rows
  *  readable above the header. Top-of-page captures never engage sticky, so
