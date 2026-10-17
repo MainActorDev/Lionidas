@@ -48,6 +48,13 @@ export async function postDarwinNotification(udid: string, name: string): Promis
   await execFileAsync('xcrun', ['simctl', 'spawn', udid, 'notifyutil', '-p', name], { timeout: 5_000 });
 }
 
+/** Grant a privacy permission (photos, camera, location, …) to an app on the
+ *  simulator — the app_states privacyGrant actuator (phase A S4). Grant is
+ *  idempotent; the caller serializes device-scoped effects. */
+export async function privacyGrant(udid: string, service: string, bundleId: string): Promise<void> {
+  await execFileAsync('xcrun', ['simctl', 'privacy', udid, 'grant', service, bundleId], { timeout: 15_000 });
+}
+
 export async function openSimulatorUrl(udid: string, url: string): Promise<void> {
   await execFileAsync('xcrun', ['simctl', 'openurl', udid, url], { timeout: 10_000 });
 }

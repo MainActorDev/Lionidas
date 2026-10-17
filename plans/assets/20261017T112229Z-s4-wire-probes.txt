@@ -1,0 +1,37 @@
+# S4 wire-probe outputs — 2026-10-17T14:08:34Z, sim 10A3544B-011F-4F29-BBA8-B713DC2B6ACD, app com.his.foodiary.app (Foodiary-1.0-9.ipa)
+
+## 1. privacy grant/revoke round-trip
+$ xcrun simctl privacy <udid> grant photos com.his.foodiary.app
+rc=0 GRANT OK
+$ xcrun simctl privacy <udid> revoke photos com.his.foodiary.app
+rc=0 REVOKE OK
+$ xcrun simctl privacy <udid> reset all com.his.foodiary.app   # the TCC reset hammer
+rc=0 RESET OK
+
+## 2. uninstall + reinstall cycle
+$ xcrun simctl uninstall <udid> com.his.foodiary.app
+rc=0 UNINSTALL OK
+An error was encountered processing the command (domain=FBSOpenApplicationServiceErrorDomain, code=4):
+Simulator device failed to launch com.his.foodiary.app.
+(launch after uninstall fails = app truly gone)
+rc=0 REINSTALL OK
+
+## 3. the app-terminate verb (engine surface)
+$ agent-device open com.his.foodiary.app --udid <udid> (session opens the app)
+$ agent-device close com.his.foodiary.app --udid <udid>
+{
+  "success": true,
+  "data": {
+    "session": "default",
+    "message": "Closed: default"
+  }
+}
+--- foreground after close:
+{
+  "success": false,
+  "error": {
+    "code": "SESSION_NOT_FOUND",
+    "message": "iOS appstate requires an active session on the target device. Run open first (for example: open --session sim --platform ios --device \"<name>\" <app>).",
+    "hint": "Run open first or pass an explicit device selector.",
+    "diagnosticId": "mvch32x5-8329ca35",
+    "logPath": "/Volumes/berkakyo/Users/berkamain/.agent-device/sessions/cwd_1b3b4728280b4a95_default/requests/fd860ddd88a0dba2.ndjson",

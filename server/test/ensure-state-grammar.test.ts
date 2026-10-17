@@ -1,9 +1,8 @@
-import type Database from 'better-sqlite3';
 /** ensure state grammar (phase A S1, plan 20261017T112229Z): parse, errors,
  *  round-trip, completions vocabulary, slot classification, substitution
  *  carry-through, and the fail-loud engine stub (S3 replaces the stub with
  *  the convergence executor). */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { parseCaseYaml, caseToYaml } from '../../shared/src/case-yaml.ts';
 import { buildCompletions } from '../../shared/src/yaml-completions.ts';
 import { slotAt } from '../../shared/src/yaml-slots.ts';

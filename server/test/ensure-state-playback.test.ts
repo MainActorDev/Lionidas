@@ -5,7 +5,8 @@
  *  the 'Hi, Dev' session text appears (the logged_in probe/verify target). */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { migrateM1 } from '../src/db/schema.ts';
@@ -184,12 +185,75 @@ describe('ensure state executor — convergence branches', () => {
     expect(audit(runId)).toMatchObject({ path: 'recipe', stepsPlayed: 0 });
   });
 
-  it('S4-pending actuators fail loud with STATE_ACTUATOR_PENDING (never silent pass)', async () => {
-    seedState('fresh', { label: 'Hi, Dev' }, { actuator: 'uninstallReinstall' }, { label: 'Hi, Dev' });
-    seedTemplate('tpl_s4', [{ idx: 0, action: 'ensureState', ensureState: 'fresh' }], BUNDLE);
-    const { runId } = await play('tpl_s4');
-    expect(stepRows(runId)[0]?.reason).toMatch(/STATE_ACTUATOR_PENDING.*uninstallReinstall/);
-    expect(runStatus(runId)).toBe('failed');
+  it('uninstallReinstall without an artifact fails STATE_ARTIFACT_MISSING (F6 precondition)', async () => {
+    process.env.CRUCIBLE_PACKAGES_DIR = join(tmp, 'no-packages');
+    try {
+      seedState('fresh', { label: 'Hi, Dev' }, { actuator: 'uninstallReinstall' }, { label: 'Hi, Dev' });
+      seedTemplate('tpl_art', [{ idx: 0, action: 'ensureState', ensureState: 'fresh' }], BUNDLE);
+      const { runId } = await play('tpl_art');
+      expect(stepRows(runId)[0]?.reason).toMatch(/STATE_ARTIFACT_MISSING.*com.example.foodiary/);
+      expect(runStatus(runId)).toBe('failed');
+    } finally { delete process.env.CRUCIBLE_PACKAGES_DIR; }
+  });
+
+  it('uninstallReinstall: engine reinstall dispatch (newest artifact) + relaunch keeps -uitest-live-refresh, then verify holds', async () => {
+    // build a minimal readable .ipa (Payload/X.app/Info.plist via plutil) —
+    // readIpaIdentity streams it through unzip+plutil, so the package lists
+    const pkgDir = join(tmp, 'pkgs'); mkdirSync(pkgDir);
+    const appDir = join(tmp, 'Payload', 'F.app'); mkdirSync(appDir, { recursive: true });
+    writeFileSync(join(appDir, 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>${BUNDLE}</string><key>CFBundleVersion</key><string>9</string><key>CFBundleShortVersionString</key><string>1.0</string></dict></plist>\n`);
+    execFileSync('zip', ['-q', '-r', join(pkgDir, 'Foodiary-1.0-9.ipa'), 'Payload'], { cwd: tmp });
+    process.env.CRUCIBLE_PACKAGES_DIR = pkgDir;
+    try {
+      seedState('fresh_install', { label: 'Hi, Dev' }, { actuator: 'uninstallReinstall', launchArgs: ['--reset'] }, { label: 'Promo' });
+      seedTemplate('tpl_ri', [{ idx: 0, action: 'ensureState', ensureState: 'fresh_install' }], BUNDLE);
+      const { runId } = await play('tpl_ri');
+      expect(stepRows(runId)[0]?.status).toBe('pass');
+      const reinstall = appsCalls.find((c) => c['action'] === 'reinstall');
+      expect(reinstall).toMatchObject({ app: BUNDLE });
+      expect(String(reinstall?.['path'])).toMatch(/Foodiary-1\.0-9\.ipa$/);
+      const opens = appsCalls.filter((c) => c['action'] === 'open');
+      expect(opens.at(-1)?.['launchArgs']).toEqual(['-uitest-live-refresh', '--reset']);
+      expect(audit(runId)).toMatchObject({ path: 'recipe' });
+    } finally { delete process.env.CRUCIBLE_PACKAGES_DIR; }
+  });
+
+  it('device-scoped actuator serializes (helper semantics: self + manual excluded, queued lane counts)', async () => {
+    const { deviceContender } = await import('../src/manual/state-actuator.ts');
+    // self: the calling run's own row (running, this udid) never contends
+    db.prepare("INSERT INTO runs(id, ticket_key, kind, status, device_udid, started_at, triggered_by) VALUES ('run_self', 'T-1', 'automated', 'running', 'sim', 0, 'qa')").run();
+    expect(deviceContender(db, 'sim', 'run_self')).toBeUndefined();
+    // a queued sibling lane contends
+    db.prepare("INSERT INTO runs(id, ticket_key, kind, status, device_udid, started_at, triggered_by) VALUES ('run_lane', 'T-1', 'automated', 'queued', 'sim', 0, 'qa')").run();
+    expect(deviceContender(db, 'sim', 'run_self')).toMatchObject({ id: 'run_lane' });
+    // manual rows never contend (session-class exclusion)
+    db.prepare("INSERT INTO runs(id, ticket_key, kind, status, device_udid, started_at, triggered_by) VALUES ('run_man', 'T-1', 'manual', 'running', 'sim', 0, 'qa')").run();
+    db.prepare("UPDATE runs SET status = 'passed' WHERE id = 'run_lane'").run();
+    expect(deviceContender(db, 'sim', 'run_self')).toBeUndefined();
+    // a finished lane never contends
+    // (front gate note: runTemplatePlayback's own B5 gate refuses contended
+    // starts BEFORE any actuator — this helper is the defense-in-depth layer)
+  });
+
+  it('privacyGrant posts simctl privacy grant with the recipe permission (fake-bin PATH)', async () => {
+    const bin = join(tmp, 'bin'); mkdirSync(bin);
+    const argvFile = join(tmp, 'argv.txt');
+    writeFileSync(join(bin, 'xcrun'), `#!/bin/sh\necho "$@" >> '${argvFile}'\nexit 0\n`);
+    chmodSync(join(bin, 'xcrun'), 0o755);
+    const REAL_PATH = process.env.PATH!;
+    process.env.PATH = `${bin}:${REAL_PATH}`;
+    process.env.CRUCIBLE_STATE_PROBE_MS = '50';
+    try {
+      seedState('photo_access', { label: 'Nowhere' }, { actuator: 'privacyGrant', permission: 'photos' }, { label: 'Promo' });
+      seedTemplate('tpl_pg', [{ idx: 0, action: 'ensureState', ensureState: 'photo_access' }], BUNDLE);
+      const { runId } = await play('tpl_pg');
+      expect(stepRows(runId)[0]?.status).toBe('pass');
+      const argv = readFileSync(argvFile, 'utf8').trim().split('\n');
+      expect(argv.some((l) => l === `simctl privacy sim grant photos ${BUNDLE}`)).toBe(true);
+    } finally {
+      process.env.PATH = REAL_PATH;
+      delete process.env.CRUCIBLE_STATE_PROBE_MS;
+    }
   });
 
   it('screen-form probe/verify: a bare screen ref asserts the registry state; dotted screen.state names it', async () => {

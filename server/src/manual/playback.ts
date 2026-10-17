@@ -1439,10 +1439,39 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 } else if (recipe.actuator === 'signal') {
                   const { postDarwinNotification } = await import('./apps.ts');
                   await postDarwinNotification(udid, recipe.signal ?? '');
+                } else if (recipe.actuator === 'uninstallReinstall') {
+                  // S4: device-scoped — this run must EXCLUSIVELY own the udid
+                  // (parallel lanes + manual sessions count; self excluded —
+                  // lesson h in new costume). Violation = honest failure, never
+                  // forced eviction.
+                  const { deviceContender } = await import('./state-actuator.ts');
+                  const contender = deviceContender(deps.db, udid, runId);
+                  if (contender) throw new Error(`STATE_DEVICE_CONTENDED: run ${contender.id} also holds this device — device-scoped actuators serialize (sequential-lane contract)`);
+                  // F6 precondition: a resolvable artifact (newest sim-runnable
+                  // package for this bundle; honest named failure when none)
+                  const { listPackages, isSimulatorRunnable } = await import('./packages.ts');
+                  const pkg = listPackages().filter((x) => x.bundleId === appToLaunch && isSimulatorRunnable(x)).sort((a, b) => b.mtimeMs - a.mtimeMs)[0];
+                  if (!pkg) throw new Error(`STATE_ARTIFACT_MISSING: no installable artifact for ${appToLaunch} — drop one in the packages store first (app states page recipes reference it by bundle)`);
+                  const rr = (await withWatchdog(runId, dispatchWithHeal('alloy_apps', { action: 'reinstall', app: appToLaunch, path: pkg.path, udid, hold: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, `ensure state: reinstall ${appToLaunch}`)) as { ok: boolean; error?: { message: string } };
+                  if (!rr.ok) throw new Error(`reinstall failed: ${rr.error?.message ?? 'engine error'}`);
+                  // reinstall leaves the app not-running: open with the seam
+                  // arg (+ recipe args), then re-settle before verify
+                  const args = ['-uitest-live-refresh', ...(recipe.launchArgs ?? [])];
+                  const ro = (await withWatchdog(runId, dispatchWithHeal('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false, launchArgs: args }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, `ensure state: relaunch ${appToLaunch}`)) as { ok: boolean; error?: { message: string } };
+                  if (!ro.ok) throw new Error(`relaunch after reinstall failed: ${ro.error?.message ?? 'engine error'}`);
+                  for (let k = 0; k < 40 && !isAborted(runId); k++) {
+                    const ns = await snapNow();
+                    if (ns && ns.length >= 2) break;
+                    await new Promise((res2) => setTimeout(res2, 500));
+                  }
+                } else if (recipe.actuator === 'privacyGrant') {
+                  const { deviceContender } = await import('./state-actuator.ts');
+                  const contender = deviceContender(deps.db, udid, runId);
+                  if (contender) throw new Error(`STATE_DEVICE_CONTENDED: run ${contender.id} also holds this device — device-scoped actuators serialize (sequential-lane contract)`);
+                  const { privacyGrant } = await import('./apps.ts');
+                  await privacyGrant(udid, recipe.permission ?? 'all', appToLaunch);
                 } else {
-                  // uninstallReinstall / privacyGrant land in S4 (device-scoped
-                  // actuators with wire-probes + serialization) — honest fail
-                  throw new Error(`STATE_ACTUATOR_PENDING: actuator "${recipe.actuator}" is not available yet (app-states phase A S4)`);
+                  throw new Error(`STATE_ACTUATOR_UNKNOWN: actuator "${recipe.actuator}" is not an app-states actuator`);
                 }
               }
               if (Array.isArray(recipe.steps)) {
