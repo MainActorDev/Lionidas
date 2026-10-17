@@ -754,6 +754,39 @@ export function migrateM1(db: Database.Database): void {
       revoked_at INTEGER
     );
   `);
+  // ── app states registry (phase A S2, plan 20261017T112229Z): an app's
+  // named states as first-class platform data. probe (identity check) +
+  // recipe (entry/actuator/steps) + verify (arrival proof), append-only
+  // history per edit for forensics — which revision a run executed (step
+  // audit carries {stateId, revision}). Credentials never live here:
+  // recipes store ${env.X} refs resolved at play time.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_states(
+      id TEXT PRIMARY KEY,
+      app_bundle_id TEXT NOT NULL,
+      state_id TEXT NOT NULL,
+      label TEXT NOT NULL,
+      probe_json TEXT NOT NULL,
+      recipe_json TEXT NOT NULL,
+      verify_json TEXT NOT NULL,
+      provenance TEXT NOT NULL CHECK(provenance IN ('user','ai+user','import')),
+      revision INTEGER NOT NULL DEFAULT 1,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(app_bundle_id, state_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_app_states_bundle ON app_states(app_bundle_id, state_id);
+    CREATE TABLE IF NOT EXISTS app_states_history(
+      id TEXT PRIMARY KEY,
+      app_state_id TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      snapshot_json TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_app_states_history_state ON app_states_history(app_state_id, revision);
+  `);
   // ── logout recipe registry (plan 20260929T080249Z): app-level procedure,
   // mirror of app_login. ONE recipe per bundle; cases reference it with the
   // bare `ensure logout:` verb. ATOMIC settlement of the login duality in
