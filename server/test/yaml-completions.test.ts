@@ -24,7 +24,7 @@ describe('buildCompletions', () => {
     const tap = cs.find((c) => c.label === 'tap')!;
     expect(String(tap.apply)).toContain('point: [');
     expect(String(tap.apply)).toContain('on: ');
-    expect(cs.map((c) => c.label)).toEqual(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert', 'location', 'arrive', 'refresh', 'swap', 'expect screen', 'wait']);
+    expect(cs.map((c) => c.label)).toEqual(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert', 'location', 'arrive', 'refresh', 'swap', 'expect screen', 'ensure state', 'wait']);
   });
 
   it('direction offers exactly the four directions', () => {
@@ -72,7 +72,7 @@ describe('buildCompletions', () => {
     const empty: EditorVocabulary = { selectors: [], caseNames: [], apps: [], tags: [] };
     expect(buildCompletions('on-value', empty, '')).toEqual([]);
     expect(buildCompletions('direction', empty, '').length).toBe(4);
-    expect(buildCompletions('step-action', empty, '').length).toBe(12); // 7 classic + 4 R2 verbs + wait
+    expect(buildCompletions('step-action', empty, '').length).toBe(13); // 7 classic + 4 R2 verbs + wait + ensure state
   });
 
   it('body-key for runFlow unchanged (no selector keys)', () => {

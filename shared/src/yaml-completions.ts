@@ -24,6 +24,9 @@ export interface EditorVocabulary {
    *  bundle on every entry: screen ids are unique PER BUNDLE — the editor
    *  scopes completions to the case's own app (review F2). */
   screens?: Array<{ screen: string; bundle: string; states: string[] }>;
+  /** phase A — registered app states (app_states registry) for ensure state:
+   *  value completions. Optional: absent vocab degrades to grammar-only. */
+  appStates?: Array<{ state: string; bundle: string }>;
 }
 
 export interface VocabCompletion {
@@ -69,6 +72,7 @@ export function buildCompletions(slot: YamlSlot, vocab: EditorVocabulary, _typed
         { label: 'refresh', detail: 're-trigger a screen\'s fetch via its declared gesture (traffic-verified)', apply: 'refresh: ', type: 'keyword' },
         { label: 'swap', detail: 'switch the live world (scenario set) mid-run', apply: 'swap: ', type: 'keyword' },
         { label: 'expect screen', detail: 'assert a registered screen state holds', apply: 'expect screen: .', type: 'keyword' },
+        { label: 'ensure state', detail: 'converge into a registered app state (probe → recipe → verify, idempotent)', apply: 'ensure state: ', type: 'keyword' },
         { label: 'wait', detail: 'wait for readiness — condition (text/identifier/screen) or time', apply: 'wait: { text: \'\', timeout: 10s }', type: 'keyword' },
       ];
     case 'variant-key':
@@ -87,6 +91,8 @@ export function buildCompletions(slot: YamlSlot, vocab: EditorVocabulary, _typed
       return (['accept', 'dismiss'] as const).map((v) => ({ label: v, detail: v === 'accept' ? 'tap the accept/default button' : 'tap the cancel/dismiss button', apply: v, type: 'keyword' as const }));
     case 'arrive-screen':
       return (vocab.screens ?? []).map((s) => ({ label: s.screen, detail: `screen · ${s.bundle}`, apply: s.screen, type: 'text' as const }));
+    case 'state-id':
+      return (vocab.appStates ?? []).map((st) => ({ label: st.state, detail: `app state · ${st.bundle}`, apply: st.state, type: 'text' as const }));
     case 'swap-target':
       return (vocab.variantIds ?? []).map((id) => ({ label: id, detail: 'swap target (swaps ∪ variants)', apply: id, type: 'text' as const }));
     case 'screen-state': {

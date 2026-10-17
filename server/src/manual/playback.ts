@@ -84,7 +84,7 @@ export interface PlaybackDeps {
 
 export interface PlaybackStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin' | 'doubleTap' | 'longPress' | 'shake' | 'paste' | 'wait';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin' | 'ensureState' | 'doubleTap' | 'longPress' | 'shake' | 'paste' | 'wait';
   x?: number;
   y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
@@ -122,6 +122,8 @@ export interface PlaybackStep {
   /** ensure login: coordinate-free login preflight; phone/password are
    *  ${env.X} refs resolved at playback — never literal secrets */
   ensureLogin?: { entry: string; phoneField: string; passwordField: string; submit: string; session: string; phone: string; password: string; screen?: string };
+  /** ensure state (phase A S1): registry state id — converge probe→recipe→verify */
+  ensureState?: string;
   /** R2 verbs (S5): arrive/refresh target screen; swap target id; expect screen parts */
   screen?: string;
   swap?: string;
@@ -157,6 +159,7 @@ function stepName(s: PlaybackStep): string {
   }
   if (s.action === 'paste') return `paste ${(s.text ?? '').slice(0, 24)}${s.press === false ? ' (pasteboard only)' : ''}`;
   if (s.action === 'scroll') return `scroll ${s.direction}`;
+  if (s.action === 'ensureState') return `ensure state ${s.ensureState ?? '?'}`;
   if (s.action === 'ensureLogout') return `ensure logout (${s.ensureLogout?.button ?? '?'})`;
   if (s.action === 'ensureLogin') return `ensure login (${s.ensureLogin?.screen ? `screen ${s.ensureLogin.screen}` : s.ensureLogin?.entry ?? '?'})`;
   if (s.action === 'alert') return `alert ${s.alertAction ?? 'dismiss'}`;
@@ -189,6 +192,7 @@ export function stepLabel(s: PlaybackStep): string {
   if (s.action === 'expectScreen') return `screen ${s.expectScreen?.screen ?? '?'}.${s.expectScreen?.state ?? '?'}`;
   if (s.action === 'alert') return `alert ${s.alertAction ?? 'dismiss'}`;
   if (s.action === 'location') return `location ${s.location?.latitude ?? '?'}${s.location?.longitude !== undefined ? ',' : ''}${s.location?.longitude ?? ''}`;
+  if (s.action === 'ensureState') return `ensure state ${s.ensureState ?? '?'}`;
   if (s.action === 'ensureLogin') return 'ensure logged in';
   if (s.action === 'ensureLogout') return 'ensure logged out';
   if (s.action === 'type') {
@@ -1274,6 +1278,17 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               break;
             }
             continue;
+          }
+          // ensure state (phase A S1 — grammar ahead of the engine): the
+          // executor lands in S3; until then a DECLARED precondition must
+          // fail loud, never silently pass (shippable-alone contract).
+          if (s.action === 'ensureState') {
+            runStatus = 'failed';
+            insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', `STATE_ENGINE_PENDING: ensure state "${s.ensureState ?? '?'}" is not yet executed by the engine (app-states phase A)`, t0, Date.now() - t0, '[]', JSON.stringify({ action: 'ensureState', stateId: s.ensureState ?? null }), s.narrate ?? null);
+            for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
+              insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null, rest.narrate ?? null);
+            }
+            break;
           }
           // location step (Tier 2.3): host-level device fact — no snapshot,
           // no settle/sig logic (the app UI does not change). Write-only

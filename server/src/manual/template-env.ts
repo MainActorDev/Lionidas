@@ -2,7 +2,7 @@
  *  Missing key = null (caller fails the step BEFORE dispatch — never type a
  *  half-resolved string). Pure module: no db, no alloy. */
 export interface SubstitutedStep {
-  idx: number; action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin' | 'doubleTap' | 'longPress' | 'shake' | 'paste' | 'wait' | 'wait';
+  idx: number; action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin' | 'ensureState' | 'doubleTap' | 'longPress' | 'shake' | 'paste' | 'wait' | 'wait';
   x?: number; y?: number; direction?: 'up' | 'down' | 'left' | 'right'; text?: string;
   /** longPress dwell (ms) / paste press flag — carried through untouched */
   dwellMs?: number; press?: boolean;
@@ -15,6 +15,9 @@ export interface SubstitutedStep {
   /** expect-only cardinality (A9) — carried through substitution untouched */
   count?: number;
   atLeast?: number;
+  /** ensure state: registry state id — carried through untouched (no env refs
+   *  in state ids; recipe env refs resolve inside the executor, S3) */
+  ensureState?: string;
   /** set when an env ref could not be resolved */
   error?: string;
 }
@@ -36,7 +39,7 @@ function firstMissingKey(keys: string[], env: Record<string, string>): string {
   return keys.find((k) => env[k] === undefined) ?? '??';
 }
 
-export function substituteStep(s: { idx: number; action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin' | 'doubleTap' | 'longPress' | 'shake' | 'paste' | 'wait'; x?: number; y?: number; direction?: 'up' | 'down' | 'left' | 'right'; text?: string; dwellMs?: number; press?: boolean; optional?: boolean; selector?: { identifier?: string; label?: string; labelContains?: string; type?: string }; templateId?: string; count?: number; atLeast?: number; ensureLogout?: { recipe?: 'app'; button?: string; stay?: string; confirm?: string; via?: string; back?: string }; ensureLogin?: { entry: string; phoneField: string; passwordField: string; submit: string; session: string; phone: string; password: string } }, env: Record<string, string>): SubstitutedStep {
+export function substituteStep(s: { idx: number; action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin' | 'ensureState' | 'doubleTap' | 'longPress' | 'shake' | 'paste' | 'wait'; x?: number; y?: number; direction?: 'up' | 'down' | 'left' | 'right'; text?: string; dwellMs?: number; press?: boolean; optional?: boolean; selector?: { identifier?: string; label?: string; labelContains?: string; type?: string }; templateId?: string; count?: number; atLeast?: number; ensureLogout?: { recipe?: 'app'; button?: string; stay?: string; confirm?: string; via?: string; back?: string }; ensureLogin?: { entry: string; phoneField: string; passwordField: string; submit: string; session: string; phone: string; password: string }; ensureState?: string }, env: Record<string, string>): SubstitutedStep {
   // selector label/labelContains resolve ${env.X} (variant-world assertions);
   // identifier/type stay literal. A missing key fails the step BEFORE
   // dispatch — the caller never asserts a half-resolved fragment.
@@ -58,7 +61,7 @@ export function substituteStep(s: { idx: number; action: 'tap' | 'scroll' | 'typ
   if (selMissing !== undefined) {
     return { idx: s.idx, action: s.action, ...(s.x !== undefined ? { x: s.x } : {}), ...(s.y !== undefined ? { y: s.y } : {}), ...(s.direction ? { direction: s.direction } : {}), ...(s.templateId !== undefined ? { templateId: s.templateId } : {}), error: `missing env: ${selMissing}` };
   }
-  const base: SubstitutedStep = { idx: s.idx, action: s.action, ...(s.x !== undefined ? { x: s.x } : {}), ...(s.y !== undefined ? { y: s.y } : {}), ...(s.direction ? { direction: s.direction } : {}), ...(sel !== undefined ? { selector: sel } : {}), ...(s.templateId !== undefined ? { templateId: s.templateId } : {}), ...(s.count !== undefined ? { count: s.count } : {}), ...(s.atLeast !== undefined ? { atLeast: s.atLeast } : {}), ...(s.ensureLogout !== undefined ? { ensureLogout: s.ensureLogout } : {}), ...(s.ensureLogin !== undefined ? { ensureLogin: s.ensureLogin } : {}), ...(s.dwellMs !== undefined ? { dwellMs: s.dwellMs } : {}), ...(s.press !== undefined ? { press: s.press } : {}) };
+  const base: SubstitutedStep = { idx: s.idx, action: s.action, ...(s.x !== undefined ? { x: s.x } : {}), ...(s.y !== undefined ? { y: s.y } : {}), ...(s.direction ? { direction: s.direction } : {}), ...(sel !== undefined ? { selector: sel } : {}), ...(s.templateId !== undefined ? { templateId: s.templateId } : {}), ...(s.count !== undefined ? { count: s.count } : {}), ...(s.atLeast !== undefined ? { atLeast: s.atLeast } : {}), ...(s.ensureLogout !== undefined ? { ensureLogout: s.ensureLogout } : {}), ...(s.ensureLogin !== undefined ? { ensureLogin: s.ensureLogin } : {}), ...(s.ensureState !== undefined ? { ensureState: s.ensureState } : {}), ...(s.dwellMs !== undefined ? { dwellMs: s.dwellMs } : {}), ...(s.press !== undefined ? { press: s.press } : {}) };
   if (s.text === undefined) return base;
   const expanded = expandEnvText(s.text, env);
   if (expanded !== null) return { ...base, text: expanded };

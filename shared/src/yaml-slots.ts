@@ -20,6 +20,7 @@ export type YamlSlot =
   | 'scenario-name'  // after "networkScenario: "
   | 'arrive-screen'  // after "arrive: " / "refresh: " — screen ids (registry)
   | 'swap-target'    // after "swap: " — swap target ids (swaps ∪ variants)
+  | 'state-id'       // after "ensure state: " — app_states registry ids
   | 'screen-state'   // after "expect screen: " — "<screen>.<state>" refs
   | 'none';
 
@@ -71,6 +72,7 @@ export function slotAt(doc: string, cursor: number): YamlSlot {
     if (/^expect screen\s*:/i.test(afterDash)) return 'screen-state';
     if (/^(?:arrive|refresh)\s*:/i.test(afterDash)) return 'arrive-screen';
     if (/^swap\s*:/i.test(afterDash)) return 'swap-target';
+    if (/^ensure state\s*:/i.test(afterDash)) return 'state-id';
     const action = /^(\w+)\s*:/.exec(afterDash)?.[1];
     if (!action) return 'none';
     if (action === 'scroll') return 'direction';

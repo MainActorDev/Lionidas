@@ -19,7 +19,7 @@ import { parseVariants, type YamlVariant } from './yaml-variants.js';
 export interface YamlSelector { identifier?: string; label?: string; labelContains?: string; ignoreCase?: boolean; type?: string }
 export interface YamlStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin' | 'doubleTap' | 'longPress' | 'shake' | 'paste' | 'wait';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin' | 'ensureState' | 'doubleTap' | 'longPress' | 'shake' | 'paste' | 'wait';
   x?: number; y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
   text?: string;
@@ -54,6 +54,10 @@ export interface YamlStep {
    *  coordinate-free, cross-device safe. No-op pass when already logged out. */
   ensureLogout?: { recipe?: 'app'; button?: string; stay?: string; confirm?: string; via?: string; back?: string };
   ensureLogin?: { recipe?: 'app'; entry?: string; phoneField?: string; passwordField?: string; submit?: string; session?: string; phone?: string; password?: string; screen?: string };
+  /** ensure state: <state_id> — converge the app into a registry state
+   *  (probe → recipe → verify, idempotent). Legal in setup AND mid-steps
+   *  (operator decision Q2, 2026-10-16; plan 20261017T112229Z). */
+  ensureState?: string;
   /** swap: <id from this case's swaps/variants> */
   swap?: string;
   /** expect screen: "<screen>.<state>" — parsed into parts; negate for != */
@@ -95,8 +99,10 @@ export interface YamlError { line: number; message: string }
 const DROPPED_KEYS = new Set(['ts', 'thumb']); // capture artifacts — not semantics
 const STEP_KEYS = new Set(['action', 'x', 'y', 'direction', 'text', 'optional', 'selector', 'templateId', 'flow', 'count', 'atLeast']);
 const DIRECTIONS = new Set(['up', 'down', 'left', 'right']);
-const ACTIONS = new Set(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert', 'location', 'arrive', 'refresh', 'swap', 'world', 'expect screen', 'ensure logout', 'ensure login', 'double-tap', 'long-press', 'shake', 'paste', 'wait']);
+const ACTIONS = new Set(['tap', 'scroll', 'type', 'runFlow', 'expect', 'alert', 'location', 'arrive', 'refresh', 'swap', 'world', 'expect screen', 'ensure logout', 'ensure login', 'ensure state', 'double-tap', 'long-press', 'shake', 'paste', 'wait']);
 const SCREEN_ID_RE = /^[a-z][a-z0-9-]*$/;
+/** registry state ids — same shape as app_screens state names ([a-z][a-z0-9_-]*) */
+const STATE_ID_RE = /^[a-z][a-z0-9_-]*$/;
 /** wait durations: "500ms" | "1s" | bare 1500 (=ms). Bounds (review R3):
  *  time form ≤60s, condition timeout ≤120s. Returns ms or an error string. */
 export function parseWaitDuration(raw: unknown, maxMs: number): number | string {
@@ -340,6 +346,14 @@ function parseStepList(steps: unknown[], section: 'setup' | 'steps', prefix: (i:
           continue;
         }
         stepsOut.push({ idx: stepsOut.length, action: 'swap', swap: body.trim() });
+        continue;
+      }
+      if (action === 'ensure state') {
+        if (typeof body !== 'string' || !STATE_ID_RE.test(body.trim())) {
+          errors.push({ line: 1, message: `${prefix(i)}: ensure state takes a state id ([a-z][a-z0-9_-]*, e.g. fresh_install) — registered on the app states page` });
+          continue;
+        }
+        stepsOut.push({ idx: stepsOut.length, action: 'ensureState', ensureState: body.trim() });
         continue;
       }
       if (action === 'expect screen') {
@@ -1038,6 +1052,8 @@ export function caseToYaml(t: { name: string; tags: string[]; app?: string | nul
       // legacy stored form (pre-rename 2026-09-24) — emit the new vocabulary;
       // a stored world step must NEVER fall through to the placeholder path
       if (typeof s['narrate'] === 'string' && s['narrate']) { lines.push(`  - swap: ${yamlScalar(String(s['world'] ?? ''))}`); lines.push(`    narrate: ${yamlScalar(s['narrate'])}`); } else lines.push(`  - swap: ${yamlScalar(String(s['world'] ?? ''))}`);
+    } else if (action === 'ensureState') {
+      if (typeof s['narrate'] === 'string' && s['narrate']) { lines.push(`  - ensure state: ${yamlScalar(String(s['ensureState'] ?? ''))}`); lines.push(`    narrate: ${yamlScalar(s['narrate'])}`); } else lines.push(`  - ensure state: ${yamlScalar(String(s['ensureState'] ?? ''))}`);
     } else if (action === 'ensureLogout') {
       const el = s['ensureLogout'] as { recipe?: string; button?: string; stay?: string; confirm?: string; via?: string } | undefined;
       if (el?.recipe === 'app') { lines.push(typeof s['narrate'] === 'string' && s['narrate'] ? `  - ensure logout: { back: ${yamlScalar(String((el as { back?: string }).back ?? ''))}, narrate: ${yamlScalar(s['narrate'])} }` : ((el as { back?: string }).back ? `  - ensure logout: { back: ${yamlScalar((el as { back?: string }).back!)} }` : `  - ensure logout: {}`)); }
