@@ -334,7 +334,7 @@ const savedAgo = computed((): string | null => {
   background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm);
   color: var(--color-paper); font: inherit; font-size: 12px; padding: 4px 8px; width: 100%;
 }
-.ce-field input:focus { outline: none; border-color: var(--color-ember); }
+.ce-field input:focus { outline: none; border-color: var(--color-accent); }
 .ce-wide { grid-column: span 1; }
 @media (max-width: 1000px) { .ce-meta { grid-template-columns: 1fr 1fr; } }
 /* body: outline | editor */
@@ -345,7 +345,7 @@ const savedAgo = computed((): string | null => {
 .o-step:hover { background: var(--color-carbon); }
 .o-idx { color: var(--color-steel); width: 18px; text-align: right; }
 .o-kind { font-size: 10px; border: 1px solid var(--color-ash); border-radius: 2px; padding: 0 5px; color: var(--color-paper); flex: none; }
-.o-kind.k-expect { border-color: var(--color-ember); color: var(--color-ember); }
+.o-kind.k-expect { border-color: var(--color-accent); color: var(--color-accent); }
 .o-kind.k-flow { border-color: var(--color-ok, #2fbf71); color: var(--color-ok, #2fbf71); }
 .o-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .o-errs { margin-top: 8px; padding: 8px 12px; color: var(--color-fail, #e5484d); font-size: 11px; border-top: 1px solid var(--color-iron); }

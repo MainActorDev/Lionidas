@@ -37,7 +37,7 @@ const emit = defineEmits<{ (e: 'switch', id: string): void }>();
 .railtabs { display: flex; border-bottom: 1px solid var(--color-iron); }
 .rtab { flex: 1; padding: 8px 0; text-align: center; font-size: var(--text-caption); color: var(--color-ash); cursor: pointer; border-bottom: 2px solid transparent; text-transform: uppercase; letter-spacing: .08em; }
 .rtab:hover { color: var(--color-paper); }
-.rtab.active { color: var(--color-paper); border-bottom-color: var(--color-ember); }
-.rtab:focus-visible { outline: 1px solid var(--color-ember); outline-offset: -1px; }
+.rtab.active { color: var(--color-paper); border-bottom-color: var(--color-accent); }
+.rtab:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
 .railbody { position: relative; flex: 1; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; }
 </style>

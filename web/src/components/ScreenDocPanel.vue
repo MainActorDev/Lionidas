@@ -230,7 +230,7 @@ export default { name: 'ScreenDocPanel' };
 .fld input { flex: 1; background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 5px var(--s-2); }
 .fld select { background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 5px var(--s-2); width: auto; }
 .fld .x { color: var(--color-pewter); font-size: var(--text-caption); }
-.fld .x:hover { color: var(--color-ember); }
+.fld .x:hover { color: var(--color-accent); }
 .addstep { border: 1px solid var(--color-iron); color: var(--color-fog); font-size: var(--text-caption); padding: 3px var(--s-2); }
 .addstep:hover { border-color: var(--color-slate); color: var(--color-paper); }
 .sec-h { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-steel); margin: var(--s-3) 0 var(--s-2); }

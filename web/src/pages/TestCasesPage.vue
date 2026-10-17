@@ -1158,10 +1158,10 @@ const suiteSummary = computed(() => {
   background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm);
   color: var(--color-fog); font: inherit; font-size: 12px; padding: 4px 10px; width: 220px;
 }
-.a2-search:focus { outline: none; border-color: var(--color-ember); }
+.a2-search:focus { outline: none; border-color: var(--color-accent); }
 
 /* ── phase E: status lifecycle (sketch 013-A chips + kebab, 1:1) ── */
-.status-chip.on .n { color: var(--color-ember-dim); }
+.status-chip.on .n { color: var(--color-accent-dim); }
 .status-chip:hover { color: var(--color-fog); }
 .lifecycle-pill {
   font-size: 11px; border: 1px solid var(--color-slate); color: var(--color-ash);
@@ -1185,8 +1185,8 @@ button.kebab { letter-spacing: 0; padding: 0; }
 .ibtn svg { width: 16px; height: 16px; pointer-events: none; }
 .ibtn:hover { color: var(--color-paper, #f5f2ea); background: var(--color-graphite, #24262b); }
 .ibtn:disabled { opacity: 0.45; cursor: default; }
-.ibtn.accent:hover { color: var(--color-ember, #ff9f40); }
-.ibtn.danger:hover { color: var(--color-paper, #f5f2ea); background: var(--color-ember, #ff9f40); }
+.ibtn.accent:hover { color: var(--color-accent); }
+.ibtn.danger:hover { color: var(--color-paper, #f5f2ea); background: var(--color-ember, #e06f5d); }
 /* single page-level tooltip (escapes the table's clip; centered under the
    hovered icon) — .ib-label spans are inert markers carrying the text */
 #rowtip {
@@ -1199,7 +1199,7 @@ button.kebab { letter-spacing: 0; padding: 0; }
 }
 #rowtip.show { opacity: 1; }
 .ib-label { display: none; }
-button.kebab.open { color: var(--color-ember); border-color: var(--color-ember); }
+button.kebab.open { color: var(--color-accent); border-color: var(--color-accent); }
 .status-menu-pop .menu-label {
   padding: 4px 10px 2px; color: var(--color-pewter); font-size: 10px;
   text-transform: uppercase; letter-spacing: 0.08em;
@@ -1219,8 +1219,8 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
   font-size: 10px; color: var(--color-steel); text-transform: uppercase; letter-spacing: 0.08em;
 }
 .a2-row-card { border-bottom: 1px solid var(--color-iron); }
-.a2-row-card.editing { border-color: var(--color-ember); }
-.a2-row-card.editing .a2-row { background: color-mix(in srgb, var(--color-ember) 6%, transparent); }
+.a2-row-card.editing { border-color: var(--color-accent); }
+.a2-row-card.editing .a2-row { background: color-mix(in srgb, var(--color-accent) 6%, transparent); }
 .a2-row {
   position: relative; display: grid; grid-template-columns: minmax(0, 2.0fr) minmax(0, 70px) minmax(0, 64px) minmax(0, 92px) minmax(0, 110px) minmax(0, 64px) minmax(0, 235px) minmax(0, 200px);
   gap: var(--s-2); align-items: center; padding: 8px 12px; min-height: 44px; cursor: pointer;
@@ -1246,7 +1246,7 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 .a2-crumbs .crumb-acts { margin-left: auto; display: flex; gap: 6px; }
 .a2-folder-row { display: flex; align-items: center; gap: var(--s-2); padding: 8px 12px; border-bottom: 1px solid var(--color-iron); cursor: pointer; font-family: var(--font-mono); font-size: 12px; color: var(--color-paper); }
 .a2-folder-row:hover { background: var(--color-graphite); }
-.a2-folder-row .f-glyph { color: var(--color-ember); width: 16px; height: 16px; flex: none; }
+.a2-folder-row .f-glyph { color: var(--color-accent); width: 16px; height: 16px; flex: none; }
 .f-spacer { width: 26px; flex: none; display: flex; align-items: center; } /* = the case rows' col-sel track: the folder icon sits where the checkbox sits, names align */
 .a2-folder-row .f-n { color: var(--color-steel); margin-left: 6px; }
 .a2-folder-row .f-acts { margin-left: auto; display: flex; gap: 4px; }
@@ -1262,7 +1262,7 @@ button.kebab.open { color: var(--color-ember); border-color: var(--color-ember);
 .f-fill { flex: 1; }
 .f-sep { flex: none; width: 1px; height: 14px; background: var(--color-iron); margin: 0 14px; }
 .f-del.ghosted { visibility: hidden; } /* keeps the acts zone a constant width — meta never shifts when delete is unavailable */
-.btn.on { border-color: var(--color-ember); color: var(--color-ember); }
+.btn.on { border-color: var(--color-accent); color: var(--color-accent); }
 .a2-sel { cursor: pointer; }
 .a2-select-like { width: 100%; padding: 6px 8px; margin: 8px 0; background: var(--color-void); border: 1px solid var(--color-iron); color: var(--color-paper); font-family: var(--font-mono); font-size: 12px; }
 /* .a2-group-head lives in global components.css (shared across list pages) */

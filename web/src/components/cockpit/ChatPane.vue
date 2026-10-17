@@ -87,14 +87,14 @@ async function scrollDown(): Promise<void> { await nextTick(); if (logEl.value) 
 .msg { max-width: 92%; border: 1px solid var(--color-iron); border-radius: var(--r); padding: 6px 8px; font-size: var(--text-caption); line-height: 1.45; white-space: pre-wrap; }
 .msg.user { align-self: flex-end; border-color: var(--color-slate); }
 .msg.agent { align-self: flex-start; }
-.msg .who { color: var(--color-ember); font-size: 10px; margin-bottom: 2px; }
+.msg .who { color: var(--color-accent); font-size: 10px; margin-bottom: 2px; }
 .thinking { color: var(--color-ember); font-size: var(--text-caption); padding: 0 var(--s-3); }
 .empty { color: var(--color-steel); font-size: var(--text-caption); padding: var(--s-3); }
 .ctxnote { font-size: 9px; color: var(--color-steel); padding: 0 var(--s-3) var(--s-2); }
 .chatarea { border-top: 1px solid var(--color-iron); padding: var(--s-2) var(--s-3); display: flex; gap: 6px; }
 .chatarea input { flex: 1; background: var(--color-void); border: 1px solid var(--color-slate); color: var(--color-paper); font-family: inherit; font-size: var(--text-caption); padding: 6px 8px; border-radius: var(--r); outline: none; }
-.chataree input:focus, .chatarea input:focus { border-color: var(--color-ember); }
-.chatarea button { font-family: inherit; background: var(--color-ember); border: 1px solid var(--color-ember); color: #000; font-weight: var(--weight-bold); font-size: var(--text-caption); padding: 4px 12px; border-radius: var(--r); cursor: pointer; }
+.chataree input:focus, .chatarea input:focus { border-color: var(--color-accent); }
+.chatarea button { font-family: inherit; background: var(--color-accent); border: 1px solid var(--color-accent); color: #101010; font-weight: var(--weight-bold); font-size: var(--text-caption); padding: 4px 12px; border-radius: var(--r); cursor: pointer; }
 .chatarea button:disabled { opacity: .5; cursor: default; }
 .err { color: var(--color-paper); font-size: var(--text-caption); padding: var(--s-1) var(--s-3); }
 </style>

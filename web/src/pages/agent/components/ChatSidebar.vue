@@ -87,14 +87,14 @@ onMounted(() => { void load(); });
 <style scoped>
 .sb { width: 280px; flex: none; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--ag-line); background: var(--ag-panel); padding-top: var(--s-3); }
 .new { margin: 0 var(--s-3) var(--s-2); border: 1px solid var(--color-ember-dim); border-radius: var(--r-sm); background: var(--color-ember); color: #141414; /* a11y: white-on-ember is 2.9:1 — canvas-dark text hits 5.5:1 */ font-family: var(--font-mono); font-size: var(--text-caption); font-weight: var(--weight-bold); padding: 6px 0; cursor: pointer; }
-.new:hover { background: var(--color-ember); border-color: #141414; } /* keep ember bg on hover — dim bg breaks 4.5:1 contrast */
+.new:hover { background: var(--color-accent); border-color: #141414; } /* full accent bg on hover — dim bg breaks 4.5:1 contrast */
 .search { width: calc(100% - 2 * var(--s-3)); margin: 0 var(--s-3); background: var(--ag-surface); border: 1px solid var(--ag-line); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); padding: 5px 8px; outline: none; }
 .search:focus { border-color: var(--ag-line-2); }
 .rlabel { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-steel); padding: var(--s-3) var(--s-3) 4px; }
 .convs { flex: 1; overflow-y: auto; padding: 0 var(--s-2); }
 .conv { position: relative; padding: 6px 8px; border-radius: var(--r-sm); cursor: pointer; border-left: 2px solid transparent; }
 .conv:hover { background: var(--ag-surface); }
-.conv.on { background: var(--ag-surface); border-left-color: var(--color-ember); }
+.conv.on { background: var(--ag-surface); border-left-color: var(--color-accent); }
 .conv .nm { font-size: var(--text-caption); color: var(--color-paper); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conv .sub { font-size: 10px; color: var(--color-steel); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .empty-hint { font-size: var(--text-caption); color: var(--color-steel); padding: 10px 8px; }

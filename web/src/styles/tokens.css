@@ -26,9 +26,15 @@
 
   /* ─── Status accents — DATA/STATUS ONLY, never fills ───
      Values are themed (theme.css flips --status-* per light/dark) so the
-     legacy token names and the shadcn variables stay in lockstep. */
-  --color-ember:    var(--status-orange);  /* Signal orange — live status, failures, active marks */
-  --color-ember-dim: var(--status-orange-dim, #c24f13);  /* Hover/active on signal orange */
+     legacy token names and the shadcn variables stay in lockstep.
+     2026-10-17: ember is now VERMILION (fail/degraded/live signal).
+     Interactive chrome uses --color-accent (mono bone/graphite) — NOT these. */
+  --color-ember:    var(--status-orange);  /* Vermilion — fail/degraded/live signal marks */
+  --color-ember-dim: var(--status-orange-dim, #c05645);  /* Hover/darker vermilion */
+
+  /* ─── Chrome accent (mono) — interactive surfaces: buttons, links,
+     selected state, focus. Themed in theme.css (bone dark/graphite light). */
+  --color-chrome-accent: var(--color-accent); /* alias for scoped lookups */
 
   --color-ok:       var(--status-green);   /* Metric green */
   --color-warn:     #b8b3b0;   /* Warn reads as pale stone (neutral) */
@@ -102,9 +108,9 @@ body {
 ::-webkit-scrollbar-thumb { background: var(--color-carbon); border-radius: 0; }
 ::-webkit-scrollbar-thumb:hover { background: var(--color-slate); }
 
-/* ─── Selection — status accent, never chrome ─── */
-::selection { background: var(--color-ember); color: var(--color-chalk); }
-.dark ::selection { color: #101010; }
+/* ─── Selection — chrome accent (mono); text flips per theme fill ─── */
+:root ::selection { background: var(--color-accent); color: #fafafa; }
+.dark ::selection { background: var(--color-accent); color: #101010; }
 
 /* ─── Code ─── */
 code, .mono { font-family: var(--font-mono); }

@@ -113,6 +113,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
   color: var(--color-fog);
   cursor: pointer;
 }
-.palette-item.active { background: var(--color-carbon); color: var(--color-paper); border-left: 2px solid var(--color-ember); }
+.palette-item.active { background: var(--color-carbon); color: var(--color-paper); border-left: 2px solid var(--color-accent); }
 .palette-foot { padding: var(--s-2) var(--s-3); font-size: var(--text-caption); color: var(--color-steel); border-top: 1px solid var(--color-iron); }
 </style>

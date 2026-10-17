@@ -155,12 +155,12 @@ function isSim(p: PkgRow): boolean {
 .pp-n { margin-left: auto; color: var(--color-steel); }
 .pp-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: var(--s-3); align-items: center; padding: var(--s-2) var(--s-5) var(--s-2) 30px; font-size: var(--text-label); color: var(--color-fog); cursor: pointer; border-top: 1px solid var(--color-iron); }
 .pp-row:hover { background: var(--color-carbon); color: var(--color-paper); }
-.pp-row.picked { background: var(--color-carbon); color: var(--color-paper); box-shadow: inset 2px 0 0 var(--color-ember); }
+.pp-row.picked { background: var(--color-carbon); color: var(--color-paper); box-shadow: inset 2px 0 0 var(--color-accent); }
 .pp-row.apk { opacity: .7; }
 .pp-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pp-ver { color: var(--color-ash); font-size: var(--text-caption); }
 .pp-chip { font-size: 10px; padding: 1px 5px; border: 1px solid var(--color-iron); color: var(--color-ash); text-transform: uppercase; letter-spacing: 0.04em; }
-.pp-chip.ipa { color: var(--color-ember); border-color: var(--color-ember-dim); }
+.pp-chip.ipa { color: var(--color-accent); border-color: var(--color-accent-dim); }
 .pp-chip.nosim { color: var(--color-ash); border-color: var(--color-pewter); }
 .pp-row.nosim { opacity: .75; }
 .pp-age { color: var(--color-steel); font-size: var(--text-caption); }

@@ -127,9 +127,9 @@ function tip(item: { kind: 'rev'; v: VersionRow } | { kind: 'current'; runs: num
   border: 1px solid var(--color-slate, #3a3a3a); border-radius: 2px;
   padding: 0 7px; font-size: 10px; color: var(--color-fog, #b4b4b4); cursor: pointer;
 }
-.vstep:hover { border-color: var(--color-ember); color: var(--color-ember); }
-.vstep.on { border-color: var(--color-ember); color: var(--color-ember); background: rgba(255, 95, 46, .08); }
-.vstep.cur.on { border-color: var(--color-ember); }
+.vstep:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.vstep.on { border-color: var(--color-accent); color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 8%, transparent); }
+.vstep.cur.on { border-color: var(--color-accent); }
 .vstep .n { color: var(--color-steel); font-size: 9px; margin-left: 3px; }
 .cnt { color: var(--color-steel); font-size: 10px; margin-left: 4px; }
 .cnt.stale { color: var(--color-amber, #d9a03f); }

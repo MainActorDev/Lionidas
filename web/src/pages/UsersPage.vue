@@ -380,7 +380,7 @@ onMounted(() => {
 .prov { display: flex; gap: var(--s-2); flex-wrap: wrap; align-items: center; padding: var(--s-3); margin-bottom: var(--s-3); }
 .u-name { color: var(--color-paper); }
 .u-email { font-size: 10px; color: var(--color-steel); }
-.you { color: var(--color-ember); font-size: 10px; margin-left: 6px; }
+.you { color: var(--color-accent); font-size: 10px; margin-left: 6px; }
 .when { font-size: 10px; color: var(--color-steel); white-space: nowrap; }
 .status-pending { color: var(--color-ember); font-size: var(--text-caption); }
 .admin-locked { color: var(--color-fog); cursor: default; }

@@ -54,7 +54,7 @@ const emit = defineEmits<{
   transition: background .12s ease, color .12s ease;
 }
 .stab:hover { background: var(--color-graphite); color: var(--color-paper); }
-.stab:focus-visible { outline: 1px solid var(--color-ember); outline-offset: -1px; }
+.stab:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
 .stab.closing { opacity: .55; }
 
 /* active tab: lifted, connected to the content below (covers the strip line) */
@@ -88,7 +88,7 @@ const emit = defineEmits<{
 .stab.live .dot { background: var(--color-ember); }
 .stab .tname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .stab .sub { color: var(--color-steel); font-size: 10px; white-space: nowrap; flex: 0 0 auto; }
-.stab.active .sub { color: var(--color-ember); }
+.stab.active .sub { color: var(--color-accent); }
 
 /* close: quiet circle, brightens on tab hover (Chrome behavior) */
 .tabx {

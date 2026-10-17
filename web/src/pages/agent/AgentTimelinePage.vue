@@ -360,7 +360,7 @@ function onPanelError(m: string): void {
 .head { display: flex; align-items: baseline; gap: 10px; padding: 14px 24px 12px; border-bottom: 1px solid var(--ag-line, #2a2a2a); min-width: 0; }
 .head h1 { font-size: 14px; font-weight: 500; color: var(--ag-ink, #eae6e1); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
 .pill { font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 10px; color: var(--ag-ink-dim, #a39d95); border: 1px solid var(--ag-line, #2a2a2a); border-radius: 2px; padding: 2px 6px; }
-.pill.live { color: var(--color-ember, #ee6018); border-color: rgba(238, 96, 24, .4); }
+.pill.live { color: var(--color-ember, #e06f5d); border-color: rgba(224, 111, 93, .4); }
 .queue { padding: 0 24px 8px; max-width: 820px; margin: 0 auto; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px; }
 .q-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ag-ink-dim, #a39d95); border: 1px dashed var(--ag-line, #2a2a2a); border-radius: 2px; padding: 6px 10px; }
 .q-item .qt { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

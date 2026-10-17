@@ -421,7 +421,7 @@ function canTest(b: Build): boolean {
 .smoke-crash { color: var(--color-paper); font-weight: bold; }
 .smoke-skip { color: var(--color-steel); }
 .b-actions { display: flex; gap: 6px; align-items: center; justify-content: flex-end; }
-.suite-chip { font-size: 11px; padding: 1px 6px; border: 1px solid var(--color-iron); color: var(--color-ember); white-space: nowrap; }
+.suite-chip { font-size: 11px; padding: 1px 6px; border: 1px solid var(--color-iron); color: var(--color-accent); white-space: nowrap; }
 .suite-chip.bad { color: var(--color-paper); border-color: var(--color-paper); }
 .suite-chip.run { color: var(--color-ash); }
 .b-test { font-size: 11px; padding: 2px 8px; }

@@ -162,7 +162,7 @@ const tokenLabel = (t: string | null | undefined): string | null =>
 .iprops.compact { padding: 0; }
 .ihead { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
 .itype { color: var(--color-paper); font-weight: var(--weight-bold); font-size: var(--text-caption); }
-.iid { color: var(--color-ember); font-size: 10px; word-break: break-all; }
+.iid { color: var(--color-accent); font-size: 10px; word-break: break-all; }
 .ilabel { margin: 0 0 10px; color: var(--color-fog); font-size: var(--text-caption); }
 section { margin-top: var(--s-3); }
 h4 {
@@ -196,7 +196,7 @@ h4 {
   text-align: left;   /* value follows the key lane — no dead space between */
   word-break: break-all;
 }
-.v.tok { color: var(--color-ember); }
+.v.tok { color: var(--color-accent); }
 .dot {
   display: inline-block;
   width: 9px; height: 9px;

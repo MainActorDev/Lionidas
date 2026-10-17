@@ -195,7 +195,7 @@ watch(() => props.open, (o) => { if (!o) { cinema.value = null; filter.value = '
 .f-label.right { margin-left: auto; }
 .f-pill { font-family: var(--font-mono); font-size: var(--text-caption); color: var(--color-ash); padding: 3px 10px; border: 1px solid var(--color-iron); border-radius: var(--r); transition: all var(--t); }
 .f-pill:hover { color: var(--color-paper); }
-.f-pill.on { color: var(--color-ember); border-color: var(--color-ember); }
+.f-pill.on { color: var(--color-accent); border-color: var(--color-accent); }
 .f-pill.fail { color: var(--color-paper); border-color: var(--color-paper); border-style: dashed; }
 .f-pill.fail.on { color: var(--color-ember); border-color: var(--color-ember); border-style: solid; }
 
@@ -257,7 +257,7 @@ kbd { border: 1px solid var(--color-slate); border-radius: var(--r); padding: 1p
 .ci-rail { border-top: 1px solid var(--color-iron); display: flex; gap: 6px; padding: var(--s-2) var(--s-5); overflow-x: auto; }
 .ci-chip { position: relative; flex: none; width: 48px; height: 96px; border: 1px solid var(--color-iron); border-radius: var(--r); overflow: hidden; transition: border-color var(--t); display: flex; align-items: center; justify-content: center; }
 .ci-chip:hover { border-color: var(--color-chalk); }
-.ci-chip.sel { border-color: var(--color-ember); }
+.ci-chip.sel { border-color: var(--color-accent); }
 .ci-chip img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top; }
 .ci-chip .tri { margin: 0; }
 .ci-chip-nm { position: absolute; bottom: 0; left: 0; right: 0; font-size: 8px; background: rgba(0, 0, 0, 0.72); color: var(--color-fog); padding: 1px 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }

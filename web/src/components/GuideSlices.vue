@@ -151,7 +151,7 @@ const props = defineProps<{ show?: SliceName }>();
           <span>/v1/checkout</span>
           <span class="status status-fail" style="font-size: 10px;">500</span>
           <span style="color: var(--color-steel);">8ms</span>
-          <span style="color: var(--color-ember); font-size: 10px;">p_seq1</span>
+          <span style="color: var(--color-accent); font-size: 10px;">p_seq1</span>
         </div>
         <div class="mini-tr" style="cursor: default; font-size: 11px;">
           <span style="color: var(--color-steel);">14:31</span>
@@ -228,7 +228,7 @@ const props = defineProps<{ show?: SliceName }>();
   border-radius: 2px;
   padding: 8px;
 }
-.mini-accent { border-left: 2px solid var(--color-ember); }
+.mini-accent { border-left: 2px solid var(--color-accent); }
 .mini-title {
   font-size: 11px;
   color: var(--color-fog);
@@ -254,7 +254,7 @@ const props = defineProps<{ show?: SliceName }>();
   color: var(--color-fog);
   cursor: default;
 }
-.mini-btn-primary { background: var(--color-ember); border-color: var(--color-ember); color: var(--color-paper); }
+.mini-btn-primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-paper); }
 .mini-btn-danger { border-color: var(--color-slate); }
 .mini-btn-ghost { background: transparent; border-color: transparent; }
 .mini-table {

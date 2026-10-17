@@ -26,5 +26,5 @@ const stick = useStickToBottomContext();
   display: flex; align-items: center; justify-content: center; z-index: 5;
 }
 .scroll-pill:hover { color: var(--ag-ink, #eae6e1); border-color: var(--ag-ink-dim, #a39d95); }
-.scroll-pill:focus-visible { outline: 1px solid var(--color-ember, #ee6018); outline-offset: 2px; }
+.scroll-pill:focus-visible { outline: 1px solid var(--color-accent); outline-offset: 2px; }
 </style>

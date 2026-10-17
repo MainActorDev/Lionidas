@@ -155,7 +155,7 @@ defineExpose({ refresh, open, panelOpen, live });
 .phead .t { font-size: var(--text-caption); color: var(--color-paper); font-family: var(--font-mono); }
 .ptabs { display: flex; gap: 4px; margin-left: auto; }
 .ptab { border: 1px solid var(--ag-line); border-radius: var(--r-sm); padding: 1px var(--s-2); font-size: var(--text-caption); color: var(--color-steel); cursor: pointer; font-family: var(--font-mono); }
-.ptab.on { color: var(--color-ember); border-color: var(--color-ember-dim); background: var(--ag-surface); }
+.ptab.on { color: var(--color-accent); border-color: var(--color-accent-dim); background: var(--ag-surface); }
 .x { width: 22px; height: 22px; border: 1px solid var(--ag-line); border-radius: var(--r-sm); background: none; color: var(--color-ash); cursor: pointer; font-size: 10px; font-family: var(--font-mono); }
 .x:hover { color: var(--color-paper); border-color: var(--ag-line-2); }
 .pbody { flex: 1; overflow-y: auto; padding: var(--s-3); display: flex; flex-direction: column; gap: var(--s-3); }
@@ -177,12 +177,12 @@ defineExpose({ refresh, open, panelOpen, live });
 .ql { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-ember); margin-bottom: 6px; }
 .qt { font-size: var(--text-body); line-height: 1.55; margin-bottom: var(--s-2); color: var(--color-paper); }
 .q textarea { width: 100%; border: 1px solid var(--ag-line); border-radius: var(--r-sm); padding: var(--s-2); background: var(--ag-panel); outline: none; color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-caption); resize: vertical; min-height: 44px; margin-bottom: 6px; }
-.q textarea:focus { border-color: var(--color-ember-dim); }
+.q textarea:focus { border-color: var(--color-accent-dim); }
 .row { display: flex; gap: var(--s-2); justify-content: flex-end; }
 .btn { border: 1px solid var(--ag-line-2); border-radius: var(--r-sm); background: var(--ag-surface); color: var(--color-fog); font-family: var(--font-mono); font-size: var(--text-caption); padding: 2px var(--s-2); min-height: 24px; cursor: pointer; }
 .btn:hover { color: var(--color-paper); }
-.primary { background: var(--color-ember); border-color: var(--color-ember); color: var(--color-paper); font-weight: var(--weight-bold); }
-.primary:hover { background: var(--color-ember-dim); }
+.primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-paper); font-weight: var(--weight-bold); }
+.primary:hover { background: var(--color-accent-dim); }
 
 .kdoc { border: 1px solid var(--ag-line); border-radius: var(--r-sm); padding: var(--s-2) var(--s-3); background: var(--ag-surface); }
 .kt { font-size: var(--text-body); color: var(--color-paper); margin-bottom: 2px; }

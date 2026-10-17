@@ -125,17 +125,17 @@ const gaps = computed(() =>
   pointer-events: none;
 }
 .measure {
-  stroke: var(--color-ember, #ff9f40);
+  stroke: var(--color-ember, #e06f5d);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
 .cap {
-  stroke: var(--color-ember, #ff9f40);
+  stroke: var(--color-ember, #e06f5d);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
 .val {
-  fill: var(--color-ember, #ff9f40);
+  fill: var(--color-ember, #e06f5d);
   font: 600 10px var(--font-ui, ui-sans-serif);
   text-anchor: middle;
   paint-order: stroke;

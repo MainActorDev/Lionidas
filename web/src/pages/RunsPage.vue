@@ -306,7 +306,7 @@ onUnmounted(() => { if (poll) clearInterval(poll); unwatch(); live.release(); })
 .status-running, .status-queued { color:var(--color-fog); }
 
 .rchip { border:1px solid var(--color-slate); color:var(--color-fog); border-radius:2px; padding:0 5px; font-size:10px; margin-left:6px; cursor:pointer; flex:none; }
-.rchip:hover { border-color:var(--color-ember); color:var(--color-ember); }
+.rchip:hover { border-color:var(--color-accent); color:var(--color-accent); }
 .rchip.stale { border-color:var(--color-amber, #d9a03f); color:var(--color-amber, #d9a03f); }
 
 .stop { background:none; border:none; color:var(--color-ember); cursor:pointer; font-size:11px; margin-left:6px; padding:0 2px; }

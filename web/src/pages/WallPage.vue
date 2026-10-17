@@ -349,8 +349,8 @@ onUnmounted(() => {
   outline:1px solid transparent;
 }
 .pin:hover { color:var(--color-fog); background:var(--color-graphite); outline-color:var(--color-slate); }
-.pin.on { color:var(--color-ember); }
-.pin.on:hover { outline-color:var(--color-ember); }
+.pin.on { color:var(--color-accent); }
+.pin.on:hover { outline-color:var(--color-accent); }
 .pin .ic { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
 .pin.on .ic { fill:currentColor; }
 th.pcol, td.pcol { width:44px; text-align:center; padding:0 4px; }

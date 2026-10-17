@@ -15,5 +15,5 @@ defineProps<{ rows: Array<{ ts: string; text: string; kind?: 'hit' | 'err' }> }>
 .logtail { font-size: 10px; line-height: 1.6; color: var(--color-ash); background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r); padding: 8px; max-height: 140px; overflow-y: auto; }
 .t { color: var(--color-steel); }
 .err { color: var(--color-paper); }
-.hit { color: var(--color-ember); }
+.hit { color: var(--color-accent); }
 </style>

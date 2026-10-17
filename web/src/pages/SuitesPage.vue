@@ -476,7 +476,7 @@ async function saveEditor(): Promise<void> {
   background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm);
   color: var(--color-fog); font: inherit; font-size: 12px; padding: 4px 10px; width: 220px;
 }
-.su-search:focus { outline: none; border-color: var(--color-ember); }
+.su-search:focus { outline: none; border-color: var(--color-accent); }
 .su-err { color: var(--color-paper); border: 1px dashed var(--color-slate); padding: var(--s-2) var(--s-3); font-size: 11px; }
 
 /* table — own scroll region, sticky head */
@@ -491,8 +491,8 @@ async function saveEditor(): Promise<void> {
   padding: 8px 12px; font-size: 10px; color: var(--color-steel); text-transform: uppercase; letter-spacing: 0.08em;
 }
 .su-row-card { border-bottom: 1px solid var(--color-iron); }
-.su-row-card.editing { border-color: var(--color-ember); }
-.su-row-card.editing .su-row { background: color-mix(in srgb, var(--color-ember) 6%, transparent); }
+.su-row-card.editing { border-color: var(--color-accent); }
+.su-row-card.editing .su-row { background: color-mix(in srgb, var(--color-accent) 6%, transparent); }
 .su-row { padding: 8px 12px; min-height: 44px; cursor: pointer; }
 .su-row:hover { background: var(--color-graphite); }
 .su-row.draft { cursor: default; }
@@ -519,7 +519,7 @@ async function saveEditor(): Promise<void> {
 .pv-empty { color: var(--color-steel); font-size: 12px; padding: var(--s-3); }
 .pv-empty a { color: var(--color-fog); cursor: pointer; text-decoration: underline; }
 .ed-name { background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font: inherit; font-size: 13px; padding: 4px 8px; width: 240px; }
-.ed-name:focus { outline: none; border-color: var(--color-ember); }
+.ed-name:focus { outline: none; border-color: var(--color-accent); }
 .ed-scope {
   background: var(--color-void); border: 1px solid var(--color-iron); border-radius: var(--r-sm);
   color: var(--color-fog); font: inherit; font-size: 12px; padding: 4px 8px; max-width: 300px;

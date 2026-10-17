@@ -79,9 +79,9 @@ const durLabel = computed(() => {
   background: none; border: none; cursor: pointer;
 }
 .wr-head:disabled { cursor: default; }
-.wr-head:focus-visible { outline: 1px solid var(--color-ember, #ee6018); outline-offset: 2px; }
+.wr-head:focus-visible { outline: 1px solid var(--color-accent); outline-offset: 2px; }
 .wr-sym { color: var(--ag-ink-dim, #a39d95); width: 14px; flex: none; }
-.st-run .wr-sym { color: var(--color-ember, #ee6018); }
+.st-run .wr-sym { color: var(--color-ember, #e06f5d); }
 .st-ok .wr-name { color: var(--color-sage, #a0ca92); }
 .st-err .wr-name { color: var(--color-danger, #d97a6a); }
 .st-run .wr-name { color: var(--ag-ink, #eae6e1); }
@@ -99,7 +99,7 @@ const durLabel = computed(() => {
 .wr-status { font-family: var(--font-mono, ui-monospace, Menlo, monospace); font-size: 10px; padding-left: 22px; }
 .st-ok.wr-status { color: var(--color-sage, #a0ca92); }
 .st-err.wr-status { color: var(--color-danger, #d97a6a); }
-.st-run.wr-status { color: var(--color-ember, #ee6018); }
+.st-run.wr-status { color: var(--color-ember, #e06f5d); }
 .st-off.wr-status { color: var(--ag-ink-dim, #a39d95); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 </style>

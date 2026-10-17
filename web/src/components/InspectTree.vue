@@ -91,7 +91,7 @@ const isSel = (n: AxNode): boolean =>
   text-align: left; min-width: 0;
 }
 .trow:hover { background: var(--color-graphite); color: var(--color-paper); }
-.trow.sel { background: var(--color-graphite); color: var(--color-paper); border-left: 2px solid var(--color-ember); padding-left: 4px; }
+.trow.sel { background: var(--color-graphite); color: var(--color-paper); border-left: 2px solid var(--color-accent); padding-left: 4px; }
 .twist { color: var(--color-steel); width: 10px; flex: none; font-size: 8px; cursor: pointer; user-select: none; }
 .twist.leaf { visibility: hidden; }
 .twist.open { transform: rotate(90deg); display: inline-block; }

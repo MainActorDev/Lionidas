@@ -69,8 +69,8 @@ const emit = defineEmits<{ (e: 'select', tool: 'session' | 'install' | 'inspect'
 .dtool svg { width: 16px; height: 16px; }
 .dtool:hover { color: var(--color-paper); background: var(--color-graphite); }
 .dtool.on {
-  color: var(--color-ember); border-color: var(--color-ember);
-  background: color-mix(in srgb, var(--color-ember) 12%, transparent);
+  color: var(--color-accent); border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
 }
 .dtool:disabled { color: var(--color-steel); cursor: not-allowed; background: none; }
 .dtool .tip {
@@ -80,7 +80,7 @@ const emit = defineEmits<{ (e: 'select', tool: 'session' | 'install' | 'inspect'
   font-size: 11px; white-space: nowrap; opacity: 0; pointer-events: none;
   transition: opacity var(--t); z-index: 5;
 }
-.dtool .tip kbd { color: var(--color-ember); font-family: inherit; margin-left: 4px; }
+.dtool .tip kbd { color: var(--color-accent); font-family: inherit; margin-left: 4px; }
 /* disabled tools keep their tooltip (steel, explaining what's missing) —
    discovery beats a mute lock */
 .dtool:disabled .tip { color: var(--color-fog); }

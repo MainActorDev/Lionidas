@@ -1024,7 +1024,7 @@ watch(isControlLost(), (lost) => {
   background: var(--color-graphite);
   font-size: 9px; color: var(--color-steel);
 }
-.sb-foot b { color: var(--color-ember); font-weight: 400; }
+.sb-foot b { color: var(--color-accent); font-weight: 400; }
 
 /* watch mode (unchanged narrow) */
 .stream-box { position: relative; }
@@ -1131,7 +1131,7 @@ watch(isControlLost(), (lost) => {
 .krow .k { color: var(--color-steel); font-size: 9px; min-width: 64px; padding-top: 1px; flex: none; }
 .krow .v { color: var(--color-paper); text-align: right; word-break: break-all; font-size: 10px; }
 .v-dim { color: var(--color-fog); }
-.v-ember { color: var(--color-ember); }
+.v-ember { color: var(--color-accent); }
 
 /* recorder */
 .assert-box { display: flex; gap: 8px; }
@@ -1143,7 +1143,7 @@ watch(isControlLost(), (lost) => {
 .step-thumb { width: 30px; height: 52px; border-radius: 3px; object-fit: cover; border: 1px solid var(--color-iron); flex: none; }
 .step-thumb-empty { display: flex; align-items: center; justify-content: center; color: var(--color-steel); font-size: 9px; }
 .step-body { flex: 1; min-width: 0; display: flex; gap: 7px; align-items: baseline; }
-.step-idx { color: var(--color-ember); font-size: 10px; flex: none; }
+.step-idx { color: var(--color-accent); font-size: 10px; flex: none; }
 .step-label { font-size: 10px; color: var(--color-fog); word-break: break-word; }
 .step-del { flex: none; }
 

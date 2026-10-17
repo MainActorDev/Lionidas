@@ -21,8 +21,13 @@
   --color-paper: #f5f5f2;
   --color-fog: #a39d95;
   --color-steel: #a39d95;
-  --color-ember: #ee6018;        /* dark-ramp accents: the canvas is dark in both themes */
-  --color-ember-dim: #c24f13;
+  --color-ember: #e06f5d;        /* vermilion signal — canvas is dark in both themes */
+  --color-ember-dim: #c05645;
+  /* chrome accent: pin to the DARK-canvas bone values — the app-shell
+   * light theme flips --color-accent to graphite, which is invisible on
+   * the agent's dark canvas (axe: 1.9:1 on chips/buttons in light mode). */
+  --color-accent: #d9d5cf;
+  --color-accent-dim: #b5b1ab;
 
   font-family: var(--font-mono);
   font-size: var(--text-body);

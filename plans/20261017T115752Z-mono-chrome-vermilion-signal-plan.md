@@ -6,7 +6,7 @@
   - "C" — the hue itself is the problem (user, 2026-10-17)
   - "Mono. failures/degraded not orange but some other color that you see fit" (user, 2026-10-17)
   - "Approved" — after seeing rendered previews of mono chrome + vermilion #e06f5d/#b04a3f on real screenshots (user, 2026-10-17)
-- Status: Ready (awaiting human gate per workflow)
+- Status: Implemented (approved "proceed" 2026-10-17; gates green; PR open)
 
 ## Objective
 

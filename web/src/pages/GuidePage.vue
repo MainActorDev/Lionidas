@@ -484,7 +484,7 @@ const groups = computed(() => {
 .g-item.active {
   color: var(--color-paper);
   background: var(--color-carbon);
-  border-left-color: var(--color-ember);
+  border-left-color: var(--color-accent);
 }
 .lede { color: var(--color-ash); margin: var(--s-2) 0 var(--s-4); font-size: var(--text-body); line-height: 1.6; }
 .g-body .card p { color: var(--color-fog); font-size: var(--text-body); line-height: 1.6; margin: var(--s-2) 0 0; }
