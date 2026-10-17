@@ -9,7 +9,7 @@
  *  steps). Validation is save-then-show-errors on the server (one
  *  validator, no duplication). Revision-guarded writes; deletes are
  *  confirm-gated HERE where the deleted thing is visible. */
-import { nextTick, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref } from 'vue';
 import { useYamlEditor } from '../composables/useYamlEditor.ts';
 
 interface StateSelector { identifier?: string; label?: string; labelContains?: string; screen?: string; via?: string }
@@ -19,12 +19,20 @@ interface AppStateRow {
   probe: StateSelector; recipe: StateRecipe; verify: StateSelector;
   provenance: string; revision: number;
 }
+interface ProposalRow {
+  id: string; stateId: string; label: string;
+  probe: StateSelector; recipe: StateRecipe; verify: StateSelector;
+  rationale: string; sourceRunId: string | null; status: 'open' | 'accepted' | 'rejected';
+  createdBy: string;
+}
 type SelKind = 'identifier' | 'label' | 'labelContains' | 'screen';
 
 const props = defineProps<{ bundle: string }>();
 const emit = defineEmits<{ (e: 'close'): void; (e: 'saved'): void }>();
 
 const states = ref<AppStateRow[]>([]);
+const proposals = ref<ProposalRow[]>([]);
+const justAccepted = ref('');
 const err = ref('');
 const busy = ref(false);
 // the editor form (null = list mode); editingId null = creating
@@ -67,6 +75,39 @@ async function load(): Promise<void> {
   const d = (await r.json()) as { states?: AppStateRow[]; error?: string };
   if (!r.ok) { err.value = d.error ?? 'load failed'; return; }
   states.value = d.states ?? [];
+  const pr = await fetch(`/api/apps/${encodeURIComponent(props.bundle)}/proposals`);
+  const pd = (await pr.json()) as { proposals?: ProposalRow[]; error?: string };
+  proposals.value = pr.ok ? (pd.proposals ?? []) : [];
+}
+const openProposals = computed(() => proposals.value.filter((p) => p.status === 'open'));
+const decidedProposals = computed(() => proposals.value.filter((p) => p.status !== 'open'));
+
+/** Phase B S3: the ONLY human gate a proposal passes. Accept stamps the
+ *  registry entry ai+user (rev 1) — confirm-gated HERE where the draft is
+ *  visible, like deletes. Reject is final (re-propose makes a new row). */
+async function accept(p: ProposalRow): Promise<void> {
+  if (!window.confirm(`accept "${p.stateId}"? it enters the registry as ai+user (rev 1) — cases can ensure it immediately`)) return;
+  busy.value = true;
+  try {
+    const r = await fetch(`/api/states/proposals/${p.id}/accept`, { method: 'POST' });
+    const d = (await r.json()) as { error?: string; stateId?: string };
+    if (!r.ok) { err.value = d.error ?? 'accept failed'; return; }
+    justAccepted.value = p.stateId;
+    err.value = '';
+    await load();
+    setTimeout(() => { justAccepted.value = ''; }, 4000);
+  } finally { busy.value = false; }
+}
+async function reject(p: ProposalRow): Promise<void> {
+  if (!window.confirm(`reject "${p.stateId}"? decisions are final — a better draft can be re-proposed later`)) return;
+  busy.value = true;
+  try {
+    const r = await fetch(`/api/states/proposals/${p.id}/reject`, { method: 'POST' });
+    const d = (await r.json()) as { error?: string };
+    if (!r.ok) { err.value = d.error ?? 'reject failed'; return; }
+    err.value = '';
+    await load();
+  } finally { busy.value = false; }
 }
 
 async function openCreate(): Promise<void> {
@@ -150,7 +191,7 @@ onMounted(load);
           <span class="c-id">state</span><span class="c-label">label</span><span class="c-probe">probe</span><span class="c-recipe">recipe</span><span class="c-meta">rev</span><span class="c-acts"></span>
         </div>
         <div v-if="states.length === 0" class="hint inset">no states — <button class="inline-link" @click="openCreate">register the first one</button></div>
-        <div v-for="s in states" :key="s.id" class="asp-row" :title="`provenance ${s.provenance}`">
+        <div v-for="s in states" :key="s.id" class="asp-row" :class="{ 'is-new': s.stateId === justAccepted }" :title="`provenance ${s.provenance}`">
           <span class="c-id mono">{{ s.stateId }}</span>
           <span class="c-label">{{ s.label }}</span>
           <span class="c-probe mono">{{ describeSel(s.probe) }}</span>
@@ -161,6 +202,26 @@ onMounted(load);
             <button class="c-act danger" title="delete this state" @click="remove(s)">delete</button>
           </span>
         </div>
+        <div v-if="openProposals.length > 0 || decidedProposals.length > 0" class="asp-pbox">
+          <div class="asp-phead">
+            <span>proposals</span>
+            <span v-if="openProposals.length > 0" class="p-badge">{{ openProposals.length }}</span>
+            <span class="p-hint">ai-drafted from green runs · accepting stamps ai+user</span>
+          </div>
+          <div v-for="p in openProposals" :key="p.id" class="asp-prow">
+            <span class="p-id mono">{{ p.stateId }}</span>
+            <span class="p-label">{{ p.label }}</span>
+            <span class="p-why" :title="p.rationale">{{ p.rationale }}</span>
+            <span class="p-recipe">{{ recipeSummary(p.recipe) }}</span>
+            <span class="p-acts">
+              <button class="c-act" :disabled="busy" title="enter the registry as ai+user (rev 1)" @click="accept(p)">accept</button>
+              <button class="c-act danger" :disabled="busy" title="reject — final" @click="reject(p)">reject</button>
+            </span>
+          </div>
+          <div v-if="decidedProposals.length > 0" class="p-decided mono">{{ decidedProposals.length }} decided · latest {{ decidedProposals[0]!.stateId }} → {{ decidedProposals[0]!.status }}</div>
+        </div>
+        <div v-else class="hint inset" style="margin-top: var(--s-2)">no open proposals — the agent drafts new states here after green runs (states.propose)</div>
+
         <div class="asp-acts">
           <span style="flex:1"></span>
           <button class="btn" @click="emit('close')">close</button>
@@ -240,5 +301,17 @@ onMounted(load);
 .btn { display: inline-flex; align-items: center; padding: 6px var(--s-3); background: var(--color-carbon); border: 1px solid var(--color-iron); border-radius: var(--r-sm); color: var(--color-paper); font-family: var(--font-mono); font-size: var(--text-body); min-height: 30px; cursor: pointer; }
 .btn-primary { background: var(--color-accent); border-color: var(--color-accent); color: #101010; font-weight: var(--weight-bold); }
 .mono { font-family: var(--font-mono); }
-@media (max-width: 720px) { .ed-grid { grid-template-columns: 1fr; } .asp-thead, .asp-row { grid-template-columns: 110px 1fr 60px; } .c-label, .c-recipe, .c-probe { display: none; } }
+.asp-pbox { margin-top: var(--s-4); border: 1px solid var(--color-iron); border-radius: var(--r-sm); padding: var(--s-2) var(--s-3); }
+.asp-phead { display: flex; gap: var(--s-2); align-items: baseline; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-steel); padding-bottom: var(--s-1); }
+.p-badge { background: var(--color-accent); color: #101010; border-radius: 999px; min-width: 16px; text-align: center; padding: 0 4px; font-family: var(--font-mono); letter-spacing: 0; }
+.p-hint { margin-left: auto; color: var(--color-pewter); text-transform: none; letter-spacing: 0; }
+.asp-prow { display: grid; grid-template-columns: 160px 1fr 1.4fr 130px 96px; gap: var(--s-2); align-items: center; border-top: 1px solid var(--color-iron); min-height: 40px; font-size: var(--text-caption); }
+.asp-prow .p-id { color: var(--color-paper); }
+.asp-prow .p-label { color: var(--color-ash); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asp-prow .p-why { color: var(--color-steel); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asp-prow .p-recipe { color: var(--color-pewter); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.p-acts { display: flex; gap: var(--s-1); justify-content: flex-end; }
+.p-decided { color: var(--color-pewter); font-size: var(--text-caption); border-top: 1px solid var(--color-iron); padding-top: var(--s-1); }
+.asp-row.is-new { outline: 1px solid var(--color-accent); outline-offset: -1px; }
+@media (max-width: 720px) { .ed-grid { grid-template-columns: 1fr; } .asp-thead, .asp-row { grid-template-columns: 110px 1fr 60px; } .c-label, .c-recipe, .c-probe { display: none; } .asp-prow { grid-template-columns: 110px 1fr 96px; } .p-label, .p-why, .p-recipe { display: none; } }
 </style>

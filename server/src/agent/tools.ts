@@ -146,6 +146,121 @@ export function buildToolRegistry(deps: ToolDeps): ToolRegistry {
   });
 
   registry.register({
+    name: 'states.propose',
+    description: 'draft a NEW registry state from a GREEN run into the proposal inbox (a human accepts it on the screens page; acceptance stamps provenance ai+user). probe/verify = the run\'s final passing expect; recipe = the run\'s own walk, or a deep copy of the ensureState walk it rode. Never edits or removes existing states.',
+    permission: 'draft',
+    parameters: {
+      type: 'object',
+      properties: {
+        runId: { type: 'string', description: 'the green run to draft from (run_…)' },
+        stateId: { type: 'string', description: 'proposed state id — required unless the final expect targets a registered screen (then on_<screen> is derived)' },
+        label: { type: 'string', description: 'human label (default: derived from the state id)' },
+      },
+      required: ['runId'],
+    },
+    async execute(args) {
+      const runId = String(args['runId'] ?? '');
+      const run = db.prepare('SELECT id, template_id, status FROM runs WHERE id = ?').get(runId) as { id: string; template_id: string; status: string } | undefined;
+      if (!run) return `error: no run "${runId}"`;
+      if (run.status !== 'passed') return `error: run ${runId} is ${run.status} — proposals draft from GREEN runs only (a failed run proves nothing)`;
+      const tpl = db.prepare('SELECT id, name, app_bundle_id, steps_json, setup_json FROM templates WHERE id = ?').get(run.template_id) as { id: string; name: string; app_bundle_id: string | null; steps_json: string | null; setup_json: string | null } | undefined;
+      if (!tpl || !tpl.app_bundle_id) return `error: run ${runId} has no app-bound case behind it`;
+      const bundle = tpl.app_bundle_id;
+
+      // probe/verify = the LAST passing expect's selector (the thing that
+      // proved the final world — plan S2 heuristic, deliberately dumb)
+      const stepRows = db.prepare('SELECT idx, name, status, evaluated_json FROM run_steps WHERE run_id = ? ORDER BY idx').all(runId) as Array<{ idx: number; name: string; status: string; evaluated_json: string | null }>;
+      let probe: Record<string, unknown> | undefined;
+      let walkAudit: { path?: string; probeMs?: number } | undefined;
+      for (let i = stepRows.length - 1; i >= 0; i--) {
+        const s = stepRows[i]!;
+        if (s.status !== 'pass' || !s.evaluated_json) continue;
+        const ev = JSON.parse(s.evaluated_json) as { action?: string; selector?: Record<string, unknown>; path?: string; probeMs?: number };
+        if (ev.action === 'ensureState' && !walkAudit) walkAudit = ev;
+        if (ev.action === 'expect' && ev.selector && !probe) probe = ev.selector;
+      }
+      if (!probe) return `error: run ${runId} has no passing expect step — nothing proved the final world, nothing to draft from`;
+      // probe grammar accepts a screen REF as {screen} only — an expect
+      // selector riding a screen STATE ({screen, state}) normalizes to the
+      // screen identity; the state dimension lives in the screen registry
+      if (typeof probe['screen'] === 'string') probe = { screen: probe['screen'] };
+
+      // recipe — grammar-valid walk, never a nested state reference:
+      // ensureState setup ⇒ deep-copy the referenced state's CURRENT recipe
+      // (drift visible at review); else the case's own action steps
+      let recipe: Record<string, unknown>;
+      let walkDesc: string;
+      const setup = (tpl.setup_json ? JSON.parse(tpl.setup_json) : []) as Array<Record<string, unknown>>;
+      const ensureRef = setup.find((s) => typeof s['ensureState'] === 'string');
+      if (ensureRef) {
+        const refId = ensureRef['ensureState'] as string;
+        const refRow = db.prepare('SELECT recipe_json, revision FROM app_states WHERE app_bundle_id = ? AND state_id = ?').get(bundle, refId) as { recipe_json: string; revision: number } | undefined;
+        if (!refRow) return `error: the run rode ensure state "${refId}" which is no longer registered — the walk is not reproducible`;
+        recipe = JSON.parse(refRow.recipe_json) as Record<string, unknown>;
+        walkDesc = `walk deep-copied from ${refId} r${refRow.revision}`;
+      } else {
+        const caseSteps = (tpl.steps_json ? JSON.parse(tpl.steps_json) : []) as Array<Record<string, unknown>>;
+        // storage form (action/selector) → compact walk grammar ({tap: {on}}),
+        // walk-allowed set only (tap/type/expect/wait — validateAppState law).
+        // A step outside that set refuses the draft honestly: the state
+        // grammar can't express this walk.
+        const selOn = (sel: unknown): { on: string; ignoreCase?: true } | undefined => {
+          const s2 = sel as { label?: string; identifier?: string; ignoreCase?: boolean } | undefined;
+          if (!s2) return undefined;
+          if (typeof s2.label !== 'string' && typeof s2.identifier !== 'string') return undefined;
+          return { on: (s2.label ?? s2.identifier)!, ...(s2.ignoreCase === true ? { ignoreCase: true as const } : {}) };
+        };
+        const walk: Array<Record<string, unknown>> = [];
+        for (const st of caseSteps) {
+          const a = String(st['action'] ?? '');
+          if (a === 'expect') continue; // asserts are not the walk
+          const on = selOn(st['selector']);
+          const opt = st['optional'] === true ? { optional: true } : {};
+          if (a === 'tap') {
+            if (!on && !(typeof st['x'] === 'number' && typeof st['y'] === 'number')) return `error: the case walk has a tap with no target (neither selector nor point) — draft not expressible`;
+            walk.push({ tap: { ...on, ...(typeof st['x'] === 'number' && typeof st['y'] === 'number' ? { point: [st['x'], st['y']] } : {}), ...opt } });
+          } else if (a === 'type') {
+            if (!on || typeof st['text'] !== 'string') return `error: the case walk has a type step without on/text — draft not expressible`;
+            walk.push({ type: { ...on, text: st['text'], ...opt } });
+          } else if (a === 'wait') {
+            const w = st['wait'] as { ms?: number } | undefined;
+            if (!w || typeof w.ms !== 'number') return `error: the case walk has a wait step without a duration — draft not expressible`;
+            walk.push({ wait: w.ms }); // bare number = ms (grammar contract)
+          } else if (a && a !== 'ensureState' && a !== 'ensureLogin' && a !== 'ensureLogout') {
+            return `error: the case walk uses action "${a}" which state recipes do not allow (tap, type, expect, wait) — hand-author this state on the screens page`;
+          }
+        }
+        if (walk.length === 0) return `error: this case proves but does not walk (no action steps) — draft from a run that navigates, or hand-author the state`;
+        recipe = { steps: walk };
+        walkDesc = `walk = the case's ${walk.length} grammar-expressible step(s)`;
+      }
+
+      // stateId — operator-supplied, else derived from a registered screen
+      // ref in the probe (on_<screen>); refuse when neither can name one
+      let stateId = typeof args['stateId'] === 'string' && args['stateId'].trim() ? args['stateId'].trim() : '';
+      if (!stateId) {
+        const screen = typeof probe['screen'] === 'string' ? probe['screen'] : undefined;
+        const registered = screen ? db.prepare('SELECT screen_id FROM app_screens WHERE app_bundle_id = ? AND screen_id = ?').get(bundle, screen) : undefined;
+        if (!registered) return `error: pass stateId — the bundle's screen registry can't name this state (probe has no registered screen ref)`;
+        stateId = `on_${screen}`;
+      }
+      const label = typeof args['label'] === 'string' && args['label'].trim() ? args['label'].trim() : `Arrived: ${stateId}`;
+
+      const { insertStateProposal } = await import('../routes/state-proposals.ts');
+      const rationale = `proposed from ${runId} (${tpl.name})${walkAudit ? ` — ensureState path ${walkAudit.path ?? '?'}${walkAudit.probeMs ? ` probeMs ${walkAudit.probeMs}` : ''}` : ''}; probe/verify = final expect's target; ${walkDesc}`;
+      const r = insertStateProposal(db, {
+        bundle,
+        draft: { stateId, label, probe, recipe: recipe as never, verify: probe } as never,
+        rationale,
+        sourceRunId: runId,
+        user: 'agent',
+      });
+      if (!r.ok) return `error (${r.code}): ${r.error}`;
+      return JSON.stringify({ proposal: r.proposal, deduped: r.deduped, next: 'a human accepts/rejects in the app states panel (screens page → app states)' });
+    },
+  });
+
+  registry.register({
     name: 'folders.tree',
     description: 'folder tree with per-folder counts. kind=cases (default): app-scoped testcase folders. kind=scenarios | presets: GLOBAL single-root trees (no app scoping).',
     permission: 'read',

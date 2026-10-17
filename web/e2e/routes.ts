@@ -169,6 +169,19 @@ export async function installMocks(page: Page, auditRows = AUDIT_ROWS): Promise<
     { id: 'st_e2e1', stateId: 'fresh_install', label: 'Fresh install', probe: { screen: 'onboarding.ready' }, recipe: { actuator: 'uninstallReinstall' }, verify: { screen: 'onboarding.ready' }, provenance: 'user', revision: 2 },
     { id: 'st_e2e2', stateId: 'logged_in', label: 'Logged in', probe: { screen: 'home.landed' }, recipe: { entry: { tab: { identifier: 'tab_account' } }, steps: [{ tap: { on: 'open_login' } }, { type: { on: 'phone_field', text: '${env.DRILL_PHONE}' } }] }, verify: { screen: 'home.landed', via: 'tab_account' }, provenance: 'import', revision: 1 },
   ] } }));
+  // phase B S3: the proposals inbox — one open + one decided; POST accept/
+  // reject flip the harness-local copy and re-serve it (edge 9: POST mocks)
+  let openProposal = { id: 'sp_e2e1', stateId: 'on_profile_setup', label: 'Arrived: on_profile_setup', probe: { identifier: 'profile_setup_next_button' }, recipe: { steps: [{ tap: { on: 'welcome_get_started_button' } }] }, verify: { identifier: 'profile_setup_next_button' }, rationale: 'proposed from run_e2e (Home renders greeting) — walk = the case\'s 1 grammar-expressible step(s)', sourceRunId: 'run_e2e', status: 'open', createdBy: 'agent' };
+  const decidedProposal = { id: 'sp_e2e0', stateId: 'on_dark_mode', label: 'Arrived: on_dark_mode', probe: { identifier: 'dark_toggle' }, recipe: { steps: [{ tap: { on: 'settings_appearance' } }] }, verify: { identifier: 'dark_toggle' }, rationale: 'proposed from run_e2e0', sourceRunId: 'run_e2e0', status: 'rejected', createdBy: 'agent' };
+  await page.route('**/api/apps/*/proposals', (r) => r.fulfill({ json: { proposals: [openProposal, decidedProposal] } }));
+  await page.route('**/api/states/proposals/sp_e2e1/accept', (r) => {
+    openProposal = { ...openProposal, status: 'accepted' };
+    return r.fulfill({ json: { stateId: 'st_new', proposal: openProposal } });
+  });
+  await page.route('**/api/states/proposals/sp_e2e1/reject', (r) => {
+    openProposal = { ...openProposal, status: 'rejected' };
+    return r.fulfill({ json: { proposal: openProposal } });
+  });
   await page.route('**/api/status', (r) => r.fulfill({ json: STATUS }));
   // agent v2 (timeline): sessions list, one session read, the projection
   // LIFO: the specific timeline mock must register AFTER the catch-all so it

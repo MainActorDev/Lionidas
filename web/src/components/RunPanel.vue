@@ -17,7 +17,7 @@ import { useDeviceStream } from '../composables/deviceStream.ts';
 import { useLiveEvents } from '../stores/live.ts';
 
 interface PlanStep { idx: number; action: string; name: string; flow: string | null; optional: boolean; narrate?: string | null }
-interface Row extends PlanStep { status: 'pending' | 'running' | 'pass' | 'fail' | 'skip'; durationMs: number | null; reason: string | null }
+interface Row extends PlanStep { status: 'pending' | 'running' | 'pass' | 'fail' | 'skip'; durationMs: number | null; reason: string | null; stateAudit: { stateId: string; revision: number; path: string; probeMs?: number } | null }
 
 const props = defineProps<{
   runId: string;
@@ -73,7 +73,7 @@ async function hydrate(): Promise<void> {
       }
     }
     const s = await fetch(`/api/runs/${props.runId}/steps`);
-    const sb = (await s.json()) as { steps?: Array<{ idx: number; flow_name: string | null; name: string; status: string; reason: string | null; duration_ms: number | null; narrate?: string | null }> };
+    const sb = (await s.json()) as { steps?: Array<{ idx: number; flow_name: string | null; name: string; status: string; reason: string | null; duration_ms: number | null; narrate?: string | null; evaluated_json?: string | null }> };
     if (sb.steps?.length) {
       // prefer live truth over partial hydrate: keep any running row
       if (rows.value.length === 0) {
@@ -81,6 +81,10 @@ async function hydrate(): Promise<void> {
           idx: x.idx, action: 'step', name: x.name, flow: x.flow_name, optional: false, narrate: x.narrate ?? null,
           status: x.status === 'pass' ? 'pass' : x.status === 'fail' ? 'fail' : x.status === 'skip' ? 'skip' : 'pending',
           durationMs: x.duration_ms, reason: x.reason,
+          // phase B S4 provenance: ensureState steps audit {stateId, revision,
+          // path, probeMs} in evaluated_json — the chip shows WHICH state
+          // revision this run converged with and HOW (probe-hit vs walk)
+          stateAudit: (() => { try { const j = JSON.parse(x.evaluated_json ?? 'null') as { action?: string; stateId?: string; revision?: number; path?: string; probeMs?: number } | null; return j?.action === 'ensureState' && typeof j.stateId === 'string' && typeof j.revision === 'number' ? { stateId: j.stateId, revision: j.revision, path: String(j.path ?? ''), ...(typeof j.probeMs === 'number' ? { probeMs: j.probeMs } : {}) } : null; } catch { return null; } })(),
         }));
         if (status.value === 'running') {
           const lastDone = rows.value.filter((r) => r.status !== 'pending');
@@ -129,7 +133,7 @@ function onEvent(ev: { type: string; payload: Record<string, unknown> }): void {
   } else if (ev.type === 'run.plan') {
     const steps = (p['steps'] as PlanStep[] | undefined) ?? [];
     if (rows.value.length === 0) {
-      rows.value = steps.map((s) => ({ ...s, status: 'pending', durationMs: null, reason: null }));
+      rows.value = steps.map((s) => ({ ...s, status: 'pending', durationMs: null, reason: null, stateAudit: null }));
     }
     gate.value = null; // steps own the footer from here
   } else if (ev.type === 'step.started') {
@@ -376,6 +380,7 @@ async function requestAbort(): Promise<void> {
           <span class="rp-kind" :title="r.action">{{ r.action }}</span>
           <span class="rp-detail">{{ r.name }}</span>
           <span v-if="r.flow" class="rp-flow" :title="`subflow: ${r.flow}`">↳ {{ r.flow }}</span>
+          <span v-if="r.stateAudit" class="rp-state" :class="r.stateAudit.path" :title="`ensure state: ${r.stateAudit.stateId} · revision ${r.stateAudit.revision}${r.stateAudit.probeMs !== undefined ? ` · probe ${r.stateAudit.probeMs}ms` : ''}`"><span class="rp-state-glyph">{{ r.stateAudit.path === 'probe-hit' ? '↷' : '→' }}</span>{{ r.stateAudit.stateId }} · r{{ r.stateAudit.revision }}</span>
           <span class="rp-dur">{{ r.status === 'running' ? '…' : r.durationMs !== null ? `${(r.durationMs / 1000).toFixed(1)}s` : '' }}</span>
           <div v-if="r.narrate" class="rp-narrate"><span class="rp-narrate-kw">{{ narrateKeyword(r.narrate) }}</span><span class="rp-narrate-rest">{{ narrateRest(r.narrate) }}</span></div>
         </div>
@@ -466,6 +471,11 @@ async function requestAbort(): Promise<void> {
 .rp-abort:not(:disabled):hover { background: rgba(229, 72, 77, .12); }
 .rp-stream-fail { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 6px; align-items: center; justify-content: center; background: rgba(0,0,0,.55); color: var(--color-steel); font-size: 12px; text-align: center; z-index: 5; }
 .rp-fail-reason { font-size: 10px; color: var(--color-steel); word-break: break-word; }
+/* phase B S4 provenance chip: which state revision converged, and how —
+   probe-hit (↷, sage = idempotent skip) vs recipe (→, steel = the walk ran) */
+.rp-state { font-family: var(--font-mono); font-size: 10px; color: var(--color-pewter); white-space: nowrap; }
+.rp-state.probe-hit { color: var(--color-ok); } /* sage family: metric green = the idempotent skip */
+.rp-state-glyph { margin-right: 2px; }
 
 .rp-steps { overflow-y: auto; overscroll-behavior: contain; min-height: 0; padding: 8px 0; }
 .rp-narrate { flex-basis: 100%; order: -1; padding-left: 26px; font-size: 10px; line-height: 1.5; margin-bottom: -2px; }
