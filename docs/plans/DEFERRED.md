@@ -5,10 +5,11 @@ trigger that revives it. Append-only; entries are removed only when done.
 
 ## Platform state management — Phase A close-out (2026-10-17, `feat/app-states`)
 
-- **Phase B: batch grouping + run-level provenance UI + AI write-proposals.**
-  Edge 8's amortization (first case in a lane pays the walk, rest probe-hit)
-  is auditable per-step today but not grouped per-run. Trigger: Phase A
-  merged + a lane of N same-state cases exists in practice.
+- **Batch grouping (Phase B remainder).** Edge 8's amortization (first case
+  in a lane pays the walk, rest probe-hit) is auditable per-step today but
+  not grouped per-run. Trigger (decided ④b, 2026-10-17): a lane with ≥3
+  cases sharing an arrival state exists on prod. The other Phase B
+  candidates shipped: AI write-proposals + provenance slice.
 - **Probe-budget adaptivity.** The default probe budget is the 10s
   launch-settle window (edge 13; live S8 catch: 3s missed a state that WAS
   there after a cold relaunch, needlessly re-running the recipe). A flat 10s

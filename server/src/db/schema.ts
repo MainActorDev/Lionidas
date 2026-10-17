@@ -770,6 +770,7 @@ export function migrateM1(db: Database.Database): void {
       recipe_json TEXT NOT NULL,
       verify_json TEXT NOT NULL,
       provenance TEXT NOT NULL CHECK(provenance IN ('user','ai+user','import')),
+      source_proposal TEXT,
       revision INTEGER NOT NULL DEFAULT 1,
       created_by TEXT NOT NULL,
       created_at INTEGER NOT NULL,
@@ -786,7 +787,30 @@ export function migrateM1(db: Database.Database): void {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_app_states_history_state ON app_states_history(app_state_id, revision);
+    CREATE TABLE IF NOT EXISTS state_proposals(
+      id TEXT PRIMARY KEY,
+      app_bundle_id TEXT NOT NULL,
+      state_id TEXT NOT NULL,
+      label TEXT NOT NULL,
+      probe_json TEXT NOT NULL,
+      recipe_json TEXT NOT NULL,
+      verify_json TEXT NOT NULL,
+      rationale TEXT NOT NULL,
+      source_run_id TEXT,
+      status TEXT NOT NULL CHECK(status IN ('open','accepted','rejected')) DEFAULT 'open',
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      decided_by TEXT,
+      decided_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_state_proposals_bundle ON state_proposals(app_bundle_id, status, created_at);
   `);
+  // app_states.source_proposal (phase B S1): which accepted proposal created
+  // this entry — guarded ALTER, prod DBs created the table in phase A
+  const apCols = db.prepare('PRAGMA table_info(app_states)').all() as Array<{ name: string }>;
+  if (!apCols.some((c) => c.name === 'source_proposal')) {
+    db.exec('ALTER TABLE app_states ADD COLUMN source_proposal TEXT');
+  }
   // ── ensureLogin → registry migration (phase A S5, plan 20261017T112229Z):
   // steps-form app_login rows become app_states 'logged_in' entries exactly
   // once — the registry is the NEW FIRST source for ensure login (decision

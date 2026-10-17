@@ -12,6 +12,7 @@ import { registerHealthRoute } from './routes/health.ts';
 import { registerDeviceRoutes } from './routes/devices.ts';
 import { registerAppScreenRoutes } from './routes/app-screens.ts';
 import { registerAppStateRoutes } from './routes/app-states.ts';
+import { registerStateProposalRoutes } from './routes/state-proposals.ts';
 import { registerEnvVarRoutes } from './routes/env-vars.ts';
 import { registerRunRoutes } from './routes/runs.ts';
 import { registerMatrixRoute } from './routes/matrix.ts';
@@ -74,6 +75,7 @@ export async function buildApp(env: NodeJS.ProcessEnv = process.env): Promise<Ap
   registerDeviceRoutes(app, db.raw);
   registerAppScreenRoutes(app, db.raw);
   registerAppStateRoutes(app, db.raw);
+  registerStateProposalRoutes(app, db.raw);
   registerEnvVarRoutes(app, db.raw);
   registerRunRoutes(app, db.raw, bus);
   registerMatrixRoute(app, db.raw);
