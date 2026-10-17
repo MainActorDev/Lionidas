@@ -33,3 +33,10 @@ trigger that revives it. Append-only; entries are removed only when done.
   (parity with the screens states editor) is follow-up. Trigger: first
   authoring session that needs to discover identifiers while writing a
   recipe.
+- **`states.propose` live agent seat.** Phase B S5 drilled the proposal
+  loop at the API level on the live sim (green run → proposal sp_87652f2dde0f
+  → accept → registry `ai+user` → consumer case converged off the accepted
+  state, run_cd83f344) and the tool's draft logic carries 11 unit tests —
+  but no real agent SESSION has called the tool with a model in the loop.
+  Trigger: first agent-session use on a configured instance; watch the
+  draft's rationale + inbox row for shape drift.
