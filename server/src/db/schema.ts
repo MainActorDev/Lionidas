@@ -787,6 +787,35 @@ export function migrateM1(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_app_states_history_state ON app_states_history(app_state_id, revision);
   `);
+  // ── ensureLogin → registry migration (phase A S5, plan 20261017T112229Z):
+  // steps-form app_login rows become app_states 'logged_in' entries exactly
+  // once — the registry is the NEW FIRST source for ensure login (decision
+  // Q3 rebuild); the app_login row stays as the frozen legacy fallback and
+  // legacy YAML keeps parsing. probe = the session state (verify.screen.state
+  // — identity, not a set); recipe = entry + steps; verify = the same state
+  // (+via). Deterministic id + ON CONFLICT DO NOTHING = idempotent.
+  {
+    const loginRows = db.prepare("SELECT bundle_id, login_json FROM app_login WHERE login_json LIKE '%\"steps\"%' AND login_json LIKE '%\"verify\"%'").all() as Array<{ bundle_id: string; login_json: string }>;
+    const insState = db.prepare(`INSERT INTO app_states(id, app_bundle_id, state_id, label, probe_json, recipe_json, verify_json, provenance, revision, created_by, created_at, updated_at)
+                                 VALUES (?, ?, 'logged_in', 'Logged in', ?, ?, ?, 'import', 1, 'migration', 0, 0)
+                                 ON CONFLICT(app_bundle_id, state_id) DO NOTHING`);
+    const insHist = db.prepare('INSERT INTO app_states_history(id, app_state_id, revision, snapshot_json, created_by, created_at) VALUES (?, ?, 1, ?, ?, 0)');
+    for (const row of loginRows) {
+      try {
+        const proc = JSON.parse(row.login_json) as { entry?: unknown; steps?: unknown[]; verify?: { screen?: string; state?: string; via?: string } };
+        if (!Array.isArray(proc.steps) || proc.steps.length === 0 || !proc.verify?.screen || !proc.verify.state) continue;
+        const dotted = `${proc.verify.screen}.${proc.verify.state}`;
+        const probe = { screen: dotted };
+        const verify = { screen: dotted, ...(proc.verify.via ? { via: proc.verify.via } : {}) };
+        const recipe: Record<string, unknown> = { steps: proc.steps };
+        if (proc.entry) recipe['entry'] = proc.entry;
+        const snapshot = JSON.stringify({ stateId: 'logged_in', label: 'Logged in', probe, recipe, verify });
+        const id = `st_li_${row.bundle_id}`;
+        const changes = insState.run(id, row.bundle_id, JSON.stringify(probe), JSON.stringify(recipe), JSON.stringify(verify)).changes;
+        if (changes === 1) insHist.run(`sth_li_${row.bundle_id}`, id, snapshot, 'migration');
+      } catch { continue; }
+    }
+  }
   // ── logout recipe registry (plan 20260929T080249Z): app-level procedure,
   // mirror of app_login. ONE recipe per bundle; cases reference it with the
   // bare `ensure logout:` verb. ATOMIC settlement of the login duality in

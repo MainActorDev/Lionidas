@@ -905,10 +905,14 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
    *  here; playback fails closed with the same message. */
   const hasLoginRecipe = (bundle: string | null | undefined): boolean => {
     if (!bundle) return false;
+    // phase A S5: an app_states 'logged_in' entry IS a login flow (the
+    // registry is the first resolution source at playback)
+    if (db.prepare("SELECT 1 FROM app_states WHERE app_bundle_id = ? AND state_id = 'logged_in'").get(bundle)) return true;
     return !!db.prepare('SELECT 1 FROM app_login WHERE bundle_id = ?').get(bundle);
   };
   const hasLogoutRecipe = (bundle: string | null | undefined): boolean => {
     if (!bundle) return false;
+    if (db.prepare("SELECT 1 FROM app_states WHERE app_bundle_id = ? AND state_id = 'logged_out'").get(bundle)) return true;
     return !!db.prepare('SELECT 1 FROM app_logout WHERE bundle_id = ?').get(bundle);
   };
 
