@@ -38,27 +38,51 @@ interface Proposal {
   createdBy: string; createdAt: number; decidedBy: string | null; decidedAt: number | null;
 }
 
+/** Shared create core (S2): the route and the states.propose agent tool call
+ *  the SAME guards — grammar validation, registry-collision 409-before-store,
+ *  open-pair idempotency. Returns the proposal or a named error object. */
+export function insertStateProposal(
+  db: Database.Database,
+  input: { bundle: string; draft: AppState; rationale: string; sourceRunId: string | null; user: string },
+):
+  | { ok: true; proposal: Proposal; deduped: boolean }
+  | { ok: false; code: 422 | 409; error: string } {
+  const { bundle, draft, rationale, sourceRunId, user } = input;
+  const errors = validateAppState(draft);
+  if (errors.length > 0) return { ok: false, code: 422, error: errors[0]! };
+  const regHit = db.prepare('SELECT id FROM app_states WHERE app_bundle_id = ? AND state_id = ?').get(bundle, draft.stateId) as { id: string } | undefined;
+  if (regHit) return { ok: false, code: 409, error: `state "${draft.stateId}" already exists in the registry for ${bundle} — proposals create NEW states only` };
+  const open = db.prepare("SELECT * FROM state_proposals WHERE app_bundle_id = ? AND state_id = ? AND status = 'open'").get(bundle, draft.stateId) as ProposalRow | undefined;
+  if (open) return { ok: true, proposal: rowToProposal(open), deduped: true };
+  const id = `sp_${randomBytes(6).toString('hex')}`;
+  const now = Date.now();
+  db.prepare(
+    'INSERT INTO state_proposals(id, app_bundle_id, state_id, label, probe_json, recipe_json, verify_json, rationale, source_run_id, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(id, bundle, draft.stateId, draft.label, JSON.stringify(draft.probe), JSON.stringify(draft.recipe), JSON.stringify(draft.verify), rationale, sourceRunId, 'open', user, now);
+  return { ok: true, proposal: rowToProposal(db.prepare('SELECT * FROM state_proposals WHERE id = ?').get(id) as ProposalRow), deduped: false };
+}
+
+const rowToProposal = (r: ProposalRow): Proposal => ({
+  id: r.id,
+  bundle: r.app_bundle_id,
+  stateId: r.state_id,
+  label: r.label,
+  probe: JSON.parse(r.probe_json) as AppState['probe'],
+  recipe: JSON.parse(r.recipe_json) as AppState['recipe'],
+  verify: JSON.parse(r.verify_json) as AppState['verify'],
+  rationale: r.rationale,
+  sourceRunId: r.source_run_id,
+  status: r.status as Proposal['status'],
+  createdBy: r.created_by,
+  createdAt: r.created_at,
+  decidedBy: r.decided_by,
+  decidedAt: r.decided_at,
+});
+
 export function registerStateProposalRoutes(app: FastifyInstance, db: Database.Database): void {
   const byBundle = db.prepare(
     "SELECT * FROM state_proposals WHERE app_bundle_id = ? ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END, created_at DESC LIMIT 100",
   );
-
-  const rowToProposal = (r: ProposalRow): Proposal => ({
-    id: r.id,
-    bundle: r.app_bundle_id,
-    stateId: r.state_id,
-    label: r.label,
-    probe: JSON.parse(r.probe_json) as AppState['probe'],
-    recipe: JSON.parse(r.recipe_json) as AppState['recipe'],
-    verify: JSON.parse(r.verify_json) as AppState['verify'],
-    rationale: r.rationale,
-    sourceRunId: r.source_run_id,
-    status: r.status as Proposal['status'],
-    createdBy: r.created_by,
-    createdAt: r.created_at,
-    decidedBy: r.decided_by,
-    decidedAt: r.decided_at,
-  });
 
   const fetch = (id: string): ProposalRow | undefined =>
     db.prepare('SELECT * FROM state_proposals WHERE id = ?').get(id) as ProposalRow | undefined;
