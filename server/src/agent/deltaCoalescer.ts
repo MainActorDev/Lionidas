@@ -91,7 +91,7 @@ export class DeltaCoalescer {
   /** Drain every buffer for a turn (terminal event) — incomplete items flush
    *  with done:false as their last-known state. */
   flushTurn(sessionId: string, turnId: string): void {
-    for (const k of [...this.buffers.keys()]) {
+    for (const k of this.buffers.keys()) {
       if (k.startsWith(`${sessionId}|${turnId}|`)) {
         const b = this.buffers.get(k)!;
         if (!b.done) {

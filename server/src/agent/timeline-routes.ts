@@ -11,18 +11,6 @@ import { requireRole } from '../auth/roles.ts';
 import type { AgentContext } from './context.ts';
 import { foldTurnEvents, type TurnItem } from './turnItems.ts';
 
-/** The sink stores turn_id as TEXT NULL; EventRow carries it raw. Reuse the
- *  fold's row shape (id/turn_id/session_id/seq/kind/detail_json/at). */
-interface SinkEventRow {
-  id: string;
-  turn_id: string | null;
-  session_id: string;
-  seq: number;
-  kind: string;
-  detail_json: string;
-  at: number;
-}
-
 /** Zombie guard (v0.5.2 semantics): a live turn whose last event is older
  *  than 15min is dead to us — report null, never a spinning liveTurn. */
 const LIVE_FRESHNESS_MS = 15 * 60 * 1000;

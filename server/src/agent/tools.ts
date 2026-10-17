@@ -117,6 +117,35 @@ export function buildToolRegistry(deps: ToolDeps): ToolRegistry {
   });
 
   registry.register({
+    name: 'states.list',
+    description: 'the app states registry — named app preconditions (probe / recipe / verify). THE vocabulary for ensure state: steps; state ids are unique per bundle. Recipes carry ${env.NAME} refs, never literal credentials.',
+    permission: 'read',
+    parameters: { type: 'object', properties: { appBundle: { type: 'string', description: 'optional bundle filter' } } },
+    async execute(args) {
+      const bundle = typeof args['appBundle'] === 'string' ? args['appBundle'] : null;
+      const rows = bundle
+        ? db.prepare('SELECT id, app_bundle_id, state_id, label, provenance, revision, probe_json, recipe_json, verify_json FROM app_states WHERE app_bundle_id = ? ORDER BY state_id').all(bundle)
+        : db.prepare('SELECT id, app_bundle_id, state_id, label, provenance, revision, probe_json, recipe_json, verify_json FROM app_states ORDER BY app_bundle_id, state_id').all();
+      return JSON.stringify(rows);
+    },
+  });
+
+  registry.register({
+    name: 'states.get',
+    description: 'one app state in full — probe/recipe/verify plus its revision history (which recipe revision a past run executed).',
+    permission: 'read',
+    parameters: { type: 'object', properties: { appBundle: { type: 'string' }, stateId: { type: 'string' } }, required: ['appBundle', 'stateId'] },
+    async execute(args) {
+      const bundle = typeof args['appBundle'] === 'string' ? args['appBundle'] : '';
+      const stateId = typeof args['stateId'] === 'string' ? args['stateId'] : '';
+      const row = db.prepare('SELECT id, app_bundle_id, state_id, label, provenance, revision, probe_json, recipe_json, verify_json, created_by, created_at, updated_at FROM app_states WHERE app_bundle_id = ? AND state_id = ?').get(bundle, stateId) as Record<string, unknown> | undefined;
+      if (!row) return JSON.stringify({ error: `state "${stateId}" is not registered for ${bundle} — states.list shows what exists` });
+      const history = db.prepare('SELECT revision, snapshot_json, created_by, created_at FROM app_states_history WHERE app_state_id = ? ORDER BY revision DESC').all(row['id'] as string);
+      return JSON.stringify({ state: row, history });
+    },
+  });
+
+  registry.register({
     name: 'folders.tree',
     description: 'folder tree with per-folder counts. kind=cases (default): app-scoped testcase folders. kind=scenarios | presets: GLOBAL single-root trees (no app scoping).',
     permission: 'read',

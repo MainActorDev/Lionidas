@@ -754,6 +754,68 @@ export function migrateM1(db: Database.Database): void {
       revoked_at INTEGER
     );
   `);
+  // ── app states registry (phase A S2, plan 20261017T112229Z): an app's
+  // named states as first-class platform data. probe (identity check) +
+  // recipe (entry/actuator/steps) + verify (arrival proof), append-only
+  // history per edit for forensics — which revision a run executed (step
+  // audit carries {stateId, revision}). Credentials never live here:
+  // recipes store ${env.X} refs resolved at play time.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_states(
+      id TEXT PRIMARY KEY,
+      app_bundle_id TEXT NOT NULL,
+      state_id TEXT NOT NULL,
+      label TEXT NOT NULL,
+      probe_json TEXT NOT NULL,
+      recipe_json TEXT NOT NULL,
+      verify_json TEXT NOT NULL,
+      provenance TEXT NOT NULL CHECK(provenance IN ('user','ai+user','import')),
+      revision INTEGER NOT NULL DEFAULT 1,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(app_bundle_id, state_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_app_states_bundle ON app_states(app_bundle_id, state_id);
+    CREATE TABLE IF NOT EXISTS app_states_history(
+      id TEXT PRIMARY KEY,
+      app_state_id TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      snapshot_json TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_app_states_history_state ON app_states_history(app_state_id, revision);
+  `);
+  // ── ensureLogin → registry migration (phase A S5, plan 20261017T112229Z):
+  // steps-form app_login rows become app_states 'logged_in' entries exactly
+  // once — the registry is the NEW FIRST source for ensure login (decision
+  // Q3 rebuild); the app_login row stays as the frozen legacy fallback and
+  // legacy YAML keeps parsing. probe = the session state (verify.screen.state
+  // — identity, not a set); recipe = entry + steps; verify = the same state
+  // (+via). Deterministic id + ON CONFLICT DO NOTHING = idempotent.
+  {
+    const loginRows = db.prepare("SELECT bundle_id, login_json FROM app_login WHERE login_json LIKE '%\"steps\"%' AND login_json LIKE '%\"verify\"%'").all() as Array<{ bundle_id: string; login_json: string }>;
+    const insState = db.prepare(`INSERT INTO app_states(id, app_bundle_id, state_id, label, probe_json, recipe_json, verify_json, provenance, revision, created_by, created_at, updated_at)
+                                 VALUES (?, ?, 'logged_in', 'Logged in', ?, ?, ?, 'import', 1, 'migration', 0, 0)
+                                 ON CONFLICT(app_bundle_id, state_id) DO NOTHING`);
+    const insHist = db.prepare('INSERT INTO app_states_history(id, app_state_id, revision, snapshot_json, created_by, created_at) VALUES (?, ?, 1, ?, ?, 0)');
+    for (const row of loginRows) {
+      try {
+        const proc = JSON.parse(row.login_json) as { entry?: unknown; steps?: unknown[]; verify?: { screen?: string; state?: string; via?: string } };
+        if (!Array.isArray(proc.steps) || proc.steps.length === 0 || !proc.verify?.screen || !proc.verify.state) continue;
+        const dotted = `${proc.verify.screen}.${proc.verify.state}`;
+        const probe = { screen: dotted };
+        const verify = { screen: dotted, ...(proc.verify.via ? { via: proc.verify.via } : {}) };
+        const recipe: Record<string, unknown> = { steps: proc.steps };
+        if (proc.entry) recipe['entry'] = proc.entry;
+        const snapshot = JSON.stringify({ stateId: 'logged_in', label: 'Logged in', probe, recipe, verify });
+        const id = `st_li_${row.bundle_id}`;
+        const changes = insState.run(id, row.bundle_id, JSON.stringify(probe), JSON.stringify(recipe), JSON.stringify(verify)).changes;
+        if (changes === 1) insHist.run(`sth_li_${row.bundle_id}`, id, snapshot, 'migration');
+      } catch { continue; }
+    }
+  }
   // ── logout recipe registry (plan 20260929T080249Z): app-level procedure,
   // mirror of app_login. ONE recipe per bundle; cases reference it with the
   // bare `ensure logout:` verb. ATOMIC settlement of the login duality in

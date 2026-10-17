@@ -4,6 +4,7 @@ import PageHeader from '../components/PageHeader.vue';
 import ScreenDocPanel from '../components/ScreenDocPanel.vue';
 import LoginFlowPanel from '../components/LoginFlowPanel.vue';
 import LogoutFlowPanel from '../components/LogoutFlowPanel.vue';
+import AppStatesPanel from '../components/AppStatesPanel.vue';
 import { stateHolds, type SnapNode } from '@crucible/shared/app-screens';
 
 /** Screens page (A2, registry-UI stage 1) — the registry in the house row
@@ -66,12 +67,14 @@ const editorErr = ref('');
 const docPanel = ref<null | { bundle: string; yaml: string; mode: 'create' | 'edit' }>(null);
 const loginFlow = ref<string | null>(null);
 const logoutFlow = ref<string | null>(null);
+const appStates = ref<string | null>(null);
 function screensWithStates(bundle: string): Array<{ id: string; states: string[] }> {
   const b = bundles.value.find((x) => x.bundle === bundle);
   return (b?.screens ?? []).map((s) => ({ id: s.id, states: Object.keys(s.states) }));
 }
 async function onLoginFlowSaved(): Promise<void> { loginFlow.value = null; await loadRegistries(); }
 async function onLogoutFlowSaved(): Promise<void> { logoutFlow.value = null; await loadRegistries(); }
+async function onAppStatesSaved(): Promise<void> { appStates.value = null; await loadRegistries(); }
 function screenToDoc(s: AppScreen): string {
   const L: string[] = [];
   L.push(`- id: ${s.id}`);
@@ -450,6 +453,7 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
       <span class="bundle-acts" @click.stop>
         <button class="mini-act" title="edit the app's login flow" @click="loginFlow = b.bundle">login flow</button>
           <button class="mini-act" title="edit the app's logout flow (what bare 'ensure logout:' runs)" @click="logoutFlow = b.bundle">logout flow</button>
+          <button class="mini-act" title="edit the app's named states (what 'ensure state: <id>' converges to)" @click="appStates = b.bundle">app states</button>
           <button class="mini-act" title="register a new screen" @click="openDocCreate(b.bundle)">+ screen</button>
         <button class="mini-act" title="import/export the registry as yaml" @click="openYaml(b.bundle)">yaml</button>
       </span>
@@ -533,6 +537,7 @@ function stateDef(def: { all?: ScreenSelector[]; any?: ScreenSelector[] }): stri
 
   <LoginFlowPanel v-if="loginFlow" :bundle="loginFlow" :screens="screensWithStates(loginFlow)" @close="loginFlow = null" @saved="onLoginFlowSaved" />
   <LogoutFlowPanel v-if="logoutFlow" :bundle="logoutFlow" @close="logoutFlow = null" @saved="onLogoutFlowSaved" />
+  <AppStatesPanel v-if="appStates" :bundle="appStates" @close="appStates = null" @saved="onAppStatesSaved" />
 
   <ScreenDocPanel v-if="docPanel" :bundle="docPanel.bundle" :screen-yaml="docPanel.yaml" :mode="docPanel.mode" @close="docPanel = null" @saved="onDocSaved" />
 

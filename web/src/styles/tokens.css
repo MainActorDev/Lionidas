@@ -15,7 +15,7 @@
   --color-graphite: var(--card);        /* Inner tile dividers (carbon) */
   --color-iron:     var(--border);      /* Ash stroke — hairline borders, dividers */
   --color-slate:    var(--secondary);   /* Graphite mid — mid-tone fills, muted borders */
-  --color-pewter:   var(--border);      /* (alias of ash) */
+  --color-pewter:   var(--muted-foreground); /* (alias of ash — muted text; was mis-mapped to the hairline border token, rendering 41 text sites at ~1.5:1) */
 
   /* ─── Text (bone ramp / themed) ─── */
   --color-steel:    var(--muted-foreground); /* Warm granite — muted text, inactive labels */

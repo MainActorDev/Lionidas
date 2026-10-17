@@ -84,7 +84,7 @@ export interface PlaybackDeps {
 
 export interface PlaybackStep {
   idx: number;
-  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin' | 'doubleTap' | 'longPress' | 'shake' | 'paste' | 'wait';
+  action: 'tap' | 'scroll' | 'type' | 'runFlow' | 'expect' | 'alert' | 'location' | 'arrive' | 'refresh' | 'swap' | 'expectScreen' | 'ensureLogout' | 'ensureLogin' | 'ensureState' | 'doubleTap' | 'longPress' | 'shake' | 'paste' | 'wait';
   x?: number;
   y?: number;
   direction?: 'up' | 'down' | 'left' | 'right';
@@ -122,6 +122,8 @@ export interface PlaybackStep {
   /** ensure login: coordinate-free login preflight; phone/password are
    *  ${env.X} refs resolved at playback — never literal secrets */
   ensureLogin?: { entry: string; phoneField: string; passwordField: string; submit: string; session: string; phone: string; password: string; screen?: string };
+  /** ensure state (phase A S1): registry state id — converge probe→recipe→verify */
+  ensureState?: string;
   /** R2 verbs (S5): arrive/refresh target screen; swap target id; expect screen parts */
   screen?: string;
   swap?: string;
@@ -157,6 +159,7 @@ function stepName(s: PlaybackStep): string {
   }
   if (s.action === 'paste') return `paste ${(s.text ?? '').slice(0, 24)}${s.press === false ? ' (pasteboard only)' : ''}`;
   if (s.action === 'scroll') return `scroll ${s.direction}`;
+  if (s.action === 'ensureState') return `ensure state ${s.ensureState ?? '?'}`;
   if (s.action === 'ensureLogout') return `ensure logout (${s.ensureLogout?.button ?? '?'})`;
   if (s.action === 'ensureLogin') return `ensure login (${s.ensureLogin?.screen ? `screen ${s.ensureLogin.screen}` : s.ensureLogin?.entry ?? '?'})`;
   if (s.action === 'alert') return `alert ${s.alertAction ?? 'dismiss'}`;
@@ -189,6 +192,7 @@ export function stepLabel(s: PlaybackStep): string {
   if (s.action === 'expectScreen') return `screen ${s.expectScreen?.screen ?? '?'}.${s.expectScreen?.state ?? '?'}`;
   if (s.action === 'alert') return `alert ${s.alertAction ?? 'dismiss'}`;
   if (s.action === 'location') return `location ${s.location?.latitude ?? '?'}${s.location?.longitude !== undefined ? ',' : ''}${s.location?.longitude ?? ''}`;
+  if (s.action === 'ensureState') return `ensure state ${s.ensureState ?? '?'}`;
   if (s.action === 'ensureLogin') return 'ensure logged in';
   if (s.action === 'ensureLogout') return 'ensure logged out';
   if (s.action === 'type') {
@@ -826,6 +830,283 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
       // `valid` flips false on ANY scroll (delta unknowable) or navigation
       // action; expect steps keep entries (they don't move UI).
       const lastRectBySelector = new Map<string, { x: number; y: number; w: number; h: number; valid: boolean }>();
+      // ── phase A S3/S5 — the state-convergence executor as a run-scoped
+      // closure: the ensure state step AND registry-sourced ensure login /
+      // ensure logout verbs (S5, decision Q3) converge through ONE loop —
+      // probe → recipe → verify, idempotent, honest failures. Returns true
+      // = pass (caller continues), false = failed (run failed, rest of the
+      // steps skipped — caller breaks).
+      type ConvergeStateRow = { id: string; state_id: string; revision: number; probe_json: string; recipe_json: string; verify_json: string };
+      const convergeState = async (s: PlaybackStep, t0: number, auditAction: string, stateRow: ConvergeStateRow, extraAudit: Record<string, unknown> = {}): Promise<boolean> => {
+        const stateBundle = recipeBundle;
+            const failState = (msg: string, audit: Record<string, unknown>): void => {
+              runStatus = 'failed';
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', msg, t0, Date.now() - t0, '[]', JSON.stringify({ action: 'ensureState', ...audit }), s.narrate ?? null);
+              for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
+                insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null, rest.narrate ?? null);
+              }
+            };
+            type StateSel = { identifier?: string; label?: string; labelContains?: string; screen?: string; via?: string };
+            type StateRec = { entry?: { tab?: { identifier?: string; label?: string }; deepLink?: string; navigate?: Array<{ on?: string; x?: number; y?: number }> }; actuator?: string; launchArgs?: string[]; signal?: string; permission?: string; steps?: Array<Record<string, unknown>> };
+            let probe: StateSel | null = null; let recipe: StateRec | null = null; let verify: StateSel | null = null;
+            try {
+              probe = JSON.parse(stateRow.probe_json) as StateSel;
+              recipe = JSON.parse(stateRow.recipe_json) as StateRec;
+              verify = JSON.parse(stateRow.verify_json) as StateSel;
+            } catch { probe = null; }
+            if (!probe || !recipe || !verify) {
+              failState(`ensure state: state "${stateRow.state_id}" (revision ${stateRow.revision}) has an unreadable probe/recipe/verify — re-save it on the app states page`, { stateId: stateRow.state_id, revision: stateRow.revision, path: 'resolve' });
+              return false;
+            }
+            const emitStateTap = (x: number, y: number, kind: 'tap' | 'type' = 'tap'): void => {
+              const dims = overlayDims(targetW, targetH, runDims().logical_w, runDims().logical_h, t.logical_w, t.logical_h);
+              if (dims.w > 0 && dims.h > 0) {
+                deps.bus.emit('step.tap', { runId, idx: s.idx, x: Math.round(x), y: Math.round(y), logicalW: dims.w, logicalH: dims.h });
+                if (kind === 'tap') recordTap(deps.db, { runId, idx: s.idx, x: Math.round(x), y: Math.round(y), logicalW: dims.w, logicalH: dims.h }, Date.now());
+              }
+            };
+            const snapNow = async () => {
+              const sn = (await alloy.dispatch('alloy_snapshot', { udid, interactiveOnly: false }, deps.dispatchDeps)) as
+                | { ok: true; result: { nodes?: SnapNode[] } } | { ok: false };
+              return sn.ok ? (sn.result.nodes ?? []) : null;
+            };
+            const findOne = (nodes: SnapNode[], key: string): { x: number; y: number } | null => {
+              const byId = resolveSelector(nodes, { identifier: key });
+              if (byId) return byId;
+              const byLabel = resolveSelector(nodes, { label: key });
+              if (byLabel) return byLabel;
+              return resolveSelector(nodes, { labelContains: key });
+            };
+            // selector holds: screen refs check the registry state (all/any
+            // sets, the sessionHolds precedent); direct selectors resolve live
+            const selHolds = async (sel: { identifier?: string; label?: string; labelContains?: string; screen?: string }): Promise<boolean> => {
+              const nodes = await snapNow();
+              if (!nodes) return false;
+              if (sel.screen) {
+                // dotted "screen.state" names the state explicitly; a bare
+                // screen ref asserts the screen's FIRST state (author
+                // convention: states are ordered, first = landed). Parse
+                // BEFORE the row fetch — the screen part is the registry key.
+                const dotted = /^([a-z][a-z0-9-]*)\.([a-z][a-z0-9_-]*)$/.exec(sel.screen);
+                const screenId = dotted ? dotted[1]! : sel.screen;
+                const st = deps.db.prepare('SELECT states_json FROM app_screens WHERE app_bundle_id = ? AND screen_id = ?').get(stateBundle ?? tpl.app_bundle_id, screenId) as { states_json: string } | undefined;
+                if (!st) return false;
+                try {
+                  const states = JSON.parse(st.states_json) as Record<string, { all?: Array<Record<string, string>>; any?: Array<Record<string, string>> }>;
+                  const def = dotted ? states[dotted[2]!] : Object.values(states)[0];
+                  if (!def) return false;
+                  if (def.all && !def.all.every((x) => findOne(nodes, x.identifier ?? x.label ?? '') !== null)) return false;
+                  if (def.any && !def.any.some((x) => findOne(nodes, x.identifier ?? x.label ?? '') !== null)) return false;
+                  return true;
+                } catch { return false; }
+              }
+              if (sel.identifier) return findOne(nodes, sel.identifier) !== null;
+              if (sel.label) return findOne(nodes, sel.label) !== null;
+              if (sel.labelContains) return findOne(nodes, sel.labelContains) !== null;
+              return false;
+            };
+            const pollHolds = async (sel: { identifier?: string; label?: string; labelContains?: string; screen?: string }, budgetMs: number): Promise<boolean> => {
+              const tStart = Date.now();
+              for (; Date.now() - tStart < budgetMs && !isAborted(runId);) {
+                if (await selHolds(sel)) return true;
+                await new Promise((res2) => setTimeout(res2, 250));
+              }
+              return false;
+            };
+            // 2. probe — already there? (idempotence; probe lies surface later
+            // as the case's own step failure — authoring rule, edge 1). Budget
+            // = the launch-settle window (edge 13, live catch S8: a cold
+            // relaunch renders its first real UI at ~7.5s — a 3s probe missed
+            // a state that WAS there and re-ran the recipe needlessly).
+            const probeBudget = Number(process.env.CRUCIBLE_STATE_PROBE_MS ?? 10_000);
+            const tProbe = Date.now();
+            const probeHit = await pollHolds(probe, probeBudget);
+            const probeMs = Date.now() - tProbe;
+            if (probeHit) {
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', `already in state "${stateRow.state_id}" (probe hit — recipe skipped)`, t0, Date.now() - t0, '[]', JSON.stringify({ action: auditAction, ...extraAudit, stateId: stateRow.state_id, revision: stateRow.revision, path: 'probe-hit', probeMs }), s.narrate ?? null);
+              return true;
+            }
+            // 3. recipe — entry → actuator → walk (ordered arms)
+            let stepsPlayed = 0;
+            try {
+              if (recipe.entry) {
+                const playEntryStep = async (onRef: string | undefined, x?: number, y?: number): Promise<void> => {
+                  let tx: number | null = typeof x === 'number' ? x : null;
+                  let ty: number | null = typeof y === 'number' ? y : null;
+                  if (onRef) {
+                    let hit: { x: number; y: number } | null = null;
+                    for (let attempt = 0; attempt < 20 && !hit && !isAborted(runId); attempt++) {
+                      const ns = await snapNow();
+                      hit = ns ? findOne(ns, onRef) : null;
+                      if (!hit) await new Promise((res2) => setTimeout(res2, 500));
+                    }
+                    if (!hit) throw new Error(`entry step ${JSON.stringify(onRef)} never appeared`);
+                    tx = hit.x; ty = hit.y;
+                  }
+                  if (tx == null || ty == null) throw new Error('entry step has neither on: nor x/y');
+                  emitStateTap(tx, ty);
+                  const rStep = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: tx, y: ty }, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message?: string } }>, 'ensure state: entry step')) as { ok: boolean; error?: { message?: string } };
+                  if (!rStep.ok) throw new Error(rStep.error?.message ?? 'entry step tap failed');
+                  await new Promise((res2) => setTimeout(res2, 400));
+                };
+                if (Array.isArray(recipe.entry.navigate) && recipe.entry.navigate.length > 0) {
+                  for (const st of recipe.entry.navigate) {
+                    if (typeof st.on === 'string') await playEntryStep(st.on);
+                    else if (typeof st.x === 'number' && typeof st.y === 'number') await playEntryStep(undefined, st.x, st.y);
+                    else throw new Error('entry navigate step has neither on: nor x/y');
+                  }
+                  stepsPlayed += recipe.entry.navigate.length;
+                } else if (recipe.entry.tab) {
+                  const tRef = recipe.entry.tab.identifier ?? recipe.entry.tab.label ?? '';
+                  if (!tRef) throw new Error('entry tab has no identifier/label');
+                  await playEntryStep(tRef);
+                  stepsPlayed++;
+                } else if (typeof recipe.entry.deepLink === 'string' && recipe.entry.deepLink) {
+                  const { openSimulatorUrl } = await import('./apps.ts');
+                  await openSimulatorUrl(udid, recipe.entry.deepLink);
+                  stepsPlayed++;
+                  await new Promise((res2) => setTimeout(res2, 1_500)); // route settle
+                } else {
+                  throw new Error('the recipe declares an entry with no usable arm (tab/deepLink/navigate)');
+                }
+              }
+              if (recipe.actuator) {
+                if (recipe.actuator === 'relaunch') {
+                  // always keep -uitest-live-refresh (the launch-arg seam law)
+                  const args = ['-uitest-live-refresh', ...(recipe.launchArgs ?? [])];
+                  const r = (await withWatchdog(runId, dispatchWithHeal('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false, launchArgs: args }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, `ensure state: relaunch ${appToLaunch}`)) as { ok: boolean; error?: { message: string } };
+                  if (!r.ok) throw new Error(`relaunch failed: ${r.error?.message ?? 'engine error'}`);
+                  // relaunch = fresh process: re-settle before the walk/verify
+                  for (let k = 0; k < 40 && !isAborted(runId); k++) {
+                    const ns = await snapNow();
+                    if (ns && ns.length >= 2) break;
+                    await new Promise((res2) => setTimeout(res2, 500));
+                  }
+                } else if (recipe.actuator === 'signal') {
+                  const { postDarwinNotification } = await import('./apps.ts');
+                  await postDarwinNotification(udid, recipe.signal ?? '');
+                } else if (recipe.actuator === 'uninstallReinstall') {
+                  // S4: device-scoped — this run must EXCLUSIVELY own the udid
+                  // (parallel lanes + manual sessions count; self excluded —
+                  // lesson h in new costume). Violation = honest failure, never
+                  // forced eviction.
+                  const { deviceContender } = await import('./state-actuator.ts');
+                  const contender = deviceContender(deps.db, udid, runId);
+                  if (contender) throw new Error(`STATE_DEVICE_CONTENDED: run ${contender.id} also holds this device — device-scoped actuators serialize (sequential-lane contract)`);
+                  // F6 precondition: a resolvable artifact (newest sim-runnable
+                  // package for this bundle; honest named failure when none)
+                  const { listPackages, isSimulatorRunnable } = await import('./packages.ts');
+                  const pkg = listPackages().filter((x) => x.bundleId === appToLaunch && isSimulatorRunnable(x)).sort((a, b) => b.mtimeMs - a.mtimeMs)[0];
+                  if (!pkg) throw new Error(`STATE_ARTIFACT_MISSING: no installable artifact for ${appToLaunch} — drop one in the packages store first (app states page recipes reference it by bundle)`);
+                  const rr = (await withWatchdog(runId, dispatchWithHeal('alloy_apps', { action: 'reinstall', app: appToLaunch, path: pkg.path, udid, hold: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, `ensure state: reinstall ${appToLaunch}`)) as { ok: boolean; error?: { message: string } };
+                  if (!rr.ok) throw new Error(`reinstall failed: ${rr.error?.message ?? 'engine error'}`);
+                  // reinstall leaves the app not-running: open with the seam
+                  // arg (+ recipe args), then re-settle before verify
+                  const args = ['-uitest-live-refresh', ...(recipe.launchArgs ?? [])];
+                  const ro = (await withWatchdog(runId, dispatchWithHeal('alloy_apps', { action: 'open', app: appToLaunch, udid, hold: false, launchArgs: args }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message: string } }>, `ensure state: relaunch ${appToLaunch}`)) as { ok: boolean; error?: { message: string } };
+                  if (!ro.ok) throw new Error(`relaunch after reinstall failed: ${ro.error?.message ?? 'engine error'}`);
+                  for (let k = 0; k < 40 && !isAborted(runId); k++) {
+                    const ns = await snapNow();
+                    if (ns && ns.length >= 2) break;
+                    await new Promise((res2) => setTimeout(res2, 500));
+                  }
+                } else if (recipe.actuator === 'privacyGrant') {
+                  const { deviceContender } = await import('./state-actuator.ts');
+                  const contender = deviceContender(deps.db, udid, runId);
+                  if (contender) throw new Error(`STATE_DEVICE_CONTENDED: run ${contender.id} also holds this device — device-scoped actuators serialize (sequential-lane contract)`);
+                  const { privacyGrant } = await import('./apps.ts');
+                  await privacyGrant(udid, recipe.permission ?? 'all', appToLaunch);
+                } else {
+                  throw new Error(`STATE_ACTUATOR_UNKNOWN: actuator "${recipe.actuator}" is not an app-states actuator`);
+                }
+              }
+              if (Array.isArray(recipe.steps)) {
+                for (let si = 0; si < recipe.steps.length && !isAborted(runId); si++) {
+                  const raw = recipe.steps[si]! as Record<string, unknown>;
+                  const kind = raw['tap'] ? 'tap' : raw['type'] ? 'type' : raw['expect'] ? 'expect' : raw['wait'] ? 'wait' : null;
+                  if (!kind) throw new Error(`recipe step ${si + 1} is not tap/type/expect/wait`);
+                  const bodyR = (raw[kind] ?? {}) as Record<string, unknown>;
+                  if (kind === 'wait') {
+                    const w = bodyR as { ms?: number; until?: string; timeout?: number };
+                    if (typeof w.ms === 'number') { await new Promise((res2) => setTimeout(res2, Math.min(w.ms!, 60_000))); }
+                    else if (typeof w.until === 'string') {
+                      const budget = typeof w.timeout === 'number' ? w.timeout : 10_000;
+                      const tW = Date.now();
+                      let seen = false;
+                      for (; Date.now() - tW < budget && !isAborted(runId) && !seen;) {
+                        const ns = await snapNow();
+                        seen = ns ? findOne(ns, w.until) !== null : false;
+                        if (!seen) await new Promise((res2) => setTimeout(res2, 250));
+                      }
+                      if (!seen) throw new Error(`recipe step ${si + 1}: wait target ${JSON.stringify(w.until)} never appeared`);
+                    } else throw new Error(`recipe step ${si + 1}: wait needs ms or until`);
+                    stepsPlayed++;
+                    continue;
+                  }
+                  const onR = typeof bodyR['on'] === 'string' ? bodyR['on'] : null;
+                  if (!onR) throw new Error(`recipe step ${si + 1} needs on: <label-or-id>`);
+                  const pt = await (async () => {
+                    const tF = Date.now();
+                    for (; Date.now() - tF < 10_000 && !isAborted(runId);) {
+                      const ns = await snapNow();
+                      const hit = ns ? findOne(ns, onR) : null;
+                      if (hit) return hit;
+                      await new Promise((res2) => setTimeout(res2, 150));
+                    }
+                    return null;
+                  })();
+                  if (!pt) throw new Error(`recipe step ${si + 1} target ${JSON.stringify(onR)} never appeared`);
+                  if (kind === 'tap') {
+                    emitStateTap(pt.x, pt.y);
+                    const rr = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: pt.x, y: pt.y }, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message?: string } }>, `ensure state: recipe step ${si + 1} (tap)`)) as { ok: boolean; error?: { message?: string } };
+                    if (!rr.ok) throw new Error(rr.error?.message ?? `recipe step ${si + 1} tap failed`);
+                  } else if (kind === 'type') {
+                    const rawText = String(bodyR['text'] ?? '');
+                    const text = expandEnvText(rawText, activeEnv);
+                    if (text === null) throw new Error(`recipe step ${si + 1} references an env var that is not set (${rawText})`);
+                    emitStateTap(pt.x, pt.y, 'type');
+                    const rr = (await withWatchdog(runId, alloy.dispatch('alloy_act', { udid, action: 'fill', target: { x: pt.x, y: pt.y }, text, settle: false }, deps.dispatchDeps) as Promise<{ ok: boolean; error?: { message?: string } }>, `ensure state: recipe step ${si + 1} (type)`)) as { ok: boolean; error?: { message?: string } };
+                    if (!rr.ok && !/could not confirm the typed text/i.test(rr.error?.message ?? '')) throw new Error(rr.error?.message ?? `recipe step ${si + 1} fill failed`);
+                    await alloy.dispatch('alloy_act', { udid, action: 'keyboardDismiss' }, deps.dispatchDeps).catch(() => undefined);
+                    await new Promise((res2) => setTimeout(res2, 350));
+                  }
+                  // expect: existence via the resolve above (fail-closed)
+                  stepsPlayed++;
+                }
+              }
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              failState(`ensure state: recipe step failed — ${msg} (state "${stateRow.state_id}" revision ${stateRow.revision}; state may be partial — the next probe decides)`, { stateId: stateRow.state_id, revision: stateRow.revision, path: 'recipe', stepsPlayed });
+              return false;
+            }
+            // 4. verify (+via: tap the control the state lives behind first)
+            if (verify.via) {
+              const viaPt = await (async () => {
+                const tV = Date.now();
+                for (; Date.now() - tV < 10_000 && !isAborted(runId);) {
+                  const ns = await snapNow();
+                  const hit = ns ? findOne(ns, verify.via!) : null;
+                  if (hit) return hit;
+                  await new Promise((res2) => setTimeout(res2, 250));
+                }
+                return null;
+              })();
+              if (viaPt) {
+                emitStateTap(viaPt.x, viaPt.y);
+                await alloy.dispatch('alloy_act', { udid, action: 'press', target: { x: viaPt.x, y: viaPt.y }, settle: false }, deps.dispatchDeps).catch(() => undefined);
+                await new Promise((res2) => setTimeout(res2, 600));
+              }
+            }
+            const verifyBudget = Number(process.env.CRUCIBLE_STATE_VERIFY_MS ?? 15_000);
+            const verified = await pollHolds(verify, verifyBudget);
+            if (!verified) {
+              failState(`ensure state: recipe ran (${stepsPlayed} steps) but verify never held — state "${stateRow.state_id}" revision ${stateRow.revision} does not describe the app`, { stateId: stateRow.state_id, revision: stateRow.revision, path: 'verify', stepsPlayed });
+              return false;
+            }
+            insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', `converged to state "${stateRow.state_id}" (probe miss → recipe ${stepsPlayed} steps → verify held)`, t0, Date.now() - t0, '[]', JSON.stringify({ action: auditAction, ...extraAudit, stateId: stateRow.state_id, revision: stateRow.revision, path: 'recipe', probeMs, stepsPlayed }), s.narrate ?? null);
+            return true;
+      };
+
       for (let si = 0; !skipAllSteps && si < execSteps.length; si++) {
         const s = execSteps[si]!;
         const t0 = Date.now();
@@ -1275,6 +1556,25 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             }
             continue;
           }
+          // ensure state (phase A S3): converge the app into a registry
+          // state — resolve here, converge via the shared closure.
+          if (s.action === 'ensureState') {
+            const stateBundle = recipeBundle;
+            // 1. resolve (edge 3/7: missing/incomplete names bundle AND state)
+            const stateRow = (stateBundle
+              ? deps.db.prepare('SELECT id, state_id, revision, probe_json, recipe_json, verify_json FROM app_states WHERE app_bundle_id = ? AND state_id = ?').get(stateBundle, s.ensureState) as ConvergeStateRow | undefined
+              : undefined);
+            if (!stateRow) {
+              runStatus = 'failed';
+              insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'fail', `ensure state: state "${s.ensureState ?? '?'}" is not registered for ${stateBundle ?? '(no app bound to this case)'} — create it on the app states page`, t0, Date.now() - t0, '[]', JSON.stringify({ action: 'ensureState', stateId: s.ensureState ?? null, path: 'resolve' }), s.narrate ?? null);
+              for (const rest of execSteps.filter((x) => x.idx > s.idx)) {
+                insStep.run(runId, rest.idx, rest.flow ?? t.name, stepName(rest), 'skip', 'not reached', Date.now(), 0, '[]', null, rest.narrate ?? null);
+              }
+              break;
+            }
+            if (!(await convergeState(s, t0, 'ensureState', stateRow))) break;
+            continue;
+          }
           // location step (Tier 2.3): host-level device fact — no snapshot,
           // no settle/sig logic (the app UI does not change). Write-only
           // verb: the step row's evaluated_json IS the audit trail.
@@ -1398,11 +1698,26 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
           // "alert not found" = nothing up → no-op skip (inherently
           // conditional). Any other ok:false = real engine error → fail.
           if (s.action === 'ensureLogin') {
-            // coordinate-free login preflight: no-op when a session indicator
-            // is already visible; else entry → type credentials (env-resolved)
-            // → submit → verify the session indicator appears. Login returns
-            // to the origin tab (popToRoot semantics), so verification runs
-            // against the entry screen's tree.
+            // phase A S5 (decision Q3 — rebuild): the app_states registry is
+            // the NEW FIRST source. An app's 'logged_in' entry converges
+            // (probe → recipe → verify) through the same executor as the
+            // ensure state verb; when absent, resolution falls through to the
+            // legacy order below (app_login row → inline selectors) — every
+            // case that resolves today keeps resolving.
+            {
+              const regRow = (recipeBundle
+                ? deps.db.prepare("SELECT id, state_id, revision, probe_json, recipe_json, verify_json FROM app_states WHERE app_bundle_id = ? AND state_id = 'logged_in'").get(recipeBundle) as ConvergeStateRow | undefined
+                : undefined);
+              if (regRow) {
+                if (!(await convergeState(s, t0, 'ensureLogin', regRow, { source: 'registry' }))) break;
+                continue;
+              }
+            }
+            // coordinate-free login preflight (legacy sources): no-op when a
+            // session indicator is already visible; else entry → type
+            // credentials (env-resolved) → submit → verify the session
+            // indicator appears. Login returns to the origin tab (popToRoot
+            // semantics), so verification runs against the entry screen's tree.
             const cfgRaw = s.ensureLogin!;
             // overlay-reliability: ensure-login presses/fills paint on the
             // overlay like main-loop interactions (idx = this step)
@@ -1553,13 +1868,13 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 nodes = await snapNow();
                 alreadyIn = await sessionHolds(nodes);
                 if (alreadyIn) {
-                  insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'pass', 'session already held (via verify.via probe)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action }), s.narrate ?? null);
+                  insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'pass', 'session already held (via verify.via probe)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, source: appLoginRow ? 'legacy-row' : 'inline' }), s.narrate ?? null);
                   continue;
                 }
               }
             }
             if (alreadyIn) {
-              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'pass', sessionStateName ? `already logged in (state "${sessionStateName}" holds)` : 'already logged in (session visible)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, checked: cfgResolved.session }), s.narrate ?? null);
+              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'pass', sessionStateName ? `already logged in (state "${sessionStateName}" holds)` : 'already logged in (session visible)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, source: appLoginRow ? 'legacy-row' : 'inline', checked: cfgResolved.session }), s.narrate ?? null);
             } else {
               // state restoration can land the app DIRECTLY on the login
               // form (iOS scene restore after terminate). If the form is
@@ -1727,16 +2042,30 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
                 seen = await sessionHolds(nodes);
               }
               if (!seen) throw new Error(sessionStateName ? `ensure login: submitted but the screen state "${sessionStateName}" never held` : 'ensure login: submitted but the session indicator never appeared');
-              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'pass', 'logged in (entry → type → submit → verified)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, entry: cfgResolved.entry }), s.narrate ?? null);
+              insStep.run(runId, s.idx, s.flow ?? t.name, 'ensure login', 'pass', 'logged in (entry → type → submit → verified)', t0, Date.now() - t0, '[]', JSON.stringify({ action: s.action, source: appLoginRow ? 'legacy-row' : 'inline', entry: cfgResolved.entry }), s.narrate ?? null);
             }
             continue;
           }
           if (s.action === 'ensureLogout') {
-            // coordinate-free session preflight: pass-through when logged
-            // out; when a session exists, tap the logout control (identifier
-            // preferred, label fallback), confirm the sheet, verify the
-            // session indicator is GONE. All resolution is live — no
-            // recorded points, cross-device safe by construction.
+            // phase A S5 (decision Q3 — rebuild): an authored app_states
+            // 'logged_out' entry converges through the same executor as the
+            // ensure state verb (probe = the logged-out identity, e.g. the
+            // log-in button visible; recipe = the walk). Absent → the legacy
+            // app_logout row / inline keys below, unchanged.
+            {
+              const regRow = (recipeBundle
+                ? deps.db.prepare("SELECT id, state_id, revision, probe_json, recipe_json, verify_json FROM app_states WHERE app_bundle_id = ? AND state_id = 'logged_out'").get(recipeBundle) as ConvergeStateRow | undefined
+                : undefined);
+              if (regRow) {
+                if (!(await convergeState(s, t0, 'ensureLogout', regRow, { source: 'registry' }))) break;
+                continue;
+              }
+            }
+            // coordinate-free session preflight (legacy sources): pass-through
+            // when logged out; when a session exists, tap the logout control
+            // (identifier preferred, label fallback), confirm the sheet,
+            // verify the session indicator is GONE. All resolution is live —
+            // no recorded points, cross-device safe by construction.
             let cfg = s.ensureLogout! as typeof s.ensureLogout & { back?: string };
             // overlay-reliability: ensure-logout presses paint too (via taps,
             // sheet confirms)

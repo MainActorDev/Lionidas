@@ -897,6 +897,10 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
           try { states = Object.keys(JSON.parse(r.states_json) as Record<string, unknown>); } catch { /* malformed — empty */ }
           return { screen: r.screen_id, bundle: r.app_bundle_id, states };
         }),
+      // phase A S1/S7 — app-states registry ids for 'ensure state:' value
+      // completions (bundle-tagged like screens: state ids are per-bundle)
+      appStates: (db.prepare('SELECT app_bundle_id, state_id FROM app_states ORDER BY app_bundle_id, state_id').all() as Array<{ app_bundle_id: string; state_id: string }>)
+        .map((r) => ({ state: r.state_id, bundle: r.app_bundle_id })),
     };
   });
 
@@ -905,10 +909,14 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
    *  here; playback fails closed with the same message. */
   const hasLoginRecipe = (bundle: string | null | undefined): boolean => {
     if (!bundle) return false;
+    // phase A S5: an app_states 'logged_in' entry IS a login flow (the
+    // registry is the first resolution source at playback)
+    if (db.prepare("SELECT 1 FROM app_states WHERE app_bundle_id = ? AND state_id = 'logged_in'").get(bundle)) return true;
     return !!db.prepare('SELECT 1 FROM app_login WHERE bundle_id = ?').get(bundle);
   };
   const hasLogoutRecipe = (bundle: string | null | undefined): boolean => {
     if (!bundle) return false;
+    if (db.prepare("SELECT 1 FROM app_states WHERE app_bundle_id = ? AND state_id = 'logged_out'").get(bundle)) return true;
     return !!db.prepare('SELECT 1 FROM app_logout WHERE bundle_id = ?').get(bundle);
   };
 
