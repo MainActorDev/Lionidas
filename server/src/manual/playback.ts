@@ -848,13 +848,13 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             };
             type StateSel = { identifier?: string; label?: string; labelContains?: string; screen?: string; via?: string };
             type StateRec = { entry?: { tab?: { identifier?: string; label?: string }; deepLink?: string; navigate?: Array<{ on?: string; x?: number; y?: number }> }; actuator?: string; launchArgs?: string[]; signal?: string; permission?: string; steps?: Array<Record<string, unknown>> };
-            let probe: StateSel | null = null; let recipe: StateRec | null = null; let verify: StateSel | null = null;
+            let probe: StateSel | null | undefined; let recipe: StateRec | null = null; let verify: StateSel | null = null;
             try {
-              probe = JSON.parse(stateRow.probe_json) as StateSel;
+              probe = JSON.parse(stateRow.probe_json) as StateSel | null; // 'null' = forced reset (probe-less state, grammar phase: force)
               recipe = JSON.parse(stateRow.recipe_json) as StateRec;
               verify = JSON.parse(stateRow.verify_json) as StateSel;
-            } catch { probe = null; }
-            if (!probe || !recipe || !verify) {
+            } catch { probe = undefined; }
+            if (probe === undefined || !recipe || !verify) {
               failState(`ensure state: state "${stateRow.state_id}" (revision ${stateRow.revision}) has an unreadable probe/recipe/verify — re-save it on the app states page`, { stateId: stateRow.state_id, revision: stateRow.revision, path: 'resolve' });
               return false;
             }
@@ -920,7 +920,11 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
             // a state that WAS there and re-ran the recipe needlessly).
             const probeBudget = Number(process.env.CRUCIBLE_STATE_PROBE_MS ?? 10_000);
             const tProbe = Date.now();
-            const probeHit = await pollHolds(probe, probeBudget);
+            // forced reset (probe-less state): detection is meaningless for
+            // resets — the probe target can render on a dirty device — so the
+            // recipe ALWAYS runs. Live catch 2026-10-17: welcome visible ≠
+            // fresh install; the probe-hit skipped a needed reinstall.
+            const probeHit = probe !== null && await pollHolds(probe, probeBudget);
             const probeMs = Date.now() - tProbe;
             if (probeHit) {
               insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', `already in state "${stateRow.state_id}" (probe hit — recipe skipped)`, t0, Date.now() - t0, '[]', JSON.stringify({ action: auditAction, ...extraAudit, stateId: stateRow.state_id, revision: stateRow.revision, path: 'probe-hit', probeMs }), s.narrate ?? null);
@@ -1103,7 +1107,7 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               failState(`ensure state: recipe ran (${stepsPlayed} steps) but verify never held — state "${stateRow.state_id}" revision ${stateRow.revision} does not describe the app`, { stateId: stateRow.state_id, revision: stateRow.revision, path: 'verify', stepsPlayed });
               return false;
             }
-            insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', `converged to state "${stateRow.state_id}" (probe miss → recipe ${stepsPlayed} steps → verify held)`, t0, Date.now() - t0, '[]', JSON.stringify({ action: auditAction, ...extraAudit, stateId: stateRow.state_id, revision: stateRow.revision, path: 'recipe', probeMs, stepsPlayed }), s.narrate ?? null);
+            insStep.run(runId, s.idx, s.flow ?? t.name, stepName(s), 'pass', probe === null ? `forced reset — recipe ran unconditionally (state "${stateRow.state_id}", ${stepsPlayed} step(s) → verify held)` : `converged to state "${stateRow.state_id}" (probe miss → recipe ${stepsPlayed} steps → verify held)`, t0, Date.now() - t0, '[]', JSON.stringify({ action: auditAction, ...extraAudit, stateId: stateRow.state_id, revision: stateRow.revision, path: probe === null ? 'forced' : 'recipe', ...(probe === null ? { forced: true } : { probeMs }), stepsPlayed }), s.narrate ?? null);
             return true;
       };
 
