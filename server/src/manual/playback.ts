@@ -913,10 +913,12 @@ export async function runTemplatePlayback(deps: PlaybackDeps, templateId: string
               }
               return false;
             };
-            // 2. probe — already there? (idempotence; the run's launch settle
-            // already happened, so a SHORT budget; probe lies surface later as
-            // the case's own step failure — authoring rule, edge 1)
-            const probeBudget = Number(process.env.CRUCIBLE_STATE_PROBE_MS ?? 3_000);
+            // 2. probe — already there? (idempotence; probe lies surface later
+            // as the case's own step failure — authoring rule, edge 1). Budget
+            // = the launch-settle window (edge 13, live catch S8: a cold
+            // relaunch renders its first real UI at ~7.5s — a 3s probe missed
+            // a state that WAS there and re-ran the recipe needlessly).
+            const probeBudget = Number(process.env.CRUCIBLE_STATE_PROBE_MS ?? 10_000);
             const tProbe = Date.now();
             const probeHit = await pollHolds(probe, probeBudget);
             const probeMs = Date.now() - tProbe;

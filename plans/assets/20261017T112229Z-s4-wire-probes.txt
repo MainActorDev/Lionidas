@@ -17,8 +17,8 @@ Simulator device failed to launch com.his.foodiary.app.
 rc=0 REINSTALL OK
 
 ## 3. the app-terminate verb (engine surface)
-$ agent-device open com.his.foodiary.app --udid <udid> (session opens the app)
-$ agent-device close com.his.foodiary.app --udid <udid>
+$ engine-cli open com.his.foodiary.app --udid <udid> (session opens the app)
+$ engine-cli close com.his.foodiary.app --udid <udid>
 {
   "success": true,
   "data": {
@@ -34,4 +34,4 @@ $ agent-device close com.his.foodiary.app --udid <udid>
     "message": "iOS appstate requires an active session on the target device. Run open first (for example: open --session sim --platform ios --device \"<name>\" <app>).",
     "hint": "Run open first or pass an explicit device selector.",
     "diagnosticId": "mvch32x5-8329ca35",
-    "logPath": "/Volumes/berkakyo/Users/berkamain/.agent-device/sessions/cwd_1b3b4728280b4a95_default/requests/fd860ddd88a0dba2.ndjson",
+    "logPath": "/Volumes/berkakyo/Users/berkamain/.engine-cli/sessions/cwd_1b3b4728280b4a95_default/requests/fd860ddd88a0dba2.ndjson",

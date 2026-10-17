@@ -128,6 +128,8 @@ describe('ensure state executor — convergence branches', () => {
   });
 
   it('recipe step fails mid-walk → named step failure, rest skipped, run failed', async () => {
+    process.env.CRUCIBLE_STATE_PROBE_MS = '50'; // default is the 10s launch-settle window (edge 13) — these miss-path tests poll it fully
+    try {
     seedState('logged_in', { label: 'Hi, Dev' }, { steps: [{ tap: { on: 'Not Anywhere' } }] }, { label: 'Hi, Dev' });
     seedTemplate('tpl_walkfail', [
       { idx: 0, action: 'ensureState', ensureState: 'logged_in' },
@@ -139,9 +141,12 @@ describe('ensure state executor — convergence branches', () => {
     expect(steps[0]?.reason).toMatch(/recipe step failed.*Not Anywhere/);
     expect(steps[1]).toMatchObject({ status: 'skip', reason: 'not reached' });
     expect(runStatus(runId)).toBe('failed');
+    } finally { delete process.env.CRUCIBLE_STATE_PROBE_MS; }
   });
 
   it('verify fail: walk ran but the state never held → honest named failure', async () => {
+    process.env.CRUCIBLE_STATE_PROBE_MS = '50';
+    try {
     // the walk succeeds but lands a world where verify's target is absent
     seedState('logged_in', { label: 'Hi, Dev' }, { steps: [{ tap: { on: 'Get Started' } }] }, { label: 'Not This Text' });
     seedTemplate('tpl_vfail', [{ idx: 0, action: 'ensureState', ensureState: 'logged_in' }], BUNDLE);
@@ -151,6 +156,7 @@ describe('ensure state executor — convergence branches', () => {
     expect(steps[0]?.reason).toMatch(/verify never held/);
     expect(audit(runId)).toMatchObject({ path: 'verify' });
     expect(runStatus(runId)).toBe('failed');
+    } finally { delete process.env.CRUCIBLE_STATE_PROBE_MS; }
   });
 
   it('missing state → explicit failure naming state AND bundle, pointing at the app states page (edge 3/7)', async () => {
