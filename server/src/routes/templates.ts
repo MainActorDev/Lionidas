@@ -897,6 +897,10 @@ export function registerTemplateRoutes(app: FastifyInstance, db: Database.Databa
           try { states = Object.keys(JSON.parse(r.states_json) as Record<string, unknown>); } catch { /* malformed — empty */ }
           return { screen: r.screen_id, bundle: r.app_bundle_id, states };
         }),
+      // phase A S1/S7 — app-states registry ids for 'ensure state:' value
+      // completions (bundle-tagged like screens: state ids are per-bundle)
+      appStates: (db.prepare('SELECT app_bundle_id, state_id FROM app_states ORDER BY app_bundle_id, state_id').all() as Array<{ app_bundle_id: string; state_id: string }>)
+        .map((r) => ({ state: r.state_id, bundle: r.app_bundle_id })),
     };
   });
 
